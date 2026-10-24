@@ -14,7 +14,6 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -40,7 +39,6 @@ from coding_agent.events import (
     SteeringApplied,
 )
 from coding_agent.memory.sessions import SessionIndex
-from coding_agent.project_env import probe_project
 from coding_agent.provider_profiles import (
     ProviderProfileStore,
     merge_provider_items,
@@ -55,15 +53,20 @@ from coding_agent.web.middleware import (
     FixedWindowRateLimiter,
     SecurityHeadersMiddleware,
 )
-from coding_agent.web.routes.providers import ProviderDeps, register_provider_routes
-from coding_agent.web.routes.system import SystemDeps, register_system_routes
-from coding_agent.web.validation import check_thread_id as _check_thread_id
-from coding_agent.workspace.browse import (
-    BrowseError,
-    git_summary,
-    list_directory,
-    read_text_file,
+from coding_agent.web.models import (
+    SessionConfig,
 )
+from coding_agent.web.routes.providers import ProviderDeps, register_provider_routes
+from coding_agent.web.routes.sessions import (
+    SessionDeps,
+    register_session_routes,
+)
+from coding_agent.web.routes.system import SystemDeps, register_system_routes
+from coding_agent.web.routes.workspace import (
+    WorkspaceDeps,
+    register_workspace_routes,
+)
+from coding_agent.web.validation import check_thread_id as _check_thread_id
 
 STATIC_DIR = Path(__file__).parent / "static"
 _LOG = logging.getLogger(__name__)
@@ -92,24 +95,6 @@ class ResumeRequest(BaseModel):
     decisions: dict[str, bool] = Field(default_factory=dict)
 
 
-class SessionRequest(BaseModel):
-    """新建/绑定一个会话。
-
-    workspace 与 access_mode 在**服务端**绑定，之后不能由单次 run 请求改写。
-    """
-
-    thread_id: str = Field(default="", max_length=64)
-    workspace: str = Field(default="", max_length=4096)
-    access_mode: Literal["read_only", "write_ask", "write_auto"] = "read_only"
-    model: str = Field(default="", max_length=200)
-    provider: str = Field(default="", max_length=64)
-
-
-class ModelRequest(BaseModel):
-    model: str = Field(default="", max_length=200)
-    provider: str = Field(default="", max_length=64)
-
-
 class CompactRequest(BaseModel):
     keep_recent: int = Field(default=6, ge=1, le=50)
 
@@ -120,10 +105,6 @@ class RestoreRequest(BaseModel):
     snapshot_id: str = ""
     prefix: str = ""
     dry_run: bool = False
-
-
-class RenameRequest(BaseModel):
-    title: str = Field(default="", max_length=120)
 
 
 class UploadDeleteRequest(BaseModel):
@@ -138,19 +119,6 @@ class MemoryRequest(BaseModel):
     scope: str = "project"
     pinned: bool = True
     priority: int = 0
-
-
-@dataclass
-class SessionConfig:
-    thread_id: str
-    workspace: str
-    access_mode: str = ACCESS_READ_ONLY
-    model: str = ""
-    provider: str = ""
-    uploaded_bytes: int = 0
-    # GUI 重命名；空 = 使用首条提示词生成的标题。
-    title: str = ""
-    created_at: float = field(default_factory=time.monotonic)
 
 
 @dataclass
@@ -1237,467 +1205,6 @@ def create_app(
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-    @app.get("/api/project")
-    async def project(user: UserDep, workspace: str = "") -> dict:
-        """只读探测项目解释器/包管理器；不创建环境、不执行项目代码。"""
-        _rate_limit(user)
-        tenant = _tenant(user)
-        try:
-            target = tenants.resolve_workspace(
-                user.name, workspace or tenant.workspace
-            )
-        except (TenantError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if agent_client is not None:
-            context = AgentContext(
-                tenant=tenant.user,
-                user=user.name,
-                workspace=target,
-                access_mode=default_access or ACCESS_READ_ONLY,
-                allow_write=allow_write,
-            )
-            try:
-                return await agent_client.json_request(
-                    context, "GET", "/v1/project"
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-        result = await asyncio.to_thread(probe_project, target)
-        result["desktop_mode"] = desktop_mode
-        return result
-
-    def _workspace_for(user: AuthUser, thread_id: str) -> str:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
-        return config.workspace if config else tenant.workspace
-
-    @app.get("/api/files")
-    async def files(
-        user: UserDep,
-        thread_id: str,
-        path: str = "",
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(
-            user, tenant, public_thread, create=False
-        )
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "GET", "/v1/files",
-                params={"path": path},
-            )
-        workspace = config.workspace if config else tenant.workspace
-        try:
-            return await asyncio.to_thread(list_directory, workspace, path)
-        except BrowseError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    @app.get("/api/file")
-    async def file_content(
-        user: UserDep,
-        thread_id: str,
-        path: str,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(
-            user, tenant, public_thread, create=False
-        )
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "GET", "/v1/file",
-                params={"path": path},
-            )
-        workspace = config.workspace if config else tenant.workspace
-        try:
-            return await asyncio.to_thread(
-                read_text_file, workspace, path
-            )
-        except BrowseError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    @app.get("/api/git")
-    async def git_panel(
-        user: UserDep,
-        thread_id: str,
-        diff: bool = False,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(
-            user, tenant, public_thread, create=False
-        )
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "GET", "/v1/git",
-                params={"diff": "true" if diff else "false"},
-            )
-        workspace = config.workspace if config else tenant.workspace
-        try:
-            return await asyncio.to_thread(
-                git_summary, workspace, diff=diff
-            )
-        except (BrowseError, OSError, subprocess.SubprocessError) as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-
-    @app.get("/api/sessions")
-    async def sessions(
-        user: UserDep,
-        limit: int = 20,
-        q: str = "",
-    ) -> dict:
-        await _sweep_expired()
-        tenant = _tenant(user)
-        if agent_client is not None:
-            _load_session_configs(user, tenant)
-            data = await _agent_json(
-                user, tenant, None, "GET", "/v1/sessions",
-                params={"limit": 500, "q": q},
-            )
-            rows = []
-            seen: set[str] = set()
-            for item in data.get("sessions", []):
-                thread = str(item.get("thread_id") or "")
-                if not thread:
-                    continue
-                if (user.name, thread) in deleted_sessions:
-                    continue
-                seen.add(thread)
-                config = _config_for(
-                    user, tenant, thread, create=False
-                )
-                rows.append(
-                    {
-                        "thread_id": thread,
-                        "last_active": item.get("last_active", ""),
-                        "prompts": item.get("prompts", 0),
-                        "tool_calls": item.get("tool_calls", 0),
-                        "title": (
-                            (config.title if config else "")
-                            or item.get("title", "")
-                        ),
-                        "workspace": (
-                            config.workspace
-                            if config
-                            else item.get("workspace", "")
-                        ),
-                        "access_mode": _effective_access(config),
-                        "model": config.model if config else "",
-                        "provider": config.provider if config else "",
-                        "run_count": item.get("runs", 0),
-                        "interrupted": bool(item.get("interrupted")),
-                    }
-                )
-            with registry_lock:
-                pending = [
-                    config
-                    for (owner, _), config in session_configs.items()
-                    if owner == user.name
-                    and config.thread_id not in seen
-                    and (owner, config.thread_id) not in deleted_sessions
-                ]
-            for config in pending:
-                rows.append(
-                    {
-                        "thread_id": config.thread_id,
-                        "last_active": "",
-                        "prompts": 0,
-                        "tool_calls": 0,
-                        "title": config.title or "（未运行）",
-                        "workspace": config.workspace,
-                        "access_mode": _effective_access(config),
-                        "model": config.model,
-                        "provider": config.provider,
-                        "run_count": 0,
-                        "interrupted": False,
-                    }
-                )
-            query = q.strip().lower()
-            if query:
-                rows = [
-                    row
-                    for row in rows
-                    if query in str(row.get("title", "")).lower()
-                    or query in row["thread_id"].lower()
-                    or query in str(row.get("workspace", "")).lower()
-                ]
-            return {"sessions": rows[: max(1, limit)]}
-        index_ = SessionIndex(tenant.settings.resolved_audit_dir)
-        found = index_.list(limit=0)
-        rows = []
-        seen: set[str] = set()
-        for info in found:
-            public_thread = tenant.public_thread(info.thread_id)
-            if (user.name, public_thread) in deleted_sessions:
-                continue
-            seen.add(public_thread)
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-            rows.append(
-                {
-                    "thread_id": public_thread,
-                    "last_active": info.last_seen,
-                    "prompts": info.prompts,
-                    "tool_calls": info.tool_calls,
-                    "title": (config.title if config else "") or info.title,
-                    "workspace": (
-                        config.workspace if config else info.workspace
-                    ),
-                    "access_mode": _effective_access(config),
-                    "model": config.model if config else "",
-                    "provider": config.provider if config else "",
-                    "run_count": info.runs,
-                    "interrupted": bool(info.interrupted),
-                }
-            )
-        # 创建但尚未运行（或 fork/compact 后尚未运行）的会话也要可见，
-        # 否则重启后侧栏会“丢”掉这些 thread。
-        _load_session_configs(user, tenant)
-        with registry_lock:
-            pending = [
-                config
-                for (owner, _), config in session_configs.items()
-                if owner == user.name
-                and config.thread_id not in seen
-                and (owner, config.thread_id) not in deleted_sessions
-            ]
-        for config in pending:
-            rows.append(
-                {
-                    "thread_id": config.thread_id,
-                    "last_active": "",
-                    "prompts": 0,
-                    "tool_calls": 0,
-                    "title": config.title or "（未运行）",
-                    "workspace": config.workspace,
-                    "access_mode": _effective_access(config),
-                    "model": config.model,
-                    "provider": config.provider,
-                    "run_count": 0,
-                    "interrupted": False,
-                }
-            )
-        query = q.strip().lower()
-        if query:
-            rows = [
-                row
-                for row in rows
-                if query in str(row.get("title", "")).lower()
-                or query in row["thread_id"].lower()
-                or query in str(row.get("workspace", "")).lower()
-            ]
-        return {"sessions": rows[: max(1, limit)]}
-
-    @app.post("/api/sessions")
-    async def create_session(
-        request: SessionRequest,
-        user: UserDep,
-    ) -> dict:
-        """绑定会话的 workspace / 权限 / 模型；这些字段不能由单次 run 改写。"""
-        _rate_limit(user)
-        _reject_if_db_degraded()
-        public_thread = _check_thread_id(request.thread_id)
-        key = (user.name, public_thread)
-        with registry_lock:
-            if runtimes.contains(key):
-                raise HTTPException(
-                    status_code=409,
-                    detail="该会话正在运行或已挂起；请先结束/恢复",
-                )
-        _reject_if_deleted(user, public_thread)
-        existing = _config_for(
-            user, _tenant(user), public_thread, create=False
-        )
-        if existing is not None:
-            return {
-                "thread_id": public_thread,
-                "workspace": existing.workspace,
-                "access_mode": _effective_access(existing),
-                "model": existing.model,
-                "provider": existing.provider,
-                "capabilities": _capabilities(existing),
-            }
-
-        tenant = _tenant(user)
-        try:
-            workspace = tenants.resolve_workspace(
-                user.name, request.workspace
-            )
-        except (TenantError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        access_mode = normalize_access_mode(request.access_mode) or ACCESS_READ_ONLY
-        if access_mode != ACCESS_READ_ONLY and not allow_write:
-            raise HTTPException(
-                status_code=403,
-                detail="服务端未开启写能力；请以 --write 启动或选择只读模式",
-            )
-        _validate_provider_choice(
-            tenant.settings, _user_store(user), request.provider
-        )
-        config = SessionConfig(
-            thread_id=public_thread,
-            workspace=workspace,
-            access_mode=access_mode,
-            model=request.model,
-            provider=request.provider,
-        )
-        _set_session_config(user, tenant, config)
-        return {
-            "thread_id": public_thread,
-            "workspace": workspace,
-            "access_mode": access_mode,
-            "model": config.model,
-            "provider": config.provider,
-            "capabilities": _capabilities(config),
-        }
-
-    @app.post("/api/sessions/{thread_id}/model")
-    async def switch_model(
-        thread_id: str,
-        request: ModelRequest,
-        user: UserDep,
-    ) -> dict:
-        """空闲时切换模型；thread/checkpoint 保留，下一次 run 重建 runtime。"""
-        _reject_if_db_degraded()
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_active(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
-        if config is None:
-            raise HTTPException(status_code=404, detail="会话不存在")
-        _validate_provider_choice(
-            tenant.settings, _user_store(user), request.provider
-        )
-        config.model = request.model
-        config.provider = request.provider
-        _set_session_config(user, tenant, config)
-        return {
-            "ok": True,
-            "thread_id": public_thread,
-            "model": config.model,
-            "provider": config.provider,
-        }
-
-    @app.post("/api/sessions/{thread_id}/rename")
-    async def rename_session(
-        thread_id: str,
-        request: RenameRequest,
-        user: UserDep,
-    ) -> dict:
-        _reject_if_db_degraded()
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
-        if config is None:
-            raise HTTPException(status_code=404, detail="会话不存在")
-        config.title = " ".join(request.title.split())[:120]
-        _set_session_config(user, tenant, config)
-        return {
-            "ok": True,
-            "thread_id": public_thread,
-            "title": config.title,
-        }
-
-    @app.delete("/api/sessions/{thread_id}")
-    async def delete_session(thread_id: str, user: UserDep) -> dict:
-        """Tombstone 删除：列表隐藏并删除会话配置，审计/checkpoint 保留。"""
-        _reject_if_db_degraded()
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_active(user, public_thread)
-        tenant = _tenant(user)
-        _load_session_configs(user, tenant)
-        with registry_lock:
-            deleted_sessions.add((user.name, public_thread))
-            session_configs.pop((user.name, public_thread), None)
-        _persist_session_configs(user, tenant)
-        return {"ok": True, "thread_id": public_thread}
-
-    @app.get("/api/sessions/{thread_id}/export")
-    async def export_session(
-        thread_id: str,
-        user: UserDep,
-        format: Literal["markdown", "json"] = "markdown",
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
-        if agent_client is not None:
-            data = await _agent_json(
-                user, tenant, config, "GET",
-                f"/v1/history/{public_thread}",
-            )
-            messages = [
-                {
-                    "role": str(item.get("role") or ""),
-                    "text": str(item.get("text") or ""),
-                }
-                for item in data.get("messages", [])
-            ]
-        else:
-            runtime = _ops_runtime(tenant, config)
-            try:
-                history = await runtime.history(
-                    tenant.thread_id(public_thread), limit=None
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"{type(exc).__name__}: {exc}",
-                ) from exc
-            finally:
-                await runtime.aclose()
-            messages = [
-                {"role": message.role, "text": message.text}
-                for message in history
-            ]
-        title = (
-            (config.title if config else "")
-            or next(
-                (
-                    item["text"]
-                    for item in messages
-                    if item["role"] == "user"
-                ),
-                public_thread,
-            )
-        ).strip()
-        if format == "json":
-            return {
-                "format": "json",
-                "thread_id": public_thread,
-                "title": title,
-                "workspace": config.workspace if config else tenant.workspace,
-                "messages": messages,
-            }
-        lines = [
-            f"# {title}",
-            "",
-            f"- thread: {public_thread}",
-            f"- workspace: {config.workspace if config else tenant.workspace}",
-            "",
-        ]
-        for message in messages:
-            role = "用户" if message["role"] == "user" else "助手"
-            lines.extend([f"## {role}", "", message["text"], ""])
-        return {
-            "format": "markdown",
-            "thread_id": public_thread,
-            "title": title,
-            "content": "\n".join(lines).rstrip() + "\n",
-        }
 
     @app.post("/api/context/{thread_id}/compact")
     async def compact_context(
@@ -2898,6 +2405,59 @@ def create_app(
             user_store=_user_store,
             rate_limit=_rate_limit,
             provider_rows=_provider_rows,
+        ),
+    )
+
+    register_session_routes(
+        app,
+        SessionDeps(
+            tenant=_tenant,
+            sweep_expired=_sweep_expired,
+            load_configs=_load_session_configs,
+            config_for=_config_for,
+            set_config=_set_session_config,
+            persist_configs=_persist_session_configs,
+            effective_access=_effective_access,
+            capabilities=_capabilities,
+            reject_deleted=_reject_if_deleted,
+            reject_active=_reject_if_active,
+            reject_db_degraded=_reject_if_db_degraded,
+            rate_limit=_rate_limit,
+            resolve_workspace=lambda name, ws: tenants.resolve_workspace(
+                name, ws
+            ),
+            validate_provider=lambda tenant, user, provider: (
+                _validate_provider_choice(
+                    tenant.settings, _user_store(user), provider
+                )
+            ),
+            agent_json=_agent_json,
+            ops_runtime=_ops_runtime,
+            agent_client=agent_client,
+            allow_write=allow_write,
+            registry_lock=registry_lock,
+            session_configs=session_configs,
+            deleted_sessions=deleted_sessions,
+            runtimes=runtimes,
+        ),
+    )
+
+    register_workspace_routes(
+        app,
+        WorkspaceDeps(
+            tenant=_tenant,
+            rate_limit=_rate_limit,
+            resolve_workspace=lambda name, ws: tenants.resolve_workspace(
+                name, ws
+            ),
+            reject_deleted=_reject_if_deleted,
+            config_for=_config_for,
+            agent_json=_agent_json,
+            agent_failure=_agent_failure,
+            agent_client=agent_client,
+            default_access=default_access,
+            allow_write=allow_write,
+            desktop_mode=desktop_mode,
         ),
     )
 

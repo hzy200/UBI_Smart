@@ -15,6 +15,7 @@ from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
 from coding_agent.web import local_runtime
 from coding_agent.web.auth import AuthConfig
 from coding_agent.web.routes import providers as provider_routes
+from coding_agent.web.routes import workspace as workspace_routes
 
 
 class FakeRuntime:
@@ -165,7 +166,7 @@ def test_project_endpoint_resolves_workspace_and_reports_desktop_mode(
             "warnings": [],
         }
 
-    monkeypatch.setattr(web.app, "probe_project", fake_probe)
+    monkeypatch.setattr(workspace_routes, "probe_project", fake_probe)
     client = TestClient(
         web.create_app(settings, desktop_mode=True)
     )

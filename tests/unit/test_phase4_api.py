@@ -18,6 +18,7 @@ from coding_agent.provider_profiles import (
     profile_from_payload,
 )
 from coding_agent.web import local_runtime
+from coding_agent.web.routes import workspace as workspace_routes
 
 
 class FakeRuntime:
@@ -171,8 +172,8 @@ def test_files_and_git_endpoints_use_session_workspace(
         seen["diff"] = str(diff)
         return {"is_repo": True, "changes": [], "commits": []}
 
-    monkeypatch.setattr(web.app, "list_directory", fake_list)
-    monkeypatch.setattr(web.app, "git_summary", fake_git)
+    monkeypatch.setattr(workspace_routes, "list_directory", fake_list)
+    monkeypatch.setattr(workspace_routes, "git_summary", fake_git)
     client = TestClient(web.create_app(settings))
     thread = client.post(
         "/api/sessions", json={"workspace": "/tmp/ws"}
