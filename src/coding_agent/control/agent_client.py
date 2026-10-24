@@ -10,16 +10,18 @@ SSE 保持原始字节透传，避免 A2 重新序列化事件、破坏 `id:`/`d
 
 from __future__ import annotations
 
-import base64
-import json
 from collections.abc import AsyncIterator
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import quote
 
 import httpx
 
-from coding_agent.control.protocol import AgentMeta
+from coding_agent.agent_protocol import (
+    AgentContext,
+    AgentMeta,
+    AgentRunRequest,
+)
 
 
 class AgentClientError(RuntimeError):
@@ -27,59 +29,6 @@ class AgentClientError(RuntimeError):
         super().__init__(detail or f"Agent Server HTTP {status_code}")
         self.status_code = status_code
         self.detail = detail
-
-
-@dataclass(slots=True)
-class AgentContext:
-    tenant: str = "local"
-    user: str = "local"
-    workspace: str = ""
-    access_mode: str = "read_only"
-    model: str = ""
-    provider: str = ""
-    allow_write: bool = False
-    # A2 持有的 provider 密钥只在运行请求里短期注入 A3 内存，不落盘。
-    api_keys: dict[str, str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.api_keys is None:
-            self.api_keys = {}
-
-    def to_header(self) -> str:
-        raw = json.dumps(asdict(self), ensure_ascii=False)
-        return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
-
-    @classmethod
-    def from_header(cls, value: str) -> AgentContext:
-        raw = base64.urlsafe_b64decode(str(value).encode("ascii")).decode(
-            "utf-8"
-        )
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("Agent context 不是 JSON 对象")
-        return cls(
-            tenant=str(data.get("tenant") or "local"),
-            user=str(data.get("user") or "local"),
-            workspace=str(data.get("workspace") or ""),
-            access_mode=str(data.get("access_mode") or "read_only"),
-            model=str(data.get("model") or ""),
-            provider=str(data.get("provider") or ""),
-            allow_write=bool(data.get("allow_write", False)),
-            api_keys={
-                str(name): str(key)
-                for name, key in (data.get("api_keys") or {}).items()
-                if name and key
-            }
-            if isinstance(data.get("api_keys"), dict)
-            else {},
-        )
-
-
-@dataclass(slots=True)
-class AgentRunRequest:
-    context: AgentContext
-    thread_id: str
-    prompt: str
 
 
 @dataclass

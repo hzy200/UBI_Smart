@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from coding_agent.web.browse import (
+from coding_agent.workspace.browse import (
     BrowseError,
     git_summary,
     list_directory,

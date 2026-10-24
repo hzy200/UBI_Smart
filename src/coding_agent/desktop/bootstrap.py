@@ -17,6 +17,7 @@ from typing import Any
 
 from coding_agent.access import ACCESS_READ_ONLY
 from coding_agent.config import Settings, get_settings
+from coding_agent.desktop.http import local_open, wait_health
 from coding_agent.web import create_app
 from coding_agent.web.auth import AuthConfig
 from coding_agent.workspace_lock import WorkspaceLock
@@ -79,25 +80,6 @@ def _actual_port(server: Any) -> int:
     raise RuntimeError("无法取得桌面本地服务端口")
 
 
-def _local_open(request, timeout: float):
-    """本地 loopback 请求显式绕过环境 HTTP(S)_PROXY。"""
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    return opener.open(request, timeout=timeout)
-
-
-def _wait_health(url: str, timeout_s: float = 30.0) -> None:
-    """WSL→Windows 的 loopback 转发在冷启动时可能慢几秒，给足重试时间。"""
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        try:
-            with _local_open(url, 1.0) as response:
-                if response.status == 200:
-                    return
-        except Exception:  # noqa: BLE001 - 启动阶段重试
-            time.sleep(0.2)
-    raise RuntimeError("桌面本地服务健康检查失败")
-
-
 def _cancel_all(server: DesktopServer) -> None:
     request = urllib.request.Request(
         f"http://127.0.0.1:{server.port}/api/desktop/cancel_all",
@@ -108,7 +90,7 @@ def _cancel_all(server: DesktopServer) -> None:
             "Content-Type": "application/json",
         },
     )
-    with _local_open(request, 8) as response:
+    with local_open(request, 8) as response:
         response.read()
 
 
@@ -173,7 +155,7 @@ def start_server(
     try:
         _wait_started(server)
         actual = _actual_port(server) if port == 0 else int(port)
-        _wait_health(f"http://127.0.0.1:{actual}/healthz")
+        wait_health(f"http://127.0.0.1:{actual}/healthz")
     except Exception:
         server.should_exit = True
         thread.join(timeout=5)

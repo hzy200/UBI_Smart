@@ -152,3 +152,79 @@ def test_tui_reaches_capabilities_only_through_runtime() -> None:
     assert any(
         "coding_agent.runtime" in _imported_modules(path) for path in modules
     ), "tui 没有通过 AgentRuntime 触达能力层"
+
+
+# ---------------- A1–A4 分层边 ----------------
+
+def _has_prefix(imported: set[str], prefix: str) -> bool:
+    return any(name == prefix or name.startswith(f"{prefix}.") for name in imported)
+
+
+def test_agent_server_depends_on_neutral_protocol_not_a2() -> None:
+    imported = _imported_modules(SRC / "agent_server.py")
+    assert not _has_prefix(imported, "coding_agent.control")
+    assert not _has_prefix(imported, "coding_agent.web")
+    assert "coding_agent.agent_protocol" in imported
+    assert "coding_agent.workspace.browse" in imported
+
+
+def test_agent_core_does_not_import_a2_or_web() -> None:
+    paths = [SRC / "runtime.py", *_modules("graph"), *_modules("orchestrator")]
+    for path in paths:
+        imported = _imported_modules(path)
+        assert not _has_prefix(imported, "coding_agent.control"), path
+        assert not _has_prefix(imported, "coding_agent.web"), path
+
+
+def test_a4_does_not_import_a2_or_web() -> None:
+    for package in ("execution", "tools", "sandbox"):
+        for path in _modules(package):
+            imported = _imported_modules(path)
+            assert not _has_prefix(imported, "coding_agent.control"), path
+            assert not _has_prefix(imported, "coding_agent.web"), path
+
+
+def test_control_does_not_import_agent_core() -> None:
+    forbidden = (
+        "coding_agent.runtime",
+        "coding_agent.graph",
+        "coding_agent.orchestrator",
+        "coding_agent.tools",
+        "coding_agent.sandbox",
+    )
+    for path in _modules("control"):
+        imported = _imported_modules(path)
+        assert not any(_has_prefix(imported, item) for item in forbidden), path
+
+
+def test_web_runtime_import_is_limited_to_same_process_fallback() -> None:
+    """P1 例外：只有 web/app.py 的同进程回退可以持有 runtime。"""
+    for path in _modules("web"):
+        if path.name == "app.py":
+            continue
+        assert "coding_agent.runtime" not in _imported_modules(path), path
+    assert "coding_agent.runtime" in _imported_modules(SRC / "web" / "app.py")
+
+
+def test_cli_sandbox_import_is_explicit_debt() -> None:
+    """P1 例外：cli/app.py 的 doctor/sandbox-init 路径，计划收窄为平台适配器。"""
+    for path in _modules("cli"):
+        if path.name == "app.py":
+            continue
+        assert not _violations(_imported_modules(path)), path
+    assert _violations(_imported_modules(SRC / "cli" / "app.py")), (
+        "cli 的 sandbox 例外已消失，请删除这条 allowlist"
+    )
+
+
+def test_shared_modules_stay_neutral() -> None:
+    forbidden = (
+        "coding_agent.control",
+        "coding_agent.web",
+        "coding_agent.runtime",
+        "coding_agent.tools",
+        "coding_agent.sandbox",
+    )
+    for rel in ("agent_protocol.py", "event_transport.py", "workspace/browse.py"):
+        imported = _imported_modules(SRC / rel)
+        assert not any(_has_prefix(imported, item) for item in forbidden), rel

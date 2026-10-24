@@ -26,8 +26,8 @@ def _handshake(settings: Any) -> tuple[Any | None, dict[str, Any]]:
     if not str(settings.agent_internal_url or "").strip():
         return None, {"state": "in_process"}
 
+    from coding_agent.agent_protocol import check_compatibility
     from coding_agent.control.agent_client import HttpAgentClient
-    from coding_agent.control.protocol import check_compatibility
 
     client = HttpAgentClient(
         settings.agent_internal_url,

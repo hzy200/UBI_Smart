@@ -32,14 +32,11 @@ from pydantic import BaseModel, Field
 
 from coding_agent import __version__
 from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
+from coding_agent.agent_protocol import AgentContext, AgentRunRequest
 from coding_agent.audit import read_records_many
 from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import Settings, apply_security_profile, get_settings
-from coding_agent.control.agent_client import (
-    AgentClientError,
-    AgentContext,
-    AgentRunRequest,
-)
+from coding_agent.control.agent_client import AgentClientError
 from coding_agent.events import (
     ApprovalRequested,
     Event,
@@ -57,16 +54,16 @@ from coding_agent.runtime import AgentRuntime
 from coding_agent.secrets_store import SecretStore, SecretStoreUnavailable
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.web.auth import AuthConfig, AuthUser
-from coding_agent.web.browse import (
-    BrowseError,
-    git_summary,
-    list_directory,
-    read_text_file,
-)
 from coding_agent.web.middleware import (
     BodySizeLimitMiddleware,
     FixedWindowRateLimiter,
     SecurityHeadersMiddleware,
+)
+from coding_agent.workspace.browse import (
+    BrowseError,
+    git_summary,
+    list_directory,
+    read_text_file,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -322,7 +319,7 @@ def create_app(
     owns_transport = event_transport is None
     transport = event_transport
     if stream_buffer and transport is None:
-        from coding_agent.control.transport import build_event_transport
+        from coding_agent.event_transport import build_event_transport
 
         transport = build_event_transport(settings)
 
@@ -1243,7 +1240,7 @@ def create_app(
         "state": "in_process" if agent_client is None else "unknown"
     }
     if agent_client is not None:
-        from coding_agent.control.protocol import check_compatibility
+        from coding_agent.agent_protocol import check_compatibility
 
         async def _probe_agent_forever() -> None:
             while True:

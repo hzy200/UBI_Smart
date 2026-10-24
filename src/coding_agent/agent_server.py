@@ -36,11 +36,10 @@ from pydantic import BaseModel, Field
 
 from coding_agent import AGENT_API_VERSION, __version__
 from coding_agent.access import normalize_access_mode
+from coding_agent.agent_protocol import AGENT_CAPABILITIES, AgentContext
 from coding_agent.audit.logger import audit_files_by_day, read_records_many
 from coding_agent.config import Settings, get_settings
-from coding_agent.control.agent_client import AgentContext
-from coding_agent.control.protocol import AGENT_CAPABILITIES
-from coding_agent.control.transport import build_event_transport
+from coding_agent.event_transport import build_event_transport
 from coding_agent.events import (
     ApprovalRequested,
     Event,
@@ -50,7 +49,7 @@ from coding_agent.events import (
 from coding_agent.memory.sessions import SessionIndex
 from coding_agent.project_env import probe_project
 from coding_agent.runtime import AgentRuntime
-from coding_agent.web.browse import (
+from coding_agent.workspace.browse import (
     BrowseError,
     git_summary,
     list_directory,

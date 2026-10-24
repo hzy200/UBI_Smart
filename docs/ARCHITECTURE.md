@@ -710,4 +710,10 @@ Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL�
 - **平台门禁**：WSL 隔离用 `pytest -m wsl`，Linux bwrap 用
   `pytest -m execution` / `test_bwrap.py`；CI 只跑 SQLite 演练与快反馈，
   平台缺口在 [ACCEPTANCE.md](ACCEPTANCE.md) 中显式保留。
+
+P1 已把 A2↔A3 DTO、事件传输与工作区浏览下沉到 `agent_protocol` /
+`event_transport` / `workspace`；`agent_server` 不再依赖 `web/` 或
+`control.agent_client`。仍待收口：`web/app.py` 的同进程回退持有 runtime、
+`cli/app.py` 直接 import sandbox。
+
 详见 [PHASE_F.md](PHASE_F.md)。

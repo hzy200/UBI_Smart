@@ -22,8 +22,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from coding_agent.desktop.bootstrap import _local_open, _wait_health
 from coding_agent.desktop.config import LauncherConfig
+from coding_agent.desktop.http import local_open, wait_health
 from coding_agent.desktop.wsl import ensure_dir, home
 
 _LOG = logging.getLogger("coding_agent.desktop")
@@ -73,7 +73,7 @@ def _post(port: int, token: str, path: str) -> None:
         },
     )
     try:
-        with _local_open(request, 8) as response:
+        with local_open(request, 8) as response:
             response.read()
     except Exception:  # noqa: BLE001 - 服务可能已经停止
         pass
@@ -239,7 +239,7 @@ def _spawn(
         if isinstance(payload, Exception):
             raise payload
         actual = int(payload.get("port") or port)
-        _wait_health(f"http://127.0.0.1:{actual}/healthz", timeout_s=15)
+        wait_health(f"http://127.0.0.1:{actual}/healthz", timeout_s=15)
     except Exception:
         _stop_proc(proc, timeout=5)
         detail = "\n".join(tail[-8:])

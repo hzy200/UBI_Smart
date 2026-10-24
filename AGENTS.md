@@ -54,6 +54,9 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 src/coding_agent/
   runtime.py        唯一编排入口：图 + 沙箱 + 策略 + 审计 → 领域事件
   events.py         前端契约（领域事件）★ 改它要重生成契约
+  agent_protocol.py A2↔A3 共享 DTO / 版本与能力协议
+  event_transport.py 共享 SSE 事件传输（内存 / Redis）
+  workspace/        只读工作区浏览（A2/A3 共用）
   config.py         配置（构造函数参数 > .env > 环境变量 > 默认值）★
   graph/            主图：state / routing（纯函数）/ build / nodes/
   orchestrator/     独立 harness 子图：survey → plan → scheduler ⇄ steering → fan_in
@@ -76,11 +79,12 @@ src/coding_agent/
 A1 cli/tui/web static/desktop
         │ HTTP / SSE
 A2 control_server + control/ + web/app 路由
-        │ 内部 token + X-Agent-Context
+        │ agent_protocol + event_transport
 A3 agent_server + runtime + graph + orchestrator
         │ ExecutionService
 A4 execution + tools + sandbox
 
+workspace/ 是 A2/A3 共用的只读浏览；agent_protocol / event_transport 不依赖任一层。
 runtime -> execution -> sandbox；tools -> sandbox
 ```
 
@@ -89,11 +93,13 @@ runtime -> execution -> sandbox；tools -> sandbox
 
 已知例外（P1 收敛，不要在别处扩散）：
 
-- `web/app.py` 的同进程回退仍直接持有 `runtime`（standalone/旧部署路径）；
-- `agent_server.py` 仍从 `web.browse` 取文件助手、从 `control.agent_client`
-  取 `AgentContext`，这两处是反向依赖；
+- `web/app.py` 的同进程回退仍直接持有 `runtime`（standalone/旧部署路径），
+  计划移到 `web/local_runtime.py`；
 - `cli/app.py` 直接 import `WslSandbox`（doctor/sandbox-init 历史路径），
   计划用 `cli/platform.py` 收窄成只读探测接口。
+
+A3 已不再依赖 `web/` 或 `control.agent_client`：`agent_server.py` 使用
+`agent_protocol`、`event_transport` 与 `workspace.browse`。
 
 按子目录分层注入的模块级指令：`src/coding_agent/{graph,orchestrator,sandbox,tools}/AGENTS.md`。
 

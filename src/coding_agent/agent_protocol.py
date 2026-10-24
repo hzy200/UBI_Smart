@@ -1,0 +1,191 @@
+"""A2 ↔ A3 的共享协议对象（Phase P1）。
+
+这些 DTO 不属于 A2 的客户端实现，也不属于 A3 的 HTTP 层；放在中立模块，
+让 control 与 agent_server 只依赖协议本身。
+
+- `AgentContext` / `AgentRunRequest`：A2 发给 A3 的运行上下文；
+- `AgentMeta` / `Compatibility`：A2 启动时读取的 A3 版本与能力；
+- `AGENT_CAPABILITIES`：A3 承诺的能力分组。
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from coding_agent import AGENT_API_VERSION, __version__
+
+AGENT_CAPABILITIES: dict[str, tuple[str, ...]] = {
+    "run_lifecycle": (
+        "runs",
+        "stream",
+        "resume",
+        "resume_steering",
+        "steer",
+        "approvals",
+        "status",
+        "history",
+        "compact",
+    ),
+    "workspace": (
+        "files",
+        "file",
+        "git",
+        "project",
+        "snapshots",
+        "diff",
+        "restore",
+        "uploads",
+    ),
+    "state": (
+        "run_started",
+        "checkpoints",
+        "fork",
+        "rewind",
+        "memory",
+        "audit",
+        "sessions",
+        "recovery",
+    ),
+    "execution": (
+        "run",
+        "read_file",
+        "write_file",
+        "list_dir",
+        "stat",
+        "git",
+        "snapshot",
+        "restore",
+        "worktree_create",
+        "worktree_remove",
+        "patch_apply",
+    ),
+}
+
+
+@dataclass(slots=True)
+class AgentContext:
+    tenant: str = "local"
+    user: str = "local"
+    workspace: str = ""
+    access_mode: str = "read_only"
+    model: str = ""
+    provider: str = ""
+    allow_write: bool = False
+    # A2 持有的 provider 密钥只在运行请求里短期注入 A3 内存，不落盘。
+    api_keys: dict[str, str] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.api_keys is None:
+            self.api_keys = {}
+
+    def to_header(self) -> str:
+        raw = json.dumps(asdict(self), ensure_ascii=False)
+        return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
+
+    @classmethod
+    def from_header(cls, value: str) -> AgentContext:
+        raw = base64.urlsafe_b64decode(str(value).encode("ascii")).decode(
+            "utf-8"
+        )
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("Agent context 不是 JSON 对象")
+        return cls(
+            tenant=str(data.get("tenant") or "local"),
+            user=str(data.get("user") or "local"),
+            workspace=str(data.get("workspace") or ""),
+            access_mode=str(data.get("access_mode") or "read_only"),
+            model=str(data.get("model") or ""),
+            provider=str(data.get("provider") or ""),
+            allow_write=bool(data.get("allow_write", False)),
+            api_keys={
+                str(name): str(key)
+                for name, key in (data.get("api_keys") or {}).items()
+                if name and key
+            }
+            if isinstance(data.get("api_keys"), dict)
+            else {},
+        )
+
+
+@dataclass(slots=True)
+class AgentRunRequest:
+    context: AgentContext
+    thread_id: str
+    prompt: str
+
+
+@dataclass(frozen=True)
+class AgentMeta:
+    version: str = ""
+    api_version: int = 0
+    service: str = "agent-server"
+    execution_backend: str = ""
+    capabilities: dict[str, list[str]] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> AgentMeta:
+        if not isinstance(data, dict):
+            raise ValueError("Agent meta 不是 JSON 对象")
+        try:
+            api_version = int(data.get("api_version") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("api_version 不是整数") from exc
+        raw_caps = data.get("capabilities") or {}
+        capabilities: dict[str, list[str]] = {}
+        if isinstance(raw_caps, dict):
+            for group, items in raw_caps.items():
+                if isinstance(items, (list, tuple)):
+                    capabilities[str(group)] = [str(item) for item in items]
+        return cls(
+            version=str(data.get("version") or ""),
+            api_version=api_version,
+            service=str(data.get("service") or "agent-server"),
+            execution_backend=str(data.get("execution_backend") or ""),
+            capabilities=capabilities,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "service": self.service,
+            "version": self.version,
+            "api_version": self.api_version,
+            "execution_backend": self.execution_backend,
+            "capabilities": self.capabilities,
+        }
+
+    def has(self, group: str, item: str) -> bool:
+        return item in self.capabilities.get(group, ())
+
+
+@dataclass(frozen=True)
+class Compatibility:
+    ok: bool
+    reason: str = ""
+    warning: str = ""
+
+
+def check_compatibility(
+    meta: AgentMeta, *, expected_api: int = AGENT_API_VERSION
+) -> Compatibility:
+    """版本兼容判断：协议主版本必须一致，包版本不同只警告。"""
+    if meta.api_version != expected_api:
+        return Compatibility(
+            ok=False,
+            reason=(
+                f"Agent 协议版本 {meta.api_version or '未知'} 与 "
+                f"控制面要求的 {expected_api} 不一致"
+            ),
+        )
+    if meta.version and meta.version != __version__:
+        return Compatibility(
+            ok=True,
+            warning=(
+                f"Agent 版本 {meta.version} 与控制面 {__version__} 不同，"
+                "建议同步升级两侧"
+            ),
+        )
+    return Compatibility(ok=True)

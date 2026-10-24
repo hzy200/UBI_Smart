@@ -88,8 +88,9 @@ note: |
 ```
 runtime -> audit config events graph memory messages sandbox steering
            tools execution orchestrator            (中枢，合理)
-web/app -> control runtime                        (同进程回退；A2 仍持有 A3)
-agent_server -> runtime web.browse control.agent_client
+web/app -> control runtime                        (同进程回退；P1 待隔离)
+agent_server -> agent_protocol event_transport workspace runtime
+control -> agent_protocol event_transport
 graph   -> config llm messages sandbox steering tools orchestrator.graph
 orchestrator -> agents config graph.state llm sandbox steering tools
 agents  -> config llm messages sandbox tools
@@ -103,12 +104,12 @@ tui/web -> audit config events runtime
 **关键结论**：
 
 - `tui`/`web` 静态上仍没有指向 `tools`/`sandbox` 的边；
-- 但已出现 **A3 → A2 的反向依赖**：`agent_server` 从 `web.browse` 取文件助手、
-  从 `control.agent_client` 取 `AgentContext`；`web/app.py` 同进程回退直接持有
-  `runtime`。这些是 P1 要下沉的边界；
-- `cli → sandbox` 的既定例外仍在（`cli/app.py` 直接 import `WslSandbox`），
-  计划用 `cli/platform.py` 收窄；
-- 依赖仍无环，但“分层清晰”已经不成立，不能再用它作为架构结论。
+- P1.1 已把 A2↔A3 DTO、事件传输、工作区浏览下沉到 `agent_protocol` /
+  `event_transport` / `workspace`，`agent_server` 不再依赖 `web` 或
+  `control.agent_client`；
+- 仍有两个显式例外：`web/app.py` 的同进程回退直接持有 `runtime`，
+  `cli/app.py` 直接 import `WslSandbox`；两者都有架构测试 allowlist；
+- 依赖无环；A2/A3 的反向边已消除，但同进程回退仍需在 P1.2 隔离。
 
 ## 6. 总体评价
 
