@@ -105,6 +105,30 @@ def _retry_context(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fallback_result(
+    by_id: dict[str, dict[str, Any]],
+    task_id: str,
+    status: str,
+    summary: str,
+    *,
+    error: str = "",
+    timed_out: bool = False,
+) -> WorkerResult:
+    """worker 任务异常/取消时补一条结构化结果，保证事件与状态不缺记录。"""
+    task = by_id.get(task_id, {})
+    role = str(task.get("role", "explore"))
+    return WorkerResult(
+        task_id=task_id,
+        role=role,
+        worker_id=f"{role}:{task_id}",
+        goal=str(task.get("goal", "")),
+        status=status,
+        summary=summary,
+        error=error,
+        timed_out=timed_out,
+    )
+
+
 def make_scheduler_node(
     *,
     worker_runner: WorkerRunner,
@@ -492,29 +516,23 @@ def make_scheduler_node(
         def discard_merges(reason: str) -> None:
             merge_queue.discard(reason, finalize)
 
-        while True:
-            if cancelled():
-                for task in tasks:
-                    if status.get(str(task["id"]), "pending") == "pending":
-                        status[str(task["id"])] = "cancelled"
-                discard_merges("用户取消，未合并")
-                await abandon_inflight(reason="已按用户要求取消", timed_out=False)
-                break
+        async def abort_pending(
+            *,
+            pending_status: str,
+            discard_reason: str,
+            abandon_reason: str,
+            timed_out: bool,
+        ) -> None:
+            """取消/deadline：把未派发任务落成终态，丢弃未合并补丁并取消在飞任务。"""
+            for task in tasks:
+                if status.get(str(task["id"]), "pending") == "pending":
+                    status[str(task["id"])] = pending_status
+            discard_merges(discard_reason)
+            await abandon_inflight(reason=abandon_reason, timed_out=timed_out)
 
-            if scheduler_deadline and time.monotonic() >= scheduler_deadline:
-                for task in tasks:
-                    if status.get(str(task["id"]), "pending") == "pending":
-                        status[str(task["id"])] = "blocked"
-                discard_merges("编排 deadline 到期，未合并")
-                await abandon_inflight(reason="编排 deadline 到期", timed_out=True)
-                break
-
-            refresh_ready()
-            now = time.monotonic()
-            rate_limit.note_global_wait(
-                GLOBAL_LIMITER.global_remaining(), now=now
-            )
-            age_ready(now)
+        def dispatch_ready(now: float) -> None:
+            """按优先级/预算从 ready 堆派发任务，直到并发或预算受限。"""
+            nonlocal token_budget_exhausted
             while (
                 ready
                 and not stop
@@ -559,7 +577,7 @@ def make_scheduler_node(
                 if chosen is None:
                     if in_flight or implement_backpressure():
                         # 等当前任务结算/合并队列排空后，预算或并发可能重新可用。
-                        break
+                        return
                     for pending_task in tasks:
                         pending_id = str(pending_task["id"])
                         if status.get(pending_id, "pending") == "pending":
@@ -568,7 +586,7 @@ def make_scheduler_node(
                     queued.clear()
                     ready_at.clear()
                     token_budget_exhausted = True
-                    break
+                    return
 
                 entry, task, reserve = chosen
                 task_id = str(task["id"])
@@ -576,76 +594,35 @@ def make_scheduler_node(
                     # 单线程内不应发生；放回等待下一轮。
                     heapq.heappush(ready, entry)
                     queued.add(task_id)
-                    break
+                    return
                 attempts[task_id] = attempts.get(task_id, 0) + 1
                 queued_at[task_id] = time.monotonic()
                 future = asyncio.create_task(run_one(task))
                 in_flight[task_id] = future
                 future_task[future] = task_id
 
-            if not in_flight:
-                now = time.monotonic()
-                remaining = rate_limit.wait_remaining(now)
-                if remaining > 0:
-                    # 所有任务都在限流退避中：等一小段再重试，而不是直接结束。
-                    await asyncio.sleep(min(remaining, 1.0))
-                    continue
-                break
-
-            timeout = None
-            timeouts: list[float] = []
-            if scheduler_deadline:
-                timeouts.append(
-                    max(0.0, scheduler_deadline - time.monotonic())
-                )
-            cooldown = rate_limit.wait_remaining()
-            if cooldown > 0:
-                timeouts.append(cooldown)
-            if timeouts:
-                timeout = min(timeouts)
-            done, _pending = await asyncio.wait(
-                set(in_flight.values()),
-                timeout=timeout,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if not done:
-                if (
-                    scheduler_deadline
-                    and time.monotonic() >= scheduler_deadline
-                ):
-                    for task in tasks:
-                        if status.get(str(task["id"]), "pending") == "pending":
-                            status[str(task["id"])] = "blocked"
-                    discard_merges("编排 deadline 到期，未合并")
-                    await abandon_inflight(
-                        reason="编排 deadline 到期", timed_out=True
-                    )
-                    break
-                # 限流退避时间到了，回到循环顶部重新派发。
-                continue
-
+        def drain_completed(done: set[asyncio.Task[WorkerResult]]) -> None:
+            """结算已完成任务：状态、重试、事件、合并队列。"""
+            nonlocal stop, completed_since_boundary
             for future in done:
                 task_id = future_task.pop(future)
                 in_flight.pop(task_id, None)
                 try:
                     result = future.result()
                 except asyncio.CancelledError:
-                    result = WorkerResult(
-                        task_id=task_id,
-                        role=str(by_id.get(task_id, {}).get("role", "explore")),
-                        worker_id=f"{by_id.get(task_id, {}).get('role', 'explore')}:{task_id}",
-                        goal=str(by_id.get(task_id, {}).get("goal", "")),
-                        status="cancelled",
-                        summary="调度器取消或 deadline 到期",
+                    result = _fallback_result(
+                        by_id,
+                        task_id,
+                        "cancelled",
+                        "调度器取消或 deadline 到期",
                         timed_out=True,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    result = WorkerResult(
-                        task_id=task_id,
-                        role=str(by_id.get(task_id, {}).get("role", "explore")),
-                        worker_id=f"{by_id.get(task_id, {}).get('role', 'explore')}:{task_id}",
-                        status="failed",
-                        summary=f"worker 异常：{type(exc).__name__}: {exc}",
+                    result = _fallback_result(
+                        by_id,
+                        task_id,
+                        "failed",
+                        f"worker 异常：{type(exc).__name__}: {exc}",
                         error=str(exc),
                     )
                 result.attempt = attempts.get(task_id, 1)
@@ -678,6 +655,75 @@ def make_scheduler_node(
                 completed_since_boundary += 1
                 if completed_since_boundary >= checkpoint_every:
                     stop = True
+
+        while True:
+            if cancelled():
+                await abort_pending(
+                    pending_status="cancelled",
+                    discard_reason="用户取消，未合并",
+                    abandon_reason="已按用户要求取消",
+                    timed_out=False,
+                )
+                break
+
+            if scheduler_deadline and time.monotonic() >= scheduler_deadline:
+                await abort_pending(
+                    pending_status="blocked",
+                    discard_reason="编排 deadline 到期，未合并",
+                    abandon_reason="编排 deadline 到期",
+                    timed_out=True,
+                )
+                break
+
+            refresh_ready()
+            now = time.monotonic()
+            rate_limit.note_global_wait(
+                GLOBAL_LIMITER.global_remaining(), now=now
+            )
+            age_ready(now)
+            dispatch_ready(now)
+
+            if not in_flight:
+                now = time.monotonic()
+                remaining = rate_limit.wait_remaining(now)
+                if remaining > 0:
+                    # 所有任务都在限流退避中：等一小段再重试，而不是直接结束。
+                    await asyncio.sleep(min(remaining, 1.0))
+                    continue
+                break
+
+            timeout = None
+            timeouts: list[float] = []
+            if scheduler_deadline:
+                timeouts.append(
+                    max(0.0, scheduler_deadline - time.monotonic())
+                )
+            cooldown = rate_limit.wait_remaining()
+            if cooldown > 0:
+                timeouts.append(cooldown)
+            if timeouts:
+                timeout = min(timeouts)
+            done, _pending = await asyncio.wait(
+                set(in_flight.values()),
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                if (
+                    scheduler_deadline
+                    and time.monotonic() >= scheduler_deadline
+                ):
+                    await abort_pending(
+                        pending_status="blocked",
+                        discard_reason="编排 deadline 到期，未合并",
+                        abandon_reason="编排 deadline 到期",
+                        timed_out=True,
+                    )
+                    break
+                # 限流退避时间到了，回到循环顶部重新派发。
+                continue
+
+            drain_completed(done)
 
             if not implement_active():
                 await flush_merges()
