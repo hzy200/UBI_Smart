@@ -281,6 +281,56 @@ def _make_patch(
     return posixpath.join(root, patch_rel)
 
 
+def _build_worker_messages(
+    *,
+    task: dict[str, Any],
+    worktree: str,
+    scopes: list[str],
+    max_rounds: int,
+    memories: list[str] | None,
+    instructions: str,
+    parent_request: str,
+    session_brief: str,
+    repo_map: str,
+    retry_note: str,
+) -> list[Any]:
+    """组装 implement worker 的系统提示与首条用户消息。"""
+    system_text = IMPLEMENT_WORKER_PROMPT.format(
+        cwd=worktree,
+        write_scope="\n".join(f"- {scope}" for scope in scopes),
+        max_rounds=max_rounds,
+    )
+    facts = [str(fact).strip() for fact in (memories or []) if str(fact).strip()]
+    if facts:
+        system_text += (
+            "\n\n关于这个项目的长期记忆（可信，必须遵守）：\n"
+            + "\n".join(f"- {fact}" for fact in facts)
+        )
+    if instructions:
+        system_text += f"\n\n{instructions}"
+    message = (
+        (
+            "之前轮次的会话约束（继续遵守）：\n"
+            f"{session_brief.strip()}\n\n"
+            if session_brief.strip()
+            else ""
+        )
+        + f"当前用户请求：{parent_request or '（未提供）'}\n\n"
+        f"实现任务：{str(task.get('goal', '')).strip()}\n\n"
+        f"write_scope：{', '.join(scopes)}"
+        f"{retry_note}"
+        + (
+            f"\n\n仓库结构摘要（AST 生成，供定位）：\n{repo_map}"
+            if repo_map
+            else ""
+        )
+    )
+    return [
+        SystemMessage(content=system_text),
+        HumanMessage(content=message),
+    ]
+
+
 def make_implement_runner(
     *,
     llm: BaseChatModel,
@@ -434,42 +484,18 @@ def make_implement_runner(
         tool_map: dict[str, BaseTool] = {tool.name: tool for tool in tools}
         child_llm = llm.bind_tools(tools)
 
-        repo_map = str(task.get("repo_map") or "").strip()
-        system_text = IMPLEMENT_WORKER_PROMPT.format(
-            cwd=worktree,
-            write_scope="\n".join(f"- {scope}" for scope in scopes),
+        messages = _build_worker_messages(
+            task=task,
+            worktree=worktree,
+            scopes=scopes,
             max_rounds=max_rounds,
+            memories=memories,
+            instructions=instructions,
+            parent_request=parent_request,
+            session_brief=session_brief,
+            repo_map=str(task.get("repo_map") or "").strip(),
+            retry_note=retry_note,
         )
-        facts = [str(fact).strip() for fact in (memories or []) if str(fact).strip()]
-        if facts:
-            system_text += (
-                "\n\n关于这个项目的长期记忆（可信，必须遵守）：\n"
-                + "\n".join(f"- {fact}" for fact in facts)
-            )
-        if instructions:
-            system_text += f"\n\n{instructions}"
-        messages: list[Any] = [
-            SystemMessage(content=system_text),
-            HumanMessage(
-                content=(
-                    (
-                        "之前轮次的会话约束（继续遵守）：\n"
-                        f"{session_brief.strip()}\n\n"
-                        if session_brief.strip()
-                        else ""
-                    )
-                    + f"当前用户请求：{parent_request or '（未提供）'}\n\n"
-                    f"实现任务：{goal}\n\n"
-                    f"write_scope：{', '.join(scopes)}"
-                    f"{retry_note}"
-                    + (
-                        f"\n\n仓库结构摘要（AST 生成，供定位）：\n{repo_map}"
-                        if repo_map
-                        else ""
-                    )
-                )
-            ),
-        ]
         records: list[dict[str, Any]] = []
         input_tokens = 0
         output_tokens = 0
@@ -481,6 +507,73 @@ def make_implement_runner(
         cancelled = False
         timed_out = False
         budget_exhausted = False
+
+        async def invoke_call(
+            round_index: int, index: int, call: dict[str, Any]
+        ) -> bool:
+            """执行一条工具调用并回灌结果；返回 True 表示已被取消。"""
+            nonlocal tool_ms
+            if cancel is not None and cancel():
+                return True
+            name = str(call.get("name", ""))
+            call_id = str(call.get("id", "")) or f"r{round_index}-{index}"
+            call_args = dict(call.get("args") or {})
+            tool = tool_map.get(name)
+            tool_started = time.monotonic()
+            artifact: dict[str, Any] | None = None
+            if tool is None:
+                content = (
+                    f"错误：实现 worker 没有 {name} 工具。"
+                    f"可用工具：{sorted(tool_map)}"
+                )
+                ok = False
+            else:
+                try:
+                    with tool_execution_context(
+                        f"worker:{task_id}", call_id
+                    ):
+                        raw = await asyncio.to_thread(
+                            tool.invoke,
+                            call_args,
+                            child_config,
+                        )
+                    content, artifact = unpack(raw)
+                    ok = (
+                        bool(artifact.get("ok", True))
+                        if isinstance(artifact, dict)
+                        else True
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    content = f"工具执行异常：{type(exc).__name__}: {exc}"
+                    ok = False
+            duration_ms = int((time.monotonic() - tool_started) * 1000)
+            tool_ms += duration_ms
+            if (
+                isinstance(artifact, dict)
+                and artifact.get("rejected")
+                and name in {WRITE_TOOL_NAME, EDIT_TOOL_NAME}
+            ):
+                bad_path = str(artifact.get("path") or "")
+                if bad_path:
+                    scope_violations.append(bad_path)
+            records.append(
+                {
+                    "call_id": call_id,
+                    "name": name,
+                    "args": call_args,
+                    "ok": ok,
+                    "duration_ms": duration_ms,
+                    "round": round_index,
+                }
+            )
+            messages.append(
+                ToolMessage(
+                    content=content,
+                    tool_call_id=call_id,
+                    name=name,
+                )
+            )
+            return False
 
         async def _loop() -> None:
             nonlocal input_tokens, output_tokens, verification, cancelled
@@ -518,69 +611,9 @@ def make_implement_runner(
                     if not calls:
                         break
                     for index, call in enumerate(calls):
-                        if cancel is not None and cancel():
+                        if await invoke_call(round_index, index, call):
                             cancelled = True
                             return
-                        name = str(call.get("name", ""))
-                        call_id = str(call.get("id", "")) or f"r{round_index}-{index}"
-                        call_args = dict(call.get("args") or {})
-                        tool = tool_map.get(name)
-                        tool_started = time.monotonic()
-                        artifact: dict[str, Any] | None = None
-                        if tool is None:
-                            content = (
-                                f"错误：实现 worker 没有 {name} 工具。"
-                                f"可用工具：{sorted(tool_map)}"
-                            )
-                            ok = False
-                        else:
-                            try:
-                                with tool_execution_context(
-                                    f"worker:{task_id}", call_id
-                                ):
-                                    raw = await asyncio.to_thread(
-                                        tool.invoke,
-                                        call_args,
-                                        child_config,
-                                    )
-                                content, artifact = unpack(raw)
-                                ok = (
-                                    bool(artifact.get("ok", True))
-                                    if isinstance(artifact, dict)
-                                    else True
-                                )
-                            except Exception as exc:  # noqa: BLE001
-                                content = f"工具执行异常：{type(exc).__name__}: {exc}"
-                                ok = False
-                        duration_ms = int(
-                            (time.monotonic() - tool_started) * 1000
-                        )
-                        tool_ms += duration_ms
-                        if (
-                            isinstance(artifact, dict)
-                            and artifact.get("rejected")
-                            and name in {WRITE_TOOL_NAME, EDIT_TOOL_NAME}
-                        ):
-                            bad_path = str(artifact.get("path") or "")
-                            if bad_path:
-                                scope_violations.append(bad_path)
-                        records.append(
-                            {
-                                "call_id": call_id,
-                                "name": name,
-                                "args": call_args,
-                                "ok": ok,
-                                "duration_ms": duration_ms,
-                                "round": round_index,
-                            }
-                        )
-                        messages.append(
-                            ToolMessage(
-                                content=content,
-                                tool_call_id=call_id,
-                                name=name,
-                            )
-                        )
 
                 changed = await asyncio.to_thread(
                     _changed_files, sandbox, worktree
