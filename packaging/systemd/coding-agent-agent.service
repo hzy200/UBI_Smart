@@ -1,0 +1,36 @@
+[Unit]
+Description=CodingAgent Agent Server (A3+A4)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=coding-agent
+Group=coding-agent
+EnvironmentFile=/etc/coding-agent/agent.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/coding-agent/bin/CodingAgentAgent --host 127.0.0.1 --port 8790
+WorkingDirectory=/var/lib/coding-agent
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+# checkpoint / audit / steering / memory 都在 StateDirectory 下。
+StateDirectory=coding-agent
+StateDirectoryMode=0700
+# 工作区必须由安装脚本预先创建；缺失时单元启动失败，避免静默只读。
+ReadWritePaths=/srv/coding-agent/workspaces
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

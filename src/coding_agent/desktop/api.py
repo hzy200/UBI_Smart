@@ -1,0 +1,224 @@
+"""pywebview 与 Web UI 之间的桌面桥（Phase 3）。
+
+只暴露三个动作：选文件夹、在 VS Code 打开、把 `/mnt` 工作区复制到 WSL 原生
+目录。所有参数都按列表传给子进程，不拼 shell。
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import threading
+import uuid
+import webbrowser
+from pathlib import Path
+from urllib.parse import urlparse
+
+from coding_agent.desktop.config import LauncherConfig
+from coding_agent.desktop.wsl import home, run, to_wsl_path
+
+_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def _text(raw: bytes) -> str:
+    return raw.decode("utf-8", errors="replace").strip()
+
+
+class DesktopApi:
+    def __init__(self, config: LauncherConfig) -> None:
+        self.config = config
+        self._copies: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def pick_folder(self) -> str:
+        """打开 Windows 原生文件夹选择器，返回 WSL 路径。"""
+        try:
+            import webview
+
+            window = webview.windows[0]
+            picked = window.create_file_dialog(webview.FileDialog.FOLDER)
+            if picked:
+                return to_wsl_path(picked[0])
+        except Exception:  # noqa: BLE001 - 对话框失败按“未选择”处理
+            pass
+        return ""
+
+    def open_in_vscode(self, path: str) -> dict:
+        target = str(path or "").strip()
+        if not target.startswith("/"):
+            return {"ok": False, "error": "需要 WSL 绝对路径"}
+        code = shutil.which("code") or shutil.which("code.cmd")
+        if not code:
+            return {
+                "ok": False,
+                "error": "未找到 VS Code 的 code 命令；请确认已安装并加入 PATH",
+            }
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        try:
+            subprocess.Popen(  # noqa: S603 - 列表参数，无 shell
+                [
+                    code,
+                    "--remote",
+                    f"wsl+{self.config.distro}",
+                    target,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
+            )
+        except OSError as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True, "target": target}
+
+    def copy_to_wsl(self, source: str, name: str = "") -> dict:
+        """把 `/mnt/...` 工作区复制到 `~/.coding-agent/workspaces/<name>`。"""
+        src = to_wsl_path(str(source or "").strip()).rstrip("/")
+        if not src.startswith("/mnt/"):
+            return {
+                "ok": False,
+                "error": "只支持从 Windows 盘（/mnt/...）复制到 WSL 原生目录",
+            }
+        safe = str(name or Path(src).name or "").strip()
+        if not _NAME_RE.match(safe) or safe in {".", ".."}:
+            return {"ok": False, "error": "目标名称只允许字母、数字、_ . -（1–64）"}
+        try:
+            root = home(self.config.distro)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"无法读取 WSL HOME：{exc}"}
+        dest = f"{root}/.coding-agent/workspaces/{safe}"
+        check = run(
+            self.config.distro,
+            f"test -e {shlex.quote(src)} && echo SRC; "
+            f"test -e {shlex.quote(dest)} && echo DEST; true",
+        )
+        marks = set(_text(check.stdout).splitlines())
+        if "SRC" not in marks:
+            return {"ok": False, "error": f"源目录不存在：{src}"}
+        if "DEST" in marks:
+            return {"ok": False, "error": f"目标已存在，未覆盖：{dest}"}
+
+        job_id = uuid.uuid4().hex[:12]
+        with self._lock:
+            self._copies[job_id] = {
+                "state": "running",
+                "source": src,
+                "target": dest,
+                "error": "",
+            }
+
+        def worker() -> None:
+            status = {"state": "error", "error": ""}
+            try:
+                make = run(
+                    self.config.distro,
+                    f"mkdir -p {shlex.quote(dest.rsplit('/', 1)[0])}",
+                )
+                if make.returncode != 0:
+                    raise RuntimeError(_text(make.stderr) or "无法创建目标目录")
+                flags = (
+                    getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    if os.name == "nt"
+                    else 0
+                )
+                proc = subprocess.run(  # noqa: S603 - 列表参数，无 shell
+                    [
+                        "wsl.exe",
+                        "-d",
+                        self.config.distro,
+                        "--",
+                        "cp",
+                        "-a",
+                        "--",
+                        src,
+                        dest,
+                    ],
+                    capture_output=True,
+                    timeout=3600,
+                    check=False,
+                    creationflags=flags,
+                )
+                if proc.returncode == 0:
+                    status = {"state": "done", "error": ""}
+                else:
+                    detail = _text(proc.stderr) or _text(proc.stdout)
+                    status = {
+                        "state": "error",
+                        "error": detail or f"cp 退出码 {proc.returncode}",
+                    }
+            except Exception as exc:  # noqa: BLE001 - 后台失败要回报给 UI
+                status = {"state": "error", "error": f"{type(exc).__name__}: {exc}"}
+            with self._lock:
+                self._copies[job_id].update(status)
+
+        threading.Thread(
+            target=worker, name=f"copy-workspace-{job_id}", daemon=True
+        ).start()
+        return {"ok": True, "job_id": job_id, "target": dest}
+
+    def copy_status(self, job_id: str) -> dict:
+        with self._lock:
+            status = self._copies.get(str(job_id or ""))
+            if status is None:
+                return {"state": "unknown", "error": ""}
+            return dict(status)
+
+    def collect_diagnostics(self) -> dict:
+        try:
+            from coding_agent.desktop.diagnostics import (
+                collect_diagnostics,
+            )
+
+            path = collect_diagnostics(self.config)
+        except Exception as exc:  # noqa: BLE001 - 诊断失败要可读返回
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True, "path": str(path)}
+
+    def reveal_diagnostics(self, path: str) -> dict:
+        """在资源管理器中选中诊断包；只允许 app_home 下的文件。"""
+        from coding_agent.desktop.config import app_home
+
+        target = Path(str(path or "")).resolve()
+        try:
+            target.relative_to(app_home().resolve())
+        except ValueError:
+            return {"ok": False, "error": "只允许打开应用数据目录内的文件"}
+        if not target.is_file():
+            return {"ok": False, "error": "诊断包不存在"}
+        try:
+            subprocess.Popen(  # noqa: S603, S607 - explorer 是系统命令
+                ["explorer", "/select,", str(target)]
+            )
+        except OSError as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True}
+
+    def check_update(self) -> dict:
+        from coding_agent.desktop.update import (
+            check_update,
+            manifest_url,
+        )
+
+        url = manifest_url()
+        if not url:
+            return {
+                "configured": False,
+                "ok": True,
+                "available": False,
+                "message": "未配置 AGENT_UPDATE_MANIFEST_URL",
+            }
+        from coding_agent import __version__
+
+        return check_update(__version__, url)
+
+    def open_url(self, url: str) -> dict:
+        parsed = urlparse(str(url or ""))
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return {"ok": False, "error": "只允许打开 http(s) 链接"}
+        try:
+            webbrowser.open(str(url))
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True}

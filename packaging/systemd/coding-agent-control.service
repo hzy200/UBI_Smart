@@ -1,0 +1,37 @@
+[Unit]
+Description=CodingAgent Control Plane (A2)
+After=network-online.target mysql.service mariadb.service coding-agent-agent.service
+Wants=network-online.target coding-agent-agent.service
+
+[Service]
+Type=simple
+User=coding-agent
+Group=coding-agent
+EnvironmentFile=/etc/coding-agent/control.env
+Environment=PYTHONUNBUFFERED=1
+# 迁移失败即阻止 A2 启动；数据库未配置时该命令直接返回 0。
+ExecStartPre=/opt/coding-agent/bin/CodingAgentControl --migrate-only
+ExecStart=/opt/coding-agent/bin/CodingAgentControl --host 127.0.0.1 --port 8780
+WorkingDirectory=/var/lib/coding-agent
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+StateDirectory=coding-agent
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

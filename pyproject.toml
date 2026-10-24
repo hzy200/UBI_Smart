@@ -20,6 +20,9 @@ dependencies = [
     "typer>=0.12",
     "rich>=13.7",
     "python-dotenv>=1.0",
+    "httpx>=0.27",
+    # A2 控制面 schema/store（SQLite 与 MySQL 共用 SQLAlchemy 模型）
+    "sqlalchemy>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -36,10 +39,36 @@ ui = [
 web = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
+]
+desktop = [
+    "pywebview>=5.0",
+]
+secrets = [
+    "keyring>=24",
+]
+build = [
+    "pyinstaller>=6",
+]
+# A2 控制面：MySQL 驱动与后续迁移工具（SQLAlchemy 已是主依赖）
+db = [
+    "pymysql>=1.1",
+    "alembic>=1.13",
+]
+# 多实例 SSE 共享事件传输
+events = [
+    "redis>=5",
+]
+embeddings = [
+    "fastembed>=0.3",
 ]
 
 [project.scripts]
 agent = "coding_agent.cli.app:main"
+coding-agent-server = "coding_agent.server:main"
+coding-agent-desktop = "coding_agent.desktop.launcher:main"
+coding-agent-agent = "coding_agent.agent_server:main"
+coding-agent-control = "coding_agent.control_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/coding_agent"]
@@ -56,6 +85,8 @@ markers = [
     "wsl: 需要本机可用的 WSL2 发行版",
     "llm: 需要 DEEPSEEK_API_KEY",
     "wsl_env: 显式探测宿主 WSL 环境（如 doctor），允许真实执行沙箱命令",
+    "execution: 真实 WSL/Linux 执行后端契约测试，允许启动沙箱命令",
+    "mysql: 需要 AGENT_TEST_MYSQL_URL 指向独立测试库",
 ]
 
 [tool.coverage.run]
@@ -85,5 +116,7 @@ select = ["E", "F", "I", "UP", "B"]
 # textual 是可选依赖：必须先 importorskip，再导入它，否则缺 ui extras 时
 # 会以 collection error 而非 skip 收场。E402 在这里是有意为之。
 "tests/tui/test_tui_app.py" = ["E402"]
+# 首次启动向导的 HTML 内嵌在 Python 字符串里，长行不可避免。
+"src/coding_agent/desktop/setup.py" = ["E501"]
 # 任务种子/测试是嵌在字符串里的 Python 源码，长行不可避免。
 "tests/eval/tasks_full.py" = ["E501"]
