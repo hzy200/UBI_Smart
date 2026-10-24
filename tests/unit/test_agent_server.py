@@ -9,6 +9,8 @@ import httpx
 from fastapi.testclient import TestClient
 
 from coding_agent import agent_server, web
+from coding_agent.agent_server_routes import state as state_routes
+from coding_agent.agent_server_routes import workspace as workspace_routes
 from coding_agent.config import Settings
 from coding_agent.control.agent_client import (
     AgentContext,
@@ -260,7 +262,7 @@ def test_a2_proxies_files_snapshots_memory_and_audit(
 ) -> None:
     agent_app = _app(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        agent_server,
+        workspace_routes,
         "list_directory",
         lambda workspace, path: {
             "path": path,
@@ -269,7 +271,7 @@ def test_a2_proxies_files_snapshots_memory_and_audit(
         },
     )
     monkeypatch.setattr(
-        agent_server, "read_records_many", lambda *args, **kwargs: []
+        state_routes, "read_records_many", lambda *args, **kwargs: []
     )
     transport = httpx.ASGITransport(app=agent_app)
     client = HttpAgentClient(

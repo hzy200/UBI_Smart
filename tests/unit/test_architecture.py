@@ -161,11 +161,14 @@ def _has_prefix(imported: set[str], prefix: str) -> bool:
 
 
 def test_agent_server_depends_on_neutral_protocol_not_a2() -> None:
-    imported = _imported_modules(SRC / "agent_server.py")
-    assert not _has_prefix(imported, "coding_agent.control")
-    assert not _has_prefix(imported, "coding_agent.web")
-    assert "coding_agent.agent_protocol" in imported
-    assert "coding_agent.workspace.browse" in imported
+    paths = [SRC / "agent_server.py", *_modules("agent_server_routes")]
+    for path in paths:
+        imported = _imported_modules(path)
+        assert not _has_prefix(imported, "coding_agent.control"), path
+        assert not _has_prefix(imported, "coding_agent.web"), path
+    assert "coding_agent.agent_protocol" in _imported_modules(
+        SRC / "agent_server.py"
+    )
 
 
 def test_agent_core_does_not_import_a2_or_web() -> None:

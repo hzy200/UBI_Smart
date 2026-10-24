@@ -64,8 +64,8 @@ src/coding_agent/
   sandbox/          执行安全层：wsl_exec / policy / pathguard / fs / snapshots / limits
   tools/            能力层：shell / files / git / deps / search / symbols / testrun / delegate
   control/          A2 控制面：schema / store / transport / 协议 / 迁移 / 备份
-  agent_server.py   A3 独立进程入口：装配 + 工作区/状态路由
-  agent_server_routes/ A3 领域路由（lifecycle 已拆出）
+  agent_server.py   A3 独立进程入口：仅装配
+  agent_server_routes/ A3 领域路由（lifecycle / workspace / state）
   agent_server_models.py A3 HTTP 请求模型
   agent_server_support.py A3 RunState / SSE 原语
   agent_context.py  A3 租户目录与 runtime 构造

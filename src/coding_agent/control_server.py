@@ -14,11 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import uvicorn
-
 from coding_agent.config import get_settings
-from coding_agent.web import create_app
-from coding_agent.web.auth import AuthConfig
 
 
 def _handshake(settings: Any) -> tuple[Any | None, dict[str, Any]]:
@@ -138,6 +134,13 @@ def main() -> int:
         code = _migrate_control_db(settings)
         if args.migrate_only:
             return code
+
+    # 只有真正启动 HTTP 服务时才加载 web/runtime 栈；--migrate-only 不需要。
+    import uvicorn
+
+    from coding_agent.web import create_app
+    from coding_agent.web.auth import AuthConfig
+
     token = sys.stdin.readline().strip() if args.token_stdin else ""
     if args.desktop and not token:
         print("--desktop 必须配合 --token-stdin", file=sys.stderr)
