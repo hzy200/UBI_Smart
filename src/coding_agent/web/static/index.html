@@ -6,59 +6,465 @@
 <title>CodingAgent</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-<div id="login" class="login hidden">
+<body x-data="agentApp" x-init="init()" :class="bodyClasses">
+<div id="login" x-show="ready === false" x-cloak>
   <div class="login-box">
     <h2>CodingAgent</h2>
-    <p>输入访问 token（由管理员分配）</p>
-    <input type="password" id="token-input" autocomplete="off" placeholder="Bearer token">
-    <div class="login-error" id="login-error"></div>
-    <button id="token-save">进入</button>
+    <p x-text="loginMessage()"></p>
+    <input type="password" x-model="tokenInput" autocomplete="off" placeholder="Bearer token">
+    <button @click="saveToken()">进入</button>
   </div>
 </div>
 
-<header>
+<header x-show="ready" x-cloak>
   <span class="name">CodingAgent</span>
-  <span class="meta" id="health">检查中…</span>
-  <span class="meta" id="thread"></span>
-  <span class="meta" id="state">就绪</span>
+  <span class="meta" x-text="healthText"></span>
+  <span class="badge" :class="badgeClasses" x-text="accessLabel()"></span>
+  <span class="meta" x-text="workspaceLabel()"></span>
   <span class="spacer"></span>
-  <button id="logout">退出</button>
+  <span class="meta" x-text="stateText"></span>
+  <span class="meta connection" x-show="connectionText()" x-cloak x-text="connectionText()"></span>
+  <span class="meta" x-text="costText"></span>
+  <button @click="openRecovery()" aria-label="打开恢复中心">恢复中心</button>
+  <button @click="shortcutsOpen = true" aria-label="查看快捷键">快捷键</button>
+  <button @click="toggleSettings()" aria-label="打开设置">设置</button>
 </header>
 
-<div id="controls">
-  <button id="pause">暂停</button>
-  <button id="cancel">取消</button>
-  <select id="steer-action">
-    <option value="add">add</option>
-    <option value="replan">replan</option>
-  </select>
-  <select id="steer-role">
-    <option value="explore">explore</option>
-    <option value="review">review</option>
-    <option value="test">test</option>
-  </select>
-  <input type="text" id="steer-text" placeholder="add/replan 说明">
-  <button id="steer">发送指令</button>
-  <button id="resume">恢复</button>
-</div>
-
-<main>
-  <aside>
-    <h3>会话</h3>
-    <ul id="sessions"></ul>
-    <button id="new">新会话</button>
+<div id="app" x-show="ready" x-cloak>
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h3>会话</h3>
+      <button @click="newSession()">新会话</button>
+    </div>
+    <div class="session-form">
+      <label>工作区</label>
+      <div class="row">
+        <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
+        <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace()">选择…</button>
+      </div>
+      <label>文件权限</label>
+      <select x-model="accessMode" :disabled="accessDisabled()">
+        <option value="read_only">只读（不可运行）</option>
+        <option value="write_ask" x-show="capabilities.server_write_enabled">审批写</option>
+        <option value="write_auto" x-show="capabilities.server_write_enabled">自动写</option>
+      </select>
+      <label>模型</label>
+      <select x-model="model" @change="syncModel()">
+        <option value="">默认模型</option>
+        <template x-for="p in providers" :key="p._key">
+          <option :value="p.model" x-text="p._label"></option>
+        </template>
+      </select>
+      <button @click="switchModel()" :disabled="!threadId || busy">应用到当前会话</button>
+      <button class="primary" @click="createSession()" :disabled="busy || approvals.length || paused">创建会话</button>
+    </div>
+    <input class="session-search" x-model="sessionQuery" @input="filterSessions()"
+           placeholder="搜索会话…">
+    <div class="session-list">
+      <template x-for="s in sessionRows" :key="s.thread_id">
+        <div class="session-item" :class="s._cls" @click="openSession(s.thread_id)">
+          <div class="t" x-text="s._title"></div>
+          <div class="m" x-text="s._meta"></div>
+          <div class="session-actions">
+            <button @click.stop="renameSession(s.thread_id)">改名</button>
+            <button @click.stop="exportSession(s.thread_id)">导出</button>
+            <button class="danger" @click.stop="deleteSession(s.thread_id)">删除</button>
+          </div>
+        </div>
+      </template>
+      <div class="empty" x-show="sessionRows.length === 0">没有匹配的会话</div>
+    </div>
   </aside>
 
-  <div id="main-col">
-    <div id="log"></div>
-    <footer>
-      <input type="text" id="prompt" placeholder="输入指令，回车发送…" autocomplete="off">
-      <button id="send">发送</button>
-    </footer>
-  </div>
-</main>
+  <main class="main">
+    <div class="reasoning" x-show="showReasoning && reasoningBlocks.length" x-cloak>
+      <template x-for="(block, index) in reasoningBlocks" :key="index">
+        <details class="reasoning-block" :open="index === reasoningBlocks.length - 1">
+          <summary>模型思考 <span x-text="block.node"></span></summary>
+          <pre x-text="block.text"></pre>
+        </details>
+      </template>
+    </div>
+    <div class="transcript" x-ref="transcript" role="log" aria-live="polite"
+         aria-label="对话记录">
+      <template x-for="m in messages" :key="m.id">
+        <div class="msg" :class="m._cls">
+          <div class="msg-role" x-text="m.role"></div>
+          <div class="msg-body" x-html="m.html"></div>
+        </div>
+      </template>
+      <div class="empty" x-show="messages.length === 0">
+        输入任务开始。默认只读：Agent 只能读取文件，不能运行命令或测试。
+      </div>
+    </div>
 
-<script src="/static/app.js"></script>
+    <div class="composer" @dragover.prevent @drop.prevent="dropFiles($event)">
+      <textarea x-model="prompt" @keydown="onEnter($event)"
+                aria-label="任务输入"
+                placeholder="输入任务，Enter 发送，Shift+Enter 换行"></textarea>
+      <div class="composer-actions">
+        <button @click="send()" :disabled="sendDisabled()">发送</button>
+        <button @click="steer('pause')" :disabled="!busy">暂停</button>
+        <button @click="steer('cancel')" :disabled="!busy && !paused">取消</button>
+        <button @click="resumeSteering()" :disabled="!paused">继续</button>
+        <button @click="reconnect()" x-show="canReconnect">重连事件流</button>
+        <button @click="retry()" x-show="_lastPrompt && !busy">重试上一条</button>
+        <button @click="openNewSettings()" :disabled="!busy">追加任务</button>
+        <button @click="replan()" :disabled="!busy">重规划</button>
+        <label class="upload-label">
+          上传文件
+          <input type="file" multiple @change="uploadFiles($event)">
+        </label>
+      </div>
+      <div class="upload-list" x-show="uploads.length > 0">
+        <template x-for="u in uploads" :key="u.relative_path">
+          <span class="upload-chip" :title="u.relative_path">
+            <span x-text="u._name"></span>
+            <span class="upload-size" x-text="u._size"></span>
+            <button class="chip-delete" @click="deleteUpload(u.relative_path)">×</button>
+          </span>
+        </template>
+      </div>
+      <div class="note" x-show="uploadQuota" x-text="uploadQuota"></div>
+    </div>
+  </main>
+
+  <section class="inspector">
+    <div class="tabs">
+      <button :class="tabClasses.plan" @click="setTab('plan')">计划</button>
+      <button :class="tabClasses.tools" @click="setTab('tools')">工具</button>
+      <button :class="tabClasses.files" @click="setTab('files')">文件</button>
+      <button :class="tabClasses.tree" @click="setTab('tree')">文件树</button>
+      <button :class="tabClasses.git" @click="setTab('git')">Git</button>
+      <button :class="tabClasses.tasks" @click="setTab('tasks')">任务</button>
+      <button :class="tabClasses.memory" @click="openMemory()">记忆</button>
+      <button :class="tabClasses.audit" @click="openAudit()">审计</button>
+    </div>
+
+    <div class="panel" x-show="tab === 'plan'">
+      <div class="panel-actions">
+        <button @click="compactContext()" :disabled="!threadId || busy">压缩并分叉</button>
+      </div>
+      <div class="plan-step" x-show="planRows.length === 0">还没有计划</div>
+      <template x-for="row in planRows" :key="row.number">
+        <div class="plan-step" :class="row._cls">
+          <span class="idx" x-text="row.number"></span>
+          <span x-text="row.text"></span>
+          <span class="kind" x-text="row.kind"></span>
+        </div>
+      </template>
+      <div class="note" x-show="planDegraded">规划失败，已退化为单步执行。</div>
+    </div>
+
+    <div class="panel" x-show="tab === 'tools'">
+      <template x-for="t in tools" :key="t.key">
+        <div class="tool-card" :class="t._cls">
+          <div class="tool-head">
+            <span class="tool-name" x-text="t.name"></span>
+            <span class="tool-level" x-text="t.level"></span>
+            <span class="tool-state" x-text="t.state"></span>
+            <button class="tool-copy" x-show="t.summary || t.preview"
+                    @click="copyText(t.preview || t.summary)">复制</button>
+          </div>
+          <div class="tool-summary" x-text="t.summary"></div>
+          <div class="tool-preview" x-show="t.preview" x-text="t.preview"></div>
+        </div>
+      </template>
+      <div class="empty" x-show="tools.length === 0">没有工具调用</div>
+    </div>
+
+    <div class="panel" x-show="tab === 'files'">
+      <div class="panel-actions">
+        <button @click="loadSnapshots()">刷新快照</button>
+        <button @click="restoreRun()">回滚本轮</button>
+        <button @click="loadCheckpoints()">检查点</button>
+      </div>
+      <template x-for="c in checkpoints" :key="c.checkpoint_id">
+        <div class="file-card">
+          <div class="file-head">
+            <span x-text="c.step"></span>
+            <span x-text="c.checkpoint_id"></span>
+            <span x-text="c.preview"></span>
+            <button @click="forkCheckpoint(c.checkpoint_id)">分叉</button>
+            <button class="danger" @click="rewindTo(c.checkpoint_id)">回退到此</button>
+          </div>
+        </div>
+      </template>
+      <template x-for="f in files" :key="f._key">
+        <div class="file-card">
+          <div class="file-head">
+            <span x-text="f.path"></span>
+            <button @click="loadDiff(f.snapshot_id, f.path)">查看 diff</button>
+            <button @click="acceptFile(f)">接受</button>
+            <button class="danger" @click="restoreSnapshot(f.snapshot_id, f.path)">拒绝（回滚）</button>
+          </div>
+        </div>
+      </template>
+      <button x-show="diffDisplay" @click="copyText(diffDisplay)">复制 diff</button>
+      <pre class="diff" x-show="diffDisplay" x-text="diffDisplay"></pre>
+      <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部 diff</button>
+      <div class="note">接受 = 保留当前内容；拒绝 = 恢复到快照前的内容（回滚前会再留底）。</div>
+      <div class="empty" x-show="files.length === 0 && diffText === ''">还没有文件改动</div>
+    </div>
+
+    <div class="panel" x-show="tab === 'tree'">
+      <div class="panel-actions">
+        <button @click="treeUp()">上一级</button>
+        <button @click="loadTree(treePath)">刷新</button>
+        <span class="note" x-text="treePath || '/'"></span>
+      </div>
+      <template x-for="entry in treeRows" :key="entry._key">
+        <div class="tree-row" :class="entry._cls" @click="openTreeEntry(entry)">
+          <span class="tree-kind" x-text="entry._kind"></span>
+          <span x-text="entry.name"></span>
+          <span class="note" x-text="entry._meta"></span>
+        </div>
+      </template>
+      <div class="empty" x-show="!treeLoading && treeRows.length === 0">空目录，或先创建会话</div>
+      <div x-show="fileView.path">
+        <div class="panel-actions">
+          <span x-text="fileView.path"></span>
+          <span class="note" x-text="fileView._size"></span>
+        </div>
+        <pre class="diff" x-text="fileView._text"></pre>
+      </div>
+    </div>
+
+    <div class="panel" x-show="tab === 'git'">
+      <div class="panel-actions">
+        <button @click="loadGit(false)">刷新状态</button>
+        <button @click="loadGit(true)">查看 diff</button>
+        <span class="note" x-text="gitInfo._state"></span>
+      </div>
+      <div class="note" x-text="gitInfo._branch"></div>
+      <template x-for="row in gitInfo._changes" :key="row._key">
+        <div class="tree-row"><span x-text="row._text"></span></div>
+      </template>
+      <template x-for="row in gitInfo._commits" :key="row._key">
+        <div class="note" x-text="row._text"></div>
+      </template>
+      <pre class="diff" x-show="gitDiffText" x-text="gitDiffText"></pre>
+    </div>
+
+    <div class="panel" x-show="tab === 'tasks'">
+      <template x-for="task in tasks" :key="task.id || task.task_id">
+        <div class="task-card" :class="task._cls">
+          <div class="task-line">
+            <span class="task-id" x-text="task.id || task.task_id"></span>
+            <span class="task-role" x-text="task.role"></span>
+            <span class="task-status" x-text="task._status"></span>
+          </div>
+          <div class="task-goal" x-text="task.goal || task._text"></div>
+          <div class="task-meta">
+            <span x-show="task._depends" x-text="task._depends"></span>
+            <span x-show="task._worker" x-text="'worker: ' + task._worker"></span>
+            <span x-show="task._timing" x-text="task._timing"></span>
+            <span x-show="task._tokens" x-text="task._tokens"></span>
+            <span x-show="task.tool_calls" x-text="task.tool_calls + ' tool calls'"></span>
+            <span class="note-bad" x-show="task.merge_error" x-text="task.merge_error"></span>
+          </div>
+        </div>
+      </template>
+      <div class="empty" x-show="tasks.length === 0">没有编排任务</div>
+    </div>
+
+    <div class="panel" x-show="tab === 'memory'">
+      <div class="panel-actions">
+        <input x-model="memoryText" placeholder="新增一条项目记忆">
+        <button @click="remember()">记住</button>
+      </div>
+      <template x-for="(fact, i) in memory" :key="i">
+        <div class="memory-item">
+          <span x-text="fact"></span>
+          <button class="danger" @click="forget(i)">删除</button>
+        </div>
+      </template>
+      <div class="empty" x-show="memory.length === 0">没有项目记忆</div>
+    </div>
+
+    <div class="panel" x-show="tab === 'audit'">
+      <div class="panel-actions">
+        <button @click="loadAudit()">刷新审计</button>
+      </div>
+      <template x-for="(r, i) in audit" :key="i">
+        <div class="audit-row">
+          <span x-text="r.ts"></span>
+          <span x-text="r.kind"></span>
+          <span x-text="r._text"></span>
+        </div>
+      </template>
+      <div class="empty" x-show="audit.length === 0">没有审计记录</div>
+    </div>
+  </section>
+</div>
+
+<div class="modal" x-show="approvals.length > 0" x-cloak
+     role="dialog" aria-modal="true" aria-labelledby="approval-title">
+  <div class="modal-box">
+    <h3 id="approval-title">需要确认</h3>
+    <div class="approval" x-show="approval">
+      <div class="approval-level" x-text="approval ? approval.level : ''"></div>
+      <pre x-text="approval ? approval.command : ''"></pre>
+      <div class="note" x-text="approval ? approval.reason : ''"></div>
+      <div class="note" x-text="approval ? ('工具：' + approval.tool) : ''"></div>
+    </div>
+    <div class="approval-actions">
+      <button class="primary" @click="decide(true)">批准（y）</button>
+      <button class="danger" @click="decide(false)">拒绝（n）</button>
+      <button @click="decideAll(false)">全部拒绝</button>
+    </div>
+    <div class="note" x-text="approvalPosition"></div>
+  </div>
+</div>
+
+<div class="modal" x-show="shortcutsOpen" x-cloak
+     role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+  <div class="modal-box">
+    <h3 id="shortcuts-title">快捷键</h3>
+    <div class="shortcuts">
+      <template x-for="row in shortcuts()" :key="row.keys">
+        <div class="shortcut-row">
+          <kbd x-text="row.keys"></kbd>
+          <span x-text="row.action"></span>
+        </div>
+      </template>
+    </div>
+    <div class="modal-actions">
+      <button @click="shortcutsOpen = false">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" x-show="showSettings" x-cloak
+     role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <div class="modal-box">
+    <h3 id="settings-title">界面设置</h3>
+    <label>主题</label>
+    <select x-model="theme" @change="saveSettings()">
+      <option value="dark">深色</option>
+      <option value="light">浅色</option>
+      <option value="auto">跟随系统</option>
+    </select>
+    <label>字体</label>
+    <select x-model="fontFamily" @change="saveSettings()">
+      <option value="system">系统无衬线</option>
+      <option value="serif">衬线</option>
+      <option value="mono">等宽</option>
+    </select>
+    <label>字号</label>
+    <select x-model="fontSize" @change="saveSettings()">
+      <option value="small">小</option>
+      <option value="normal">中</option>
+      <option value="large">大</option>
+    </select>
+    <label>密度</label>
+    <select x-model="density" @change="saveSettings()">
+      <option value="compact">紧凑</option>
+      <option value="normal">标准</option>
+    </select>
+    <label>
+      <input type="checkbox" :checked="showReasoning" @change="toggleReasoning()" style="width:auto">
+      显示模型推理（默认关闭；只影响界面展示）
+    </label>
+    <h3>预算与通知</h3>
+    <div class="note" x-text="limitsText"></div>
+    <label>
+      <input type="checkbox" :checked="notifyEnabled" @change="toggleNotify()" style="width:auto">
+      审批 / 完成 / 失败时发送系统通知
+    </label>
+    <h3>诊断与更新</h3>
+    <div class="panel-actions" x-show="desktopAvailable">
+      <button @click="collectDiagnostics()" :disabled="diagnosticsBusy">生成诊断包</button>
+      <button @click="revealDiagnostics()" :disabled="!diagnosticsPath">打开所在目录</button>
+      <button @click="checkUpdate()">检查更新</button>
+      <button x-show="updateInfo && updateInfo.available" @click="openUpdate()">下载更新</button>
+    </div>
+    <div class="note" x-show="diagnosticsPath" x-text="diagnosticsPath"></div>
+    <div class="note" x-show="updateText" x-text="updateText"></div>
+    <h3>Provider 档案</h3>
+    <div class="note" x-show="!profilesEnabled">多用户模式请通过 AGENT_LLM_PROVIDERS 配置。</div>
+    <div x-show="profilesEnabled">
+      <div class="row">
+        <input x-model="profileName" placeholder="名称，如 local">
+        <input x-model="profileBaseUrl" placeholder="https://api.example.com/v1">
+        <input x-model="profileModel" placeholder="模型名">
+      </div>
+      <div class="panel-actions">
+        <button class="primary" @click="saveProfile()">保存档案</button>
+        <button @click="discoverModels()">发现模型</button>
+        <button @click="useLocalPreset()">本地端点预设</button>
+      </div>
+      <div class="note" x-show="modelOptionsText" x-text="modelOptionsText"></div>
+      <template x-for="p in profiles" :key="p.name">
+        <div class="file-card">
+          <div class="file-head">
+            <span x-text="p.name"></span>
+            <span x-text="p.model"></span>
+            <span class="note" x-text="p.base_url"></span>
+            <button @click="editProfile(p)">编辑</button>
+            <button class="danger" @click="deleteProfile(p.name)">删除</button>
+          </div>
+        </div>
+      </template>
+    </div>
+    <h3>工作区与 Python</h3>
+    <div class="project-report" x-text="projectReport"></div>
+    <div class="panel-actions">
+      <button x-show="desktopAvailable" @click="pickWorkspace()">选择文件夹</button>
+      <button @click="probeProject()" :disabled="projectLoading">重新探测</button>
+      <button x-show="desktopAvailable" @click="openInVscode()">在 VS Code 打开</button>
+      <button x-show="canCopyWorkspace" @click="copyWorkspace()" :disabled="copyBusy">复制到 WSL 原生目录</button>
+    </div>
+    <div class="note note-bad" x-show="projectHasWarnings" x-text="projectWarnings"></div>
+    <div class="note" x-show="copyMessage" x-text="copyMessage"></div>
+    <h3>模型密钥</h3>
+    <p class="note">密钥只写入操作系统密钥环，不会回传或写入 .env。</p>
+    <label>Provider</label>
+    <select x-model="providerName">
+      <template x-for="p in providers" :key="p._key">
+        <option :value="p.name" x-text="p._label"></option>
+      </template>
+    </select>
+    <input type="password" x-model="providerKeyInput" placeholder="粘贴 API Key">
+    <div class="panel-actions">
+      <button class="primary" @click="saveProviderKey()">保存密钥</button>
+      <button @click="testProvider()">测试连接</button>
+      <button class="danger" @click="deleteProviderKey()">删除密钥</button>
+    </div>
+    <div class="modal-actions">
+      <button @click="toggleSettings()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" x-show="showRecovery" x-cloak
+     role="dialog" aria-modal="true" aria-labelledby="recovery-title">
+  <div class="modal-box">
+    <h3 id="recovery-title">恢复中心</h3>
+    <p class="note">列出待审批、已暂停、运行中或异常中断的会话；审计与 checkpoint 不受影响。</p>
+    <template x-for="item in recoveryItems" :key="item._key">
+      <div class="file-card">
+        <div class="file-head">
+          <span x-text="item._text"></span>
+          <span :class="item._cls" x-text="item._status"></span>
+          <button @click="recoveryResume(item)">打开 / 恢复</button>
+          <button class="danger" @click="deleteSession(item.thread_id)">删除会话</button>
+        </div>
+      </div>
+    </template>
+    <div class="empty" x-show="recoveryItems.length === 0">没有需要恢复的会话</div>
+    <div class="modal-actions">
+      <button @click="closeRecovery()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" x-show="toast" x-text="toast" x-cloak></div>
+
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/vendor/purify.min.js"></script>
+<script src="/static/vendor/highlight.min.js"></script>
+<script type="module" src="/static/app.js"></script>
+<script src="/static/vendor/alpine-csp.min.js" defer></script>
 </body>
 </html>

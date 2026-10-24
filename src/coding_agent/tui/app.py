@@ -7,16 +7,20 @@
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
+from rich.markdown import Markdown
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header, Input, RichLog, Static
+from textual.suggester import SuggestFromList
+from textual.widgets import Footer, Header, Input, RichLog, Static, TextArea
 
 from coding_agent.audit import read_records_many
 from coding_agent.config import Settings, get_settings
@@ -62,6 +66,9 @@ HELP_TEXT = """\
 /undo [快照id|路径] 回滚到某次改动前（不带参数则回滚最近一次）
 /sessions [n]      列出历史会话
 /switch <会话id>   切换到某个历史会话（会载入它的对话记录）
+/checkpoints [n]   列出当前会话的 checkpoint
+/status            查看当前会话/运行状态
+/cost              查看本轮成本与 token
 /fork [检查点id]   从当前（或指定 checkpoint）分叉出新会话并切换过去
 /rewind [n]        回退 n 个 checkpoint（默认 1；历史保留）
 /memory            查看项目记忆
@@ -74,11 +81,152 @@ HELP_TEXT = """\
 /replan            要求重新规划剩余工作
 /quit              退出
 
+输入框支持 ↑/↓ 浏览历史、→ 接受斜杠命令补全；F2/Ctrl+J 打开多行输入。
 快捷键  Ctrl+Q 退出 · Ctrl+N 新会话 · Ctrl+L 清屏
 """
 
 # 快照 id 形如 20261003T024018123456-a1b2c3（时间戳精确到微秒）；不符合就当路径处理
 _SNAPSHOT_ID_RE = re.compile(r"^\d{8}T\d{6,18}-[0-9a-f]{6}$")
+
+# 输入补全只提示名字，参数仍由 /help 说明。
+SLASH_COMMANDS = [
+    "/help", "/new", "/clear", "/workspace", "/audit", "/snapshots",
+    "/diff", "/undo", "/sessions", "/switch", "/fork", "/rewind",
+    "/memory", "/remember", "/forget", "/pause", "/resume", "/cancel",
+    "/add", "/replan", "/checkpoints", "/status", "/cost", "/quit",
+]
+
+# RichLog 的硬上限：长会话不必无限占内存；截断后仍能 /clear 重来。
+MAX_TRANSCRIPT_LINES = 5_000
+
+
+class PromptInput(Input):
+    """带上下键历史的输入框。"""
+
+    BINDINGS = [
+        ("up", "history_previous", "上一条"),
+        ("down", "history_next", "下一条"),
+        ("f2,ctrl+j", "open_multiline", "多行编辑"),
+    ]
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._history: list[str] = []
+        self._history_index = 0
+
+    def remember(self, text: str) -> None:
+        if not text or (self._history and self._history[-1] == text):
+            self._history_index = len(self._history)
+            return
+        self._history.append(text)
+        # 只保留最近 200 条，避免长会话无限增长。
+        if len(self._history) > 200:
+            del self._history[:-200]
+        self._history_index = len(self._history)
+
+    def action_history_previous(self) -> None:
+        if not self._history:
+            return
+        self._history_index = max(0, self._history_index - 1)
+        self.value = self._history[self._history_index]
+        self.cursor_position = len(self.value)
+
+    def action_history_next(self) -> None:
+        if not self._history:
+            return
+        self._history_index = min(len(self._history), self._history_index + 1)
+        self.value = (
+            self._history[self._history_index]
+            if self._history_index < len(self._history)
+            else ""
+        )
+        self.cursor_position = len(self.value)
+
+    def action_open_multiline(self) -> None:
+        opener = getattr(self.app, "open_multiline_editor", None)
+        if callable(opener):
+            opener()
+
+
+class ConfirmScreen(ModalScreen[bool]):
+    """通用二次确认；Esc / n 都是取消。"""
+
+    BINDINGS = [
+        ("y", "answer(True)", "确认"),
+        ("n", "answer(False)", "取消"),
+        ("escape", "answer(False)", "取消"),
+    ]
+
+    CSS = """
+    ConfirmScreen { align: center middle; }
+    #confirm-box {
+        width: 80%;
+        max-width: 100;
+        height: auto;
+        border: thick $warning;
+        background: $surface;
+        padding: 1 2;
+    }
+    #confirm-message { height: auto; }
+    .confirm-hint { color: $text-muted; }
+    """
+
+    def __init__(self, message: str, *, title: str = "请确认") -> None:
+        super().__init__()
+        self.message = message
+        self.title_text = title
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-box"):
+            yield Static(self.title_text, classes="confirm-hint")
+            yield Static(self.message, id="confirm-message", markup=False)
+            yield Static(
+                "[y] 确认    [n] / Esc 取消", classes="confirm-hint"
+            )
+
+    def action_answer(self, confirmed: bool) -> None:
+        self.dismiss(confirmed)
+
+
+class MultilineScreen(ModalScreen[str | None]):
+    """多行输入弹窗：Ctrl+Enter 提交，Esc 取消。"""
+
+    BINDINGS = [
+        ("ctrl+enter", "submit", "提交"),
+        ("escape", "cancel", "取消"),
+    ]
+
+    CSS = """
+    MultilineScreen { align: center middle; }
+    #multiline-box {
+        width: 90%;
+        max-width: 120;
+        height: 70%;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #multiline-hint { color: $text-muted; height: 1; }
+    #multiline { height: 1fr; }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="multiline-box"):
+            yield Static(
+                "多行输入：Ctrl+Enter 提交，Esc 取消",
+                id="multiline-hint",
+                markup=False,
+            )
+            yield TextArea(id="multiline")
+
+    def on_mount(self) -> None:
+        self.query_one("#multiline", TextArea).focus()
+
+    def action_submit(self) -> None:
+        self.dismiss(self.query_one("#multiline", TextArea).text)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class PlanPanel(Static):
@@ -100,16 +248,52 @@ class PlanPanel(Static):
         self.update(lines)
 
 
-class ApprovalScreen(ModalScreen[bool]):
-    """单条审批请求。返回 True 表示批准。
+class TaskPanel(Static):
+    """任务图/worker 状态面板。"""
 
+    _STATUS_STYLE = {
+        "pending": "dim",
+        "running": "bold cyan",
+        "success": "green",
+        "partial": "yellow",
+        "failed": "red",
+        "blocked": "red",
+        "cancelled": "dim",
+        "merging": "yellow",
+    }
+
+    def render_tasks(self, tasks: dict[str, dict[str, Any]]) -> None:
+        if not tasks:
+            self.update(Text("（尚未生成任务）", style="dim"))
+            return
+        lines = Text()
+        for task_id, task in list(tasks.items())[:8]:
+            status = str(task.get("status", "pending"))
+            style = self._STATUS_STYLE.get(status, "")
+            role = str(task.get("role", ""))
+            attempt = int(task.get("attempt", 1) or 1)
+            retry = f" #{attempt}" if attempt > 1 else ""
+            lines.append(f" {task_id}", style="bold")
+            lines.append(f" {role} ", style="dim")
+            lines.append(f"{status}{retry}\n", style=style)
+        if len(tasks) > 8:
+            lines.append(f" … 还有 {len(tasks) - 8} 个\n", style="dim")
+        self.update(lines)
+
+
+class ApprovalScreen(ModalScreen[str]):
+    """单条审批请求。
+
+    返回 `approve` / `deny` / `approve_all` / `deny_all`。
     默认动作是拒绝（Esc 也是拒绝）—— 危险操作不该靠一次误触放行。
     """
 
     BINDINGS = [
-        ("y", "answer(True)", "批准"),
-        ("n", "answer(False)", "拒绝"),
-        ("escape", "answer(False)", "拒绝"),
+        ("y", "answer('approve')", "批准"),
+        ("n", "answer('deny')", "拒绝"),
+        ("a", "answer('approve_all')", "全部批准"),
+        ("d", "answer('deny_all')", "全部拒绝"),
+        ("escape", "answer('deny')", "拒绝"),
     ]
 
     CSS = """
@@ -127,10 +311,17 @@ class ApprovalScreen(ModalScreen[bool]):
     #approval-hint { color: $text-muted; }
     """
 
-    def __init__(self, request: ApprovalRequested, position: str = "") -> None:
+    def __init__(
+        self,
+        request: ApprovalRequested,
+        position: str = "",
+        *,
+        allow_all: bool = False,
+    ) -> None:
         super().__init__()
         self.request = request
         self.position = position
+        self.allow_all = allow_all
 
     def compose(self) -> ComposeResult:
         with Vertical(id="approval-box"):
@@ -139,10 +330,17 @@ class ApprovalScreen(ModalScreen[bool]):
             if self.request.reason:
                 yield Static(f"理由：{self.request.reason}")
             yield Static(f"等级：{self.request.level}    工具：{self.request.tool}")
-            yield Static("[y] 批准    [n] / Esc 拒绝", id="approval-hint")
+            if self.allow_all:
+                hint = (
+                    "[y] 批准  [n] / Esc 拒绝  "
+                    "[a] 全部批准  [d] 全部拒绝"
+                )
+            else:
+                hint = "[y] 批准    [n] / Esc 拒绝"
+            yield Static(hint, id="approval-hint")
 
-    def action_answer(self, approved: bool) -> None:
-        self.dismiss(approved)
+    def action_answer(self, decision: str) -> None:
+        self.dismiss(decision)
 
 
 class AgentTuiApp(App[None]):
@@ -161,7 +359,8 @@ class AgentTuiApp(App[None]):
     #session-info { color: $text-muted; height: auto; padding-bottom: 1; }
     #main { width: 1fr; }
     #transcript { height: 1fr; padding: 0 1; }
-    #streaming { height: auto; max-height: 50%; padding: 0 1; color: $text; }
+    #streaming-wrap { height: auto; max-height: 50%; padding: 0 1; }
+    #streaming { height: auto; color: $text; }
     #prompt { dock: bottom; }
     #prompt.busy { border: tall $warning; }
     """
@@ -197,6 +396,15 @@ class AgentTuiApp(App[None]):
         # steering pause 后图已挂起、busy 会变回 False；用独立标记阻止用户
         # 在暂停期间误开新任务。
         self._paused = False
+        self._cost_usd = 0.0
+        self._run_started: float | None = None
+        self._workers_active = 0
+        self._model = ""
+        self._tasks: dict[str, dict[str, Any]] = {}
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._cost_budget = 0.0
+        self._cost_alerts: list[str] = []
 
     # ------------------------------------------------------------------
     # 组装
@@ -210,14 +418,28 @@ class AgentTuiApp(App[None]):
                 yield Static("", id="session-info")
                 yield Static("计划", classes="sidebar-title")
                 yield PlanPanel(id="plan")
+                yield Static("任务", classes="sidebar-title")
+                yield TaskPanel(id="tasks")
             with Vertical(id="main"):
-                yield RichLog(id="transcript", markup=False, wrap=True, highlight=False)
-                yield Static(id="streaming")
-        yield Input(placeholder="输入指令，/help 查看命令…", id="prompt")
+                yield RichLog(
+                    id="transcript",
+                    markup=False,
+                    wrap=True,
+                    highlight=False,
+                    max_lines=MAX_TRANSCRIPT_LINES,
+                )
+                with VerticalScroll(id="streaming-wrap"):
+                    yield Static(id="streaming")
+        yield PromptInput(
+            placeholder="输入指令，/help 查看命令…",
+            id="prompt",
+            suggester=SuggestFromList(SLASH_COMMANDS, case_sensitive=False),
+        )
         yield Footer()
 
     def on_mount(self) -> None:
         self._plan_panel.render_plan([], 0)
+        self._task_panel.render_tasks({})
         try:
             self._runtime = (
                 self._runtime_factory()
@@ -239,10 +461,29 @@ class AgentTuiApp(App[None]):
             self._write("请先运行 agent doctor 检查环境。", "dim")
             return
 
+        settings = getattr(self._runtime, "settings", self._settings)
+        self._model = str(
+            getattr(settings, "deepseek_model", "") or ""
+        )
         self.sub_title = f"会话 {self._session_id}"
         self._render_session_info(workspace)
         self._write("输入指令开始，/help 查看可用命令。", "dim")
         self.query_one("#prompt", Input).focus()
+        self.set_interval(1.0, self._tick_status)
+
+    async def on_unmount(self) -> None:
+        """退出时释放 runtime 的 checkpoint/沙箱资源。"""
+        close = getattr(self._runtime, "aclose", None)
+        if callable(close):
+            try:
+                await close()
+            except Exception:  # noqa: BLE001, S110 - 退出路径不再二次抛错
+                pass
+
+    def _tick_status(self) -> None:
+        # 每秒只刷新「运行中」的耗时，避免无谓重绘。
+        if self._run_started is not None:
+            self._render_session_info()
 
     def _render_session_info(self, workspace: str | None = None) -> None:
         """把会话、工作区、权限放进侧栏。
@@ -259,7 +500,23 @@ class AgentTuiApp(App[None]):
         info = Text()
         info.append(f"{self._session_id}\n", style="")
         info.append(f"{workspace}\n", style="dim")
-        info.append(level, style="bold yellow" if self._allow_write else "dim")
+        info.append(level + "\n", style="bold yellow" if self._allow_write else "dim")
+        info.append(f"模型 {self._model or '—'}\n", style="dim")
+        if self._paused:
+            state = "已暂停"
+        elif self._busy:
+            state = "执行中"
+        else:
+            state = "就绪"
+        info.append(f"状态 {state}", style="yellow" if self._busy or self._paused else "dim")
+        if self._run_started is not None:
+            elapsed = max(0.0, time.monotonic() - self._run_started)
+            info.append(f" · {elapsed:.0f}s", style="dim")
+        info.append("\n")
+        if self._cost_usd:
+            info.append(f"本轮成本 ${self._cost_usd:.4f}\n", style="dim")
+        if self._workers_active:
+            info.append(f"活跃 worker {self._workers_active}\n", style="dim")
         self.query_one("#session-info", Static).update(info)
 
     def _refresh_subtitle(self) -> None:
@@ -277,6 +534,7 @@ class AgentTuiApp(App[None]):
         prompt = self.query_one("#prompt", Input)
         prompt.set_class(value, "busy")
         self._refresh_subtitle()
+        self._render_session_info()
 
     @property
     def session_id(self) -> str:
@@ -292,6 +550,10 @@ class AgentTuiApp(App[None]):
         return self.query_one("#plan", PlanPanel)
 
     @property
+    def _task_panel(self) -> TaskPanel:
+        return self.query_one("#tasks", TaskPanel)
+
+    @property
     def _transcript(self) -> RichLog:
         return self.query_one("#transcript", RichLog)
 
@@ -304,12 +566,16 @@ class AgentTuiApp(App[None]):
 
     def _render_stream(self) -> None:
         self.query_one("#streaming", Static).update(Text("".join(self._stream)))
+        wrap = self.query_one("#streaming-wrap", VerticalScroll)
+        wrap.scroll_end(animate=False)
 
     def _flush_stream(self) -> None:
         if not self._stream:
             return
-        self._write("".join(self._stream), "green")
+        text = "".join(self._stream)
         self._stream.clear()
+        # 助手输出按 Markdown 渲染，代码块自动高亮；普通文本行为不变。
+        self._transcript.write(Markdown(text))
         self.query_one("#streaming", Static).update("")
 
     def _apply(self, event: Event) -> None:
@@ -322,7 +588,17 @@ class AgentTuiApp(App[None]):
             self._plan = []
             self._step_idx = 0
             self._total = 1
+            self._cost_usd = 0.0
+            self._input_tokens = 0
+            self._output_tokens = 0
+            self._cost_budget = 0.0
+            self._cost_alerts = []
+            self._run_started = time.monotonic()
+            self._workers_active = 0
+            self._tasks.clear()
             self._plan_panel.render_plan([], 0)
+            self._task_panel.render_tasks(self._tasks)
+            self._render_session_info()
 
         elif isinstance(event, PlanCreated):
             self._plan = list(event.steps)
@@ -430,6 +706,16 @@ class AgentTuiApp(App[None]):
             self._write(f"◈ 工作流：{event.workflow}  {event.reason}", "cyan")
 
         elif isinstance(event, TaskGraphCreated):
+            self._tasks = {
+                str(task.get("id", "")): {
+                    "role": str(task.get("role", "")),
+                    "goal": str(task.get("goal", "")),
+                    "status": "pending",
+                    "attempt": 1,
+                }
+                for task in event.tasks
+            }
+            self._task_panel.render_tasks(self._tasks)
             suffix = "（已降级）" if event.degraded else ""
             self._write(f"◈ 任务图：{len(event.tasks)} 个只读任务{suffix}", "cyan")
             for task in event.tasks:
@@ -440,6 +726,14 @@ class AgentTuiApp(App[None]):
                 )
 
         elif isinstance(event, TaskGraphExtended):
+            for task in event.added:
+                self._tasks[str(task.get("id", ""))] = {
+                    "role": str(task.get("role", "")),
+                    "goal": str(task.get("goal", "")),
+                    "status": "pending",
+                    "attempt": 1,
+                }
+            self._task_panel.render_tasks(self._tasks)
             self._write(
                 f"＋ 动态扩展 {len(event.added)} 个只读任务", "cyan"
             )
@@ -456,6 +750,15 @@ class AgentTuiApp(App[None]):
 
         elif isinstance(event, WorkerStarted):
             retry = f"（第 {event.attempt} 次）" if event.attempt > 1 else ""
+            task = self._tasks.setdefault(
+                event.task_id,
+                {"role": event.role, "goal": event.goal, "attempt": 1},
+            )
+            task["status"] = "running"
+            task["attempt"] = event.attempt
+            self._task_panel.render_tasks(self._tasks)
+            self._workers_active += 1
+            self._render_session_info()
             self._write(
                 f"  → worker {event.role}/{event.task_id}{retry}: {event.goal}",
                 "dim",
@@ -469,6 +772,15 @@ class AgentTuiApp(App[None]):
                 if event.status == "partial"
                 else "red"
             )
+            task = self._tasks.setdefault(
+                event.task_id,
+                {"role": event.role, "goal": "", "attempt": 1},
+            )
+            task["status"] = event.status
+            task["attempt"] = event.attempt
+            self._task_panel.render_tasks(self._tasks)
+            self._workers_active = max(0, self._workers_active - 1)
+            self._render_session_info()
             merge_note = ""
             if event.merged:
                 merge_note = "  · 已合并"
@@ -497,6 +809,7 @@ class AgentTuiApp(App[None]):
             if event.action == "pause":
                 self._paused = True
                 self._refresh_subtitle()
+                self._render_session_info()
                 self._write(
                     f"⏸ {event.detail or '已暂停'}（/resume 继续，/cancel 取消）",
                     "yellow",
@@ -504,10 +817,12 @@ class AgentTuiApp(App[None]):
             elif event.action == "resume":
                 self._paused = False
                 self._refresh_subtitle()
+                self._render_session_info()
                 self._write("▶ 已恢复", "green")
             elif event.action == "cancel":
                 self._paused = False
                 self._refresh_subtitle()
+                self._render_session_info()
                 self._write(f"⛔ {event.detail or '已取消'}", "yellow")
             elif event.action == "add":
                 self._write(f"＋ {event.detail or '已追加任务'}", "cyan")
@@ -524,10 +839,19 @@ class AgentTuiApp(App[None]):
 
         elif isinstance(event, RunFailed):
             self._flush_stream()
+            self._run_started = None
+            self._workers_active = 0
+            self._render_session_info()
             self._write(f"运行失败：{event.message}", "red")
 
         elif isinstance(event, CostReport):
             self._flush_stream()
+            self._cost_usd = float(event.cost_usd or 0.0)
+            self._input_tokens = int(event.input_tokens or 0)
+            self._output_tokens = int(event.output_tokens or 0)
+            self._cost_budget = float(event.budget_usd or 0.0)
+            self._cost_alerts = list(event.alerts)
+            self._render_session_info()
             line = f"成本 ${event.cost_usd:.4f}"
             if event.budget_usd > 0:
                 line += f" / 预算 ${event.budget_usd:.2f}（{event.ratio:.0%}）"
@@ -541,6 +865,9 @@ class AgentTuiApp(App[None]):
 
         elif isinstance(event, RunFinished):
             self._flush_stream()
+            self._run_started = None
+            self._workers_active = 0
+            self._render_session_info()
             if (
                 event.worker_input_tokens is not None
                 or event.worker_output_tokens is not None
@@ -575,13 +902,30 @@ class AgentTuiApp(App[None]):
             if isinstance(event, ApprovalRequested):
                 queue.append(event)
 
+        if queue:
+            await self._resolve_approvals(queue)
+
+    async def _resolve_approvals(
+        self, queue: list[ApprovalRequested]
+    ) -> None:
+        """逐条（或批量）询问并 resume，直到没有新的审批请求。"""
         while queue:
             decisions: dict[str, bool] = {}
             for index, request in enumerate(queue, start=1):
                 position = f"({index}/{len(queue)})" if len(queue) > 1 else ""
-                decisions[request.request_id] = bool(
-                    await self.push_screen_wait(ApprovalScreen(request, position))
+                answer = await self.push_screen_wait(
+                    ApprovalScreen(
+                        request,
+                        position,
+                        allow_all=len(queue) > 1,
+                    )
                 )
+                if answer in {"approve_all", "deny_all"}:
+                    granted = answer == "approve_all"
+                    for remaining in queue[index - 1 :]:
+                        decisions[remaining.request_id] = granted
+                    break
+                decisions[request.request_id] = answer == "approve"
             queue = []
             async for event in self._runtime.resume(self._session_id, decisions):
                 self._apply(event)
@@ -592,6 +936,15 @@ class AgentTuiApp(App[None]):
     def _on_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
         event.input.value = ""
+        if not text:
+            return
+        remember = getattr(event.input, "remember", None)
+        if callable(remember):
+            remember(text)
+        self._submit_prompt(text)
+
+    def _submit_prompt(self, text: str) -> None:
+        text = text.strip()
         if not text:
             return
         if self._runtime is None:
@@ -610,6 +963,18 @@ class AgentTuiApp(App[None]):
         self._write(f"你 › {text}", "bold cyan")
         self._execute(text)
 
+    @work(exclusive=False)
+    async def open_multiline_editor(self) -> None:
+        if self._runtime is None:
+            self._write("运行时未就绪，无法执行。", "red")
+            return
+        text = await self.push_screen_wait(MultilineScreen())
+        if not text or not text.strip():
+            return
+        prompt = self.query_one("#prompt", PromptInput)
+        prompt.remember(text.strip())
+        self._submit_prompt(text)
+
     # ------------------------------------------------------------------
     # 斜杠命令
     # ------------------------------------------------------------------
@@ -619,7 +984,7 @@ class AgentTuiApp(App[None]):
         name = name.lower()
 
         if name in {"/quit", "/exit", "/q"}:
-            self.exit()
+            self.run_worker(self.action_quit())
         elif name == "/help":
             self._write(HELP_TEXT.rstrip(), "")
         elif name == "/clear":
@@ -638,6 +1003,12 @@ class AgentTuiApp(App[None]):
             self._undo(rest)
         elif name == "/sessions":
             self._show_sessions(rest)
+        elif name == "/checkpoints":
+            self._show_checkpoints(rest)
+        elif name == "/status":
+            self._show_status()
+        elif name == "/cost":
+            self._show_cost()
         elif name == "/switch":
             self._switch_session(rest.strip())
         elif name == "/fork":
@@ -692,18 +1063,44 @@ class AgentTuiApp(App[None]):
 
     def _resume(self) -> None:
         runtime = self._runtime
+        if self._busy:
+            self._write("（当前任务执行中，请等待完成）", "yellow")
+            return
         paused = self._paused
         if not paused and runtime is not None and hasattr(runtime, "is_paused"):
             paused = bool(runtime.is_paused(self._session_id))
-        if not paused:
+        if paused:
+            if runtime is None or not hasattr(runtime, "resume_steering"):
+                self._write("当前运行时不支持恢复。", "yellow")
+                return
+            self._paused = False
+            self._refresh_subtitle()
+            self._resume_stream()
+            return
+        # 不是 steering 暂停：尝试从 checkpoint 恢复审批挂起（跨进程场景）。
+        if runtime is None or not hasattr(runtime, "pending_approvals"):
             self._write("当前没有处于暂停的任务。", "yellow")
             return
-        if runtime is None or not hasattr(runtime, "resume_steering"):
-            self._write("当前运行时不支持恢复。", "yellow")
-            return
-        self._paused = False
-        self._refresh_subtitle()
-        self._resume_stream()
+        self._resume_approvals()
+
+    @work(exclusive=True)
+    async def _resume_approvals(self) -> None:
+        self._set_busy(True)
+        try:
+            pending = await self._runtime.pending_approvals(self._session_id)
+            if not pending:
+                self._write("当前没有可恢复的挂起任务。", "yellow")
+                return
+            self._write(
+                f"发现 {len(pending)} 条挂起的审批请求，继续处理。", "yellow"
+            )
+            await self._resolve_approvals(pending)
+        except Exception as exc:  # noqa: BLE001 - 恢复失败要显示
+            self._flush_stream()
+            self._write(f"恢复异常：{type(exc).__name__}: {exc}", "red")
+        finally:
+            self._set_busy(False)
+            self._refresh_subtitle()
 
     @work(exclusive=True)
     async def _resume_stream(self) -> None:
@@ -785,6 +1182,72 @@ class AgentTuiApp(App[None]):
             )
         self._write("用 /switch <会话id> 切换过去。", "dim")
 
+    def _show_checkpoints(self, raw_limit: str) -> None:
+        try:
+            limit = max(int(raw_limit.strip() or 10), 1)
+        except ValueError:
+            self._write("用法：/checkpoints [条数]", "yellow")
+            return
+        self._checkpoints_worker(limit)
+
+    @work(exclusive=False)
+    async def _checkpoints_worker(self, limit: int) -> None:
+        try:
+            items = await self._runtime.checkpoints(
+                self._session_id, limit=limit
+            )
+        except Exception as exc:  # noqa: BLE001 - checkpoint 不存在要提示
+            self._write(f"读取 checkpoint 失败：{exc}", "red")
+            return
+        if not items:
+            self._write("当前会话还没有 checkpoint。", "dim")
+            return
+        self._write(f"checkpoint（最近 {len(items)} 个）", "dim")
+        for item in items:
+            self._write(
+                f"  {item['checkpoint_id']}  step {item['step']}  "
+                f"{item['preview']}",
+                "dim",
+            )
+
+    def _show_status(self) -> None:
+        workspace = getattr(self._runtime, "workspace", "") or ""
+        if self._paused:
+            state = "已暂停"
+        elif self._busy:
+            state = "执行中"
+        else:
+            state = "就绪"
+        self._write(f"会话    {self._session_id}", "")
+        self._write(f"工作区  {workspace}", "dim")
+        self._write(
+            f"权限    {'L1 可写' if self._allow_write else '只读'}", "dim"
+        )
+        self._write(f"模型    {self._model or '—'}", "dim")
+        self._write(f"状态    {state}", "")
+        if self._run_started is not None:
+            elapsed = max(0.0, time.monotonic() - self._run_started)
+            self._write(f"耗时    {elapsed:.0f}s", "dim")
+        self._write(f"活跃 worker  {self._workers_active}", "dim")
+        self._write(f"成本    ${self._cost_usd:.4f}", "dim")
+
+    def _show_cost(self) -> None:
+        if not self._cost_usd and not self._input_tokens and not self._output_tokens:
+            self._write("本轮还没有收到成本报告。", "dim")
+            return
+        budget = (
+            f" / 预算 ${self._cost_budget:.2f}"
+            if self._cost_budget > 0
+            else ""
+        )
+        self._write(f"本轮成本 ${self._cost_usd:.4f}{budget}", "")
+        self._write(
+            f"tokens  in {self._input_tokens} / out {self._output_tokens}",
+            "dim",
+        )
+        for alert in self._cost_alerts:
+            self._write(f"⚠ {alert}", "yellow")
+
     def _switch_session(self, thread_id: str) -> None:
         if not thread_id:
             self._write("用法：/switch <会话id>（用 /sessions 查看）", "yellow")
@@ -842,7 +1305,16 @@ class AgentTuiApp(App[None]):
         self._step_idx = 0
         self._stream.clear()
         self._answering = False
+        self._cost_usd = 0.0
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._cost_budget = 0.0
+        self._cost_alerts = []
+        self._run_started = None
+        self._workers_active = 0
+        self._tasks.clear()
         self._plan_panel.render_plan([], 0)
+        self._task_panel.render_tasks(self._tasks)
         self.query_one("#streaming", Static).update("")
         self._transcript.clear()
 
@@ -870,7 +1342,13 @@ class AgentTuiApp(App[None]):
             self._write("")
 
     def _show_memory(self) -> None:
-        facts = self._runtime.memories()
+        facts = self._runtime.memories(scope="project")
+        skipped = getattr(self._runtime.memory, "last_unsafe", [])
+        if skipped:
+            self._write(
+                f"检测到 {len(skipped)} 条疑似密钥，它们不会注入模型。",
+                "yellow",
+            )
         if not facts:
             self._write("当前没有项目记忆。用 /remember <事实> 添加。", "dim")
             return
@@ -884,7 +1362,9 @@ class AgentTuiApp(App[None]):
             self._write("用法：/remember <要记住的项目事实>", "yellow")
             return
         try:
-            facts = self._runtime.remember(text)
+            facts = self._runtime.remember(
+                text, thread_id=self._session_id, reason="TUI /remember"
+            )
         except Exception as exc:  # noqa: BLE001 - 上限/写盘失败要提示而不是崩
             self._write(str(exc), "red")
             return
@@ -892,6 +1372,13 @@ class AgentTuiApp(App[None]):
         replaced = getattr(self._runtime.memory, "last_replaced", [])
         if replaced:
             note = "（已替换旧版本：" + "；".join(replaced) + "）"
+        related = getattr(self._runtime.memory, "last_related", [])
+        if related:
+            note += (
+                "（可能相关、未替换："
+                + "；".join(related)
+                + "；可用 agent memory --conflicts 查看）"
+            )
         self._write(f"已记住（共 {len(facts)} 条）：{text}{note}", "green")
 
     def _forget(self, raw: str) -> None:
@@ -901,7 +1388,7 @@ class AgentTuiApp(App[None]):
             self._write("用法：/forget <序号>（用 /memory 查看序号）", "yellow")
             return
         try:
-            facts = self._runtime.forget(index)
+            facts = self._runtime.forget(index, thread_id=self._session_id)
         except Exception as exc:  # noqa: BLE001 - 序号越界/写盘失败都要提示而不是崩
             self._write(str(exc), "red")
             return
@@ -946,6 +1433,31 @@ class AgentTuiApp(App[None]):
 
     def _undo(self, raw: str) -> None:
         snapshot_id, path = self._split_target(raw)
+        target = snapshot_id or path or "最近一次改动"
+        preview = ""
+        try:
+            preview = self._runtime.diff_snapshot(
+                snapshot_id=snapshot_id, path=path
+            )
+        except Exception as exc:  # noqa: BLE001 - 预览失败不阻断确认流程
+            preview = f"（预览失败：{type(exc).__name__}: {exc}）"
+        lines = preview.splitlines()
+        if len(lines) > 30:
+            preview = "\n".join(lines[:30]) + f"\n…（共 {len(lines)} 行）"
+        message = f"将回滚：{target}"
+        if preview:
+            message += "\n\n" + preview
+        self.push_screen(
+            ConfirmScreen(message, title="确认回滚？"),
+            partial(self._do_undo, snapshot_id, path),
+        )
+
+    def _do_undo(
+        self, snapshot_id: str | None, path: str | None, confirmed: bool
+    ) -> None:
+        if not confirmed:
+            self._write("已取消回滚。", "dim")
+            return
         result = self._runtime.restore(snapshot_id=snapshot_id, path=path)
         if not result.ok:
             self._write(result.message, "red")
@@ -992,14 +1504,43 @@ class AgentTuiApp(App[None]):
             detail = f"{record.kind:<12} {target:<16} {record.level:<10} {record.decision}"
             self._write(f"  {record.ts[11:19]}  {detail}", style)
 
+    async def action_quit(self) -> None:
+        if self._busy or self._paused:
+            confirmed = await self.push_screen_wait(
+                ConfirmScreen(
+                    "当前任务仍在执行或处于暂停状态。退出会中断本轮运行，"
+                    "未合并的改动不会落盘。",
+                    title="确认退出？",
+                )
+            )
+            if not confirmed:
+                return
+        self.exit()
+
     def action_new_session(self) -> None:
+        if self._busy or self._paused:
+            self._write(
+                "（当前任务执行中或已暂停，无法新建会话；"
+                "请先 /cancel 或 /resume）",
+                "yellow",
+            )
+            return
         self._session_id = uuid.uuid4().hex[:8]
         self._plan = []
         self._step_idx = 0
         self._stream.clear()
         self._answering = False
         self._paused = False
+        self._cost_usd = 0.0
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._cost_budget = 0.0
+        self._cost_alerts = []
+        self._run_started = None
+        self._workers_active = 0
+        self._tasks.clear()
         self._plan_panel.render_plan([], 0)
+        self._task_panel.render_tasks(self._tasks)
         self.query_one("#streaming", Static).update("")
         self._transcript.clear()
         if self._runtime is not None:

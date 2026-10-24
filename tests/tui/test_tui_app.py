@@ -18,13 +18,14 @@ import pytest
 
 pytest.importorskip("textual", reason='TUI 测试需要 ui extras：pip install -e ".[ui]"')
 
-from textual.widgets import Input, RichLog
+from textual.widgets import Input, RichLog, TextArea
 
 from coding_agent.audit import AuditLogger, AuditRecord
 from coding_agent.audit.logger import now_iso
 from coding_agent.events import (
     ApprovalRequested,
     AssistantToken,
+    CostReport,
     FileChanged,
     PlanCreated,
     RepairStarted,
@@ -34,6 +35,7 @@ from coding_agent.events import (
     SteeringApplied,
     StepFinished,
     StepStarted,
+    TaskGraphCreated,
     TaskGraphExtended,
     ToolCallFinished,
     ToolCallStarted,
@@ -74,6 +76,8 @@ class FakeRuntime:
         sessions: list | None = None,
         memories: list | None = None,
         history: list | None = None,
+        checkpoint_items: list | None = None,
+        pending_approvals: list | None = None,
     ) -> None:
         self._events = events
         self._resume_events = resume_events or []
@@ -85,6 +89,8 @@ class FakeRuntime:
         self.memory = SimpleNamespace(path="/mnt/d/proj/.agent/memory.md")
         self._memories = list(memories or [])
         self._history = history or []
+        self._checkpoint_items = checkpoint_items or []
+        self._pending_approvals = pending_approvals or []
         self.switched: list[str] = []
         self.calls: list[tuple[str, str]] = []
         self.resumed: list[tuple[str, dict[str, bool]]] = []
@@ -92,15 +98,19 @@ class FakeRuntime:
         self.steer_calls: list[tuple[str, str, dict]] = []
         self.resume_steering_calls: list[str] = []
         self._paused = False
+        self.closed = False
 
-    def memories(self) -> list[str]:
+    async def aclose(self) -> None:
+        self.closed = True
+
+    def memories(self, **kwargs) -> list[str]:
         return list(self._memories)
 
-    def remember(self, text: str) -> list[str]:
+    def remember(self, text: str, **kwargs) -> list[str]:
         self._memories.append(text)
         return self.memories()
 
-    def forget(self, index: int) -> list[str]:
+    def forget(self, index: int, **kwargs) -> list[str]:
         if index < 1 or index > len(self._memories):
             raise ValueError(f"序号超出范围：{index}")
         self._memories.pop(index - 1)
@@ -109,6 +119,12 @@ class FakeRuntime:
     async def history(self, thread_id: str):
         self.switched.append(thread_id)
         return self._history
+
+    async def checkpoints(self, thread_id: str, *, limit: int = 20):
+        return self._checkpoint_items[:limit]
+
+    async def pending_approvals(self, thread_id: str):
+        return list(self._pending_approvals)
 
     async def run(self, prompt: str, *, thread_id: str):
         self.calls.append((prompt, thread_id))
@@ -692,6 +708,70 @@ def test_multiple_requests_prompt_sequentially() -> None:
     _run(scenario())
 
 
+def test_resume_recovers_pending_approvals() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime(
+            [],
+            pending_approvals=[APPROVAL],
+            resume_events=[
+                ToolCallFinished(
+                    call_id="c1",
+                    name="shell_exec",
+                    ok=True,
+                    decision="approved",
+                ),
+                RunFinished(thread_id="t"),
+            ],
+        )
+        app = AgentTuiApp(runtime_factory=lambda: runtime)
+
+        async with app.run_test() as pilot:
+            await _drive_command(app, pilot, "/resume")
+            await pilot.pause()
+            await pilot.pause()
+            assert type(app.screen).__name__ == "ApprovalScreen"
+
+            await pilot.press("y")
+            await pilot.pause()
+            await pilot.pause()
+
+            assert runtime.resumed == [(app.session_id, {"c1": True})]
+
+    _run(scenario())
+
+
+def test_approve_all_remaining_requests() -> None:
+    async def scenario() -> None:
+        second = ApprovalRequested(
+            request_id="c2",
+            tool="shell_exec",
+            command="git commit -m x",
+            level="L2 变更性",
+        )
+        runtime = FakeRuntime(
+            [APPROVAL, second],
+            resume_events=[RunFinished(thread_id="t")],
+        )
+        app = AgentTuiApp(runtime_factory=lambda: runtime)
+
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "干活"
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause()
+            assert type(app.screen).__name__ == "ApprovalScreen"
+
+            await pilot.press("a")
+            await pilot.pause()
+            await pilot.pause()
+
+            assert runtime.resumed == [
+                (app.session_id, {"c1": True, "c2": True})
+            ]
+
+    _run(scenario())
+
+
 # ---------------- 回滚命令 ----------------
 
 def _drive_command(app: AgentTuiApp, pilot, command: str):
@@ -779,6 +859,10 @@ def test_undo_without_args_rolls_back_latest() -> None:
 
         async with app.run_test() as pilot:
             await _drive_command(app, pilot, "/undo")
+            assert runtime.restore_calls == []
+            assert type(app.screen).__name__ == "ConfirmScreen"
+            await pilot.press("y")
+            await pilot.pause()
             assert runtime.restore_calls == [(None, None)]
             text = _transcript_text(app)
             assert "已回滚 a.py" in text
@@ -795,7 +879,11 @@ def test_undo_parses_snapshot_id_vs_path() -> None:
 
         async with app.run_test() as pilot:
             await _drive_command(app, pilot, "/undo 20261003T024018-aaa111")
+            await pilot.press("y")
+            await pilot.pause()
             await _drive_command(app, pilot, "/undo src/a.py")
+            await pilot.press("y")
+            await pilot.pause()
 
             assert runtime.restore_calls == [
                 ("20261003T024018-aaa111", None),
@@ -814,7 +902,25 @@ def test_undo_reports_failure() -> None:
 
         async with app.run_test() as pilot:
             await _drive_command(app, pilot, "/undo")
+            await pilot.press("y")
+            await pilot.pause()
             assert "还没有任何快照" in _transcript_text(app)
+
+    _run(scenario())
+
+
+def test_undo_can_be_cancelled() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime([])
+        app = AgentTuiApp(runtime_factory=lambda: runtime)
+
+        async with app.run_test() as pilot:
+            await _drive_command(app, pilot, "/undo")
+            await pilot.press("n")
+            await pilot.pause()
+
+            assert runtime.restore_calls == []
+            assert "已取消回滚" in _transcript_text(app)
 
     _run(scenario())
 
@@ -1028,6 +1134,153 @@ def test_sidebar_updates_on_new_session() -> None:
     _run(scenario())
 
 
+def test_sidebar_shows_model_and_cost() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime(
+            [
+                RunStarted(thread_id="t"),
+                CostReport(cost_usd=0.0123),
+                RunFinished(thread_id="t"),
+            ]
+        )
+        runtime.settings = SimpleNamespace(deepseek_model="deepseek-chat")
+        app = AgentTuiApp(runtime_factory=lambda: runtime)
+
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "go"
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause()
+
+            info = _widget_text(app, "#session-info")
+            assert "deepseek-chat" in info
+            assert "$0.0123" in info
+            assert "就绪" in info
+
+    _run(scenario())
+
+
+def test_prompt_history_and_slash_suggestion() -> None:
+    async def scenario() -> None:
+        app = AgentTuiApp(runtime_factory=lambda: FakeRuntime([]))
+
+        async with app.run_test() as pilot:
+            prompt = app.query_one("#prompt", Input)
+            prompt.value = "/help"
+            await pilot.press("enter")
+            await pilot.pause()
+            prompt.value = "/workspace"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            await pilot.press("up")
+            assert prompt.value == "/workspace"
+            await pilot.press("up")
+            assert prompt.value == "/help"
+            await pilot.press("down")
+            assert prompt.value == "/workspace"
+
+            suggestion = await prompt.suggester.get_suggestion("/he")
+            assert suggestion == "/help"
+
+    _run(scenario())
+
+
+def test_multiline_editor_submits_text_with_newlines() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime([RunFinished(thread_id="t")])
+        app = AgentTuiApp(runtime_factory=lambda: runtime)
+
+        async with app.run_test() as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            assert type(app.screen).__name__ == "MultilineScreen"
+
+            app.screen.query_one("#multiline", TextArea).text = (
+                "第一行\n第二行"
+            )
+            await pilot.press("ctrl+enter")
+            await pilot.pause()
+            await pilot.pause()
+
+            assert runtime.calls[0][0] == "第一行\n第二行"
+
+    _run(scenario())
+
+
+def test_task_panel_tracks_workers() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime(
+            [
+                TaskGraphCreated(
+                    tasks=[
+                        {"id": "t1", "role": "explore", "goal": "定位"},
+                    ]
+                ),
+                WorkerStarted(
+                    task_id="t1", role="explore", goal="定位"
+                ),
+                WorkerFinished(
+                    task_id="t1", role="explore", status="success"
+                ),
+                RunFinished(thread_id="t"),
+            ]
+        )
+        app = AgentTuiApp(runtime_factory=lambda: runtime)
+
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "go"
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause()
+
+            text = _widget_text(app, "#tasks")
+            assert "t1" in text
+            assert "explore" in text
+            assert "success" in text
+
+    _run(scenario())
+
+
+def test_status_cost_and_checkpoints_commands() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime(
+            [
+                RunStarted(thread_id="t"),
+                CostReport(
+                    cost_usd=0.02,
+                    input_tokens=120,
+                    output_tokens=30,
+                    budget_usd=1.0,
+                ),
+                RunFinished(thread_id="t"),
+            ],
+            checkpoint_items=[
+                {"checkpoint_id": "cp-1", "step": 2, "preview": "看看"},
+            ],
+        )
+        app = AgentTuiApp(runtime_factory=lambda: runtime)
+
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "go"
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause()
+
+            await _drive_command(app, pilot, "/status")
+            await _drive_command(app, pilot, "/cost")
+            await _drive_command(app, pilot, "/checkpoints")
+            await pilot.pause()
+
+            text = _transcript_text(app)
+            assert "执行中" in text or "就绪" in text
+            assert "$0.0200" in text
+            assert "in 120 / out 30" in text
+            assert "cp-1" in text
+
+    _run(scenario())
+
+
 def test_busy_state_marks_the_input() -> None:
     """执行中要看得见 —— 否则用户会以为界面卡住了。"""
 
@@ -1108,6 +1361,80 @@ def test_busy_state_rejects_second_prompt() -> None:
 
             blocking.set()
             await pilot.pause()
+
+    _run(scenario())
+
+
+def test_new_session_is_refused_while_busy() -> None:
+    async def scenario() -> None:
+        blocking = asyncio.Event()
+
+        class BlockingRuntime(FakeRuntime):
+            async def run(self, prompt: str, *, thread_id: str):
+                self.calls.append((prompt, thread_id))
+                await blocking.wait()
+                yield RunFinished(thread_id=thread_id)
+
+        app = AgentTuiApp(runtime_factory=lambda: BlockingRuntime([]))
+
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "长任务"
+            await pilot.press("enter")
+            await pilot.pause()
+            before = app.session_id
+
+            await _drive_command(app, pilot, "/new")
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+
+            assert app.session_id == before
+            assert "无法新建会话" in _transcript_text(app)
+
+            blocking.set()
+            await pilot.pause()
+
+    _run(scenario())
+
+
+def test_quit_requires_confirmation_while_busy() -> None:
+    async def scenario() -> None:
+        blocking = asyncio.Event()
+
+        class BlockingRuntime(FakeRuntime):
+            async def run(self, prompt: str, *, thread_id: str):
+                self.calls.append((prompt, thread_id))
+                await blocking.wait()
+                yield RunFinished(thread_id=thread_id)
+
+        app = AgentTuiApp(runtime_factory=lambda: BlockingRuntime([]))
+
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "长任务"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            app.run_worker(app.action_quit())
+            await pilot.pause()
+            assert type(app.screen).__name__ == "ConfirmScreen"
+            await pilot.press("n")
+            await pilot.pause()
+            assert app.is_running
+
+            blocking.set()
+            await pilot.pause()
+
+    _run(scenario())
+
+
+def test_runtime_is_closed_on_unmount() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime([])
+        app = AgentTuiApp(runtime_factory=lambda: runtime)
+
+        async with app.run_test():
+            pass
+
+        assert runtime.closed is True
 
     _run(scenario())
 

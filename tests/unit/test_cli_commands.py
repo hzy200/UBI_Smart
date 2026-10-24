@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 import typer
@@ -16,7 +18,7 @@ from typer.testing import CliRunner
 from coding_agent.audit import AuditLogger, AuditRecord, read_records
 from coding_agent.cli import app as cli_app
 from coding_agent.config import Settings
-from coding_agent.events import ApprovalRequested
+from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
 from coding_agent.steering import SteeringController
 
 runner = CliRunner()
@@ -71,8 +73,9 @@ def _write_records(settings: Settings, count: int = 3) -> AuditLogger:
 
 @pytest.mark.parametrize(
     "command",
-    ["doctor", "sandbox-init", "chat", "run", "snapshots", "undo", "diff",
-     "sessions", "checkpoints", "fork", "rewind", "memory", "audit", "tui"],
+    ["doctor", "sandbox-init", "chat", "run", "repl", "resume", "steer",
+     "snapshots", "undo", "diff", "sessions", "history", "checkpoints", "fork",
+     "rewind", "memory", "audit", "tui", "gui", "version", "init", "rules"],
 )
 def test_every_command_has_help(command: str) -> None:
     result = runner.invoke(cli_app.app, [command, "--help"])
@@ -89,6 +92,25 @@ def test_root_help_lists_commands() -> None:
 
 def test_no_args_shows_help() -> None:
     assert runner.invoke(cli_app.app, []).exit_code != 0
+
+
+def test_show_completion_outputs_a_script() -> None:
+    result = runner.invoke(cli_app.app, ["--show-completion"])
+
+    assert result.exit_code == 0
+    assert "COMPLETE" in result.output or "compdef" in result.output
+
+
+def test_version_option_and_command() -> None:
+    expected = cli_app._package_version()
+
+    by_option = runner.invoke(cli_app.app, ["--version"])
+    by_command = runner.invoke(cli_app.app, ["version"])
+
+    assert by_option.exit_code == 0
+    assert by_command.exit_code == 0
+    assert expected in by_option.output
+    assert expected in by_command.output
 
 
 # ---------------- audit ----------------
@@ -156,6 +178,22 @@ def test_audit_reads_an_explicit_path(tmp_path, monkeypatch) -> None:
     assert "tool_call" in _text()
 
 
+def test_audit_json_output(tmp_path, monkeypatch) -> None:
+    settings = _scoped(tmp_path)
+    logger = _write_records(settings)
+    _use_settings(monkeypatch, settings)
+
+    result = runner.invoke(
+        cli_app.app,
+        ["audit", "--path", str(logger.path), "--json", "--limit", "2"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert len(payload) == 2
+    assert payload[0]["kind"] == "tool_call"
+
+
 # ---------------- sessions ----------------
 
 def test_sessions_lists_history(tmp_path, monkeypatch) -> None:
@@ -193,6 +231,307 @@ def test_sessions_respects_limit(tmp_path, monkeypatch) -> None:
     runner.invoke(cli_app.app, ["sessions", "--limit", "2"])
     assert "t4" in _text()
     assert "t0" not in _text()
+
+
+def test_sessions_json_output(tmp_path, monkeypatch) -> None:
+    settings = _scoped(tmp_path)
+    _write_records(settings)
+    _use_settings(monkeypatch, settings)
+
+    result = runner.invoke(cli_app.app, ["sessions", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload[0]["thread_id"] == "abc123"
+
+
+# ---------------- memory ----------------
+
+def test_memory_history_restore_and_provenance(monkeypatch) -> None:
+    calls: list[tuple] = []
+    backup_id = "20260101T000000000000"
+
+    class FakeMemory:
+        path = "/ws/.agent/memory.md"
+        last_unsafe: list[str] = []
+        last_replaced: list[str] = []
+
+        def history(self, limit: int = 20, *, scope: str = "project"):
+            return [{"backup_id": backup_id, "created_at": "2026-01-01T00:00:00"}]
+
+    class FakeRuntime:
+        def __init__(self, *args, **kwargs) -> None:
+            self.memory = FakeMemory()
+
+        def remember(self, text, **kwargs):
+            calls.append(("remember", text, kwargs))
+            return []
+
+        def forget(self, index, **kwargs):
+            calls.append(("forget", index, kwargs))
+            return []
+
+        def restore_memory(self, value, **kwargs):
+            calls.append(("restore", value, kwargs))
+            return []
+
+        def memories(self, **kwargs):
+            return []
+
+    monkeypatch.setattr(cli_app, "AgentRuntime", FakeRuntime)
+    _use_settings(monkeypatch, _scoped_for_history())
+
+    result = runner.invoke(cli_app.app, ["memory", "--history"])
+    assert result.exit_code == 0
+    assert backup_id in _text()
+
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "memory",
+            "--restore",
+            backup_id,
+            "--thread-id",
+            "t1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert calls[-1] == (
+        "restore",
+        backup_id,
+        {"thread_id": "t1", "scope": "project"},
+    )
+
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "memory",
+            "--add",
+            "用 pytest",
+            "--reason",
+            "约定",
+            "--ttl-days",
+            "7",
+            "--thread-id",
+            "t1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert calls[-1] == (
+        "remember",
+        "用 pytest",
+        {
+            "thread_id": "t1",
+            "reason": "约定",
+            "ttl_days": 7,
+            "scope": "project",
+        },
+    )
+
+
+def test_memory_vector_status_and_reindex(monkeypatch) -> None:
+    class FakeMemory:
+        path = "/ws/.agent/memory.md"
+
+        def status(self, *, scope: str = "project"):
+            return {
+                "enabled": True,
+                "provider": "hash",
+                "model": "hash-32",
+                "dimension": 32,
+                "error": "",
+                "scopes": {
+                    scope: {
+                        "facts": 2,
+                        "vectors": 1,
+                        "missing": 1,
+                        "header_ok": True,
+                    }
+                },
+            }
+
+        def reindex(self, *, scope: str = "project", force: bool = False):
+            return {
+                scope: {"facts": 2, "indexed": 1, "pruned": 0}
+            }
+
+    class FakeRuntime:
+        def __init__(self, *args, **kwargs) -> None:
+            self.memory = FakeMemory()
+
+    monkeypatch.setattr(cli_app, "AgentRuntime", FakeRuntime)
+    _use_settings(monkeypatch, _scoped_for_history())
+
+    result = runner.invoke(cli_app.app, ["memory", "--vector-status"])
+    assert result.exit_code == 0
+    assert "启用" in _text()
+    assert "vectors=1" in _text()
+
+    result = runner.invoke(cli_app.app, ["memory", "--reindex"])
+    assert result.exit_code == 0
+    assert "索引 1 条" in _text()
+
+
+# ---------------- rules ----------------
+
+def test_rules_add_and_remove_preserves_other_env_lines(
+    tmp_path, monkeypatch
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text(
+        "OTHER=1\nAGENT_ALLOW_RULES=shell_exec:git status*\n",
+        encoding="utf-8",
+    )
+    _use_settings(monkeypatch, _scoped_for_history())
+
+    result = runner.invoke(
+        cli_app.app,
+        ["rules", "--env-file", str(env), "--add", "run_tests:*"],
+    )
+    assert result.exit_code == 0
+    text = env.read_text(encoding="utf-8")
+    assert "OTHER=1" in text
+    assert "shell_exec:git status*" in text
+    assert "run_tests:*" in text
+
+    result = runner.invoke(
+        cli_app.app,
+        ["rules", "--env-file", str(env), "--remove", "run_tests:*"],
+    )
+    assert result.exit_code == 0
+    text = env.read_text(encoding="utf-8")
+    assert "run_tests:*" not in text
+    assert "shell_exec:git status*" in text
+
+
+def test_rules_rejects_bad_format(tmp_path, monkeypatch) -> None:
+    _use_settings(monkeypatch, _scoped_for_history())
+    result = runner.invoke(
+        cli_app.app,
+        ["rules", "--env-file", str(tmp_path / ".env"), "--add", "bad"],
+    )
+
+    assert result.exit_code == 2
+    assert "tool:pattern" in _text()
+
+
+def test_rules_json_output(tmp_path, monkeypatch) -> None:
+    env = tmp_path / ".env"
+    env.write_text("AGENT_ALLOW_RULES=a:b\n", encoding="utf-8")
+    _use_settings(monkeypatch, _scoped_for_history())
+
+    result = runner.invoke(
+        cli_app.app, ["rules", "--env-file", str(env), "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {"allow_rules": ["a:b"]}
+
+
+# ---------------- init ----------------
+
+def test_init_creates_env_from_template(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.example").write_text(
+        "DEEPSEEK_API_KEY=\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(cli_app.app, ["init"])
+
+    assert result.exit_code == 0
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == (
+        "DEEPSEEK_API_KEY=\n"
+    )
+    assert "agent doctor" in _text()
+
+
+def test_init_refuses_to_overwrite_without_force(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.example").write_text("NEW=1\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("OLD=1\n", encoding="utf-8")
+
+    result = runner.invoke(cli_app.app, ["init"])
+    assert result.exit_code == 0
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == "OLD=1\n"
+
+    result = runner.invoke(cli_app.app, ["init", "--force"])
+    assert result.exit_code == 0
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == "NEW=1\n"
+
+
+# ---------------- repl ----------------
+
+def test_repl_runs_turns_and_closes_runtime(monkeypatch) -> None:
+    instances = []
+
+    class FakeRuntime:
+        persistent = False
+        workspace = "/ws"
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.calls = []
+            self.closed = False
+            instances.append(self)
+
+        async def run(self, prompt, *, thread_id, plan_only=False):
+            self.calls.append((prompt, thread_id))
+            yield RunStarted(thread_id=thread_id)
+            yield RunFinished(thread_id=thread_id, answer="好")
+
+        async def resume(self, thread_id, decisions):
+            return
+            yield  # pragma: no cover
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    inputs = iter(["任务一", "exit"])
+    monkeypatch.setattr(cli_app, "AgentRuntime", FakeRuntime)
+    monkeypatch.setattr(
+        cli_app.console, "input", lambda *args, **kwargs: next(inputs)
+    )
+    _use_settings(monkeypatch, _scoped_for_history())
+
+    result = runner.invoke(cli_app.app, ["repl"])
+
+    assert result.exit_code == 0
+    assert instances[0].calls[0][0] == "任务一"
+    assert instances[0].closed is True
+
+
+# ---------------- history ----------------
+
+def test_history_prints_messages(monkeypatch) -> None:
+    class FakeRuntime:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def history(self, thread_id, *, limit=None, offset=0):
+            return [
+                SimpleNamespace(role="user", text="你好"),
+                SimpleNamespace(role="assistant", text="在"),
+            ]
+
+        async def aclose(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli_app, "AgentRuntime", FakeRuntime)
+    _use_settings(monkeypatch, _scoped_for_history())
+
+    result = runner.invoke(
+        cli_app.app, ["history", "--thread-id", "t1", "--json"]
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload == [
+        {"role": "user", "text": "你好"},
+        {"role": "assistant", "text": "在"},
+    ]
+
+
+def _scoped_for_history() -> Settings:
+    return Settings(_env_file=None, checkpoint_path=":memory:")
 
 
 # ---------------- doctor ----------------

@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata as metadata
 import ipaddress
+import json
+import os
 import shlex
 import sys
 import uuid
@@ -70,6 +72,7 @@ from coding_agent.events import (
 )
 from coding_agent.llm.deepseek import MissingApiKeyError, build_llm
 from coding_agent.llm.prompts import SYSTEM_PROMPT
+from coding_agent.memory.embeddings import embedding_status
 from coding_agent.memory.sessions import SessionIndex, format_table_rows
 from coding_agent.messages import text_of
 from coding_agent.runtime import AgentRuntime, submit_steering_command
@@ -88,8 +91,40 @@ def _configure_stdio() -> None:
 
 _configure_stdio()
 
-app = typer.Typer(add_completion=False, no_args_is_help=True, help="终端原生编程智能体")
+app = typer.Typer(add_completion=True, no_args_is_help=True, help="终端原生编程智能体")
 console = Console()
+
+
+def _package_version() -> str:
+    try:
+        return metadata.version("coding-agent")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(_package_version())
+        raise typer.Exit()
+
+
+@app.callback()
+def _root_options(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="显示版本并退出",
+    ),
+) -> None:
+    """终端原生编程智能体。"""
+
+
+@app.command()
+def version() -> None:
+    """显示当前安装的版本。"""
+    console.print(_package_version())
 
 _DISTRIBUTIONS = (
     "langgraph",
@@ -171,6 +206,11 @@ def _check_langsmith(settings: Settings) -> list[bool]:
     return [_report("LangSmith 追踪", True, detail)]
 
 
+def _check_memory_vectors(settings: Settings) -> list[bool]:
+    ok, detail = embedding_status(settings)
+    return [_report("记忆向量检索", ok, detail)]
+
+
 def _check_file_locks(settings: Settings) -> list[bool]:
     """探测审计目录是否支持 OS 文件锁。
 
@@ -242,6 +282,7 @@ def doctor() -> None:
         )
     )
     results.extend(_check_langsmith(settings))
+    results.extend(_check_memory_vectors(settings))
     results.extend(_check_file_locks(settings))
     profile = str(settings.security_profile or "local").strip().lower()
     results.append(
@@ -360,6 +401,44 @@ def sandbox_init() -> None:
     if not settings.wsl_workspace:
         console.print("[dim]当前按 $HOME 自动推导。如需固定，请写入 .env：[/]")
         console.print(f"[dim]AGENT_WSL_WORKSPACE={escape(resolved)}[/]")
+
+
+@app.command("init")
+def init(
+    force: bool = typer.Option(
+        False, "--force", help="覆盖已存在的 .env"
+    ),
+    env_file: str = typer.Option(
+        ".env", "--env-file", help="目标文件路径"
+    ),
+) -> None:
+    """从 .env.example 创建本地 .env。"""
+    target = Path(env_file)
+    source = Path.cwd() / ".env.example"
+    if not source.exists():
+        console.print(
+            f"[red]找不到模板 {escape(str(source))}；"
+            "请在仓库根目录执行，或手动创建 .env。[/]"
+        )
+        raise typer.Exit(code=1)
+    if target.exists() and not force:
+        console.print(
+            f"[yellow]{escape(str(target))} 已存在；"
+            "如需覆盖请加 --force。[/]"
+        )
+        return
+    try:
+        target.write_text(
+            source.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    except OSError as exc:
+        console.print(f"[red]写入 {escape(str(target))} 失败：{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[green]已创建 {escape(str(target))}[/]")
+    console.print(
+        "[dim]下一步：填入 DEEPSEEK_API_KEY，然后运行 "
+        "agent doctor 与 agent sandbox-init。[/]"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -638,6 +717,31 @@ def _ask_approval(requests: list[ApprovalRequested], *, assume_yes: bool) -> dic
     return decisions
 
 
+async def _consume_stream(
+    runtime: AgentRuntime,
+    stream,
+    thread_id: str,
+    render: Callable[[Event], None],
+    *,
+    assume_yes: bool = False,
+) -> None:
+    """消费一轮事件；审批挂起时逐条询问并 resume，直到真正跑完。"""
+    queue: list[ApprovalRequested] = []
+    async for event in stream:
+        render(event)
+        if isinstance(event, ApprovalRequested):
+            queue.append(event)
+
+    # 图每次挂起后都要重新续跑，可能连续挂起多次
+    while queue:
+        decisions = _ask_approval(queue, assume_yes=assume_yes)
+        queue = []
+        async for event in runtime.resume(thread_id, decisions):
+            render(event)
+            if isinstance(event, ApprovalRequested):
+                queue.append(event)
+
+
 async def _run_events(
     settings: Settings,
     prompt: str,
@@ -646,6 +750,7 @@ async def _run_events(
     workspace: str,
     *,
     assume_yes: bool = False,
+    plan_only: bool = False,
 ) -> None:
     runtime = AgentRuntime(settings, workspace=workspace or None, allow_write=allow_write)
     kind = "SQLite 持久化" if runtime.persistent else "进程内"
@@ -653,13 +758,148 @@ async def _run_events(
 
     render = _make_renderer()
     try:
-        queue: list[ApprovalRequested] = []
-        async for event in runtime.run(prompt, thread_id=thread_id):
-            render(event)
-            if isinstance(event, ApprovalRequested):
-                queue.append(event)
+        await _consume_stream(
+            runtime,
+            runtime.run(prompt, thread_id=thread_id, plan_only=plan_only),
+            thread_id,
+            render,
+            assume_yes=assume_yes,
+        )
+    except KeyboardInterrupt:
+        console.print("\n[dim]已中断[/]")
+    finally:
+        await runtime.aclose()
 
-        # 图每次挂起后都要重新续跑，可能连续挂起多次
+
+REPL_HELP = """\
+直接输入任务；工具调用与审批和 agent run 一致。
+  /new        开始新会话
+  /workspace  显示当前工作区
+  /help       显示本帮助
+  exit / quit 退出
+"""
+
+
+async def _repl_loop(
+    settings: Settings,
+    workspace: str,
+    *,
+    allow_write: bool,
+    thread_id: str,
+    assume_yes: bool = False,
+) -> None:
+    """带工具的交互式多轮会话。"""
+    runtime = AgentRuntime(
+        settings, workspace=workspace or None, allow_write=allow_write
+    )
+    kind = "SQLite 持久化" if runtime.persistent else "进程内"
+    console.print(
+        f"[dim]交互模式 · 工作区 {runtime.workspace} · checkpoint {kind}[/]"
+    )
+    console.print("[dim]输入 /help 查看命令，exit 退出。[/]\n")
+    try:
+        while True:
+            try:
+                text = console.input("[bold cyan]你 › [/]").strip()
+            except (EOFError, KeyboardInterrupt):
+                console.print()
+                return
+            if not text:
+                continue
+            lowered = text.lower()
+            if lowered in {"exit", "quit", ":q"}:
+                return
+            if text == "/help":
+                console.print(REPL_HELP.rstrip())
+                continue
+            if text == "/workspace":
+                console.print(f"工作区 {runtime.workspace}")
+                continue
+            if text == "/new":
+                thread_id = uuid.uuid4().hex[:8]
+                console.print(f"[dim]已开始新会话 {thread_id}[/]")
+                continue
+            try:
+                await _consume_stream(
+                    runtime,
+                    runtime.run(text, thread_id=thread_id),
+                    thread_id,
+                    _make_renderer(),
+                    assume_yes=assume_yes,
+                )
+            except KeyboardInterrupt:
+                console.print("\n[dim]已中断本轮；可继续输入下一条指令。[/]")
+    finally:
+        await runtime.aclose()
+
+
+@app.command("repl")
+def repl(
+    workspace: str = typer.Option(
+        "",
+        "--workspace",
+        "-C",
+        help="工作区：/mnt/d/proj、wsl:/home/u/proj 或 D:\\\\proj",
+    ),
+    write: bool = typer.Option(
+        False, "--write", help="放开 L1 低风险写命令与文件工具写入"
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="自动批准 L2 命令；L3 危险命令始终需要人工确认",
+    ),
+    thread_id: str = typer.Option(
+        "", "--thread-id", help="复用已有会话 id"
+    ),
+) -> None:
+    """带工具的交互式多轮会话（REPL）。"""
+    settings = apply_security_profile(get_settings())
+    if (
+        str(settings.security_profile or "").strip().lower()
+        in PRODUCTION_PROFILES
+        and (write or yes)
+    ):
+        console.print(
+            "[yellow]production/ops profile 是只读审计档："
+            "--write 与 --yes 不会生效，L2/L3 一律拒绝。[/]"
+        )
+    asyncio.run(
+        _repl_loop(
+            settings,
+            workspace,
+            allow_write=write,
+            thread_id=thread_id or uuid.uuid4().hex[:8],
+            assume_yes=yes,
+        )
+    )
+
+
+async def _resume_events(
+    settings: Settings,
+    thread_id: str,
+    workspace: str,
+    *,
+    allow_write: bool = False,
+    assume_yes: bool = False,
+) -> None:
+    """从 checkpoint 恢复：steering 暂停走 resume_steering，审批走 resume。"""
+    runtime = AgentRuntime(
+        settings, workspace=workspace or None, allow_write=allow_write
+    )
+    render = _make_renderer()
+    try:
+        if runtime.is_paused(thread_id):
+            async for event in runtime.resume_steering(thread_id):
+                render(event)
+            return
+
+        pending = await runtime.pending_approvals(thread_id)
+        if not pending:
+            console.print("[yellow]该会话没有可恢复的挂起状态。[/]")
+            return
+        queue = pending
         while queue:
             decisions = _ask_approval(queue, assume_yes=assume_yes)
             queue = []
@@ -690,11 +930,17 @@ def run(
         help="自动批准 L2 命令；L3 危险命令始终需要人工确认",
     ),
     thread_id: str = typer.Option("", "--thread-id", help="复用已有会话 id"),
+    plan_only: bool = typer.Option(
+        False,
+        "--plan-only",
+        help="只生成并展示计划，不执行任何工具或写操作",
+    ),
 ) -> None:
     """走 LangGraph 图执行一轮任务。
 
     默认只读；变更类命令（L2/L3）会先停下来请求你确认。
     `--yes` 只跳过 L2，L3 危险命令始终逐条确认。
+    `--plan-only` 只预览计划，适合在执行前审查范围与成本。
     """
     settings = apply_security_profile(get_settings())
     if (
@@ -713,6 +959,62 @@ def run(
             write,
             thread_id or uuid.uuid4().hex[:8],
             workspace,
+            assume_yes=yes,
+            plan_only=plan_only,
+        )
+    )
+
+
+@app.command("resume")
+def resume(
+    thread_id: str = typer.Option(..., "--thread-id", help="要恢复的会话 id"),
+    workspace: str = typer.Option(
+        "",
+        "--workspace",
+        "-C",
+        help="工作区；必须与挂起时一致（默认用当前配置）",
+    ),
+    write: bool = typer.Option(
+        False, "--write", help="恢复后放开 L1 低风险写入"
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="自动批准 L2 命令；L3 危险命令始终需要人工确认",
+    ),
+    steering_dir: str = typer.Option(
+        "",
+        "--steering-dir",
+        help=(
+            "与挂起时一致的 steering 目录；"
+            "留空用 AGENT_STEERING_DIR 或 <当前目录>/.agent/steering"
+        ),
+    ),
+) -> None:
+    """从 checkpoint 恢复被审批或 /pause 挂起的会话。
+
+    审批挂起会先读取 checkpoint 里的待批请求再逐条询问；steering 暂停
+    直接续跑。跨进程恢复不再依赖 TUI/Web。
+    """
+    settings = apply_security_profile(get_settings())
+    if steering_dir:
+        settings = settings.model_copy(update={"steering_dir": steering_dir})
+    if (
+        str(settings.security_profile or "").strip().lower()
+        in PRODUCTION_PROFILES
+        and (write or yes)
+    ):
+        console.print(
+            "[yellow]production/ops profile 是只读审计档："
+            "--write 与 --yes 不会生效，L2/L3 一律拒绝。[/]"
+        )
+    asyncio.run(
+        _resume_events(
+            settings,
+            thread_id,
+            workspace,
+            allow_write=write,
             assume_yes=yes,
         )
     )
@@ -744,7 +1046,7 @@ def steer(
     指令写入 `--steering-dir`（默认 `.agent/steering/`）并**先落审计**，
     运行中的进程会在下一个节点边界消费。队列目录必须与运行中的 agent
     一致：两者从不同目录启动时，请显式传 `--steering-dir` 或设置
-    `AGENT_STEERING_DIR`。跨进程 resume 仍请用 TUI 或 Web。
+    `AGENT_STEERING_DIR`。跨进程 resume 可用 `agent resume`、TUI 或 Web。
     """
     try:
         command = SteeringCommand(
@@ -778,6 +1080,13 @@ def steer(
         "运行中的 agent 会在下一个边界消费。"
     )
 
+
+_RULES_ADD_OPTION = typer.Option(
+    None, "--add", help="添加规则，可重复，如 shell_exec:git status*"
+)
+_RULES_REMOVE_OPTION = typer.Option(
+    None, "--remove", help="删除规则，可重复"
+)
 
 _WORKSPACE_OPTION = typer.Option(
     "",
@@ -924,6 +1233,7 @@ def _diff_text(raw: str) -> Text:
 @app.command()
 def sessions(
     limit: int = typer.Option(20, "--limit", "-n", help="显示最近多少个会话"),
+    json_output: bool = typer.Option(False, "--json", help="输出 JSON"),
 ) -> None:
     """列出历史会话（从审计日志归纳）。"""
     settings = get_settings()
@@ -931,7 +1241,27 @@ def sessions(
     found = index.list(limit=limit)
 
     if not found:
-        console.print(f"[dim]没有历史会话记录：{settings.resolved_audit_dir}[/]")
+        if json_output:
+            console.print_json("[]")
+        else:
+            console.print(
+                f"[dim]没有历史会话记录：{settings.resolved_audit_dir}[/]"
+            )
+        return
+
+    if json_output:
+        payload = [
+            {
+                "thread_id": info.thread_id,
+                "title": info.title,
+                "workspace": info.workspace,
+                "last_seen": info.last_seen,
+                "prompts": info.prompts,
+                "tool_calls": info.tool_calls,
+            }
+            for info in found
+        ]
+        console.print_json(json.dumps(payload, ensure_ascii=False))
         return
 
     table = Table(show_header=True, header_style="bold", box=None)
@@ -941,6 +1271,48 @@ def sessions(
         table.add_row(row[0], row[1], row[2], row[3], escape(row[4]))
     console.print(table)
     console.print("\n[dim]用 agent run --thread-id <会话 id> \"…\" 继续该会话[/]")
+
+
+@app.command()
+def history(
+    thread_id: str = typer.Option(..., "--thread-id", "-t", help="会话 id"),
+    limit: int = typer.Option(0, "--limit", "-n", help="最多显示多少条；0 = 全部"),
+    offset: int = typer.Option(0, "--offset", help="跳过开头多少条"),
+    json_output: bool = typer.Option(False, "--json", help="输出 JSON"),
+) -> None:
+    """查看某个会话的自然语言对话记录。"""
+
+    async def _go():
+        runtime = AgentRuntime(get_settings())
+        try:
+            return await runtime.history(
+                thread_id,
+                limit=limit or None,
+                offset=max(0, offset),
+            )
+        finally:
+            await runtime.aclose()
+
+    try:
+        messages = asyncio.run(_go())
+    except Exception as exc:  # noqa: BLE001 - 会话不存在要给可读提示
+        console.print(f"[red]{escape(str(exc))}[/]")
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        payload = [
+            {"role": message.role, "text": message.text}
+            for message in messages
+        ]
+        console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
+    if not messages:
+        console.print("[dim]该会话还没有对话记录。[/]")
+        return
+    for message in messages:
+        label = "你" if message.role == "user" else "助手"
+        style = "bold cyan" if message.role == "user" else "green"
+        console.print(f"[{style}]{label} › [/]{escape(message.text)}")
 
 
 @app.command()
@@ -1044,37 +1416,269 @@ def memory(
     add: str = typer.Option("", "--add", help="新增一条项目记忆"),
     forget: int = typer.Option(0, "--forget", help="删除第 N 条（序号从 1 开始）"),
     clear: bool = typer.Option(False, "--clear", help="清空全部记忆"),
+    ttl_days: int = typer.Option(
+        0, "--ttl-days", help="新增记忆的过期天数；0 = 长期有效"
+    ),
+    reason: str = typer.Option("", "--reason", help="记录新增原因（写入元数据）"),
+    thread_id: str = typer.Option(
+        "", "--thread-id", help="关联会话 id（写入审计）"
+    ),
+    show_history: bool = typer.Option(
+        False, "--history", help="列出最近的记忆备份"
+    ),
+    restore: str = typer.Option(
+        "", "--restore", help="恢复到指定备份 id"
+    ),
+    pin: int = typer.Option(0, "--pin", help="置顶第 N 条记忆"),
+    unpin: int = typer.Option(0, "--unpin", help="取消置顶第 N 条记忆"),
+    priority: str = typer.Option(
+        "", "--priority", help="设置优先级：N=值（值 -10..10）"
+    ),
+    show_conflicts: bool = typer.Option(
+        False, "--conflicts", help="列出可能相关/冲突的记忆"
+    ),
+    global_scope: bool = typer.Option(
+        False, "--global", help="操作跨工作区全局记忆（默认项目记忆）"
+    ),
+    vector_status: bool = typer.Option(
+        False, "--vector-status", help="查看向量索引状态"
+    ),
+    reindex: bool = typer.Option(
+        False, "--reindex", help="为缺失/过期的事实重建向量"
+    ),
+    reindex_force: bool = typer.Option(
+        False, "--reindex-force", help="强制重建全部向量"
+    ),
     workspace: str = _WORKSPACE_OPTION,
 ) -> None:
-    """查看或维护跨会话的项目记忆。"""
+    """查看或维护跨会话的项目/全局记忆。"""
     runtime = AgentRuntime(get_settings(), workspace=workspace or None)
+    scope = "global" if global_scope else "project"
+
+    if vector_status:
+        status = runtime.memory.status(scope=scope)
+        console.print(
+            f"[bold]向量检索[/] {'启用' if status['enabled'] else '未启用'}"
+        )
+        console.print(
+            f"provider={status['provider'] or '—'} "
+            f"model={status['model'] or '—'} "
+            f"dim={status['dimension'] or '—'}"
+        )
+        if status["error"]:
+            console.print(f"[yellow]{escape(status['error'])}[/]")
+        info = status["scopes"].get(scope) or {}
+        console.print(
+            f"{scope}: facts={info.get('facts', 0)} "
+            f"vectors={info.get('vectors', 0)} "
+            f"missing={info.get('missing', 0)} "
+            f"header_ok={info.get('header_ok', False)}"
+        )
+        return
+
+    if reindex or reindex_force:
+        result = runtime.memory.reindex(
+            scope=scope, force=reindex_force
+        )
+        for name, info in result.items():
+            console.print(
+                f"[green]{name}：索引 {info['indexed']} 条，"
+                f"清理 {info['pruned']} 条，当前 {info['facts']} 条[/]"
+            )
+        return
+
+    if show_history:
+        entries = runtime.memory.history(limit=20, scope=scope)
+        if not entries:
+            console.print("[dim]还没有记忆备份。[/]")
+            return
+        table = Table(show_header=True, header_style="bold", box=None)
+        for column in ("备份 id", "时间"):
+            table.add_column(column)
+        for entry in entries:
+            table.add_row(entry["backup_id"], entry["created_at"])
+        console.print(table)
+        return
+
+    if show_conflicts:
+        conflicts = runtime.memory.conflicts(scope=scope)
+        if not conflicts:
+            console.print("[dim]没有标记为冲突的记忆。[/]")
+            return
+        for item in conflicts:
+            console.print(
+                f"[yellow]{escape(str(item['fact']))}[/]"
+                f" ↔ {escape('；'.join(item['conflicts_with']))}"
+            )
+        return
 
     try:
-        if clear:
-            runtime.memory.clear()
-            console.print("[green]已清空项目记忆[/]")
+        if restore:
+            runtime.restore_memory(
+                restore, thread_id=thread_id, scope=scope
+            )
+            console.print(f"[green]已恢复记忆备份 {escape(restore)}[/]")
+        elif clear:
+            runtime.clear_memory(thread_id=thread_id, scope=scope)
+            console.print(f"[green]已清空{scope}记忆[/]")
         elif add:
-            runtime.remember(add)
+            runtime.remember(
+                add,
+                thread_id=thread_id,
+                reason=reason,
+                ttl_days=ttl_days or None,
+                scope=scope,
+            )
             replaced = getattr(runtime.memory, "last_replaced", [])
+            related = getattr(runtime.memory, "last_related", [])
             suffix = (
                 f"（已替换旧版本：{'；'.join(replaced)}）" if replaced else ""
             )
+            if related:
+                suffix += (
+                    f"（可能相关、未替换：{'；'.join(related)}；"
+                    "可用 --conflicts 查看）"
+                )
             console.print(f"[green]已记住{suffix}[/]")
         elif forget:
-            runtime.forget(forget)
+            runtime.forget(forget, thread_id=thread_id, scope=scope)
             console.print(f"[green]已删除第 {forget} 条[/]")
+        elif pin:
+            runtime.pin_memory(
+                pin, pinned=True, thread_id=thread_id, scope=scope
+            )
+            console.print(f"[green]已置顶第 {pin} 条[/]")
+        elif unpin:
+            runtime.pin_memory(
+                unpin, pinned=False, thread_id=thread_id, scope=scope
+            )
+            console.print(f"[green]已取消置顶第 {unpin} 条[/]")
+        elif priority:
+            raw_index, sep, raw_value = priority.partition("=")
+            if not sep:
+                raise ValueError("--priority 格式应为 N=值")
+            runtime.set_memory_priority(
+                int(raw_index),
+                int(raw_value),
+                thread_id=thread_id,
+                scope=scope,
+            )
+            console.print(
+                f"[green]已设置第 {raw_index} 条优先级为 {raw_value}[/]"
+            )
     except Exception as exc:  # noqa: BLE001 - 记忆文件读写失败要给可读提示
         console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(code=1) from exc
 
-    facts = runtime.memories()
+    facts = runtime.memories(scope=scope)
+    skipped = getattr(runtime.memory, "last_unsafe", [])
+    if skipped:
+        console.print(
+            f"[yellow]检测到 {len(skipped)} 条疑似密钥，"
+            "它们不会注入模型。[/]"
+        )
+    path_fn = getattr(runtime.memory, "path_for", None)
+    path = path_fn(scope) if callable(path_fn) else runtime.memory.path
     if not facts:
-        console.print(f"[dim]当前没有项目记忆。文件位置：{runtime.memory.path}[/]")
+        console.print(f"[dim]当前没有{scope}记忆。文件位置：{path}[/]")
         return
 
-    console.print(f"[dim]{runtime.memory.path}（{len(facts)} 条）[/]\n")
+    console.print(f"[dim]{path}（{len(facts)} 条）[/]\n")
     for index, fact in enumerate(facts, start=1):
         console.print(f"  {index}. {escape(fact)}")
+
+
+def _split_allow_rules(raw: str) -> list[str]:
+    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
+
+
+def _read_env_allow_rules(path: Path, fallback: str) -> list[str]:
+    if path.exists():
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("AGENT_ALLOW_RULES="):
+                    return _split_allow_rules(line.split("=", 1)[1])
+        except OSError:
+            pass
+    return _split_allow_rules(fallback)
+
+
+def _write_env_allow_rules(path: Path, rules: list[str]) -> None:
+    """只改 AGENT_ALLOW_RULES 一行，保留其余 .env 内容。"""
+    line = "AGENT_ALLOW_RULES=" + ",".join(rules)
+    lines: list[str] = []
+    if path.exists():
+        lines = path.read_text(encoding="utf-8").splitlines()
+    replaced = False
+    for index, existing in enumerate(lines):
+        if existing.startswith("AGENT_ALLOW_RULES="):
+            lines[index] = line
+            replaced = True
+            break
+    if not replaced:
+        lines.append(line)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    temp.replace(path)
+
+
+@app.command("rules")
+def rules(
+    add: list[str] | None = _RULES_ADD_OPTION,
+    remove: list[str] | None = _RULES_REMOVE_OPTION,
+    clear: bool = typer.Option(False, "--clear", help="清空全部放行规则"),
+    env_file: str = typer.Option(
+        ".env", "--env-file", help="要维护的 env 文件"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="输出 JSON"),
+) -> None:
+    """查看或维护 L2 持久放行规则（AGENT_ALLOW_RULES）。"""
+    settings = apply_security_profile(get_settings())
+    path = Path(env_file)
+    current = _read_env_allow_rules(path, settings.allow_rules)
+    additions = [item.strip() for item in (add or []) if item.strip()]
+    removals = {item.strip() for item in (remove or []) if item.strip()}
+    for rule in additions:
+        if ":" not in rule:
+            console.print(
+                f"[red]规则格式应为 tool:pattern：{escape(rule)}[/]"
+            )
+            raise typer.Exit(code=2)
+
+    changed = bool(additions or removals or clear)
+    updated = [] if clear else list(current)
+    for rule in additions:
+        if rule not in updated:
+            updated.append(rule)
+    if removals:
+        updated = [rule for rule in updated if rule not in removals]
+
+    if changed:
+        try:
+            _write_env_allow_rules(path, updated)
+        except OSError as exc:
+            console.print(f"[red]写入 {escape(str(path))} 失败：{exc}[/]")
+            raise typer.Exit(code=1) from exc
+        console.print(
+            f"[green]已更新 {escape(str(path))} 的 AGENT_ALLOW_RULES"
+            "（新进程生效）[/]"
+        )
+
+    if json_output:
+        console.print_json(
+            json.dumps({"allow_rules": updated}, ensure_ascii=False)
+        )
+        return
+    if not updated:
+        console.print("[dim]当前没有持久放行规则。[/]")
+        return
+    console.print("[bold]当前持久放行规则[/]")
+    for rule in updated:
+        console.print(f"  {escape(rule)}")
+    if str(settings.security_profile or "").lower() != "local":
+        console.print(
+            "[yellow]注意：untrusted/production profile 会忽略 allow_rules。[/]"
+        )
 
 
 @app.command()
@@ -1083,6 +1687,7 @@ def audit(
     thread_id: str = typer.Option("", "--thread-id", help="只显示指定会话"),
     path: str = typer.Option("", "--path", help="审计文件路径，默认用配置推导"),
     verify: bool = typer.Option(False, "--verify", help="验证审计哈希链"),
+    json_output: bool = typer.Option(False, "--json", help="输出 JSON"),
 ) -> None:
     """查看或验证审计日志。"""
     settings = get_settings()
@@ -1109,7 +1714,19 @@ def audit(
     )
 
     if not records:
-        console.print(f"[dim]没有审计记录：{label}[/]")
+        if json_output:
+            console.print_json("[]")
+        else:
+            console.print(f"[dim]没有审计记录：{label}[/]")
+        return
+
+    if json_output:
+        console.print_json(
+            json.dumps(
+                [record.model_dump(mode="json") for record in records],
+                ensure_ascii=False,
+            )
+        )
         return
 
     console.print(f"[dim]{label}（最近 {len(records)} 条）[/]\n")
@@ -1287,6 +1904,7 @@ def web(
                 settings,
                 auth,
                 hsts=bool(ssl_keyfile or behind_proxy),
+                stream_buffer=True,
             ),
             host=host,
             port=port,
@@ -1297,6 +1915,66 @@ def web(
         )
     finally:
         lock.release()
+
+
+@app.command()
+def gui(
+    workspace: str = typer.Option(
+        "",
+        "--workspace",
+        "-C",
+        help="工作区：/mnt/d/proj、wsl:/home/u/proj 或 D:\\\\proj；Git Bash 建议用 wsl: 前缀",
+    ),
+    write: bool = typer.Option(
+        False,
+        "--write",
+        help="允许会话选择审批写/自动写；默认所有会话只读",
+    ),
+    port: int = typer.Option(0, "--port", help="本地服务端口；0 表示自动分配"),
+    setup: bool = typer.Option(False, "--setup", help="重新运行 WSL 配置向导"),
+    host_mode: bool = typer.Option(
+        False,
+        "--host-mode",
+        help="旧 Windows 宿主模式；默认使用 WSL Agent Server",
+    ),
+) -> None:
+    """启动桌面图形界面。
+
+    Windows 默认：配置向导 + WSL Agent Server + WebView；
+    `--host-mode` 保留旧的 Windows 宿主模式。
+    """
+    try:
+        if os.name == "nt" and not host_mode:
+            from coding_agent.desktop.launcher import main as launch
+
+            argv = ["--setup"] if setup else []
+            if workspace:
+                argv += ["--workspace", workspace]
+            if write:
+                argv.append("--write")
+            code = launch(argv)
+            if code:
+                raise typer.Exit(code=code)
+            return
+        from coding_agent.desktop import run_desktop
+    except ImportError as exc:
+        hint = escape('pip install -e ".[web,desktop]"')
+        console.print(f"[red]未安装桌面依赖。请运行：{hint}[/]")
+        raise typer.Exit(code=2) from exc
+    except RuntimeError as exc:
+        console.print(f"[red]{escape(str(exc))}[/]")
+        raise typer.Exit(code=2) from exc
+
+    try:
+        run_desktop(
+            get_settings(),
+            workspace=workspace,
+            allow_write=write,
+            port=port,
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]{escape(str(exc))}[/]")
+        raise typer.Exit(code=2) from exc
 
 
 @app.command()
