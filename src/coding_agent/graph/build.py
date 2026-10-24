@@ -27,10 +27,12 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from coding_agent.access import ACCESS_READ_ONLY
 from coding_agent.agents.explore import make_explore_runner, make_review_runner
 from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import (
@@ -60,6 +62,7 @@ from coding_agent.graph.routing import (
     ADVANCE,
     APPROVE,
     NUDGE,
+    PLAN_PREVIEW,
     REPAIR,
     REPLAN,
     RESPOND,
@@ -71,6 +74,7 @@ from coding_agent.graph.routing import (
     VERIFY,
     make_route_after_review,
     make_route_after_verify,
+    route_after_planner,
     route_after_replan,
     route_after_steering_cancel,
     route_after_steering_step,
@@ -78,13 +82,17 @@ from coding_agent.graph.routing import (
 )
 from coding_agent.graph.state import AgentState
 from coding_agent.llm.deepseek import build_llm
-from coding_agent.memory.longterm import resolve_memory_root
+from coding_agent.memory.longterm import (
+    resolve_global_memory_root,
+    resolve_memory_root,
+)
 from coding_agent.orchestrator import make_worker_runner, route_entry
 from coding_agent.orchestrator.implement import make_implement_runner
 from coding_agent.orchestrator.subgraph import build_orchestrator_subgraph
 from coding_agent.read_cache import ReadCache
+from coding_agent.sandbox.backend import build_sandbox
 from coding_agent.sandbox.policy import SessionPolicy, parse_allow_rules
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from coding_agent.sandbox.wsl_exec import resolve_workspace
 from coding_agent.steering import SteeringController
 from coding_agent.tool_journal import ToolJournal
 from coding_agent.tools.delegate import EXPLORE_TOOL_NAMES, build_delegate_tool
@@ -168,15 +176,23 @@ def estimate_recursion_limit(
     return base + orchestrator_extra
 
 
+def _plan_preview_node(_state: AgentState) -> dict[str, str]:
+    """计划预览的收尾节点：不执行 act，只把本轮标记为正常结束。"""
+    return {"run_status": "finished"}
+
+
 def build_graph(
     settings: Settings | None = None,
     *,
     checkpointer=None,
     allow_write: bool = False,
     policy: SessionPolicy | None = None,
-    sandbox: WslSandbox | None = None,
+    sandbox: Any | None = None,
     steering: SteeringController | None = None,
     governor: ConcurrencyGovernor | None = None,
+    model_override: str = "",
+    provider_name: str = "",
+    secret_store: Any | None = None,
 ):
     # 一次运行只该有一份沙箱：环境探测（$HOME、bwrap、rg）的结果缓存在**实例**上，
     # 各建一份就等于各探一遍 —— 曾经这里是 runtime / build_tools / verify 三份，
@@ -189,9 +205,10 @@ def build_graph(
         approval_mode=settings.approval_mode,
         allow_rules=parse_allow_rules(settings.allow_rules),
         read_deny_globs=settings.read_deny_globs,
+        security_profile=settings.security_profile,
     )
     governor = governor or ConcurrencyGovernor(settings)
-    sandbox = sandbox or WslSandbox(settings, slots=governor.wsl)
+    sandbox = sandbox or build_sandbox(settings, slots=governor.wsl)
     # runtime 会把自己的 controller 传进来；直接 build_graph 的调用方
     # （测试、脚本）拿一个空队列即可。
     steering = steering or SteeringController()
@@ -203,14 +220,17 @@ def build_graph(
         sandbox.settings = settings.model_copy(update={"wsl_workspace": root})
     # 不可信仓库的记忆在仓库外；bwrap 只绑定工作区，必须显式加入可写绑定。
     memory_root = resolve_memory_root(settings, sandbox, root)
-    if memory_root != root:
-        sandbox.ensure_directory(memory_root)
-        sandbox.add_extra_bind(memory_root)
+    global_memory_root = resolve_global_memory_root(settings, sandbox)
+    for path in [memory_root, global_memory_root]:
+        if path and path != root:
+            sandbox.ensure_directory(path)
+            sandbox.add_extra_bind(path)
     # 同一次运行内只读 worker 共享内容缓存；写路径会主动失效。
     read_cache = ReadCache(settings.read_cache_max_bytes)
     tools = build_tools(
         settings,
         allow_write=allow_write,
+        allow_execution=policy.access_mode != ACCESS_READ_ONLY,
         sandbox=sandbox,
         read_cache=read_cache,
     )
@@ -224,9 +244,12 @@ def build_graph(
     llm = build_llm(
         settings,
         streaming=True,
+        model_override=model_override,
+        provider_name=provider_name,
         task_type="agent",
         required_capabilities=("tools", "chat"),
         governor=governor,
+        secret_store=secret_store,
     )
     # 模型分层：explore/review/implement worker 可独立使用更便宜的模型；
     # 空串表示沿用主模型。
@@ -236,8 +259,10 @@ def build_graph(
                 settings,
                 streaming=True,
                 model_override=settings.orchestrator_worker_model,
+                provider_name=provider_name,
                 task_type="worker",
                 governor=governor,
+                secret_store=secret_store,
             )
 
     # 子智能体/编排 worker 共用同一份只读 Explore runner。
@@ -281,6 +306,7 @@ def build_graph(
             retry_max_total_wait=settings.retry_max_total_wait_s,
         ),
     )
+    graph.add_node(PLAN_PREVIEW, _plan_preview_node)
     graph.add_node(
         "act",
         make_act_node(
@@ -378,7 +404,12 @@ def build_graph(
         route_after_synthesize,
         {STEERING_FINAL: STEERING_FINAL, "planner": "planner"},
     )
-    graph.add_edge("planner", "act")
+    graph.add_conditional_edges(
+        "planner",
+        route_after_planner,
+        {ACT: "act", PLAN_PREVIEW: PLAN_PREVIEW},
+    )
+    graph.add_edge(PLAN_PREVIEW, END)
     # act ⇄ tools 的每一段都先过取消检查点：cancel 不必等整个 step 跑完，
     # 且在真正执行工具之前就能截断。add/replan/pause 不在这里消费。
     graph.add_edge("act", STEERING_CANCEL)

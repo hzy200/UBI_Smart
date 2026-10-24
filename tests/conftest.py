@@ -15,7 +15,11 @@ def _forbid_real_wsl_unless_marked(request: pytest.FixtureRequest, monkeypatch) 
     确实需要探测宿主 WSL 的用例（如 `doctor`）标 `@pytest.mark.wsl_env` 放行；
     需要真实沙箱的集成用例标 `@pytest.mark.wsl`。
     """
-    if request.node.get_closest_marker("wsl") or request.node.get_closest_marker("wsl_env"):
+    if (
+        request.node.get_closest_marker("wsl")
+        or request.node.get_closest_marker("wsl_env")
+        or request.node.get_closest_marker("execution")
+    ):
         return
 
     def _boom(*args, **kwargs):  # noqa: ANN002, ANN003

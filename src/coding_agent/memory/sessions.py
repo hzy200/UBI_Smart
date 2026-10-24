@@ -13,7 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from coding_agent.audit.logger import audit_files_by_day, read_records
-from coding_agent.audit.models import PLAN, RUN_END, RUN_START, TOOL_CALL
+from coding_agent.audit.models import (
+    PLAN,
+    RUN_END,
+    RUN_ERROR,
+    RUN_START,
+    TOOL_CALL,
+)
 
 # 只扫最近这么多**天**的审计文件，避免长年累积后越读越慢。
 # 单位是天而不是文件：启用轮转（AGENT_AUDIT_MAX_MB > 0）后一天会有多片，
@@ -32,6 +38,9 @@ class SessionInfo:
     prompts: int = 0
     tool_calls: int = 0
     plans: int = 0
+    runs: int = 0
+    # 最近一次 run_start 之后没有 run_end/run_error：进程可能异常退出。
+    interrupted: bool = False
 
     @property
     def started_day(self) -> str:
@@ -83,12 +92,18 @@ class SessionIndex:
                     if record.workspace:
                         info.workspace = record.workspace
                     info.prompts += 1
+                    info.runs += 1
+                    info.interrupted = True
+                elif record.kind in (RUN_END, RUN_ERROR):
+                    info.interrupted = False
+                    if record.kind == RUN_END and info.title == "":
+                        info.title = " ".join(record.detail.split())[
+                            :TITLE_CHARS
+                        ]
                 elif record.kind == TOOL_CALL:
                     info.tool_calls += 1
                 elif record.kind == PLAN:
                     info.plans += 1
-                elif record.kind == RUN_END and info.title == "":
-                    info.title = " ".join(record.detail.split())[:TITLE_CHARS]
 
         ordered = sorted(sessions.values(), key=lambda s: s.last_active, reverse=True)
         # limit <= 0 表示不限量（与 audit.read_records 的约定一致）

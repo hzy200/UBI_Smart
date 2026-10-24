@@ -21,10 +21,13 @@ from coding_agent.config import Settings
 from coding_agent.memory.longterm import (
     MAX_FACT_CHARS,
     MAX_FACTS,
+    LayeredMemory,
     LongTermMemory,
     MemoryError,
+    resolve_global_memory_root,
     resolve_memory_root,
 )
+from coding_agent.memory.semantic import wrap_memory
 from coding_agent.sandbox.fs import SandboxFs
 from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
 from coding_agent.tools.artifacts import CallArtifact, pack
@@ -74,27 +77,44 @@ def build_memory_tools(
     workspace = resolve_workspace(settings, sandbox)
     memory_root = resolve_memory_root(settings, sandbox, workspace)
     fs = SandboxFs(sandbox, memory_root, cache=read_cache)
-    memory = LongTermMemory(fs, workspace, state_root=memory_root)
+    project = LongTermMemory(fs, workspace, state_root=memory_root)
+    global_root = resolve_global_memory_root(settings, sandbox)
+    global_memory = (
+        LongTermMemory(
+            SandboxFs(sandbox, global_root, cache=read_cache),
+            global_root,
+            state_root=global_root,
+        )
+        if global_root
+        else None
+    )
+    memory = wrap_memory(LayeredMemory(project, global_memory), settings)
 
     def _search(query: str, limit: int, reason: str) -> str:
         del reason
         facts = memory.search(query, limit)
+        skipped = len(memory.last_unsafe)
         if not facts:
+            note = (
+                f"（另有 {skipped} 条疑似密钥已跳过）" if skipped else ""
+            )
             return pack(
-                "当前没有项目记忆。",
+                f"当前没有项目记忆。{note}",
                 CallArtifact(tool=MEMORY_SEARCH, ok=True),
             )
         total = len(memory.load())
         lines = "\n".join(f"- {fact}" for fact in facts)
+        note = f"\n（另有 {skipped} 条疑似密钥已跳过）" if skipped else ""
         return pack(
-            f"项目记忆（显示 {len(facts)} / {total} 条）：\n{lines}",
+            f"项目记忆（显示 {len(facts)} / {total} 条）：\n{lines}{note}",
             CallArtifact(tool=MEMORY_SEARCH, ok=True),
         )
 
     def _save(fact: str, reason: str, ttl_days: int | None = None) -> str:
-        del reason
         try:
-            facts = memory.add(fact, source="model", ttl_days=ttl_days)
+            facts = memory.add(
+                fact, source="model", ttl_days=ttl_days, reason=reason
+            )
         except MemoryError as exc:
             return pack(
                 f"记忆保存失败：{exc}",

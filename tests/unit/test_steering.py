@@ -136,6 +136,50 @@ def test_add_rejects_write_roles() -> None:
         SteeringCommand("resume")
 
 
+def test_begin_run_keeps_only_the_current_run(tmp_path) -> None:
+    controller = SteeringController(tmp_path)
+    controller.begin_run("t", "run-1")
+    controller.submit("t", SteeringCommand("add", text="甲"))
+    controller.submit(
+        "t", SteeringCommand("add", text="旧", run_id="run-0")
+    )
+    controller.submit("t", SteeringCommand("replan"))
+    controller.mark_paused("t")
+
+    stale = controller.begin_run("t", "run-2")
+
+    assert [item.action for item in stale] == ["add", "add", "replan"]
+    assert controller.peek("t") == []
+    assert controller.active_run_id("t") == "run-2"
+    # 新 run 不继承上一轮的暂停标记。
+    assert controller.is_paused("t") is False
+
+
+def test_run_id_and_pause_survive_a_new_controller(tmp_path) -> None:
+    first = SteeringController(tmp_path)
+    first.begin_run("t", "run-1")
+    first.submit("t", SteeringCommand("add", text="甲"))
+    first.mark_paused("t")
+
+    second = SteeringController(tmp_path)
+
+    assert second.active_run_id("t") == "run-1"
+    assert second.is_paused("t") is True
+    assert [item.run_id for item in second.peek("t")] == ["run-1"]
+
+
+def test_clear_returns_discarded_commands(tmp_path) -> None:
+    controller = SteeringController(tmp_path)
+    controller.begin_run("t", "run-1")
+    controller.submit("t", SteeringCommand("cancel"))
+
+    removed = controller.clear("t")
+
+    assert [item.action for item in removed] == ["cancel"]
+    assert controller.active_run_id("t") == ""
+    assert controller.peek("t") == []
+
+
 def test_pause_flag_is_cleared_by_controller_clear() -> None:
     controller = SteeringController()
     controller.mark_paused("t")

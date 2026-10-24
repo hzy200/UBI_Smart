@@ -90,6 +90,17 @@ class AssistantToken(Event):
     text: str = ""
 
 
+class ReasoningToken(Event):
+    """provider 暴露的 reasoning/thinking 流（best-effort）。
+
+    不是所有模型都提供；前端应默认折叠，不能把它当最终答复。
+    """
+
+    type: Literal["reasoning_token"] = "reasoning_token"
+    node: str = ""
+    text: str = ""
+
+
 class ToolCallStarted(Event):
     """模型请求了一次工具调用，即将执行。
 
@@ -440,6 +451,7 @@ EventType = (
     | StepStarted
     | StepFinished
     | AssistantToken
+    | ReasoningToken
     | ToolCallStarted
     | ToolCallFinished
     | FileChanged

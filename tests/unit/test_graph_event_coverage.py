@@ -38,6 +38,9 @@ SILENT_NODES = {
     # 子图包装节点本身不直接产生事件；内层 survey/select_plan/scheduler/
     # fan_in 的更新由 `subgraphs=True` 上报，另有子图事件测试覆盖。
     "orchestrator",
+    # --plan-only 的收尾节点只把 run_status 置为 finished；计划本身
+    # 已由 planner 产出 PlanCreated，无需额外事件。
+    "plan_preview",
 }
 
 # 子图内部节点：运行时通过 subgraphs=True 看到它们，但父图拓扑里只有

@@ -17,7 +17,13 @@ from langchain_core.runnables import RunnableConfig
 from coding_agent.agents.explore import DelegateRunner
 from coding_agent.config import Settings
 from coding_agent.instructions import load_project_instructions
-from coding_agent.memory.longterm import LongTermMemory, resolve_memory_root
+from coding_agent.memory.longterm import (
+    LayeredMemory,
+    LongTermMemory,
+    resolve_global_memory_root,
+    resolve_memory_root,
+)
+from coding_agent.memory.semantic import wrap_memory
 from coding_agent.orchestrator.contracts import WorkerResult
 from coding_agent.orchestrator.implement import ImplementRunner
 from coding_agent.orchestrator.retry import format_retry_context
@@ -41,8 +47,21 @@ def make_worker_runner(
     # 并发 worker 共享同一份记忆读取；只读文件，不持有业务状态。
     effective = settings or Settings(_env_file=None)
     memory_root = resolve_memory_root(effective, sandbox, root)
-    memory = LongTermMemory(
+    project_memory = LongTermMemory(
         SandboxFs(sandbox, memory_root), root, state_root=memory_root
+    )
+    global_root = resolve_global_memory_root(effective, sandbox)
+    global_memory = (
+        LongTermMemory(
+            SandboxFs(sandbox, global_root),
+            global_root,
+            state_root=global_root,
+        )
+        if global_root
+        else None
+    )
+    memory = wrap_memory(
+        LayeredMemory(project_memory, global_memory), effective
     )
     # 指令加载要起一次 WSL `find`：延迟到第一次真正跑 worker 时再做，
     # 纯 direct 会话不为编排功能付启动成本。

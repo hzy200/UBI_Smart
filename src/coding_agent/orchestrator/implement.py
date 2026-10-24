@@ -33,6 +33,7 @@ from coding_agent.codeintel.python_index import (
     related_test_files,
 )
 from coding_agent.config import Settings
+from coding_agent.execution.context import tool_execution_context
 from coding_agent.llm.prompts import (
     IMPLEMENT_WORKER_PROMPT,
     format_verification_feedback,
@@ -57,7 +58,7 @@ from coding_agent.tools.files import (
 )
 from coding_agent.tools.registry import build_tools
 from coding_agent.tools.search import FIND_FILES, SEARCH_CODE
-from coding_agent.tools.testrun import related_test_paths, run_verification
+from coding_agent.tools.testrun import run_verification
 
 # 注意：**不含 file_delete**。删除在主管道路径是 L2（逐条确认），而 worker
 # 直接调用工具、不经过 approval_gate；把它留给主 agent，避免并发写 worker
@@ -251,13 +252,16 @@ def _peer_dependency_failure(
 def _impacted_tests(
     sandbox: WslSandbox, worktree: str, changed: list[str]
 ) -> list[str]:
-    """优先用 AST import 图选测试；索引不可用时回退文件名启发式。"""
+    """用 AST import 图选测试；索引不可用时返回空，触发全量验证。
+
+    这里**不再**用文件名启发式兜底：索引失败、改动文件含非字面量动态
+    import 或未被收集时，任何收窄都可能漏跑测试。`related_test_files`
+    内部仍保留文件名启发式，但只在索引可靠时参与选择。
+    """
     sources = collect_python_sources(sandbox, worktree)
-    if sources:
-        related = related_test_files(build_index(sources), changed)
-        if related:
-            return related
-    return related_test_paths(sandbox, worktree, changed)
+    if not sources:
+        return []
+    return related_test_files(build_index(sources), changed)
 
 
 def _make_patch(
@@ -531,9 +535,14 @@ def make_implement_runner(
                             ok = False
                         else:
                             try:
-                                raw = await asyncio.to_thread(
-                                    tool.invoke, call_args, child_config
-                                )
+                                with tool_execution_context(
+                                    f"worker:{task_id}", call_id
+                                ):
+                                    raw = await asyncio.to_thread(
+                                        tool.invoke,
+                                        call_args,
+                                        child_config,
+                                    )
                                 content, artifact = unpack(raw)
                                 ok = (
                                     bool(artifact.get("ok", True))

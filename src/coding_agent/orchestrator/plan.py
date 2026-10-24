@@ -208,7 +208,8 @@ def make_plan_tasks_node(
                                             _IMPLEMENT_RULES
                                             + (
                                                 "\n- 允许不同 implement 修改同一文件；"
-                                                "宿主会用 3-way 合并，冲突时整批回滚。"
+                                                "宿主会用 3-way 合并；"
+                                                "冲突时只回滚冲突文件所在分量。"
                                                 if settings.orchestrator_allow_overlap
                                                 else ""
                                             )

@@ -4,9 +4,11 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from coding_agent.graph.routing import (
+    ACT,
     ADVANCE,
     APPROVE,
     NUDGE,
+    PLAN_PREVIEW,
     REPAIR,
     REPLAN,
     RESPOND,
@@ -16,6 +18,7 @@ from coding_agent.graph.routing import (
     make_route_after_review,
     make_route_after_verify,
     route_after_act,
+    route_after_planner,
 )
 
 MAX_REPAIRS = 3
@@ -343,3 +346,9 @@ def test_nudge_off_middle_implement_without_changes_advances() -> None:
         plan_kinds=["implement", "verify"],
     )
     assert route_after_review_no_nudge(state) == ADVANCE
+
+
+def test_route_after_planner_skips_execution_in_plan_only() -> None:
+    assert route_after_planner({"plan_only": True}) == PLAN_PREVIEW
+    assert route_after_planner({"plan_only": False}) == ACT
+    assert route_after_planner({}) == ACT

@@ -38,9 +38,9 @@ from coding_agent.orchestrator.scheduling import (
     RateLimitState,
     TokenBudget,
     aged_priority,
+    ewma_usage,
     task_priority,
     task_token_reserve,
-    usage_tokens,
 )
 from coding_agent.orchestrator.workers import WorkerRunner
 from coding_agent.sandbox.wsl_exec import WslSandbox
@@ -299,7 +299,7 @@ def make_scheduler_node(
             heapq.heapify(ready)
 
         def estimate_tokens(task: dict[str, Any]) -> int:
-            """优先用显式 max_tokens；否则用同角色历史实际用量的均值。"""
+            """优先用显式 max_tokens；否则用同角色历史用量的 EWMA。"""
             explicit = task.get("max_tokens")
             if explicit is not None:
                 try:
@@ -308,15 +308,9 @@ def make_scheduler_node(
                     value = 0
                 if value > 0:
                     return value
-            role = str(task.get("role", ""))
-            samples = [
-                usage_tokens(result)
-                for result in results
-                if str(result.get("role", "")) == role
-                and usage_tokens(result) > 0
-            ]
-            if samples:
-                estimate = int(sum(samples) / len(samples) * 1.2)
+            observed = ewma_usage(results, str(task.get("role", "")))
+            if observed > 0:
+                estimate = int(observed * 1.2)
             else:
                 estimate = task_token_reserve(task)
             return max(500, min(estimate, 16_000))

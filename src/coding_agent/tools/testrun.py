@@ -62,6 +62,10 @@ _UNITTEST_FAILED = re.compile(
 # 允许的 pytest nodeid：路径段 + ::测试名；不接受空白、shell 元字符与 `..`
 _PYTEST_NODEID = re.compile(r"^[A-Za-z0-9_./-]+(?:::[A-Za-z0-9_\[\].-]+)*$")
 _UNITTEST_NODEID = re.compile(r"^[A-Za-z_][\w.]*$")
+# 只匹配“纯 pytest”命令：项目解释器（.venv/bin/python）与系统 python3 都算。
+_PYTEST_COMMAND_RE = re.compile(
+    r"^(?:[A-Za-z0-9_./-]+/)?python[0-9.]*\s+-m\s+pytest\b|^pytest\b"
+)
 # pytest 的断言细节行：E   assert 1 == 2
 _ASSERTION_LINE = re.compile(r"^E\s+(?P<msg>\S.*)$", re.MULTILINE)
 # 异常收尾行：AssertionError: 0 != 2（unittest 与 pytest 都有）
@@ -283,7 +287,7 @@ def _selected_command(resolved: str, only: tuple[str, ...]) -> str:
         return ""
     # 只对「就是 pytest」的命令做追加；`cd x && pytest` / `pytest && ruff`
     # 这类组合命令追加参数会改变语义，退回全量更安全。
-    if not (resolved.startswith("python3 -m pytest") or resolved.startswith("pytest")):
+    if not _PYTEST_COMMAND_RE.match(resolved):
         return ""
     safe = []
     for nodeid in only:
@@ -359,7 +363,12 @@ def _probe_script(files: tuple[str, ...]) -> str:
         f"for f in {quoted}; do [ -e \"$f\" ] && echo \"FILE $f\"; done; "
         f"[ -d tests ] && echo \"DIR tests\"; "
         f"[ -d test ] && echo \"DIR test\"; "
-        f"command -v python3 >/dev/null && python3 -c 'import pytest' 2>/dev/null "
+        # 项目自己的虚拟环境优先；没有才回退系统 python3。
+        f"PY=\"\"; for c in .venv/bin/python venv/bin/python env/bin/python; do "
+        f"[ -x \"$c\" ] && PY=\"$c\" && break; done; "
+        f"[ -n \"$PY\" ] && echo \"PY $PY\"; "
+        f"BIN=\"${{PY:-python3}}\"; command -v \"$BIN\" >/dev/null "
+        f"&& \"$BIN\" -c 'import pytest' 2>/dev/null "
         f"&& echo \"HAS pytest\"; "
         f"[ -f Makefile ] && grep -qE '^test:' Makefile && echo \"MAKE test\"; "
         f"[ -f package.json ] && grep -q '\"test\"' package.json && echo \"NPM test\"; "
@@ -379,7 +388,11 @@ def _detect(sandbox: WslSandbox, root: str, *, allow_manifest: bool) -> str:
     执行路径。带上 `allow_manifest=True` 的只有走审批的 `run_tests` 工具。
     """
     result = sandbox.run(_probe_script(_PROBE_FILES), cwd=root)
-    lines = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    rows = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    lines = set(rows)
+    project_python = next(
+        (row[3:].strip() for row in rows if row.startswith("PY ")), ""
+    )
 
     if "FILE Cargo.toml" in lines:
         return "cargo test"
@@ -396,7 +409,9 @@ def _detect(sandbox: WslSandbox, root: str, *, allow_manifest: bool) -> str:
         )
     )
     if has_python_tests:
-        return "python3 -m pytest -q"
+        # 项目解释器优先：项目测试不该借用 Agent 的环境。
+        python = shlex.quote(project_python) if project_python else "python3"
+        return f"{python} -m pytest -q"
 
     if not allow_manifest:
         # 降级：没有可识别的测试命令时，**至少**做一遍语法解析。

@@ -38,15 +38,20 @@ class SymbolSearchInput(BaseModel):
     reason: str = Field(description="搜索这个符号的意图，一句话说明")
 
 
-def build_symbol_tool(settings: Settings, sandbox: WslSandbox) -> BaseTool:
+def build_symbol_tool(
+    settings: Settings,
+    sandbox: WslSandbox,
+    *,
+    allow_lsp: bool = True,
+) -> BaseTool:
     root = resolve_workspace(settings, sandbox)
     lsp_lock = threading.Lock()
     lsp_client: LspClient | None = None
-    lsp_disabled = False
+    lsp_disabled = not allow_lsp
 
     def _lsp_symbols(query: str, limit: int) -> list[Symbol] | None:
         nonlocal lsp_client, lsp_disabled
-        if not settings.lsp_command or lsp_disabled:
+        if not allow_lsp or not settings.lsp_command or lsp_disabled:
             return None
         with lsp_lock:
             try:

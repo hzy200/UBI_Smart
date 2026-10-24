@@ -1,8 +1,9 @@
 """Python AST 索引：import 图、测试影响分析与轻量 repo map。
 
 索引在宿主侧构建，源码由**一次**沙箱调用收集（避免每个文件一次 wsl.exe）。
-这里只做静态近似：包根、动态 import、条件 import 都可能让结果偏保守；
-真正的 lint/类型信息仍留给 LSP（尚未接入）。
+这里只做静态近似：包根、非字面量动态 import、条件 import 都可能让结果
+偏保守；无法可靠建图的改动会回退到全量验证。真正的 lint/类型信息仍留给
+LSP（尚未接入）。
 """
 
 from __future__ import annotations
@@ -38,6 +39,10 @@ class PythonIndex:
     # path -> 顶层符号摘要
     symbols: dict[str, list[str]] = field(default_factory=dict)
     tests: set[str] = field(default_factory=set)
+    # 语法错误等无法静态解析的文件；影响分析遇到它们必须回退全量。
+    unparsed: set[str] = field(default_factory=set)
+    # 含非字面量动态导入的文件；同样无法可靠建图，回退全量。
+    dynamic: set[str] = field(default_factory=set)
 
     def module_candidates(self, path: str) -> set[str]:
         return set(_module_candidates(path))
@@ -122,6 +127,35 @@ def _imports_of(tree: ast.AST, path: str) -> set[str]:
     return found
 
 
+def _dynamic_import_targets(tree: ast.AST) -> tuple[set[str], bool]:
+    """收集可静态确定的动态导入；无法确定目标时标记为不可靠。
+
+    `importlib.import_module("a.b")` / `__import__("a.b")` 的字面量参数
+    能直接补进 import 图；变量、f-string、函数返回值等一律视为不可靠，
+    由调用方回退到全量验证。
+    """
+    targets: set[str] = set()
+    unknown = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            name = func.id
+        elif isinstance(func, ast.Attribute):
+            name = func.attr
+        else:
+            continue
+        if name not in {"import_module", "__import__"}:
+            continue
+        argument = node.args[0] if node.args else None
+        if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+            targets.add(argument.value)
+        else:
+            unknown = True
+    return targets, unknown
+
+
 def _symbols_of(tree: ast.AST) -> list[str]:
     symbols: list[str] = []
     for node in getattr(tree, "body", []):
@@ -147,11 +181,15 @@ def build_index(sources: dict[str, str]) -> PythonIndex:
         except SyntaxError:
             index.imports[normalized] = frozenset()
             index.symbols[normalized] = []
+            index.unparsed.add(normalized)
         else:
+            dynamic_targets, unknown_dynamic = _dynamic_import_targets(tree)
             index.imports[normalized] = frozenset(
-                _imports_of(tree, normalized)
+                _imports_of(tree, normalized) | dynamic_targets
             )
             index.symbols[normalized] = _symbols_of(tree)
+            if unknown_dynamic:
+                index.dynamic.add(normalized)
         for candidate in _module_candidates(normalized):
             index.module_files.setdefault(candidate, set()).add(normalized)
         if _is_test_file(normalized):
@@ -182,6 +220,16 @@ def related_test_files(
         if str(path).endswith(".py")
     }
     if not changed_paths:
+        return []
+
+    # 只要有一个改动文件无法可靠建图，就放弃子集选择。宁可多跑全量，
+    # 也不能让「影响分析漏判」表现成一条绿色的子集验证。
+    if any(
+        path in index.unparsed
+        or path in index.dynamic
+        or path not in index.imports
+        for path in changed_paths
+    ):
         return []
 
     selected: set[str] = set()

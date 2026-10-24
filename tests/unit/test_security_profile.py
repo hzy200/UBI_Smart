@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from coding_agent.config import Settings, apply_security_profile
 from coding_agent.memory.longterm import resolve_memory_root
 from coding_agent.sandbox.policy import CommandLevel, classify
@@ -153,8 +155,14 @@ def test_memory_root_moves_outside_untrusted_workspace() -> None:
     )
 
     assert resolve_memory_root(trusted, _HomeSandbox(), "/repo") == "/repo"
+    digest = hashlib.sha1(b"/repo").hexdigest()[:12]
     assert (
         resolve_memory_root(untrusted, _HomeSandbox(), "/repo")
-        == "/home/tester/.agent-memory"
+        == f"/home/tester/.agent-memory/{digest}"
+    )
+    other = hashlib.sha1(b"/other").hexdigest()[:12]
+    assert (
+        resolve_memory_root(untrusted, _HomeSandbox(), "/other")
+        == f"/home/tester/.agent-memory/{other}"
     )
     assert resolve_memory_root(explicit, _HomeSandbox(), "/repo") == "/var/lib/memory"

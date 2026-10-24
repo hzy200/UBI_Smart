@@ -27,10 +27,12 @@ TASK_GRAPH = "task_graph"
 WORKER = "worker"
 ORCHESTRATION = "orchestration"
 STEERING = "steering"
+MEMORY = "memory"
 RUN_END = "run_end"
 RUN_ERROR = "run_error"
 RECOVERY = "recovery"
 CONCURRENCY = "concurrency"
+COMPACT = "compact"
 
 # decision 取值
 DECISION_AUTO = "auto"          # 策略判定为自动放行并已执行

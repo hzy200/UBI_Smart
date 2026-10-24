@@ -49,6 +49,53 @@ def test_changed_test_is_included_directly() -> None:
     ]
 
 
+def test_literal_dynamic_import_is_added_to_the_graph() -> None:
+    sources = {
+        "app/core.py": "def compute():\n    return 1\n",
+        "app/api.py": (
+            "import importlib\n\n"
+            'mod = importlib.import_module("app.core")\n'
+        ),
+        "tests/test_api.py": "from app.api import handler\n",
+    }
+    index = build_index(sources)
+
+    assert related_test_files(index, ["app/core.py"]) == ["tests/test_api.py"]
+
+
+def test_non_literal_dynamic_import_forces_full_suite() -> None:
+    sources = {
+        "app/core.py": "def compute():\n    return 1\n",
+        "app/api.py": (
+            "import importlib\n\n"
+            "mod = importlib.import_module(MODULE_NAME)\n"
+        ),
+        "tests/test_api.py": "from app.api import handler\n",
+    }
+    index = build_index(sources)
+
+    assert "app/api.py" in index.dynamic
+    # 无法确定 import 目标时不猜，交给全量验证。
+    assert related_test_files(index, ["app/api.py"]) == []
+
+
+def test_syntax_error_forces_full_suite() -> None:
+    sources = {
+        "app/broken.py": "def broken(:\n    pass\n",
+        "tests/test_broken.py": "def test_broken():\n    assert True\n",
+    }
+    index = build_index(sources)
+
+    assert "app/broken.py" in index.unparsed
+    assert related_test_files(index, ["app/broken.py"]) == []
+
+
+def test_changed_file_missing_from_index_forces_full_suite() -> None:
+    index = build_index(SOURCES)
+
+    assert related_test_files(index, ["app/not_collected.py"]) == []
+
+
 def test_repo_map_contains_top_level_symbols() -> None:
     index = build_index(SOURCES)
 

@@ -40,11 +40,16 @@ class CodeIntelInput(BaseModel):
     reason: str = Field(description="查询意图，一句话说明")
 
 
-def build_code_intel_tool(settings: Settings, sandbox: WslSandbox) -> BaseTool:
+def build_code_intel_tool(
+    settings: Settings,
+    sandbox: WslSandbox,
+    *,
+    allow_lsp: bool = True,
+) -> BaseTool:
     root = resolve_workspace(settings, sandbox)
     lock = threading.Lock()
     client: LspClient | None = None
-    disabled = False
+    disabled = not allow_lsp
 
     def _client() -> LspClient | None:
         nonlocal client, disabled
@@ -67,6 +72,11 @@ def build_code_intel_tool(settings: Settings, sandbox: WslSandbox) -> BaseTool:
         reason: str = "",
     ) -> str:
         nonlocal client, disabled
+        if not allow_lsp:
+            return pack(
+                "只读会话不启动 LSP；请使用 symbol_search 的 AST 索引。",
+                CallArtifact(tool=CODE_INTEL, ok=False, skipped=True),
+            )
         if not settings.lsp_command:
             return pack(
                 "未配置 AGENT_LSP_COMMAND；symbol_search 仍可用 AST 索引。",

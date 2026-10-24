@@ -35,6 +35,7 @@ STEERING_FINAL = "steering_final"
 WRITE_GATE = "write_gate"
 PLAN_TASKS = "plan_tasks"
 SYNTHESIZE = "synthesize"
+PLAN_PREVIEW = "plan_preview"
 
 
 def has_more_steps(state: AgentState) -> bool:
@@ -51,6 +52,14 @@ def has_current_step(state: AgentState) -> bool:
     """
     plan = state.get("plan") or []
     return state.get("step_idx", 0) < len(plan)
+
+
+def route_after_planner(state: AgentState) -> str:
+    """planner 之后去哪。
+
+    `plan_only` 只展示计划：直接进收尾节点，不执行 act、不调第二次模型。
+    """
+    return PLAN_PREVIEW if state.get("plan_only") else ACT
 
 
 def route_after_replan(state: AgentState) -> str:

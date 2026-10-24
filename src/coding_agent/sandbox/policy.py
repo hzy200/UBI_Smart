@@ -20,6 +20,11 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
 
+from coding_agent.access import (
+    ACCESS_READ_ONLY,
+    ACCESS_WRITE_ASK,
+    ACCESS_WRITE_AUTO,
+)
 from coding_agent.security.read_policy import (
     is_protected_read_path,
     might_reference_secret,
@@ -71,6 +76,24 @@ APPROVAL_ASK = "ask"
 APPROVAL_APPROVE = "approve"
 APPROVAL_DENY = "deny"
 
+# 只读模式下即使工具被标成 READ，也不能运行：shell 是任意命令入口，
+# git/deps/tests 会启动进程或执行项目代码。宿主侧的纯解析/检索工具不在此列。
+_READ_ONLY_EXECUTION_TOOLS = frozenset(
+    {
+        "shell_exec",
+        "run_tests",
+        "git_status",
+        "git_diff",
+        "git_log",
+        "git_add",
+        "git_commit",
+        "deps_list",
+        "deps_install",
+        # LSP 是外部进程；只读模式不允许启动。
+        "code_intel",
+    }
+)
+
 
 def parse_allow_rules(text: str) -> frozenset[str]:
     """解析 `tool:glob,tool:glob` 形式的持久放行规则。"""
@@ -98,13 +121,36 @@ class SessionPolicy:
     allow_rules: frozenset[str] = frozenset()
     # 会话配置里追加的秘密 glob；只影响 shell 命令的“显式引用升级”判断。
     read_deny_globs: str = ""
+    # 用于对少数工具做 profile 相关分级（如 memory_save 在不可信环境升级）。
+    security_profile: str = "local"
+    # 空串 = 旧语义；GUI/Web 显式传 read_only / write_ask / write_auto。
+    access_mode: str = ""
 
     def decide(self, level: CommandLevel) -> str:
+        # deny 是最高优先级：除只读外一律拒绝，不能被 write 模式绕过。
+        if self.approval_mode == APPROVAL_DENY and level > CommandLevel.READ:
+            return DENY
+
+        if self.access_mode == ACCESS_READ_ONLY:
+            return AUTO if level <= CommandLevel.READ else DENY
+
+        if self.access_mode == ACCESS_WRITE_ASK:
+            return AUTO if level <= CommandLevel.READ else ASK
+
+        if self.access_mode == ACCESS_WRITE_AUTO:
+            if level <= CommandLevel.READ:
+                return AUTO
+            if level == CommandLevel.LOW_WRITE:
+                return AUTO
+            if level >= CommandLevel.DANGER:
+                return ASK
+            return AUTO if self.approval_mode == APPROVAL_APPROVE else ASK
+
         if level <= CommandLevel.READ:
             return AUTO
 
         if level == CommandLevel.LOW_WRITE:
-            # L1 由 --write 一次性授权，不逐条询问
+            # 旧语义：L1 由 --write 一次性授权，不逐条询问
             return AUTO if self.allow_write else DENY
 
         # L3 是唯一不可被“自动批准”覆盖的等级：即使 approval_mode=approve，
@@ -143,6 +189,14 @@ class SessionPolicy:
         self, tool: str, args: dict[str, Any], level: CommandLevel
     ) -> str:
         """按具体调用判定；持久规则只影响原本需要 ASK 的 L2 调用。"""
+        # 严格只读：拒绝一切“运行”类工具，哪怕命令本身被分级为 L0。
+        # 这条判定在工具级而不是等级级，因为 `git_status` / `deps_list`
+        # 的等级是 READ，但它们仍会启动进程。
+        if (
+            self.access_mode == ACCESS_READ_ONLY
+            and tool in _READ_ONLY_EXECUTION_TOOLS
+        ):
+            return DENY
         decision = self.decide(level)
         if (
             decision == ASK

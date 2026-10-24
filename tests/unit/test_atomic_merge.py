@@ -40,7 +40,8 @@ def _record(task_id: str, patch: str) -> dict[str, Any]:
     }
 
 
-def test_second_patch_failure_rolls_back_the_first(monkeypatch) -> None:
+def test_failure_only_rolls_back_its_component(monkeypatch) -> None:
+    """t1/t2 改不同文件时属于不同分量，t2 失败不应拖累 t1。"""
     sandbox = _FakeSandbox()
     rolled_back: list[list[str]] = []
 
@@ -73,10 +74,68 @@ def test_second_patch_failure_rolls_back_the_first(monkeypatch) -> None:
         )
     )
 
+    assert outcomes["t1"][0] is True
+    assert outcomes["t2"][0] is False
+    assert outcomes["t2"][1]
+    # 独立分量没有被回滚。
+    assert rolled_back == []
+
+
+class _FailSecondThreeWay(_FakeSandbox):
+    def run(
+        self, command: str, *, cwd: str | None = None, timeout: int | None = None
+    ) -> ExecResult:
+        if (
+            command.startswith("git apply --3way ")
+            and "--cached" not in command
+            and "patches/t2" in command
+        ):
+            self.commands.append(command)
+            return ExecResult(
+                command=command,
+                exit_code=1,
+                stdout="",
+                stderr="conflict",
+                duration_ms=0,
+            )
+        return super().run(command, cwd=cwd, timeout=timeout)
+
+
+def test_failure_rolls_back_the_whole_shared_component(monkeypatch) -> None:
+    """t1/t2 命中同一文件时属于同一分量，t2 失败必须回滚 t1。"""
+    sandbox = _FailSecondThreeWay()
+    rolled_back: list[list[str]] = []
+
+    monkeypatch.setattr(
+        merge_module,
+        "_patch_paths",
+        lambda sandbox, patch, root: (["app/shared.py"], ""),
+    )
+    monkeypatch.setattr(
+        merge_module,
+        "_snapshot_paths",
+        lambda sandbox, root, paths: (["snap"], ""),
+    )
+    monkeypatch.setattr(
+        merge_module,
+        "_rollback_merged",
+        lambda sandbox, root, applied, paths: rolled_back.append(
+            [str(item["task_id"]) for item in applied]
+        ),
+    )
+
+    outcomes = asyncio.run(
+        merge_implement_patches_atomic(
+            sandbox,  # type: ignore[arg-type]
+            "/ws",
+            [_record("t1", "t1.patch"), _record("t2", "t2.patch")],
+            allow_overlap=True,
+        )
+    )
+
     assert outcomes["t1"][0] is False
     assert "回滚" in outcomes["t1"][1]
     assert outcomes["t2"][0] is False
-    assert outcomes["t2"][1]
     assert rolled_back == [["t1"]]
 
 

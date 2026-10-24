@@ -30,6 +30,7 @@ from coding_agent.llm.prompts import (
     PLANNER_PERMISSION_READONLY,
     PLANNER_PERMISSION_WRITE,
     PLANNER_PROMPT,
+    format_memory_note,
 )
 from coding_agent.messages import last_human_text
 from coding_agent.recovery import retry_async
@@ -81,6 +82,7 @@ def make_planner_node(
         recovery_notice = str(state.get("recovery_notice") or "").strip()
         if recovery_notice:
             prompt += f"\n\n上次运行中断的恢复提示：\n{recovery_notice}"
+        prompt += format_memory_note(state.get("memories"))
         try:
             result = await retry_async(
                 lambda: structured.ainvoke(

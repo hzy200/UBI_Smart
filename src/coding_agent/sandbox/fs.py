@@ -360,7 +360,11 @@ fi
         return lexical, info, text
 
     def write_text(self, path: str, content: str) -> int:
-        """写入文本（覆盖或新建），自动创建父目录。返回写入字节数。
+        """写入文本（覆盖或新建），自动创建父目录。返回写入字节数。"""
+        return self.write_bytes(path, content.encode("utf-8"))
+
+    def write_bytes(self, path: str, data: bytes) -> int:
+        """原子写入字节（上传文件使用），自动创建父目录。返回写入字节数。
 
         校验与写入**合在一次进程启动里**：脚本自己先解析 realpath、
         确认仍在工作区内，再落盘。校验发生在写入之前，所以越界时一个字节都不会写。
@@ -372,7 +376,7 @@ fi
         lexical = ensure_inside(path, self.root, cwd=self.root)
         if self._cache is not None:
             self._cache.pop(lexical, None)
-        payload = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        payload = base64.b64encode(data).decode("ascii")
         # 原子写：先写同目录临时文件，再 `mv` 覆盖目标。
         # 直接 `> "$p"` 会在进程被杀/磁盘满时留下半截文件；临时文件 + rename
         # 保证读者看到的要么是旧内容，要么是完整的新内容。
@@ -430,7 +434,7 @@ trap - EXIT HUP INT TERM
                     f"{_WRITE_RETRY_ATTEMPTS} 次）：{result.render(500)}"
                 )
             raise SandboxFsError(f"写入失败：{result.render(500)}")
-        return len(content.encode("utf-8"))
+        return len(data)
 
     def write_many(self, files: dict[str, str]) -> int:
         """一次进程启动写入多个文件，返回写入的总字节数。

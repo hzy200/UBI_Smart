@@ -13,6 +13,7 @@ from coding_agent.orchestrator.scheduling import (
     RateLimitState,
     TokenBudget,
     aged_priority,
+    ewma_usage,
     task_priority,
     task_token_reserve,
 )
@@ -113,6 +114,18 @@ def test_task_priority_and_reserve_can_be_overridden() -> None:
     assert task_priority({"role": "implement", "priority": "bad"}) == 30
     assert task_token_reserve({"role": "explore"}) == 2_000
     assert task_token_reserve({"role": "explore", "max_tokens": 123}) == 123
+
+
+def test_ewma_usage_weights_recent_results_and_filters_role() -> None:
+    results = [
+        {"role": "explore", "input_tokens": 1_000, "output_tokens": 0},
+        {"role": "explore", "input_tokens": 4_000, "output_tokens": 1_000},
+        {"role": "implement", "input_tokens": 99_999, "output_tokens": 0},
+    ]
+
+    # 1000 → 0.3 * 5000 + 0.7 * 1000 = 2200，不受其它角色影响。
+    assert ewma_usage(results, "explore") == 2_200
+    assert ewma_usage(results, "review") == 0
 
 
 def test_merge_queue_discard_reports_cancelled() -> None:

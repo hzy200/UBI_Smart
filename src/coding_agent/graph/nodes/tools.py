@@ -23,6 +23,7 @@ from langchain_core.tools import BaseTool
 
 from coding_agent.agents.explore import DelegateRunner, render_subagent_result
 from coding_agent.concurrency import ConcurrencyGovernor
+from coding_agent.execution.context import tool_execution_context
 from coding_agent.graph.nodes.approve import tool_level
 from coding_agent.graph.plan import EXPLORE, current_step_kind
 from coding_agent.graph.state import AgentState
@@ -367,18 +368,24 @@ def make_tools_node(
                         async with tool_pool.lease(
                             priority=10, timeout=tool_timeout
                         ):
-                            content, artifact = unpack(
-                                await asyncio.to_thread(
-                                    tool.invoke, args, config
+                            with tool_execution_context(
+                                thread_id, call_id
+                            ):
+                                content, artifact = unpack(
+                                    await asyncio.to_thread(
+                                        tool.invoke, args, config
+                                    )
                                 )
-                            )
                     else:
                         async with tool_semaphore:  # type: ignore[union-attr]
-                            content, artifact = unpack(
-                                await asyncio.to_thread(
-                                    tool.invoke, args, config
+                            with tool_execution_context(
+                                thread_id, call_id
+                            ):
+                                content, artifact = unpack(
+                                    await asyncio.to_thread(
+                                        tool.invoke, args, config
+                                    )
                                 )
-                            )
                 except Exception as exc:  # noqa: BLE001
                     content = (
                         f"工具执行异常：{type(exc).__name__}: {exc}"
@@ -570,9 +577,12 @@ def make_tools_node(
                 started_at = time.perf_counter()
                 try:
                     # 现有工具/沙箱是同步的：放进线程池，避免阻塞事件循环。
-                    content, artifact = unpack(
-                        await asyncio.to_thread(tool.invoke, args, config)
-                    )
+                    with tool_execution_context(thread_id, call_id):
+                        content, artifact = unpack(
+                            await asyncio.to_thread(
+                                tool.invoke, args, config
+                            )
+                        )
                     ok = (
                         artifact.get("ok", True)
                         if isinstance(artifact, dict)

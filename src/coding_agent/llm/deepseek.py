@@ -15,6 +15,7 @@ from langchain_openai import ChatOpenAI
 from coding_agent.config import Settings
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
 from coding_agent.llm.router import ProviderRouter
+from coding_agent.secrets_store import SecretStore
 
 
 class MissingApiKeyError(RuntimeError):
@@ -49,10 +50,20 @@ def with_json_output(llm: Any, schema: type, **kwargs: Any) -> Any:
     return llm.with_structured_output(schema, method="json_mode", **kwargs)
 
 
-def _provider_specs(settings: Settings) -> list[dict[str, Any]]:
+def _provider_specs(
+    settings: Settings,
+    secret_store: SecretStore | None = None,
+    provider_name: str = "",
+) -> list[dict[str, Any]]:
+    store = secret_store or SecretStore()
     raw = str(settings.llm_providers or "").strip()
     if not raw:
-        if not settings.deepseek_api_key:
+        if provider_name and provider_name != "deepseek":
+            return []
+        # GUI/密钥环是显式用户动作，优先于 .env 的默认 key；这样桌面端
+        # “保存密钥”后不会出现看起来成功、实际仍用旧 key 的情况。
+        api_key = store.get("deepseek") or settings.deepseek_api_key
+        if not api_key:
             raise MissingApiKeyError(
                 "未配置 DEEPSEEK_API_KEY 或 AGENT_LLM_PROVIDERS。"
                 "请复制 .env.example 为 .env 并填入至少一个 provider。"
@@ -62,7 +73,7 @@ def _provider_specs(settings: Settings) -> list[dict[str, Any]]:
                 "name": "deepseek",
                 "base_url": settings.deepseek_base_url,
                 "model": settings.deepseek_model,
-                "api_key": settings.deepseek_api_key,
+                "api_key": api_key,
                 "priority": 0,
                 "input_cost_per_1m": 0.0,
                 "output_cost_per_1m": 0.0,
@@ -84,13 +95,18 @@ def _provider_specs(settings: Settings) -> list[dict[str, Any]]:
         if not isinstance(item, dict) or item.get("enabled", True) is False:
             continue
         name = str(item.get("name") or f"provider-{index}")
+        if provider_name and name != provider_name:
+            continue
         api_key = str(item.get("api_key") or "")
         api_key_env = str(item.get("api_key_env") or "")
         if not api_key and api_key_env:
             api_key = os.environ.get(api_key_env, "")
         if not api_key:
+            api_key = store.get(name)
+        if not api_key:
             raise MissingApiKeyError(
-                f"provider {name} 没有 api_key/api_key_env"
+                f"provider {name} 没有 api_key/api_key_env，"
+                "也未在 GUI 密钥环中配置"
             )
         specs.append(
             {
@@ -129,12 +145,18 @@ def build_llm(
     *,
     streaming: bool = True,
     model_override: str = "",
+    provider_name: str = "",
     task_type: str = "agent",
     required_capabilities: tuple[str, ...] = (),
     governor: Any | None = None,
+    secret_store: SecretStore | None = None,
 ) -> Any:
     GLOBAL_LIMITER.configure(settings.resolved_rate_limit_state_path)
-    specs = _provider_specs(settings)
+    specs = _provider_specs(settings, secret_store, provider_name)
+    if provider_name and not specs:
+        raise ProviderConfigError(
+            f"没有名为 {provider_name!r} 的 provider。"
+        )
     required = set(required_capabilities)
     specs = [
         spec

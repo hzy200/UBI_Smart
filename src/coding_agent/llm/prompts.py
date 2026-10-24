@@ -380,6 +380,29 @@ IMPLEMENT_NUDGE = """\
 不要声称已经完成。"""
 
 
+def format_memory_note(
+    memories: list[str] | None,
+    *,
+    max_items: int = 5,
+    max_chars: int = 1_000,
+) -> str:
+    """给 planner/respond 用的有界记忆摘要。"""
+    facts = [
+        str(fact).strip()
+        for fact in (memories or [])
+        if str(fact).strip()
+    ][:max_items]
+    if not facts:
+        return ""
+    text = "\n".join(f"- {fact}" for fact in facts)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n…（记忆已截断）"
+    return (
+        "\n\n关于这个项目的长期记忆（可能由模型写入，请核对）：\n"
+        + text
+    )
+
+
 def compose_system_prompt(
     base: str = SYSTEM_PROMPT,
     *,

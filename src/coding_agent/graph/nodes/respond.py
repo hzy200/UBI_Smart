@@ -23,7 +23,11 @@ from coding_agent.llm.context import (
     tighter_budget,
     trim_messages,
 )
-from coding_agent.llm.prompts import RESPOND_INSTRUCTION, RESPOND_PROMPT
+from coding_agent.llm.prompts import (
+    RESPOND_INSTRUCTION,
+    RESPOND_PROMPT,
+    format_memory_note,
+)
 from coding_agent.messages import text_of
 from coding_agent.recovery import retry_async
 
@@ -76,7 +80,7 @@ def make_respond_node(
     budget = budget or ContextBudget()
 
     async def respond(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        system = RESPOND_PROMPT
+        system = RESPOND_PROMPT + format_memory_note(state.get("memories"))
         retry_events: list[dict[str, Any]] = []
 
         async def _invoke(messages: list[Any]) -> Any:

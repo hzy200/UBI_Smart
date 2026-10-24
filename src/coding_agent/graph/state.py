@@ -18,6 +18,8 @@ class AgentState(TypedDict, total=False):
     # 本轮用户请求的纯文本副本。独立子图不复制整段 messages，只读这一项；
     # direct 路径仍以 messages 为准（此字段不参与规划）。
     request: str
+    # 只展示计划、不执行（CLI --plan-only）。planner 之后直接收尾。
+    plan_only: bool
     # 从 checkpoint 抽取的上一轮及更早对话摘要。独立子图拿不到完整 messages，
     # 用它携带「不要改测试」「沿用上次接口」这类持久约束；0 字符时为空。
     session_brief: str

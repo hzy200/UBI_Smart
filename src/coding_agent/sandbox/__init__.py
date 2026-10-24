@@ -1,4 +1,6 @@
+from coding_agent.sandbox.backend import build_sandbox
 from coding_agent.sandbox.fs import FileStat, SandboxFs, SandboxFsError
+from coding_agent.sandbox.local_exec import LocalLinuxSandbox
 from coding_agent.sandbox.pathguard import (
     SandboxPathError,
     ensure_inside,
@@ -19,12 +21,14 @@ __all__ = [
     "CommandLevel",
     "ExecResult",
     "FileStat",
+    "LocalLinuxSandbox",
     "SandboxFs",
     "SandboxFsError",
     "SandboxPathError",
     "Verdict",
     "WslSandbox",
     "WslUnavailableError",
+    "build_sandbox",
     "classify",
     "ensure_inside",
     "looks_like_windows_path",

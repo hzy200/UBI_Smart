@@ -14,10 +14,11 @@ import shlex
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from coding_agent.config import Settings
+from coding_agent.sandbox.backend import build_sandbox
 from coding_agent.sandbox.pathguard import ensure_inside, normalize_root
-from coding_agent.sandbox.wsl_exec import WslSandbox
 
 _USER_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
@@ -51,7 +52,7 @@ class TenantManager:
         self,
         settings: Settings,
         *,
-        sandbox: WslSandbox | None = None,
+        sandbox: Any | None = None,
         governor: object | None = None,
         multi_user: bool | None = None,
     ) -> None:
@@ -65,7 +66,7 @@ class TenantManager:
         provision_settings = settings.model_copy(
             update={"shell_sandbox": "off", "persistent_shell": False}
         )
-        self.sandbox = sandbox or WslSandbox(  # type: ignore[arg-type]
+        self.sandbox = sandbox or build_sandbox(
             provision_settings, slots=slots
         )
         self.multi_user = (
@@ -116,6 +117,20 @@ class TenantManager:
         if not result.ok:
             raise TenantError(f"无法创建目录 {path}：{result.render(300)}")
 
+    def resolve_workspace(self, user: str, requested: str = "") -> str:
+        """把会话请求里的工作区解析成允许的绝对路径。
+
+        单用户本地模式允许用户选择任意绝对路径（GUI 里还会有显式确认）；
+        多用户模式只允许落在该用户的 workspaces_root 之下，不能传任意主机路径。
+        """
+        tenant = self.for_user(user)
+        text = str(requested or "").strip()
+        if not text:
+            return tenant.workspace
+        if not self.multi_user:
+            return normalize_root(text)
+        return ensure_inside(text, self._workspaces_root())
+
     def for_user(self, user: str) -> WebTenant:
         safe = self._safe_user(user)
         with self._lock:
@@ -154,6 +169,8 @@ class TenantManager:
                     "checkpoint_path": str(data_dir / "checkpoints.sqlite"),
                     "steering_dir": str(data_dir / "steering"),
                     "memory_root": memory_dir,
+                    # 全局记忆也限制在租户目录内，不能跨用户共享。
+                    "memory_global_root": f"{memory_dir}/global",
                 }
             )
             tenant = WebTenant(

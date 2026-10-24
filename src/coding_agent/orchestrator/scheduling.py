@@ -79,6 +79,33 @@ def usage_tokens(record: dict[str, Any]) -> int:
     )
 
 
+TOKEN_EWMA_ALPHA = 0.3
+
+
+def ewma_usage(
+    results: Iterable[Mapping[str, Any]],
+    role: str,
+    *,
+    alpha: float = TOKEN_EWMA_ALPHA,
+) -> int:
+    """同角色历史实际用量的指数加权移动平均；无样本时返回 0。
+
+    最近一次结果权重最高。调度器只需一个保守的派发前估算，真实用量
+    在 worker 返回后由 `TokenBudget.settle` 结算。
+    """
+    samples = [
+        usage_tokens(result)
+        for result in results
+        if str(result.get("role", "")) == role and usage_tokens(result) > 0
+    ]
+    if not samples:
+        return 0
+    value = float(samples[0])
+    for sample in samples[1:]:
+        value = alpha * sample + (1.0 - alpha) * value
+    return int(value)
+
+
 class RateLimitState:
     """并发上限的自适应升降与退避截止时间。
 

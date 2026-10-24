@@ -17,7 +17,7 @@ import hashlib
 import json
 import os
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from coding_agent.filelock import FileLock, NullLock
@@ -40,6 +40,8 @@ class SteeringCommand:
     role: str = "explore"
     source: str = "user"
     ts: str = ""
+    # 所属 run。空串表示旧格式/未绑定，下一轮 begin_run 会按陈旧指令清掉。
+    run_id: str = ""
 
     def __post_init__(self) -> None:
         if self.action not in STEERING_ACTIONS:
@@ -57,7 +59,11 @@ class SteeringController:
 
     def __init__(self, directory: str | Path | None = None) -> None:
         self._queues: dict[str, list[SteeringCommand]] = {}
-        self._paused: set[str] = set()
+        # thread -> 暂停标记所属的 run_id（旧格式可能为空串）。
+        self._paused: dict[str, str] = {}
+        # thread -> 当前 run_id。落盘后，跨进程的 `agent steer` 也能把指令
+        # 绑定到正在运行的那一轮，而不是靠“写的时候刚好在跑”猜。
+        self._run_ids: dict[str, str] = {}
         self._directory = Path(directory) if directory else None
         self._loaded: set[str] = set()
         # 每 thread 最近一次看到的文件状态；未变化时跳过整文件读取。
@@ -113,7 +119,8 @@ class SteeringController:
             # 文件被删除（clear 或从未写过）：同步清掉内存里的旧状态。
             if thread_id in self._loaded:
                 self._queues.pop(thread_id, None)
-                self._paused.discard(thread_id)
+                self._paused.pop(thread_id, None)
+                self._run_ids.pop(thread_id, None)
             self._loaded.add(thread_id)
             self._disk_state[thread_id] = None
             return
@@ -136,10 +143,16 @@ class SteeringController:
             self._queues[thread_id] = commands
         else:
             self._queues.pop(thread_id, None)
-        if payload.get("paused"):
-            self._paused.add(thread_id)
+        active_run = str(payload.get("run_id") or "")
+        if active_run:
+            self._run_ids[thread_id] = active_run
         else:
-            self._paused.discard(thread_id)
+            self._run_ids.pop(thread_id, None)
+        if payload.get("paused"):
+            paused_run = str(payload.get("paused_run_id") or active_run)
+            self._paused[thread_id] = paused_run
+        else:
+            self._paused.pop(thread_id, None)
 
     def _persist(self, thread_id: str) -> None:
         if self._directory is None:
@@ -147,7 +160,8 @@ class SteeringController:
         path = self._path(thread_id)
         commands = self._queues.get(thread_id) or []
         paused = thread_id in self._paused
-        if not commands and not paused:
+        active_run = self._run_ids.get(thread_id) or ""
+        if not commands and not paused and not active_run:
             try:
                 path.unlink()
             except FileNotFoundError:
@@ -156,7 +170,9 @@ class SteeringController:
             return
         payload = {
             "thread_id": thread_id,
+            "run_id": active_run,
             "paused": paused,
+            "paused_run_id": self._paused.get(thread_id, ""),
             "commands": [asdict(command) for command in commands],
         }
         temp = path.with_suffix(".json.tmp")
@@ -173,11 +189,43 @@ class SteeringController:
             except OSError:
                 pass
 
+    # ---------------- run 生命周期 ----------------
+
+    def begin_run(self, thread_id: str, run_id: str) -> list[SteeringCommand]:
+        """开始新 run：只保留属于该 run 的指令，返回被丢弃的陈旧指令。
+
+        resume 不走这里 —— 它要继续消费挂起前那一轮的指令。全新 run 用新的
+        run_id，因此旧 run 的 add/replan 与未绑定 run 的遗留指令都会被清掉，
+        但清理结果会返回给 runtime 落审计，不再静默消失。
+        """
+        with self._lock, self._file_lock(thread_id):
+            self._ensure_loaded(thread_id, force=True)
+            commands = self._queues.get(thread_id, [])
+            kept = [item for item in commands if item.run_id == run_id]
+            stale = [item for item in commands if item.run_id != run_id]
+            if kept:
+                self._queues[thread_id] = kept
+            else:
+                self._queues.pop(thread_id, None)
+            self._run_ids[thread_id] = run_id
+            self._paused.pop(thread_id, None)
+            self._persist(thread_id)
+            return stale
+
+    def active_run_id(self, thread_id: str) -> str:
+        with self._lock:
+            self._ensure_loaded(thread_id)
+            return self._run_ids.get(thread_id, "")
+
     # ---------------- 队列 ----------------
 
     def submit(self, thread_id: str, command: SteeringCommand) -> None:
         with self._lock, self._file_lock(thread_id):
             self._ensure_loaded(thread_id, force=True)
+            active_run = self._run_ids.get(thread_id) or ""
+            if active_run and not command.run_id:
+                # CLI/TUI/Web 都不需要知道 run_id；宿主在入队时补上。
+                command = replace(command, run_id=active_run)
             self._queues.setdefault(thread_id, []).append(command)
             self._persist(thread_id)
 
@@ -218,13 +266,13 @@ class SteeringController:
     def mark_paused(self, thread_id: str) -> None:
         with self._lock, self._file_lock(thread_id):
             self._ensure_loaded(thread_id, force=True)
-            self._paused.add(thread_id)
+            self._paused[thread_id] = self._run_ids.get(thread_id, "")
             self._persist(thread_id)
 
     def clear_paused(self, thread_id: str) -> None:
         with self._lock, self._file_lock(thread_id):
             self._ensure_loaded(thread_id, force=True)
-            self._paused.discard(thread_id)
+            self._paused.pop(thread_id, None)
             self._persist(thread_id)
 
     def is_paused(self, thread_id: str) -> bool:
@@ -232,10 +280,13 @@ class SteeringController:
             self._ensure_loaded(thread_id)
             return thread_id in self._paused
 
-    def clear(self, thread_id: str) -> None:
-        """一轮结束（或全新 run 开始）时清空。"""
+    def clear(self, thread_id: str) -> list[SteeringCommand]:
+        """一轮结束时清空，返回被丢弃的指令供调用方落审计。"""
         with self._lock, self._file_lock(thread_id):
-            self._queues.pop(thread_id, None)
-            self._paused.discard(thread_id)
+            self._ensure_loaded(thread_id, force=True)
+            removed = self._queues.pop(thread_id, [])
+            self._paused.pop(thread_id, None)
+            self._run_ids.pop(thread_id, None)
             self._loaded.add(thread_id)
             self._persist(thread_id)
+            return removed

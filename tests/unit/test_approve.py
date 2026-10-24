@@ -69,10 +69,88 @@ def test_new_file_tool_levels() -> None:
     assert tool_level("file_delete", {}) == CommandLevel.MUTATE
 
 
+def test_memory_save_escalates_outside_local_profile() -> None:
+    args = {"fact": "始终使用 pytest"}
+    assert tool_level("memory_save", args) == CommandLevel.LOW_WRITE
+    assert (
+        tool_level("memory_save", args, security_profile="untrusted")
+        == CommandLevel.MUTATE
+    )
+    assert (
+        tool_level("memory_save", args, security_profile="production")
+        == CommandLevel.MUTATE
+    )
+    policy = SessionPolicy(
+        approval_mode=APPROVAL_ASK, security_profile="untrusted"
+    )
+    level = tool_level(
+        "memory_save", args, security_profile=policy.security_profile
+    )
+    assert policy.decide_call("memory_save", args, level) == ASK
+
+
 def test_low_write_never_prompts() -> None:
     """L1 由 --write 一次性授权，不该逐条打断用户。"""
     policy = SessionPolicy(allow_write=True, approval_mode=APPROVAL_ASK)
     assert policy.decide(CommandLevel.LOW_WRITE) == AUTO
+
+
+def test_read_only_denies_execution_even_at_read_level() -> None:
+    policy = SessionPolicy(access_mode="read_only")
+    assert policy.decide(CommandLevel.READ) == AUTO
+    for tool in (
+        "shell_exec",
+        "git_status",
+        "deps_list",
+        "run_tests",
+        "code_intel",
+    ):
+        assert (
+            policy.decide_call(tool, {"command": "ls"}, CommandLevel.READ)
+            == DENY
+        )
+    # 纯文件/检索工具仍然允许。
+    assert (
+        policy.decide_call("file_read", {"path": "a.py"}, CommandLevel.READ)
+        == AUTO
+    )
+    assert (
+        policy.decide_call("search_code", {"query": "x"}, CommandLevel.READ)
+        == AUTO
+    )
+
+
+def test_read_only_never_asks_for_writes() -> None:
+    policy = SessionPolicy(access_mode="read_only", allow_write=True)
+    assert policy.decide(CommandLevel.LOW_WRITE) == DENY
+    assert policy.decide(CommandLevel.MUTATE) == DENY
+    assert policy.decide(CommandLevel.DANGER) == DENY
+
+
+@pytest.mark.parametrize(
+    ("access_mode", "level", "expected"),
+    [
+        ("write_ask", CommandLevel.LOW_WRITE, ASK),
+        ("write_ask", CommandLevel.MUTATE, ASK),
+        ("write_ask", CommandLevel.DANGER, ASK),
+        ("write_auto", CommandLevel.LOW_WRITE, AUTO),
+        ("write_auto", CommandLevel.MUTATE, ASK),
+        ("write_auto", CommandLevel.DANGER, ASK),
+    ],
+)
+def test_write_modes(access_mode, level, expected) -> None:
+    policy = SessionPolicy(access_mode=access_mode, allow_write=True)
+    assert policy.decide(level) == expected
+
+
+def test_deny_overrides_write_auto() -> None:
+    policy = SessionPolicy(
+        access_mode="write_auto",
+        allow_write=True,
+        approval_mode=APPROVAL_DENY,
+    )
+    assert policy.decide(CommandLevel.LOW_WRITE) == DENY
+    assert policy.decide(CommandLevel.MUTATE) == DENY
 
 
 def test_allow_rule_matches_only_the_configured_call() -> None:

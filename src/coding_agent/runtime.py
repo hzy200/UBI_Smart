@@ -24,6 +24,12 @@ from uuid import uuid4
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
 
+from coding_agent.access import (
+    ACCESS_READ_ONLY,
+    ACCESS_WRITE_ASK,
+    ACCESS_WRITE_AUTO,
+    normalize_access_mode,
+)
 from coding_agent.agents.policy import (
     RepoProfile,
     delegation_policy,
@@ -56,6 +62,7 @@ from coding_agent.events import (
     OrchestrationFinished,
     PlanCreated,
     PlanRevised,
+    ReasoningToken,
     RepairStarted,
     ReviewFinished,
     RunFailed,
@@ -76,18 +83,32 @@ from coding_agent.events import (
     WorkflowRevised,
     WorkflowSelected,
 )
+from coding_agent.execution import (
+    ExecutionSandbox,
+    ExecutionService,
+    SandboxExecutionBackend,
+)
 from coding_agent.graph.build import build_graph, estimate_recursion_limit
 from coding_agent.graph.nodes.approve import tool_level
 from coding_agent.llm.billing import fetch_billing
+from coding_agent.llm.context import summarize_messages
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
 from coding_agent.memory.checkpointer import CheckpointStore
-from coding_agent.memory.longterm import LongTermMemory, resolve_memory_root
+from coding_agent.memory.longterm import (
+    LayeredMemory,
+    LongTermMemory,
+    resolve_global_memory_root,
+    resolve_memory_root,
+)
+from coding_agent.memory.semantic import SemanticMemory, wrap_memory
 from coding_agent.memory.sessions import SessionIndex
 from coding_agent.messages import (
+    reasoning_of,
     recover_dangling_tool_calls,
     text_of,
     unanswered_tool_calls,
 )
+from coding_agent.sandbox.backend import build_sandbox
 from coding_agent.sandbox.fs import SandboxFs
 from coding_agent.sandbox.pathguard import normalize_root
 from coding_agent.sandbox.policy import (
@@ -103,7 +124,8 @@ from coding_agent.sandbox.snapshots import (
     SnapshotEntry,
     SnapshotStore,
 )
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from coding_agent.sandbox.wsl_exec import resolve_workspace
+from coding_agent.secrets_store import SecretStore
 from coding_agent.session_brief import build_session_brief
 from coding_agent.steering import SteeringCommand, SteeringController
 from coding_agent.tools.artifacts import (
@@ -282,6 +304,10 @@ class AgentRuntime:
         audit: AuditLogger | None = None,
         approval_mode: str | None = None,
         governor: ConcurrencyGovernor | None = None,
+        access_mode: str | None = None,
+        model_override: str = "",
+        provider_name: str = "",
+        secret_store: SecretStore | None = None,
     ) -> None:
         self.settings = apply_security_profile(settings or get_settings())
         # production/ops 是只读审计档：无论调用方传了什么，都强制关闭写能力
@@ -293,22 +319,51 @@ class AgentRuntime:
         ):
             allow_write = False
             approval_mode = "deny"
+            access_mode = ACCESS_READ_ONLY
+        # 会话级访问模式：GUI/Web 的默认值。
+        # - read_only 只暴露只读工具，并在策略层拒绝 shell/tests/git/deps
+        # - write_ask 仍暴露写工具，但 L1/L2 逐条审批
+        # - write_auto 等价于传统的 --write（L1 自动）
+        # 空串保留旧语义，避免改变 CLI/TUI 的行为。
+        self.access_mode = normalize_access_mode(access_mode)
+        if self.access_mode == ACCESS_READ_ONLY:
+            allow_write = False
+            # 只读 = 不运行。自动 verify 会执行测试命令，编排 implement 会写
+            # 工作区；必须在 runtime 入口就关掉，不能只靠工具审批。
+            self.settings = self.settings.model_copy(
+                update={
+                    "verify_enabled": False,
+                    "orchestrator_enabled": False,
+                }
+            )
+        elif self.access_mode in {ACCESS_WRITE_ASK, ACCESS_WRITE_AUTO}:
+            # 暴露写工具；是否放行由 SessionPolicy 决定。
+            allow_write = True
         GLOBAL_LIMITER.configure(self.settings.resolved_rate_limit_state_path)
         # 一次运行共享一套资源池：worker / 主 agent 工具 / WSL / LLM。
         # 多 runtime 的宿主（Web）应传入同一个 governor，否则 WSL/LLM 上限
         # 会按 runtime 数量相乘。
         self.concurrency = governor or ConcurrencyGovernor(self.settings)
         self.allow_write = allow_write
+        # 会话级模型选择：只影响主模型（worker 未单独配置时沿用同一实例）。
+        self.model_override = str(model_override or "").strip()
+        self.provider_name = str(provider_name or "").strip()
+        self.secret_store = secret_store
         self.policy = SessionPolicy(
             allow_write=allow_write,
             approval_mode=approval_mode or self.settings.approval_mode,
             allow_rules=parse_allow_rules(self.settings.allow_rules),
             read_deny_globs=self.settings.read_deny_globs,
+            security_profile=self.settings.security_profile,
+            access_mode=self.access_mode,
         )
-        self._sandbox = WslSandbox(
+        self._sandbox = build_sandbox(
             self.settings, slots=self.concurrency.wsl
         )
         self._workspace = normalize_root(workspace) if workspace else None
+        # Phase C：workspace 解析后把 sandbox 包成 ExecutionService 代理。
+        self._execution: ExecutionService | None = None
+        self._wrap_execution()
         self._graph: Any = None
         # Phase 3D：用户干预队列。图节点与 runtime 共用同一实例；
         # 不放进 state —— 它是外部输入，且 worker 需要在运行中非破坏性轮询。
@@ -316,7 +371,7 @@ class AgentRuntime:
         # 仓库画像每个 runtime 只探一次；工作区在本实例生命周期内固定。
         self._repo_profile_cache: RepoProfile | None = None
         self._snapshots: SnapshotStore | None = None
-        self._memory: LongTermMemory | None = None
+        self._memory: SemanticMemory | None = None
         self._fs: SandboxFs | None = None
         # thread_id -> {call_id: ToolCallStarted}。
         # 必须活在实例上而不是 `_stream` 局部：需要审批的调用在挂起时结束一次
@@ -360,7 +415,23 @@ class AgentRuntime:
             self._sandbox.settings = self.settings.model_copy(
                 update={"wsl_workspace": self._workspace}
             )
+        self._wrap_execution()
         return self._workspace
+
+    def _wrap_execution(self) -> None:
+        """只包装一次：既有工具继续调用 sandbox.run，实际走 A4 backend。"""
+        if self._execution is not None or not self._workspace:
+            return
+        service = ExecutionService(
+            SandboxExecutionBackend(self._sandbox, self._workspace),
+            self._workspace,
+        )
+        self._execution = service
+        self._sandbox = ExecutionSandbox(self._sandbox, service)
+
+    @property
+    def execution(self) -> ExecutionService | None:
+        return self._execution
 
     def _repo_profile(self) -> RepoProfile:
         """仓库画像（文件数/测试文件数），按 runtime 缓存。"""
@@ -406,24 +477,42 @@ class AgentRuntime:
             self.settings, self._sandbox, self.workspace
         )
 
+    def _global_memory_root(self) -> str:
+        return resolve_global_memory_root(self.settings, self._sandbox)
+
     def _ensure_memory_bind(self) -> None:
         """记忆在仓库外时，bwrap 需要显式可写绑定。"""
-        memory_root = self._memory_root()
-        if memory_root == self.workspace:
-            return
-        self._sandbox.ensure_directory(memory_root)
-        self._sandbox.add_extra_bind(memory_root)
+        roots = [self._memory_root()]
+        global_root = self._global_memory_root()
+        if global_root and global_root not in roots:
+            roots.append(global_root)
+        for root in roots:
+            if root == self.workspace:
+                continue
+            self._sandbox.ensure_directory(root)
+            self._sandbox.add_extra_bind(root)
 
     @property
-    def memory(self) -> LongTermMemory:
-        """跨会话的项目记忆（不可信仓库下位于仓库之外）。"""
+    def memory(self) -> SemanticMemory:
+        """项目记忆 + 可选全局记忆 + 可选向量检索。"""
         if self._memory is None:
             self._ensure_memory_bind()
             memory_root = self._memory_root()
-            self._memory = LongTermMemory(
+            project = LongTermMemory(
                 SandboxFs(self._sandbox, memory_root),
                 self.workspace,
                 state_root=memory_root,
+            )
+            global_memory = None
+            global_root = self._global_memory_root()
+            if global_root:
+                global_memory = LongTermMemory(
+                    SandboxFs(self._sandbox, global_root),
+                    global_root,
+                    state_root=global_root,
+                )
+            self._memory = wrap_memory(
+                LayeredMemory(project, global_memory), self.settings
             )
         return self._memory
 
@@ -432,14 +521,106 @@ class AgentRuntime:
         """历史会话列表（从审计日志归纳）。"""
         return SessionIndex(self.settings.resolved_audit_dir)
 
-    def remember(self, text: str) -> list[str]:
-        return self.memory.add(text, source="user")
+    def _audit_memory(
+        self, thread_id: str, detail: str, *, source: str = "user"
+    ) -> None:
+        self._audit(
+            AuditRecord(
+                ts=now_iso(),
+                kind=audit_models.MEMORY,
+                thread_id=thread_id,
+                detail=truncate(detail),
+                source=source,
+            )
+        )
 
-    def forget(self, index: int) -> list[str]:
-        return self.memory.remove(index)
+    def remember(
+        self,
+        text: str,
+        *,
+        thread_id: str = "",
+        reason: str = "",
+        ttl_days: int | None = None,
+        scope: str = "project",
+    ) -> list[str]:
+        facts = self.memory.add(
+            text,
+            source="user",
+            reason=reason,
+            thread_id=thread_id,
+            ttl_days=ttl_days,
+            scope=scope,
+        )
+        detail = f"add[{scope}]: {text}"
+        if reason:
+            detail += f"；原因: {reason}"
+        if self.memory.last_replaced:
+            detail += "；替换: " + "；".join(self.memory.last_replaced)
+        self._audit_memory(thread_id, detail)
+        return facts
 
-    def memories(self) -> list[str]:
-        return self.memory.load()
+    def forget(
+        self, index: int, *, thread_id: str = "", scope: str = "project"
+    ) -> list[str]:
+        facts = self.memory.remove(index, scope=scope)
+        removed = self.memory.last_removed
+        self._audit_memory(
+            thread_id,
+            f"forget[{scope}] #{index}: {removed}"
+            if removed
+            else f"forget[{scope}] #{index}",
+        )
+        return facts
+
+    def restore_memory(
+        self,
+        backup_id: str,
+        *,
+        thread_id: str = "",
+        scope: str = "project",
+    ) -> list[str]:
+        facts = self.memory.restore(backup_id, scope=scope)
+        self._audit_memory(thread_id, f"restore[{scope}]: {backup_id}")
+        return facts
+
+    def pin_memory(
+        self,
+        index: int,
+        *,
+        pinned: bool,
+        thread_id: str = "",
+        scope: str = "project",
+    ) -> list[str]:
+        facts = self.memory.set_pinned(index, pinned, scope=scope)
+        self._audit_memory(
+            thread_id,
+            f"{'pin' if pinned else 'unpin'}[{scope}] #{index}",
+        )
+        return facts
+
+    def set_memory_priority(
+        self,
+        index: int,
+        priority: int,
+        *,
+        thread_id: str = "",
+        scope: str = "project",
+    ) -> list[str]:
+        facts = self.memory.set_priority(index, priority, scope=scope)
+        self._audit_memory(
+            thread_id, f"priority[{scope}] #{index}={priority}"
+        )
+        return facts
+
+    def clear_memory(
+        self, *, thread_id: str = "", scope: str = "project"
+    ) -> list[str]:
+        facts = self.memory.clear(scope=scope)
+        self._audit_memory(thread_id, f"clear[{scope}]")
+        return facts
+
+    def memories(self, *, scope: str | None = None) -> list[str]:
+        return self.memory.load(scope=scope)
 
     async def history(
         self,
@@ -621,6 +802,138 @@ class AgentRuntime:
         )
         return target
 
+    async def compact_thread(
+        self,
+        thread_id: str,
+        *,
+        keep_recent: int = 6,
+        new_thread_id: str = "",
+    ) -> str:
+        """把较早的对话压成一条确定性摘要，并分叉出一个新会话。
+
+        不原地删除消息：原 thread 完整保留。新 thread 只带摘要 + 最近若干轮
+        **纯文本**消息（不含 tool_calls / ToolMessage），因此不会破坏
+        `tool_calls ↔ tool_call_id` 配对。
+        """
+        graph = await self._ensure_graph()
+        source = await graph.aget_state(
+            {"configurable": {"thread_id": thread_id}}
+        )
+        values = dict(getattr(source, "values", None) or {})
+        messages = list(values.get("messages") or [])
+        summary = summarize_messages(
+            messages,
+            max_chars=max(500, int(self.settings.session_brief_chars or 4000)),
+        )
+        keep = max(1, min(int(keep_recent), 50))
+        recent: list[Any] = []
+        human_count = 0
+        for message in reversed(messages):
+            if isinstance(message, HumanMessage):
+                human_count += 1
+                if human_count > keep:
+                    break
+                recent.append(HumanMessage(content=text_of(message)))
+            elif (
+                isinstance(message, AIMessage)
+                and not getattr(message, "tool_calls", None)
+            ):
+                text = text_of(message)
+                if text:
+                    recent.append(AIMessage(content=text))
+        recent.reverse()
+        # 新会话必须从用户消息开始；孤立的前置 AI 文本没有上下文意义。
+        while recent and not isinstance(recent[0], HumanMessage):
+            recent.pop(0)
+
+        summary_text = (
+            "【会话压缩摘要】\n" + summary
+            if summary
+            else "【会话压缩摘要】原会话没有可提炼的文本。"
+        )
+        new_messages: list[Any] = [HumanMessage(content=summary_text), *recent]
+        target = new_thread_id.strip() or (
+            f"{thread_id}-compact-{uuid4().hex[:8]}"
+        )
+        reset: dict[str, Any] = {
+            "messages": new_messages,
+            "request": "",
+            "plan": [],
+            "plan_kinds": [],
+            "step_idx": 0,
+            "plan_degraded": False,
+            "replan_count": 0,
+            "tweak_count": 0,
+            "tool_rounds": 0,
+            "budget_exhausted": False,
+            "dirty": False,
+            "run_dirty": False,
+            "pending_verification": False,
+            "empty_step_nudged": False,
+            "verification": {},
+            "review": {},
+            "review_watermark": "",
+            "retry": 0,
+            "same_failure_count": 0,
+            "last_failure_signature": "",
+            "last_verification": {},
+            "stale_paths": [],
+            "approvals": {},
+            "run_status": "finished",
+            "session_brief": "",
+            "recovery_notice": "",
+            "project_instructions": "",
+            "memories": [],
+            # 编排/委派/steering 都是 run 级状态，不能从原 thread 带过来。
+            "transient_retries": 0,
+            "delegate_calls": 0,
+            "delegation_allowed": False,
+            "delegation_budget": 0,
+            "execution_mode": "direct",
+            "workflow": "",
+            "workflow_reason": "",
+            "repo_summary": {},
+            "prefetched_tasks": [],
+            "prefetched_degraded": False,
+            "tasks": [],
+            "task_status": {},
+            "task_attempts": {},
+            "worker_results": [],
+            "orchestrator_round": 0,
+            "orchestrator_degraded": False,
+            "orchestrator_summary": "",
+            "orchestrator_completed": 0,
+            "orchestrator_failed": 0,
+            "worker_context": "",
+            "orchestration_handoff": {},
+            "task_extensions_seen": 0,
+            "task_extensions_applied": [],
+            "task_extension_errors": [],
+            "steering_cancelled": False,
+            "steering_replan": False,
+            "steering_replans": 0,
+            "steering_applied": [],
+            "workflow_revised_reason": "",
+        }
+        values.update(reset)
+        await graph.aupdate_state(
+            {"configurable": {"thread_id": target}},
+            values,
+            as_node=None,
+        )
+        self._audit(
+            AuditRecord(
+                ts=now_iso(),
+                kind=audit_models.COMPACT,
+                thread_id=thread_id,
+                detail=truncate(
+                    f"compact -> {target}；保留最近 {keep} 轮，"
+                    f"摘要 {len(summary)} 字符"
+                ),
+            )
+        )
+        return target
+
     async def rewind(
         self,
         thread_id: str,
@@ -686,8 +999,35 @@ class AgentRuntime:
         """
         self._pending_calls.pop(thread_id, None)
         self._progress.pop(thread_id, None)
-        # 一轮结束：未消费的迟到指令与暂停标记都作废。
-        self.steering.clear(thread_id)
+        # 一轮结束：未消费的迟到指令与暂停标记都作废，但丢弃动作留审计。
+        discarded = self.steering.clear(thread_id)
+        if discarded:
+            self._audit_discarded_steering(thread_id, discarded, "run 结束")
+
+    def _audit_discarded_steering(
+        self,
+        thread_id: str,
+        commands: list[Any],
+        reason: str,
+    ) -> None:
+        """记录被丢弃的 steering 指令，避免“提交过但没生效”无迹可查。"""
+        detail = "、".join(
+            f"{getattr(item, 'action', '')}"
+            + (f": {getattr(item, 'text', '')}" if getattr(item, "text", "") else "")
+            for item in commands
+        )
+        try:
+            self._audit(
+                AuditRecord(
+                    ts=now_iso(),
+                    kind=audit_models.STEERING,
+                    thread_id=thread_id,
+                    detail=truncate(f"{reason}，丢弃指令：{detail}"),
+                    source="runtime",
+                )
+            )
+        except Exception:  # noqa: BLE001, S110 - 提交时已审计，清理审计不阻断收尾
+            pass
 
     @property
     def effective_settings(self) -> Settings:
@@ -697,7 +1037,13 @@ class AgentRuntime:
         `--workspace` 覆盖只会影响图状态里的 cwd，工具仍按旧根目录判边界，
         结果是所有命令都被判「工作目录非法」。
         """
-        return self.settings.model_copy(update={"wsl_workspace": self.workspace})
+        update: dict[str, Any] = {"wsl_workspace": self.workspace}
+        if self.access_mode == ACCESS_READ_ONLY:
+            # 只读 = 不运行。自动 verify 会执行测试命令，编排 implement 会写
+            # 工作区；两者都必须在配置层关掉，不能只靠 approval_gate。
+            update["verify_enabled"] = False
+            update["orchestrator_enabled"] = False
+        return self.settings.model_copy(update=update)
 
     async def _checkpointer(self) -> Any:
         """本次运行用的 checkpoint 后端：外部传入的优先，否则自管 sqlite。"""
@@ -721,6 +1067,9 @@ class AgentRuntime:
                 sandbox=self._sandbox,
                 steering=self.steering,
                 governor=self.concurrency,
+                model_override=self.model_override,
+                provider_name=self.provider_name,
+                secret_store=self.secret_store,
             )
         return self._graph
 
@@ -757,11 +1106,14 @@ class AgentRuntime:
             "请等待它结束，或在另一个工作区运行。"
         )
 
-    async def run(self, prompt: str, *, thread_id: str) -> AsyncIterator[Event]:
+    async def run(
+        self, prompt: str, *, thread_id: str, plan_only: bool = False
+    ) -> AsyncIterator[Event]:
         """跑一轮任务（持有工作区单写者锁）。
 
-        事件流以 `RunFinished` / `RunFailed` 收尾；若以 `ApprovalRequested` 收尾，
-        说明图已挂起等待人工确认，前端应收集答复后调用 `resume()`。
+        `plan_only=True` 只生成计划并立即正常收尾，不执行任何工具或写操作。
+        事件流以 `RunFinished` / `RunFailed` 收尾；若以 `ApprovalRequested`
+        收尾，说明图已挂起等待人工确认，前端应收集答复后调用 `resume()`。
         """
         if self._stream_active:
             yield RunFailed(message=_STREAM_BUSY_MESSAGE)
@@ -772,7 +1124,7 @@ class AgentRuntime:
         self._stream_active = True
         try:
             async for event in self._run_unlocked(
-                prompt, thread_id=thread_id
+                prompt, thread_id=thread_id, plan_only=plan_only
             ):
                 yield event
         finally:
@@ -780,34 +1132,57 @@ class AgentRuntime:
             self._release_workspace_lock()
 
     async def _run_unlocked(
-        self, prompt: str, *, thread_id: str
+        self, prompt: str, *, thread_id: str, plan_only: bool = False
     ) -> AsyncIterator[Event]:
         # 新一轮先作废旧指令。**必须放在任何耗时初始化之前**：Web 在 run 的
         # SSE 响应建立后、TUI 在 _execute 一开始就能提交 /pause /cancel，
         # 而记忆读取、仓库画像探测、checkpoint 回读可能要数秒 —— 放到后面
         # 会把这段时间里提交的指令静默清掉（审计只留下"用户提交过"）。
-        self.steering.clear(thread_id)
+        #
+        # run_id 让“新旧”有明确边界：旧 run 的 add/replan 会被清掉，本 run
+        # 开始后提交的指令则会自动绑定这个 id；清理结果落审计。
+        stale = self.steering.begin_run(thread_id, uuid4().hex[:12])
+        if stale:
+            self._audit_discarded_steering(
+                thread_id, stale, "新 run 开始"
+            )
 
-        # 读记忆（工作区 `.agent/memory.md`）需要沙箱；失败也必须以事件收尾，
-        # 否则异常会在生成器第一步裸抛给前端（CLI 会以 traceback 收场）。
+        # 读记忆是增强信息：沙箱/文件异常时按空记忆继续，不能因此中断整轮。
+        # 与 worker 的 `_memories()`、分层指令的降级策略保持一致。
         try:
             memories = self.memory.search(prompt, self.settings.memory_top_k)
-        except Exception as exc:  # noqa: BLE001 - 启动即失败同样是编排层错误
-            detail = f"{type(exc).__name__}: {exc}"
+        except Exception as exc:  # noqa: BLE001 - 记忆不是执行前提
+            memories = []
             try:
                 self._audit(
                     AuditRecord(
                         ts=now_iso(),
-                        kind=audit_models.RUN_ERROR,
+                        kind=audit_models.RECOVERY,
                         thread_id=thread_id,
-                        detail=detail,
+                        detail=truncate(
+                            f"记忆读取失败，按空记忆继续："
+                            f"{type(exc).__name__}: {exc}"
+                        ),
                     )
                 )
-            except Exception:  # noqa: BLE001, S110 - 已在错误路径上，不再二次抛出
+            except Exception:  # noqa: BLE001, S110 - 审计失败也不阻断运行
                 pass
-            self._forget_thread(thread_id)
-            yield RunFailed(message=detail)
-            return
+        unsafe = getattr(self.memory, "last_unsafe", [])
+        if unsafe:
+            try:
+                self._audit(
+                    AuditRecord(
+                        ts=now_iso(),
+                        kind=audit_models.RECOVERY,
+                        thread_id=thread_id,
+                        detail=truncate(
+                            f"记忆中有 {len(unsafe)} 条疑似密钥，"
+                            "已跳过注入"
+                        ),
+                    )
+                )
+            except Exception:  # noqa: BLE001, S110
+                pass
 
         # 分层项目指令是增强信息：发现失败（沙箱不可用、find 缺失）不影响运行
         instructions = ""
@@ -832,7 +1207,8 @@ class AgentRuntime:
         policy = delegation_policy(profile, self.settings)
         execution_mode = "direct"
         if (
-            self.settings.orchestrator_enabled
+            not plan_only
+            and self.settings.orchestrator_enabled
             and profile.known
             and profile.file_count >= self.settings.orchestrator_min_files
         ):
@@ -871,6 +1247,8 @@ class AgentRuntime:
             ],
             # 独立 orchestrator 子图只读这一项，避免把整段消息历史复制进子图。
             "request": prompt,
+            # 只展示计划：graph 在 planner 后直接收尾，不执行 act。
+            "plan_only": plan_only,
             # 上一轮及更早的会话约束（有界摘要）；checkpoint 尚未写入本轮 prompt。
             "session_brief": session_brief,
             # 上一轮未正常收尾时的恢复提示；正常情况为空。
@@ -1024,8 +1402,27 @@ class AgentRuntime:
         self.steering.submit(thread_id, command)
 
     def is_paused(self, thread_id: str) -> bool:
-        """图是否停在 steering 的 pause 上（同一进程内）。"""
+        """图是否停在 steering 的 pause 上。
+
+        暂停标记会落盘，因此进程重启后（例如 CLI `agent resume`）也能读到。
+        """
         return self.steering.is_paused(thread_id)
+
+    async def pending_approvals(
+        self, thread_id: str
+    ) -> list[ApprovalRequested]:
+        """从 checkpoint 读取挂起的审批请求，供跨进程 resume 使用。"""
+        try:
+            graph = await self._ensure_graph()
+            snapshot = await graph.aget_state(
+                {"configurable": {"thread_id": thread_id}}
+            )
+        except Exception:  # noqa: BLE001 - 读取失败按“无可恢复状态”处理
+            return []
+        suspensions: list[Any] = []
+        for task in getattr(snapshot, "tasks", ()) or ():
+            suspensions.extend(getattr(task, "interrupts", ()) or ())
+        return self._interrupt_requests(suspensions)
 
     async def resume_steering(self, thread_id: str) -> AsyncIterator[Event]:
         """从 steering pause 恢复（持有工作区单写者锁）。"""
@@ -1241,8 +1638,13 @@ class AgentRuntime:
                 if mode == "messages":
                     chunk, meta = data
                     node = meta.get("langgraph_node", "")
+                    if node not in STREAMING_NODES:
+                        continue
+                    reasoning = reasoning_of(chunk)
+                    if reasoning:
+                        yield ReasoningToken(node=node, text=reasoning)
                     text = text_of(chunk)
-                    if node not in STREAMING_NODES or not text:
+                    if not text:
                         continue
                     if node == "respond":
                         streamed.append(text)
@@ -2015,6 +2417,48 @@ class AgentRuntime:
             current = ""
 
         return unified_diff(original, current, entry.path)
+
+    def store_upload(
+        self,
+        filename: str,
+        data: bytes,
+        *,
+        thread_id: str = "",
+        max_bytes: int = 0,
+    ) -> dict[str, Any]:
+        """把用户上传的文件写入工作区的 `.agent/uploads`。
+
+        这是**用户动作**，不经过模型的写权限，也不修改仓库源码；文件路径
+        仍然走 SandboxFs 的路径校验，并写审计。返回工作区内的绝对路径。
+        """
+        if max_bytes and len(data) > max_bytes:
+            raise ValueError(f"文件超过上限 {max_bytes} 字节")
+        # 只取 basename，挡住 ../ 与 Windows 反斜杠路径。
+        name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+        if not name or name in {".", ".."} or "\x00" in name:
+            raise ValueError("非法文件名")
+        name = name[:180]
+        safe_thread = "".join(
+            ch for ch in str(thread_id or "") if ch.isalnum() or ch in "_-"
+        )[:64] or "global"
+        rel_dir = f".agent/uploads/{safe_thread}"
+        rel_path = posixpath.join(rel_dir, f"{uuid4().hex[:8]}-{name}")
+        written = self._sandbox_fs().write_bytes(rel_path, data)
+        self._audit(
+            AuditRecord(
+                ts=now_iso(),
+                kind=audit_models.FILE_CHANGE,
+                thread_id=thread_id,
+                action="upload",
+                path=rel_path,
+                added=written,
+            )
+        )
+        return {
+            "path": posixpath.join(self.workspace, rel_path),
+            "relative_path": rel_path,
+            "bytes": written,
+        }
 
     def _sandbox_fs(self) -> SandboxFs:
         if self._fs is None:

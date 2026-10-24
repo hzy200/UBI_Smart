@@ -14,9 +14,43 @@ import shlex
 from typing import Any
 from uuid import uuid4
 
+from coding_agent.execution.contracts import ExecutionRequest
 from coding_agent.sandbox.fs import SandboxFs, SandboxFsError, SandboxPathError
 from coding_agent.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
+
+
+def _git(
+    sandbox: WslSandbox, args: list[str], *, root: str
+) -> ExecResult:
+    """合并路径优先走 ExecutionService；旧 fake sandbox 直接回退。"""
+    execution = getattr(sandbox, "execution", None)
+    if execution is not None:
+        result = execution.execute(
+            ExecutionRequest(
+                op_id=f"merge:{uuid4().hex[:16]}",
+                kind="git",
+                run_id="merge",
+                workspace_id=root,
+                payload={"args": args, "cwd": root},
+            )
+        )
+        exit_code = (
+            int(result.exit_code)
+            if result.exit_code is not None
+            else (0 if result.status == "ok" else 1)
+        )
+        return ExecResult(
+            command="git " + " ".join(args),
+            exit_code=exit_code,
+            stdout=result.stdout,
+            stderr=result.stderr or result.error,
+            duration_ms=result.duration_ms,
+        )
+    return sandbox.run(
+        "git " + " ".join(shlex.quote(arg) for arg in args),
+        cwd=root,
+    )
 
 
 def _normalize_patch_path(raw: str) -> str:
@@ -40,8 +74,8 @@ def _patch_paths(
     sandbox: WslSandbox, patch_path: str, root: str
 ) -> tuple[list[str], str]:
     """补丁会碰到的路径（不应用补丁）。"""
-    result = sandbox.run(
-        f"git apply --numstat -z {shlex.quote(patch_path)}", cwd=root
+    result = _git(
+        sandbox, ["apply", "--numstat", "-z", patch_path], root=root
     )
     if not result.ok:
         return [], result.render(400)
@@ -186,9 +220,7 @@ async def merge_implement_patch(
         return False, "worker 未成功，补丁不合并", []
 
     check = await asyncio.to_thread(
-        sandbox.run,
-        f"git apply --check {shlex.quote(patch_path)}",
-        cwd=root,
+        _git, sandbox, ["apply", "--check", patch_path], root=root
     )
     if not check.ok:
         return False, check.render(400), []
@@ -219,9 +251,7 @@ async def merge_implement_patch(
         return False, snapshot_error, snapshot_ids
 
     applied = await asyncio.to_thread(
-        sandbox.run,
-        f"git apply {shlex.quote(patch_path)}",
-        cwd=root,
+        _git, sandbox, ["apply", patch_path], root=root
     )
     if applied.ok:
         return True, "", snapshot_ids
@@ -259,6 +289,189 @@ async def _validate_three_way(
         )
 
 
+def _merge_paths(
+    record: dict[str, Any], patch_paths: dict[str, list[str]]
+) -> list[str]:
+    """一条补丁会碰到的路径：worker 声明 + 补丁 numstat，归一化去重。"""
+    task_id = str(record.get("task_id", ""))
+    return sorted(
+        {
+            normalized
+            for normalized in (
+                _normalize_patch_path(str(item))
+                for item in [
+                    *(record.get("files") or []),
+                    *patch_paths.get(task_id, []),
+                ]
+            )
+            if normalized
+        }
+    )
+
+
+def _patch_components(
+    records: list[dict[str, Any]],
+    paths_by_task: dict[str, list[str]],
+) -> list[list[dict[str, Any]]]:
+    """按共享文件把补丁分成互不影响的连通分量。
+
+    分量之间没有文件交集，因此一个分量失败时不需要回滚另一个分量。
+    组内顺序保持输入顺序；组间按首次出现顺序返回。
+    """
+    parent = {
+        str(record.get("task_id", "")): str(record.get("task_id", ""))
+        for record in records
+    }
+
+    def find(task_id: str) -> str:
+        while parent[task_id] != task_id:
+            parent[task_id] = parent[parent[task_id]]
+            task_id = parent[task_id]
+        return task_id
+
+    def union(left: str, right: str) -> None:
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    owners: dict[str, list[str]] = {}
+    for task_id, paths in paths_by_task.items():
+        for path in paths:
+            owners.setdefault(path, []).append(task_id)
+    for task_ids in owners.values():
+        for other in task_ids[1:]:
+            union(task_ids[0], other)
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        grouped.setdefault(
+            find(str(record.get("task_id", ""))), []
+        ).append(record)
+    ordered: list[list[dict[str, Any]]] = []
+    seen: set[str] = set()
+    for record in records:
+        root_id = find(str(record.get("task_id", "")))
+        if root_id in seen:
+            continue
+        seen.add(root_id)
+        ordered.append(grouped[root_id])
+    return ordered
+
+
+async def _merge_component(
+    sandbox: WslSandbox,
+    root: str,
+    records: list[dict[str, Any]],
+    *,
+    paths_by_task: dict[str, list[str]],
+    allow_overlap: bool,
+    outcomes: dict[str, tuple[bool, str, list[str]]],
+) -> None:
+    """原子合并一个连通分量；失败只回滚本分量。"""
+    owners: dict[str, set[str]] = {}
+    for task_id, paths in paths_by_task.items():
+        for path in paths:
+            owners.setdefault(path, set()).add(task_id)
+    overlaps = {
+        path: sorted(task_ids)
+        for path, task_ids in owners.items()
+        if len(task_ids) > 1
+    }
+    if overlaps and not allow_overlap:
+        detail = "；".join(
+            f"{path}（{', '.join(ids)}）" for path, ids in overlaps.items()
+        )
+        for record in records:
+            outcomes[str(record.get("task_id", ""))] = (
+                False,
+                f"多个补丁命中同一文件，未开启 3-way 合并：{detail}",
+                [],
+            )
+        return
+
+    use_three_way = bool(overlaps)
+    if use_three_way:
+        ok, error = await _validate_three_way(sandbox, root, records)
+        if not ok:
+            for record in records:
+                outcomes[str(record.get("task_id", ""))] = (
+                    False,
+                    f"3-way 预演冲突，本组未合并：{error}",
+                    [],
+                )
+            return
+
+    # 1) 本分量全部留快照（尚未应用任何补丁）。
+    all_paths: set[str] = set()
+    for record in records:
+        task_id = str(record.get("task_id", ""))
+        paths = paths_by_task.get(task_id, [])
+        all_paths.update(paths)
+        snapshot_ids, snapshot_error = await asyncio.to_thread(
+            _snapshot_paths, sandbox, root, paths
+        )
+        if snapshot_error:
+            outcomes[task_id] = (False, snapshot_error, snapshot_ids)
+            for other in records:
+                other_id = str(other.get("task_id", ""))
+                if other_id != task_id:
+                    outcomes[other_id] = (
+                        False,
+                        "同组快照失败，整组未合并",
+                        list(outcomes[other_id][2]),
+                    )
+            return
+        outcomes[task_id] = (False, "", snapshot_ids)
+
+    # 2) 顺序应用；失败则按相反顺序撤销，必要时回退快照。
+    applied: list[dict[str, Any]] = []
+    for record in records:
+        task_id = str(record.get("task_id", ""))
+        patch_path = str(record.get("patch_path") or "")
+        apply_cmd = "git apply --3way" if use_three_way else "git apply"
+        result = await asyncio.to_thread(
+            sandbox.run,
+            f"{apply_cmd} {shlex.quote(patch_path)}",
+            cwd=root,
+        )
+        if result.ok:
+            applied.append(record)
+            outcomes[task_id] = (True, "", list(outcomes[task_id][2]))
+            continue
+
+        if applied:
+            await asyncio.to_thread(
+                _rollback_merged, sandbox, root, applied, sorted(all_paths)
+            )
+        applied_ids = {str(item.get("task_id", "")) for item in applied}
+        for done in applied:
+            done_id = str(done.get("task_id", ""))
+            outcomes[done_id] = (
+                False,
+                "同组后续补丁失败，已回滚",
+                list(outcomes[done_id][2]),
+            )
+        outcomes[task_id] = (
+            False,
+            result.render(400),
+            list(outcomes[task_id][2]),
+        )
+        for other in records:
+            other_id = str(other.get("task_id", ""))
+            if other_id not in applied_ids and other_id != task_id:
+                outcomes[other_id] = (
+                    False,
+                    "同组补丁失败，整组未合并",
+                    list(outcomes[other_id][2]),
+                )
+        return
+
+    if use_three_way:
+        # git apply --3way 会顺带更新 index；恢复成“工作区有改动、
+        # 未暂存”的旧语义，避免主 agent/用户看到意外的 staged 状态。
+        await asyncio.to_thread(sandbox.run, "git reset -q", cwd=root)
+
+
 async def merge_implement_patches_atomic(
     sandbox: WslSandbox,
     root: str,
@@ -266,13 +479,14 @@ async def merge_implement_patches_atomic(
     *,
     allow_overlap: bool = False,
 ) -> dict[str, tuple[bool, str, list[str]]]:
-    """把同一批 implement 补丁作为**一个事务**合并。
+    """把 implement 补丁按文件连通分量分批，每个分量各自原子合并。
 
-    先全部 `--check`、全部留快照，再顺序 apply；任一 apply 失败时反向
-    撤销已应用补丁，失败则回退到快照。返回 task_id → (merged, error, ids)。
+    先对每条补丁 `--check` 并解析路径，再按「共享文件」分成互不影响的
+    连通分量。分量内部全部留快照后顺序 apply；任一失败只反向撤销本分量，
+    不会回滚其它分量。返回 task_id → (merged, error, ids)。
 
-    当多个补丁命中同一文件且 `allow_overlap=True` 时，先用临时 index 做
-    `git apply --3way --cached` 预演，全部无冲突后再落到工作区。
+    当分量内多个补丁命中同一文件且 `allow_overlap=True` 时，先用临时 index
+    做 `git apply --3way --cached` 预演，无冲突后再落到工作区。
     """
     outcomes: dict[str, tuple[bool, str, list[str]]] = {
         str(record.get("task_id", "")): (False, "", [])
@@ -294,8 +508,9 @@ async def merge_implement_patches_atomic(
             )
         return outcomes
 
-    # 1) 全量校验；任何一条冲突都整批不应用。
+    # 1) 逐条校验；校验失败的补丁不进入任何分量，也不影响其它分量。
     patch_paths: dict[str, list[str]] = {}
+    checked: list[dict[str, Any]] = []
     for record in eligible:
         task_id = str(record.get("task_id", ""))
         patch_path = str(record.get("patch_path") or "")
@@ -306,151 +521,31 @@ async def merge_implement_patches_atomic(
         )
         if not check.ok:
             outcomes[task_id] = (False, check.render(400), [])
-            for other in eligible:
-                other_id = str(other.get("task_id", ""))
-                if other_id != task_id:
-                    outcomes[other_id] = (
-                        False,
-                        "同批补丁校验失败，整批未合并",
-                        [],
-                    )
-            return outcomes
+            continue
         paths, path_error = await asyncio.to_thread(
             _patch_paths, sandbox, patch_path, root
         )
         if path_error:
             outcomes[task_id] = (False, path_error, [])
-            for other in eligible:
-                other_id = str(other.get("task_id", ""))
-                if other_id != task_id:
-                    outcomes[other_id] = (
-                        False,
-                        "同批补丁路径校验失败，整批未合并",
-                        [],
-                    )
-            return outcomes
-        patch_paths[task_id] = paths
-
-    owners: dict[str, set[str]] = {}
-    for task_id, paths in patch_paths.items():
-        for path in paths:
-            owners.setdefault(path, set()).add(task_id)
-    overlaps = {
-        path: sorted(task_ids)
-        for path, task_ids in owners.items()
-        if len(task_ids) > 1
-    }
-    if overlaps and not allow_overlap:
-        detail = "；".join(
-            f"{path}（{', '.join(ids)}）" for path, ids in overlaps.items()
-        )
-        for record in records:
-            task_id = str(record.get("task_id", ""))
-            outcomes[task_id] = (
-                False,
-                f"多个补丁命中同一文件，未开启 3-way 合并：{detail}",
-                [],
-            )
-        return outcomes
-    use_three_way = bool(overlaps)
-    if use_three_way:
-        ok, error = await _validate_three_way(
-            sandbox, root, eligible
-        )
-        if not ok:
-            for record in records:
-                task_id = str(record.get("task_id", ""))
-                outcomes[task_id] = (
-                    False,
-                    f"3-way 预演冲突，整批未合并：{error}",
-                    [],
-                )
-            return outcomes
-
-    # 2) 全部留快照（尚未应用任何补丁）。
-    all_paths: set[str] = set()
-    for record in eligible:
-        task_id = str(record.get("task_id", ""))
-        paths = sorted(
-            {
-                normalized
-                for normalized in (
-                    _normalize_patch_path(str(item))
-                    for item in [
-                        *(record.get("files") or []),
-                        *patch_paths.get(task_id, []),
-                    ]
-                )
-                if normalized
-            }
-        )
-        all_paths.update(paths)
-        snapshot_ids, snapshot_error = await asyncio.to_thread(
-            _snapshot_paths, sandbox, root, paths
-        )
-        if snapshot_error:
-            outcomes[task_id] = (False, snapshot_error, snapshot_ids)
-            for other in eligible:
-                other_id = str(other.get("task_id", ""))
-                if other_id != task_id:
-                    outcomes[other_id] = (
-                        False,
-                        "同批快照失败，整批未合并",
-                        [],
-                    )
-            return outcomes
-        outcomes[task_id] = (False, "", snapshot_ids)
-
-    # 3) 顺序应用；失败则按相反顺序撤销，必要时回退快照。
-    applied: list[dict[str, Any]] = []
-    for record in eligible:
-        task_id = str(record.get("task_id", ""))
-        patch_path = str(record.get("patch_path") or "")
-        apply_cmd = "git apply --3way" if use_three_way else "git apply"
-        result = await asyncio.to_thread(
-            sandbox.run,
-            f"{apply_cmd} {shlex.quote(patch_path)}",
-            cwd=root,
-        )
-        if result.ok:
-            applied.append(record)
-            outcomes[task_id] = (
-                True,
-                "",
-                list(outcomes[task_id][2]),
-            )
             continue
+        patch_paths[task_id] = paths
+        checked.append(record)
 
-        await asyncio.to_thread(
-            _rollback_merged, sandbox, root, applied, sorted(all_paths)
+    # 2) 连通分量之间文件不相交，可以各自独立提交/回滚。
+    paths_by_task = {
+        str(record.get("task_id", "")): _merge_paths(record, patch_paths)
+        for record in checked
+    }
+    for component in _patch_components(checked, paths_by_task):
+        await _merge_component(
+            sandbox,
+            root,
+            component,
+            paths_by_task=paths_by_task,
+            allow_overlap=allow_overlap,
+            outcomes=outcomes,
         )
-        for done in applied:
-            done_id = str(done.get("task_id", ""))
-            outcomes[done_id] = (
-                False,
-                "同批后续补丁失败，已回滚",
-                list(outcomes[done_id][2]),
-            )
-        outcomes[task_id] = (
-            False,
-            result.render(400),
-            list(outcomes[task_id][2]),
-        )
-        applied_ids = {str(item.get("task_id", "")) for item in applied}
-        for other in eligible:
-            other_id = str(other.get("task_id", ""))
-            if other_id not in applied_ids and other_id != task_id:
-                outcomes[other_id] = (
-                    False,
-                    "同批补丁失败，整批未合并",
-                    list(outcomes[other_id][2]),
-                )
-        return outcomes
 
-    if use_three_way:
-        # git apply --3way 会顺带更新 index；恢复成“工作区有改动、
-        # 未暂存”的旧语义，避免主 agent/用户看到意外的 staged 状态。
-        await asyncio.to_thread(sandbox.run, "git reset -q", cwd=root)
     return outcomes
 
 

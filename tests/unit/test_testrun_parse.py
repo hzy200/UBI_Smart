@@ -275,6 +275,29 @@ def test_a_python_project_without_tests_falls_back_to_a_syntax_check() -> None:
     assert detect_test_command(sandbox, "/ws", allow_manifest=False) == _SYNTAX_CHECK
 
 
+def test_project_venv_python_is_used_for_pytest() -> None:
+    from coding_agent.tools.testrun import detect_test_command
+
+    sandbox = _ProbeSandbox(
+        "DIR tests\nHAS pytest\nPY .venv/bin/python\n"
+    )
+    assert (
+        detect_test_command(sandbox, "/ws", allow_manifest=False)
+        == ".venv/bin/python -m pytest -q"
+    )
+
+
+def test_project_pytest_command_can_rerun_selected_tests() -> None:
+    from coding_agent.tools.testrun import _selected_command
+
+    assert (
+        _selected_command(
+            ".venv/bin/python -m pytest -q", ("tests/test_x.py::test_a",)
+        )
+        == ".venv/bin/python -m pytest -q tests/test_x.py::test_a"
+    )
+
+
 def test_a_project_without_any_source_stays_not_configured() -> None:
     """没有源码就没有可做的校验 —— 这时如实返回空串（`not_configured`）。"""
     from coding_agent.tools.testrun import detect_test_command

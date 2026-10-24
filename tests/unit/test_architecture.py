@@ -25,7 +25,7 @@ import pytest
 SRC = Path(__file__).resolve().parents[2] / "src" / "coding_agent"
 
 # 前端包：只允许依赖 runtime / events / config 这些中立层
-UI_PACKAGES = ("tui", "web")
+UI_PACKAGES = ("tui", "web", "desktop")
 FORBIDDEN = ("coding_agent.tools", "coding_agent.sandbox")
 
 

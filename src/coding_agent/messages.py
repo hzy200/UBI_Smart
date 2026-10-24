@@ -31,6 +31,33 @@ def text_of(message: object) -> str:
     return ""
 
 
+def reasoning_of(message: object) -> str:
+    """取出 provider 暴露的 reasoning/thinking 文本（best-effort）。
+
+    OpenAI 兼容端点没有统一字段：DeepSeek 用 `reasoning_content`，部分
+    网关用 content blocks 的 `reasoning`/`thinking` 类型。拿不到就返回空串，
+    不猜测、不伪造。
+    """
+    extra = getattr(message, "additional_kwargs", None) or {}
+    if isinstance(extra, dict):
+        for key in ("reasoning_content", "reasoning"):
+            value = extra.get(key)
+            if isinstance(value, str) and value:
+                return value
+    content = getattr(message, "content", "")
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") in {"reasoning", "thinking"}:
+                text = item.get("text") or item.get("reasoning") or ""
+                if text:
+                    parts.append(str(text))
+        return "".join(parts)
+    return ""
+
+
 def last_human_text(messages: Sequence[BaseMessage]) -> str:
     """最近一条用户输入。
 

@@ -746,6 +746,8 @@ def test_two_real_resumes_cannot_drive_the_same_graph(tmp_path) -> None:
 # ---------------- 异常 ----------------
 
 class _BoomMemory:
+    last_unsafe: list[str] = []
+
     def load(self) -> list[str]:
         raise RuntimeError("记忆文件读不了")
 
@@ -803,15 +805,23 @@ def test_thread_state_survives_a_suspension(tmp_path) -> None:
     assert THREAD in runtime._progress
 
 
-def test_memory_read_failure_becomes_run_failed(tmp_path) -> None:
-    """启动即失败（读记忆需要 WSL）也要以事件收尾，而不是裸异常外泄给前端。"""
-    runtime, _ = _runtime(tmp_path, [])
+def test_memory_read_failure_degrades_to_empty(tmp_path) -> None:
+    """记忆是增强信息：读取失败按空记忆继续，不阻断整轮。"""
+    runtime, _ = _runtime(
+        tmp_path,
+        [_updates(respond={"messages": [AIMessage(content="仍然完成")]})],
+    )
     runtime._memory = _BoomMemory()  # type: ignore[assignment]
 
     events = _run(_collect(runtime))
 
-    assert isinstance(events[0], RunFailed)
-    assert "RuntimeError" in events[0].message
+    assert isinstance(events[-1], RunFinished)
+    assert events[-1].answer == "仍然完成"
+    records = read_records(AuditLogger(tmp_path).path, limit=0)
+    assert any(
+        record.kind == "recovery" and "记忆读取失败" in record.detail
+        for record in records
+    )
 
 
 def test_graph_failure_becomes_run_failed(tmp_path) -> None:

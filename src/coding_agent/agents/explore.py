@@ -35,6 +35,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from coding_agent.config import Settings
+from coding_agent.execution.context import tool_execution_context
 from coding_agent.llm.deepseek import with_json_output
 from coding_agent.llm.prompts import (
     EXPLORE_PROMPT,
@@ -397,9 +398,14 @@ def make_readonly_runner(
                     else:
                         tool_started = time.monotonic()
                         try:
-                            raw = await asyncio.to_thread(
-                                tool.invoke, call_args, child_config
-                            )
+                            with tool_execution_context(
+                                agent_id, tool_call_id
+                            ):
+                                raw = await asyncio.to_thread(
+                                    tool.invoke,
+                                    call_args,
+                                    child_config,
+                                )
                             content, artifact = unpack(raw)
                             ok = (
                                 bool(artifact.get("ok", True))

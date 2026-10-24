@@ -145,6 +145,11 @@ class Settings(BaseSettings):
     wsl_distro: str = Field(default="Ubuntu", alias="AGENT_WSL_DISTRO")
     # 留空表示自动使用沙箱内 $HOME/agent-ws，避免与真实用户名不匹配
     wsl_workspace: str = Field(default="", alias="AGENT_WSL_WORKSPACE")
+    # auto：Windows 用 wsl.exe，Linux/WSL 内直接本地执行
+    # local：强制本地 Linux 执行；wsl：强制 wsl.exe（兼容旧 Host 模式）
+    execution_backend: str = Field(
+        default="auto", alias="AGENT_EXECUTION_BACKEND"
+    )
     # shell 隔离后端：off（默认，仅工作区 cwd 约束）| bwrap（挂载命名空间隔离）
     # bwrap 模式下若沙箱内不可用，会**拒绝执行**（fail closed），不静默降级
     shell_sandbox: str = Field(default="off", alias="AGENT_SHELL_SANDBOX")
@@ -399,7 +404,7 @@ class Settings(BaseSettings):
         default=True, alias="AGENT_ORCHESTRATOR_WRITE_SCOPE_ENFORCE"
     )
     # 允许多个 implement 修改同一文件；合并时用 git apply --3way。
-    # 有真实冲突时整批回滚，不会把冲突标记落进主工作区。
+    # 有真实冲突时只回滚本分量，不会把冲突标记落进主工作区。
     orchestrator_allow_overlap: bool = Field(
         default=False, alias="AGENT_ORCHESTRATOR_ALLOW_OVERLAP"
     )
@@ -493,6 +498,47 @@ class Settings(BaseSettings):
     )
     # 长期记忆根目录（WSL 绝对路径）；空则按 trust_repo_memory 推导。
     memory_root: str = Field(default="", alias="AGENT_MEMORY_ROOT")
+    # 跨工作区全局记忆根；空 = 沙箱 $HOME/.agent-memory/global。
+    memory_global_root: str = Field(
+        default="", alias="AGENT_MEMORY_GLOBAL_ROOT"
+    )
+    # 可选向量检索：默认关闭，开启后仍以 BM25 为回退。
+    memory_vector_enabled: bool = Field(
+        default=False, alias="AGENT_MEMORY_VECTOR_ENABLED"
+    )
+    memory_embedding_provider: str = Field(
+        default="local", alias="AGENT_MEMORY_EMBEDDING_PROVIDER"
+    )
+    memory_embedding_model: str = Field(
+        default="BAAI/bge-small-zh-v1.5",
+        alias="AGENT_MEMORY_EMBEDDING_MODEL",
+    )
+    memory_embedding_dim: int = Field(
+        default=512, alias="AGENT_MEMORY_EMBEDDING_DIM"
+    )
+    memory_embedding_cache_dir: str = Field(
+        default="", alias="AGENT_MEMORY_EMBEDDING_CACHE_DIR"
+    )
+    # 远程 OpenAI-compatible embedding（默认关闭，需双重显式开启）。
+    memory_embedding_base_url: str = Field(
+        default="", alias="AGENT_MEMORY_EMBEDDING_BASE_URL"
+    )
+    memory_embedding_api_key: str = Field(
+        default="", alias="AGENT_MEMORY_EMBEDDING_API_KEY"
+    )
+    memory_embedding_timeout_s: float = Field(
+        default=10.0, alias="AGENT_MEMORY_EMBEDDING_TIMEOUT_S"
+    )
+    memory_embedding_batch_size: int = Field(
+        default=64, alias="AGENT_MEMORY_EMBEDDING_BATCH_SIZE"
+    )
+    memory_allow_remote_embeddings: bool = Field(
+        default=False, alias="AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS"
+    )
+    memory_vector_top_n: int = Field(
+        default=20, alias="AGENT_MEMORY_VECTOR_TOP_N"
+    )
+    memory_fusion: str = Field(default="rrf", alias="AGENT_MEMORY_FUSION")
     # 秘密文件读保护 glob（逗号分隔）；.env.example 等模板自动放行。
     read_deny_globs: str = Field(
         default=DEFAULT_READ_DENY_GLOBS,
@@ -525,6 +571,18 @@ class Settings(BaseSettings):
     web_max_prompt_chars: int = Field(
         default=100_000, alias="AGENT_WEB_MAX_PROMPT_CHARS"
     )
+    # 单次上传的单文件上限；上传走单独授权，写入 .agent/uploads。
+    web_max_upload_bytes: int = Field(
+        default=20_971_520, alias="AGENT_WEB_MAX_UPLOAD_BYTES"
+    )
+    # 单次请求最多上传几个文件。
+    web_max_upload_files: int = Field(
+        default=20, alias="AGENT_WEB_MAX_UPLOAD_FILES"
+    )
+    # 每个会话累计上传上限，防止反复上传占满工作区。
+    web_max_upload_total_bytes: int = Field(
+        default=209_715_200, alias="AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES"
+    )
     web_rate_limit_per_min: int = Field(
         default=60, alias="AGENT_WEB_RATE_LIMIT_PER_MIN"
     )
@@ -542,6 +600,48 @@ class Settings(BaseSettings):
     web_allow_anonymous_local: bool = Field(
         default=True, alias="AGENT_WEB_ALLOW_ANONYMOUS_LOCAL"
     )
+
+    # ---------- A2 控制面（Phase B，可选） ----------
+    # 空 = 继续用 gui-sessions.json / 本地文件（Standalone 与旧部署）。
+    # 例：mysql+pymysql://user:pass@127.0.0.1/coding_agent
+    control_db_url: str = Field(default="", alias="AGENT_CONTROL_DB_URL")
+    # SQLite/开发环境自动建表；MySQL 生产迁移用 alembic upgrade 或
+    # control_server --migrate（迁移前自动备份）。
+    control_db_auto_create: bool = Field(
+        default=True, alias="AGENT_CONTROL_DB_AUTO_CREATE"
+    )
+    # auto | keyring | systemd；服务器部署用 systemd-creds，Vault/KMS 走同一 Protocol。
+    secret_provider: str = Field(default="auto", alias="AGENT_SECRET_PROVIDER")
+
+    # ---------- 共享事件传输（Phase B3） ----------
+    # memory = 单实例内存；redis = Redis Streams（多实例 SSE 重放）。
+    event_transport: str = Field(
+        default="memory", alias="AGENT_EVENT_TRANSPORT"
+    )
+    event_transport_url: str = Field(
+        default="", alias="AGENT_EVENT_TRANSPORT_URL"
+    )
+    event_transport_prefix: str = Field(
+        default="coding-agent:events",
+        alias="AGENT_EVENT_TRANSPORT_PREFIX",
+    )
+    event_transport_maxlen: int = Field(
+        default=10_000, alias="AGENT_EVENT_TRANSPORT_MAXLEN"
+    )
+    event_transport_ttl_s: int = Field(
+        default=3600, alias="AGENT_EVENT_TRANSPORT_TTL_S"
+    )
+
+    # ---------- A2 → A3 内部连接（Phase B4） ----------
+    # 空 = A2 与 Agent 同进程（默认，兼容旧部署）。
+    agent_internal_url: str = Field(
+        default="", alias="AGENT_INTERNAL_URL"
+    )
+    agent_internal_token: str = Field(
+        default="", alias="AGENT_INTERNAL_TOKEN"
+    )
+    # Agent Server 的租户数据根；空 = 审计目录旁的 agent/。
+    agent_data_root: str = Field(default="", alias="AGENT_AGENT_DATA_ROOT")
 
     # ---------- Agent 循环 ----------
     max_repair_rounds: int = Field(default=3, alias="AGENT_MAX_REPAIR_ROUNDS")

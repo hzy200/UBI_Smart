@@ -492,6 +492,33 @@ def _respond_state(**extra) -> dict:
     return {"messages": [HumanMessage(content="干活"), AIMessage(content="干完了")], **extra}
 
 
+def test_planner_injects_long_term_memory() -> None:
+    structured = _FakeStructured(TaskPlan(steps=["一步"]))
+    llm = _FakeStructuredLLM(structured)
+    node = _sync(make_planner_node(llm, max_steps=5, allow_write=False))
+
+    node(
+        {**_plan_state(), "memories": ["本仓库用 pytest 跑测试"]},
+        None,
+    )
+
+    system = structured.calls[0][0].content
+    assert "本仓库用 pytest 跑测试" in system
+    assert "长期记忆" in system
+
+
+def test_respond_injects_long_term_memory() -> None:
+    llm = _FakeLLM()
+    _sync(make_respond_node(llm))(
+        _respond_state(memories=["本仓库用 pytest 跑测试"]),
+        None,
+    )
+
+    system = llm.seen[0].content
+    assert "本仓库用 pytest 跑测试" in system
+    assert "长期记忆" in system
+
+
 def test_respond_goes_through_the_async_llm_api() -> None:
     """respond 是收尾那一次调用，往往最长 —— 必须可取消（走 ainvoke）。"""
     llm = _AsyncOnlyLLM()

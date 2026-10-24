@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import MutableMapping
+from typing import Any
 
 from langchain_core.tools import BaseTool
 
 from coding_agent.config import Settings, get_settings
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from coding_agent.sandbox.backend import build_sandbox
 from coding_agent.tools.artifacts import pack, unpack
 from coding_agent.tools.code_intel import build_code_intel_tool
 from coding_agent.tools.deps import build_deps_tools
@@ -35,7 +36,8 @@ def build_tools(
     settings: Settings | None = None,
     *,
     allow_write: bool = False,
-    sandbox: WslSandbox | None = None,
+    allow_execution: bool = True,
+    sandbox: Any | None = None,
     write_scope: list[str] | None = None,
     read_cache: MutableMapping[str, bytes] | None = None,
 ) -> list[BaseTool]:
@@ -44,11 +46,14 @@ def build_tools(
     注意：放行与否**不在这里决定**，而是由 approval_gate + tools 节点依据
     SessionPolicy 逐次判定。这里只决定「暴露哪些工具」。
 
+    `allow_execution=False`（只读会话）时，符号检索退回 AST，code_intel 不启动
+    LSP 进程；这是“只读 = 不可运行”的防线。
+
     `sandbox` 由调用方传入以便与 verify、runtime 共用一份实例：环境探测的结果
     缓存在实例上，每多建一份就多探一遍。
     """
     settings = settings or get_settings()
-    sandbox = sandbox or WslSandbox(settings)
+    sandbox = sandbox or build_sandbox(settings)
 
     tools: list[BaseTool] = [
         build_shell_tool(settings, sandbox, read_cache=read_cache)
@@ -70,8 +75,16 @@ def build_tools(
     tools += build_git_tools(settings, sandbox)
     tools += build_deps_tools(settings, sandbox)
     tools += build_search_tools(settings, sandbox)
-    tools.append(build_symbol_tool(settings, sandbox))
-    tools.append(build_code_intel_tool(settings, sandbox))
+    tools.append(
+        build_symbol_tool(
+            settings, sandbox, allow_lsp=allow_execution
+        )
+    )
+    tools.append(
+        build_code_intel_tool(
+            settings, sandbox, allow_lsp=allow_execution
+        )
+    )
     tools.append(build_test_tool(settings, sandbox))
     return [_instrument(tool) for tool in tools]
 
