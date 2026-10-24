@@ -578,306 +578,335 @@ class AgentTuiApp(App[None]):
         self._transcript.write(Markdown(text))
         self.query_one("#streaming", Static).update("")
 
+    _EVENT_HANDLERS: dict[type, str] = {
+        RunStarted: "_on_run_started",
+        PlanCreated: "_on_plan_created",
+        PlanRevised: "_on_plan_revised",
+        StepStarted: "_on_step_started",
+        StepFinished: "_on_step_finished",
+        AssistantToken: "_on_assistant_token",
+        ToolCallStarted: "_on_tool_started",
+        ToolCallFinished: "_on_tool_finished",
+        FileChanged: "_on_file_changed",
+        Verification: "_on_verification",
+        ReviewFinished: "_on_review_finished",
+        SubAgentStarted: "_on_subagent_started",
+        SubAgentFinished: "_on_subagent_finished",
+        WorkflowSelected: "_on_workflow_selected",
+        TaskGraphCreated: "_on_task_graph_created",
+        TaskGraphExtended: "_on_task_graph_extended",
+        WorkerStarted: "_on_worker_started",
+        WorkerFinished: "_on_worker_finished",
+        OrchestrationFinished: "_on_orchestration_finished",
+        RepairStarted: "_on_repair_started",
+        SteeringApplied: "_on_steering_applied",
+        WorkflowRevised: "_on_workflow_revised",
+        ApprovalRequested: "_on_approval_requested",
+        RunFailed: "_on_run_failed",
+        CostReport: "_on_cost_report",
+        RunFinished: "_on_run_finished",
+    }
+
     def _apply(self, event: Event) -> None:
-        if isinstance(event, RunStarted):
-            # 每轮运行的新起点：清掉上一轮遗留的流式缓冲与「最终答复」标记。
-            # 不复位的话，同一会话的第二轮起 respond 的文本就不再打分隔标题，
-            # 会和 act 的每步小结混成一片。
+        name = self._EVENT_HANDLERS.get(type(event))
+        if name is not None:
+            getattr(self, name)(event)
+
+    def _on_run_started(self, event: RunStarted) -> None:
+        # 每轮运行的新起点：清掉上一轮遗留的流式缓冲与「最终答复」标记。
+        # 不复位的话，同一会话的第二轮起 respond 的文本就不再打分隔标题，
+        # 会和 act 的每步小结混成一片。
+        self._flush_stream()
+        self._answering = False
+        self._plan = []
+        self._step_idx = 0
+        self._total = 1
+        self._cost_usd = 0.0
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._cost_budget = 0.0
+        self._cost_alerts = []
+        self._run_started = time.monotonic()
+        self._workers_active = 0
+        self._tasks.clear()
+        self._plan_panel.render_plan([], 0)
+        self._task_panel.render_tasks(self._tasks)
+        self._render_session_info()
+
+    def _on_plan_created(self, event: PlanCreated) -> None:
+        self._plan = list(event.steps)
+        self._step_idx = 0
+        self._plan_panel.render_plan(self._plan, 0)
+        if event.degraded:
+            self._write("! 规划未解析，已退化为单步执行", "yellow")
+
+    def _on_plan_revised(self, event: PlanRevised) -> None:
+        self._flush_stream()
+        self._plan = list(event.steps)
+        self._step_idx = event.step_idx
+        self._total = max(len(self._plan), 1)
+        self._plan_panel.render_plan(self._plan, event.step_idx)
+        self._write("↻ 计划已调整", "yellow")
+
+    def _on_step_started(self, event: StepStarted) -> None:
+        self._flush_stream()
+        self._step_idx = event.index
+        self._total = event.total
+        self._plan_panel.render_plan(self._plan, event.index)
+        if event.total > 1:
+            self._write(f"第 {event.index + 1}/{event.total} 步  {event.text}", "cyan")
+
+    def _on_step_finished(self, event: StepFinished) -> None:
+        self._flush_stream()
+        if event.budget_exhausted:
+            self._write("（本步骤工具预算耗尽）", "yellow")
+        elif event.cancelled:
+            self._write("（本步骤未执行完，已放弃）", "yellow")
+
+    def _on_assistant_token(self, event: AssistantToken) -> None:
+        # respond 与 act 的内容常有重叠（架构上就是「每步小结 + 最终汇总」），
+        # 给最终答复一个明确起点，读者才不会当成重复输出
+        if event.node == "respond" and not self._answering:
+            self._answering = True
             self._flush_stream()
-            self._answering = False
-            self._plan = []
-            self._step_idx = 0
-            self._total = 1
-            self._cost_usd = 0.0
-            self._input_tokens = 0
-            self._output_tokens = 0
-            self._cost_budget = 0.0
-            self._cost_alerts = []
-            self._run_started = time.monotonic()
-            self._workers_active = 0
-            self._tasks.clear()
-            self._plan_panel.render_plan([], 0)
-            self._task_panel.render_tasks(self._tasks)
-            self._render_session_info()
+            self._write("── 最终答复 ──", "dim")
+        self._stream.append(event.text)
+        self._render_stream()
 
-        elif isinstance(event, PlanCreated):
-            self._plan = list(event.steps)
-            self._step_idx = 0
-            self._plan_panel.render_plan(self._plan, 0)
-            if event.degraded:
-                self._write("! 规划未解析，已退化为单步执行", "yellow")
+    def _on_tool_started(self, event: ToolCallStarted) -> None:
+        self._flush_stream()
+        level = f"[{event.level}] " if event.level else ""
+        self._write(f"→ {level}{event.name}: {event.summary}", "dim")
 
-        elif isinstance(event, PlanRevised):
-            self._flush_stream()
-            self._plan = list(event.steps)
-            self._step_idx = event.step_idx
-            self._total = max(len(self._plan), 1)
-            self._plan_panel.render_plan(self._plan, event.step_idx)
-            self._write("↻ 计划已调整", "yellow")
+    def _on_tool_finished(self, event: ToolCallFinished) -> None:
+        if event.decision == "denied":
+            self._write("← 已被用户拒绝", "red")
+        elif event.rejected:
+            self._write("← 已被安全策略拒绝", "red")
+        elif event.skipped:
+            self._write("← 已跳过（环境未配置）", "dim")
+        elif event.interrupted:
+            self._write("← 结果未知（执行中断，未自动重放）", "yellow")
+        elif event.ok:
+            elapsed = f" {event.duration_ms / 1000:.2f}s" if event.duration_ms else ""
+            self._write(f"← ✓{elapsed}", "dim")
+        elif event.exit_code is not None:
+            self._write(f"← ✗ exit={event.exit_code}", "yellow")
+        else:
+            self._write("← ✗", "yellow")
 
-        elif isinstance(event, StepStarted):
-            self._flush_stream()
-            self._step_idx = event.index
-            self._total = event.total
-            self._plan_panel.render_plan(self._plan, event.index)
-            if event.total > 1:
-                self._write(f"第 {event.index + 1}/{event.total} 步  {event.text}", "cyan")
+    def _on_file_changed(self, event: FileChanged) -> None:
+        stamp = f" · 备份 {event.snapshot_id}" if event.snapshot_id else ""
+        self._write(
+            f"✎ {event.action} {event.path}  +{event.added} -{event.removed}{stamp}",
+            "magenta",
+        )
 
-        elif isinstance(event, StepFinished):
-            self._flush_stream()
-            if event.budget_exhausted:
-                self._write("（本步骤工具预算耗尽）", "yellow")
-            elif event.cancelled:
-                self._write("（本步骤未执行完，已放弃）", "yellow")
+    def _on_verification(self, event: Verification) -> None:
+        if event.status == "not_configured":
+            self._write("验证：未检测到可用的测试命令", "dim")
+        elif event.status == "skipped":
+            pass
+        elif event.ok:
+            self._write(f"验证通过  {event.summary}", "green")
+        else:
+            self._write(f"验证失败  {event.summary}", "red")
+            for issue in event.issues[:5]:
+                self._write(f"  · {issue}", "red")
 
-        elif isinstance(event, AssistantToken):
-            # respond 与 act 的内容常有重叠（架构上就是「每步小结 + 最终汇总」），
-            # 给最终答复一个明确起点，读者才不会当成重复输出
-            if event.node == "respond" and not self._answering:
-                self._answering = True
-                self._flush_stream()
-                self._write("── 最终答复 ──", "dim")
-            self._stream.append(event.text)
-            self._render_stream()
+    def _on_review_finished(self, event: ReviewFinished) -> None:
+        if event.status == "skipped":
+            pass
+        elif event.blocked:
+            self._write(f"代码审查未通过  {event.summary}", "red")
+            for finding in event.findings[:5]:
+                self._write(f"  · {finding}", "red")
+        elif event.status == "warned":
+            self._write(f"代码审查有告警  {event.summary}", "yellow")
+        else:
+            self._write(f"代码审查通过  {event.summary}", "green")
 
-        elif isinstance(event, ToolCallStarted):
-            self._flush_stream()
-            level = f"[{event.level}] " if event.level else ""
-            self._write(f"→ {level}{event.name}: {event.summary}", "dim")
+    def _on_subagent_started(self, event: SubAgentStarted) -> None:
+        self._flush_stream()
+        self._write(f"◈ 探索子智能体开始  {event.goal}", "cyan")
 
-        elif isinstance(event, ToolCallFinished):
-            if event.decision == "denied":
-                self._write("← 已被用户拒绝", "red")
-            elif event.rejected:
-                self._write("← 已被安全策略拒绝", "red")
-            elif event.skipped:
-                self._write("← 已跳过（环境未配置）", "dim")
-            elif event.interrupted:
-                self._write("← 结果未知（执行中断，未自动重放）", "yellow")
-            elif event.ok:
-                elapsed = f" {event.duration_ms / 1000:.2f}s" if event.duration_ms else ""
-                self._write(f"← ✓{elapsed}", "dim")
-            elif event.exit_code is not None:
-                self._write(f"← ✗ exit={event.exit_code}", "yellow")
-            else:
-                self._write("← ✗", "yellow")
+    def _on_subagent_finished(self, event: SubAgentFinished) -> None:
+        self._flush_stream()
+        style = "green" if event.status == "success" else "yellow"
+        self._write(f"◈ 探索子智能体 {event.status}  {event.summary}", style)
 
-        elif isinstance(event, FileChanged):
-            stamp = f" · 备份 {event.snapshot_id}" if event.snapshot_id else ""
-            self._write(
-                f"✎ {event.action} {event.path}  +{event.added} -{event.removed}{stamp}",
-                "magenta",
-            )
+    def _on_workflow_selected(self, event: WorkflowSelected) -> None:
+        self._write(f"◈ 工作流：{event.workflow}  {event.reason}", "cyan")
 
-        elif isinstance(event, Verification):
-            if event.status == "not_configured":
-                self._write("验证：未检测到可用的测试命令", "dim")
-            elif event.status == "skipped":
-                pass
-            elif event.ok:
-                self._write(f"验证通过  {event.summary}", "green")
-            else:
-                self._write(f"验证失败  {event.summary}", "red")
-                for issue in event.issues[:5]:
-                    self._write(f"  · {issue}", "red")
-
-        elif isinstance(event, ReviewFinished):
-            if event.status == "skipped":
-                pass
-            elif event.blocked:
-                self._write(f"代码审查未通过  {event.summary}", "red")
-                for finding in event.findings[:5]:
-                    self._write(f"  · {finding}", "red")
-            elif event.status == "warned":
-                self._write(f"代码审查有告警  {event.summary}", "yellow")
-            else:
-                self._write(f"代码审查通过  {event.summary}", "green")
-
-        elif isinstance(event, SubAgentStarted):
-            self._flush_stream()
-            self._write(f"◈ 探索子智能体开始  {event.goal}", "cyan")
-
-        elif isinstance(event, SubAgentFinished):
-            self._flush_stream()
-            style = "green" if event.status == "success" else "yellow"
-            self._write(f"◈ 探索子智能体 {event.status}  {event.summary}", style)
-
-        elif isinstance(event, WorkflowSelected):
-            self._write(f"◈ 工作流：{event.workflow}  {event.reason}", "cyan")
-
-        elif isinstance(event, TaskGraphCreated):
-            self._tasks = {
-                str(task.get("id", "")): {
-                    "role": str(task.get("role", "")),
-                    "goal": str(task.get("goal", "")),
-                    "status": "pending",
-                    "attempt": 1,
-                }
-                for task in event.tasks
+    def _on_task_graph_created(self, event: TaskGraphCreated) -> None:
+        self._tasks = {
+            str(task.get("id", "")): {
+                "role": str(task.get("role", "")),
+                "goal": str(task.get("goal", "")),
+                "status": "pending",
+                "attempt": 1,
             }
-            self._task_panel.render_tasks(self._tasks)
-            suffix = "（已降级）" if event.degraded else ""
-            self._write(f"◈ 任务图：{len(event.tasks)} 个只读任务{suffix}", "cyan")
-            for task in event.tasks:
-                self._write(
-                    f"  {task.get('id', '')} ({task.get('role', '')}): "
-                    f"{task.get('goal', '')}",
-                    "dim",
-                )
-
-        elif isinstance(event, TaskGraphExtended):
-            for task in event.added:
-                self._tasks[str(task.get("id", ""))] = {
-                    "role": str(task.get("role", "")),
-                    "goal": str(task.get("goal", "")),
-                    "status": "pending",
-                    "attempt": 1,
-                }
-            self._task_panel.render_tasks(self._tasks)
+            for task in event.tasks
+        }
+        self._task_panel.render_tasks(self._tasks)
+        suffix = "（已降级）" if event.degraded else ""
+        self._write(f"◈ 任务图：{len(event.tasks)} 个只读任务{suffix}", "cyan")
+        for task in event.tasks:
             self._write(
-                f"＋ 动态扩展 {len(event.added)} 个只读任务", "cyan"
-            )
-            for task in event.added[:5]:
-                self._write(
-                    f"  {task.get('id', '')} ({task.get('role', '')}): "
-                    f"{task.get('goal', '')}",
-                    "dim",
-                )
-            if event.rejected:
-                self._write(
-                    f"  （拒绝 {len(event.rejected)} 个不合规提议）", "dim"
-                )
-
-        elif isinstance(event, WorkerStarted):
-            retry = f"（第 {event.attempt} 次）" if event.attempt > 1 else ""
-            task = self._tasks.setdefault(
-                event.task_id,
-                {"role": event.role, "goal": event.goal, "attempt": 1},
-            )
-            task["status"] = "running"
-            task["attempt"] = event.attempt
-            self._task_panel.render_tasks(self._tasks)
-            self._workers_active += 1
-            self._render_session_info()
-            self._write(
-                f"  → worker {event.role}/{event.task_id}{retry}: {event.goal}",
+                f"  {task.get('id', '')} ({task.get('role', '')}): "
+                f"{task.get('goal', '')}",
                 "dim",
             )
 
-        elif isinstance(event, WorkerFinished):
-            style = (
-                "green"
-                if event.status == "success"
-                else "yellow"
-                if event.status == "partial"
-                else "red"
-            )
-            task = self._tasks.setdefault(
-                event.task_id,
-                {"role": event.role, "goal": "", "attempt": 1},
-            )
-            task["status"] = event.status
-            task["attempt"] = event.attempt
-            self._task_panel.render_tasks(self._tasks)
-            self._workers_active = max(0, self._workers_active - 1)
-            self._render_session_info()
-            merge_note = ""
-            if event.merged:
-                merge_note = "  · 已合并"
-            elif event.merge_error:
-                merge_note = f"  · 合并失败：{event.merge_error[:80]}"
+    def _on_task_graph_extended(self, event: TaskGraphExtended) -> None:
+        for task in event.added:
+            self._tasks[str(task.get("id", ""))] = {
+                "role": str(task.get("role", "")),
+                "goal": str(task.get("goal", "")),
+                "status": "pending",
+                "attempt": 1,
+            }
+        self._task_panel.render_tasks(self._tasks)
+        self._write(f"＋ 动态扩展 {len(event.added)} 个只读任务", "cyan")
+        for task in event.added[:5]:
             self._write(
-                f"  ← worker {event.role}/{event.task_id} {event.status}"
-                f"{merge_note}  {event.summary}",
-                style,
+                f"  {task.get('id', '')} ({task.get('role', '')}): "
+                f"{task.get('goal', '')}",
+                "dim",
             )
+        if event.rejected:
+            self._write(f"  （拒绝 {len(event.rejected)} 个不合规提议）", "dim")
 
-        elif isinstance(event, OrchestrationFinished):
+    def _on_worker_started(self, event: WorkerStarted) -> None:
+        retry = f"（第 {event.attempt} 次）" if event.attempt > 1 else ""
+        task = self._tasks.setdefault(
+            event.task_id,
+            {"role": event.role, "goal": event.goal, "attempt": 1},
+        )
+        task["status"] = "running"
+        task["attempt"] = event.attempt
+        self._task_panel.render_tasks(self._tasks)
+        self._workers_active += 1
+        self._render_session_info()
+        self._write(
+            f"  → worker {event.role}/{event.task_id}{retry}: {event.goal}",
+            "dim",
+        )
+
+    def _on_worker_finished(self, event: WorkerFinished) -> None:
+        style = (
+            "green"
+            if event.status == "success"
+            else "yellow"
+            if event.status == "partial"
+            else "red"
+        )
+        task = self._tasks.setdefault(
+            event.task_id,
+            {"role": event.role, "goal": "", "attempt": 1},
+        )
+        task["status"] = event.status
+        task["attempt"] = event.attempt
+        self._task_panel.render_tasks(self._tasks)
+        self._workers_active = max(0, self._workers_active - 1)
+        self._render_session_info()
+        merge_note = ""
+        if event.merged:
+            merge_note = "  · 已合并"
+        elif event.merge_error:
+            merge_note = f"  · 合并失败：{event.merge_error[:80]}"
+        self._write(
+            f"  ← worker {event.role}/{event.task_id} {event.status}"
+            f"{merge_note}  {event.summary}",
+            style,
+        )
+
+    def _on_orchestration_finished(self, event: OrchestrationFinished) -> None:
+        self._write(
+            f"◈ 编排完成  成功 {event.completed}，失败/阻塞 {event.failed}  "
+            f"{event.summary}",
+            "cyan",
+        )
+
+    def _on_repair_started(self, event: RepairStarted) -> None:
+        self._write(
+            f"↻ 第 {event.attempt}/{event.limit} 次修复  {event.summary}", "yellow"
+        )
+
+    def _on_steering_applied(self, event: SteeringApplied) -> None:
+        self._flush_stream()
+        if event.action == "pause":
+            self._paused = True
+            self._refresh_subtitle()
+            self._render_session_info()
             self._write(
-                f"◈ 编排完成  成功 {event.completed}，失败/阻塞 {event.failed}  "
-                f"{event.summary}",
-                "cyan",
+                f"⏸ {event.detail or '已暂停'}（/resume 继续，/cancel 取消）",
+                "yellow",
             )
+        elif event.action == "resume":
+            self._paused = False
+            self._refresh_subtitle()
+            self._render_session_info()
+            self._write("▶ 已恢复", "green")
+        elif event.action == "cancel":
+            self._paused = False
+            self._refresh_subtitle()
+            self._render_session_info()
+            self._write(f"⛔ {event.detail or '已取消'}", "yellow")
+        elif event.action == "add":
+            self._write(f"＋ {event.detail or '已追加任务'}", "cyan")
+        elif event.action == "replan":
+            self._write(f"↻ {event.detail or '已请求重规划'}", "cyan")
 
-        elif isinstance(event, RepairStarted):
+    def _on_workflow_revised(self, event: WorkflowRevised) -> None:
+        self._flush_stream()
+        self._write(f"↻ 已重规划任务图：{event.reason}", "cyan")
+
+    def _on_approval_requested(self, event: ApprovalRequested) -> None:
+        self._flush_stream()
+        self._write(f"⏸ 需要确认（{event.level}）：{event.command}", "yellow")
+
+    def _on_run_failed(self, event: RunFailed) -> None:
+        self._flush_stream()
+        self._run_started = None
+        self._workers_active = 0
+        self._render_session_info()
+        self._write(f"运行失败：{event.message}", "red")
+
+    def _on_cost_report(self, event: CostReport) -> None:
+        self._flush_stream()
+        self._cost_usd = float(event.cost_usd or 0.0)
+        self._input_tokens = int(event.input_tokens or 0)
+        self._output_tokens = int(event.output_tokens or 0)
+        self._cost_budget = float(event.budget_usd or 0.0)
+        self._cost_alerts = list(event.alerts)
+        self._render_session_info()
+        line = f"成本 ${event.cost_usd:.4f}"
+        if event.budget_usd > 0:
+            line += f" / 预算 ${event.budget_usd:.2f}（{event.ratio:.0%}）"
+        if event.billed_usd:
+            line += f" / 账单 ${event.billed_usd:.4f}（差 ${event.billing_delta_usd:+.4f}）"
+        self._write(line, "dim")
+        if event.billing_error:
+            self._write(f"账单对账失败：{event.billing_error}", "yellow")
+        for alert in event.alerts:
+            self._write(f"⚠ {alert}", "yellow")
+
+    def _on_run_finished(self, event: RunFinished) -> None:
+        self._flush_stream()
+        self._run_started = None
+        self._workers_active = 0
+        self._render_session_info()
+        if (
+            event.worker_input_tokens is not None
+            or event.worker_output_tokens is not None
+        ):
             self._write(
-                f"↻ 第 {event.attempt}/{event.limit} 次修复  {event.summary}", "yellow"
+                "worker token："
+                f"in {event.worker_input_tokens or 0} / "
+                f"out {event.worker_output_tokens or 0}",
+                "dim",
             )
-
-        elif isinstance(event, SteeringApplied):
-            self._flush_stream()
-            if event.action == "pause":
-                self._paused = True
-                self._refresh_subtitle()
-                self._render_session_info()
-                self._write(
-                    f"⏸ {event.detail or '已暂停'}（/resume 继续，/cancel 取消）",
-                    "yellow",
-                )
-            elif event.action == "resume":
-                self._paused = False
-                self._refresh_subtitle()
-                self._render_session_info()
-                self._write("▶ 已恢复", "green")
-            elif event.action == "cancel":
-                self._paused = False
-                self._refresh_subtitle()
-                self._render_session_info()
-                self._write(f"⛔ {event.detail or '已取消'}", "yellow")
-            elif event.action == "add":
-                self._write(f"＋ {event.detail or '已追加任务'}", "cyan")
-            elif event.action == "replan":
-                self._write(f"↻ {event.detail or '已请求重规划'}", "cyan")
-
-        elif isinstance(event, WorkflowRevised):
-            self._flush_stream()
-            self._write(f"↻ 已重规划任务图：{event.reason}", "cyan")
-
-        elif isinstance(event, ApprovalRequested):
-            self._flush_stream()
-            self._write(f"⏸ 需要确认（{event.level}）：{event.command}", "yellow")
-
-        elif isinstance(event, RunFailed):
-            self._flush_stream()
-            self._run_started = None
-            self._workers_active = 0
-            self._render_session_info()
-            self._write(f"运行失败：{event.message}", "red")
-
-        elif isinstance(event, CostReport):
-            self._flush_stream()
-            self._cost_usd = float(event.cost_usd or 0.0)
-            self._input_tokens = int(event.input_tokens or 0)
-            self._output_tokens = int(event.output_tokens or 0)
-            self._cost_budget = float(event.budget_usd or 0.0)
-            self._cost_alerts = list(event.alerts)
-            self._render_session_info()
-            line = f"成本 ${event.cost_usd:.4f}"
-            if event.budget_usd > 0:
-                line += f" / 预算 ${event.budget_usd:.2f}（{event.ratio:.0%}）"
-            if event.billed_usd:
-                line += f" / 账单 ${event.billed_usd:.4f}（差 ${event.billing_delta_usd:+.4f}）"
-            self._write(line, "dim")
-            if event.billing_error:
-                self._write(f"账单对账失败：{event.billing_error}", "yellow")
-            for alert in event.alerts:
-                self._write(f"⚠ {alert}", "yellow")
-
-        elif isinstance(event, RunFinished):
-            self._flush_stream()
-            self._run_started = None
-            self._workers_active = 0
-            self._render_session_info()
-            if (
-                event.worker_input_tokens is not None
-                or event.worker_output_tokens is not None
-            ):
-                self._write(
-                    "worker token："
-                    f"in {event.worker_input_tokens or 0} / "
-                    f"out {event.worker_output_tokens or 0}",
-                    "dim",
-                )
 
     # ------------------------------------------------------------------
     # 执行
