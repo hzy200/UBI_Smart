@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import ToolMessage
@@ -196,6 +197,109 @@ def _denied_artifact(name: str, args: dict[str, Any], decision: str) -> dict[str
     ).model_dump()
 
 
+@dataclass
+class _InvokeOutcome:
+    """一次工具调用的结果，以及是否需要强制标记工作区脏。
+
+    finalized=True 表示 content 已可原样回灌（日志中只看到 started 的情况），
+    不再补 decision、不再走变更追踪。
+    """
+
+    content: str
+    artifact: Any
+    ok: bool
+    force_dirty: bool = False
+    finalized: bool = False
+
+
+def _denied_tool_message(
+    call_id: str, name: str, args: dict[str, Any], decision: str | None
+) -> ToolMessage:
+    """审批未通过的调用：只回说明，绝不执行。"""
+    if decision == DENIED:
+        content, recorded = _DENIED_TEXT, DENIED
+    elif decision == DENY:
+        content, recorded = _POLICY_DENIED_TEXT, DENY
+    else:
+        content, recorded = _NOT_APPROVED_TEXT, "missing"
+    artifact = _denied_artifact(name, args, recorded)
+    return ToolMessage(
+        content=pack(content, artifact),
+        tool_call_id=call_id,
+        name=name,
+        artifact=artifact,
+    )
+
+
+def _delegate_unavailable(
+    call_id: str,
+    name: str,
+    args: dict[str, Any],
+    *,
+    delegate_runner: DelegateRunner | None,
+    delegation_allowed: bool,
+    on_explore_step: bool,
+    delegate_calls: int,
+    effective_max: int,
+) -> ToolMessage:
+    """未进入并发批次的委派调用：给模型一个可执行的解释。"""
+    if delegate_runner is None:
+        content = "探索子智能体未启用（AGENT_EXPLORE_ENABLED=false）。"
+        artifact = None
+    elif not delegation_allowed:
+        content = (
+            "当前任务未启用探索委派（仓库规模较小或委派策略关闭）；"
+            "请直接使用 file_read / search_code / find_files。"
+        )
+        artifact = None
+    elif not on_explore_step:
+        content = (
+            "只有探索步（kind=explore）可以委派；"
+            "当前步骤请自己完成，不要调用 delegate_explore。"
+        )
+        artifact = None
+    elif delegate_calls >= effective_max:
+        content = (
+            f"本任务最多委派 {effective_max} 次探索，"
+            "已达到上限，请自行使用只读工具或结束这一步。"
+        )
+        artifact = _denied_artifact(name, args, "rejected")
+        return ToolMessage(
+            content=pack(content, artifact),
+            tool_call_id=call_id,
+            name=name,
+            artifact=artifact,
+        )
+    else:
+        # 正常不可达：预扫描只在「可执行 + 有预算」时入队。
+        content = "探索子智能体调用未被调度（内部状态不一致）。"
+        artifact = None
+    return ToolMessage(
+        content=content, tool_call_id=call_id, name=name, artifact=artifact
+    )
+
+
+def _record_stale(
+    name: str,
+    args: dict[str, Any],
+    artifact: dict[str, Any],
+    stale_paths: list[str],
+) -> list[str]:
+    """把本次改动涉及的文件记进 stale_paths（只留最近 50 个）。"""
+    artifact_files = artifact.get("files")
+    if isinstance(artifact_files, list) and artifact_files:
+        changed_paths = [str(item) for item in artifact_files]
+    else:
+        changed_paths = [str(artifact.get("path") or args.get("path") or "")]
+    if name in {MOVE_TOOL_NAME, COPY_TOOL_NAME}:
+        changed_paths.append(str(args.get("source") or ""))
+    for changed in changed_paths:
+        if changed and changed not in stale_paths:
+            stale_paths.append(changed)
+            del stale_paths[:-50]
+    return stale_paths
+
+
 def make_tools_node(
     tools: list[BaseTool],
     *,
@@ -207,6 +311,271 @@ def make_tools_node(
     governor: ConcurrencyGovernor | None = None,
 ) -> Callable[[AgentState, RunnableConfig], Awaitable[dict[str, Any]]]:
     tool_map = {tool.name: tool for tool in tools}
+
+    async def _schedule_delegates(
+        calls: list[dict[str, Any]],
+        approvals: dict[str, str],
+        state: AgentState,
+        config: RunnableConfig,
+        *,
+        parent_request: str,
+        cwd: str,
+        delegation_allowed: bool,
+        on_explore_step: bool,
+        remaining: int,
+    ) -> tuple[dict[str, ToolMessage], int]:
+        """同一条消息里的多个 delegate 并发执行（fan-out）。
+
+        先预扫描并占预算，再一次性 gather。预扫描保证：
+          - 被拒/未批准/当前不允许委派的调用不占预算；
+          - 超出有效预算的调用按原始顺序被拒绝；
+          - 结果按 call_id 回填，与 ToolMessage 的配对语义一致。
+        """
+        jobs: list[tuple[str, dict[str, Any], str]] = []
+        for call in calls:
+            if str(call.get("name", "")) != DELEGATE_EXPLORE:
+                continue
+            call_id = str(call.get("id", ""))
+            decision = approvals.get(call_id)
+            if (
+                decision not in _EXECUTABLE
+                or delegate_runner is None
+                or not delegation_allowed
+                or not on_explore_step
+                or remaining <= 0
+            ):
+                continue
+            jobs.append((call_id, dict(call.get("args") or {}), decision))
+            remaining -= 1
+
+        messages: dict[str, ToolMessage] = {}
+        if not jobs:
+            return messages, 0
+
+        runner = delegate_runner
+        assert runner is not None
+        semaphore = asyncio.Semaphore(max(1, int(max_concurrent_agents)))
+
+        async def _explore(
+            call_id: str, args: dict[str, Any], decision: str
+        ) -> ToolMessage:
+            async with semaphore:
+                try:
+                    sub = await runner(
+                        args={
+                            **args,
+                            # 子智能体也遵守同一批项目约定与指令
+                            "memories": state.get("memories") or [],
+                            "instructions": state.get("project_instructions")
+                            or "",
+                        },
+                        call_id=call_id,
+                        parent_request=parent_request,
+                        cwd=cwd,
+                        config=config,
+                    )
+                    sub.decision = decision
+                    return ToolMessage(
+                        content=pack(render_subagent_result(sub), sub),
+                        tool_call_id=call_id,
+                        name=DELEGATE_EXPLORE,
+                        artifact=sub.model_dump(),
+                    )
+                except Exception as exc:  # noqa: BLE001 - 单个子智能体失败不拖垮其它
+                    return ToolMessage(
+                        content=f"工具执行异常：{type(exc).__name__}: {exc}",
+                        tool_call_id=call_id,
+                        name=DELEGATE_EXPLORE,
+                        artifact=None,
+                    )
+
+        outcomes = await asyncio.gather(
+            *(_explore(*job) for job in jobs), return_exceptions=True
+        )
+        for (call_id, _args, _decision), outcome in zip(
+            jobs, outcomes, strict=True
+        ):
+            if isinstance(outcome, BaseException):
+                messages[call_id] = ToolMessage(
+                    content=f"工具执行异常：{type(outcome).__name__}: {outcome}",
+                    tool_call_id=call_id,
+                    name=DELEGATE_EXPLORE,
+                    artifact=None,
+                )
+            else:
+                messages[call_id] = outcome
+        return messages, len(jobs)
+
+    async def _schedule_read_only(
+        calls: list[dict[str, Any]],
+        approvals: dict[str, str],
+        state: AgentState,
+        config: RunnableConfig,
+        thread_id: str,
+    ) -> dict[str, ToolMessage]:
+        """同一条消息里的多个只读工具并发执行。
+
+        写工具、未知工具与审批未通过的调用不进入这里，仍走串行路径。
+        """
+        parallel_jobs: list[tuple[str, str, dict[str, Any], str]] = []
+        for call in calls:
+            name = str(call.get("name", ""))
+            call_id = str(call.get("id", ""))
+            decision = approvals.get(call_id)
+            if decision not in _EXECUTABLE or name == DELEGATE_EXPLORE:
+                continue
+            tool = tool_map.get(name)
+            if tool is None:
+                continue
+            args = dict(call.get("args", {}) or {})
+            if (
+                name in CWD_INJECTED_TOOLS
+                and args.get("cwd") is None
+                and state.get("cwd")
+            ):
+                args["cwd"] = state["cwd"]
+            if tool_level(name, args) != CommandLevel.READ:
+                continue
+            parallel_jobs.append((call_id, name, args, decision))
+
+        parallel_messages: dict[str, ToolMessage] = {}
+        if len(parallel_jobs) <= 1:
+            return parallel_messages
+
+        tool_pool = governor.tool if governor is not None else None
+        tool_semaphore = (
+            None
+            if tool_pool is not None
+            else asyncio.Semaphore(max(1, int(max_concurrent_tools)))
+        )
+        tool_timeout = (
+            float(
+                getattr(
+                    governor.settings,
+                    "concurrency_worker_timeout_s",
+                    60.0,
+                )
+                or 60.0
+            )
+            if governor is not None
+            else None
+        )
+
+        async def _read_only(
+            call_id: str,
+            name: str,
+            args: dict[str, Any],
+            decision: str,
+        ) -> ToolMessage:
+            tool = tool_map[name]
+            started_at = time.perf_counter()
+            try:
+                if tool_pool is not None:
+                    async with tool_pool.lease(priority=10, timeout=tool_timeout):
+                        with tool_execution_context(thread_id, call_id):
+                            content, artifact = unpack(
+                                await asyncio.to_thread(tool.invoke, args, config)
+                            )
+                else:
+                    async with tool_semaphore:  # type: ignore[union-attr]
+                        with tool_execution_context(thread_id, call_id):
+                            content, artifact = unpack(
+                                await asyncio.to_thread(tool.invoke, args, config)
+                            )
+            except Exception as exc:  # noqa: BLE001
+                content = f"工具执行异常：{type(exc).__name__}: {exc}"
+                artifact = None
+            if isinstance(artifact, dict):
+                artifact["duration_ms"] = int(
+                    (time.perf_counter() - started_at) * 1000
+                )
+                artifact["decision"] = decision
+                content = pack(content, artifact)
+            return ToolMessage(
+                content=content,
+                tool_call_id=call_id,
+                name=name,
+                artifact=artifact,
+            )
+
+        outcomes = await asyncio.gather(
+            *(_read_only(*job) for job in parallel_jobs),
+            return_exceptions=True,
+        )
+        for (call_id, name, _args, _decision), outcome in zip(
+            parallel_jobs, outcomes, strict=True
+        ):
+            if isinstance(outcome, BaseException):
+                parallel_messages[call_id] = ToolMessage(
+                    content=f"工具执行异常：{type(outcome).__name__}: {outcome}",
+                    tool_call_id=call_id,
+                    name=name,
+                    artifact=None,
+                )
+            else:
+                parallel_messages[call_id] = outcome
+        return parallel_messages
+
+    async def _invoke(
+        call_id: str,
+        name: str,
+        args: dict[str, Any],
+        tool: BaseTool,
+        config: RunnableConfig,
+        thread_id: str,
+    ) -> _InvokeOutcome:
+        """执行一次工具调用；有副作用的调用先查日志，避免崩溃恢复时重复执行。"""
+        use_journal = journal is not None and _needs_journal(name, args)
+        record = journal.lookup(thread_id, call_id) if use_journal else None
+        if record is not None and record.get("event") == "started":
+            # 只看到 started：副作用可能已经发生，也可能没有。重放不安全，
+            # 明确告诉模型“结果未知”，并强制本步进入验证。
+            content = (
+                "上一次执行在工具返回前中断，结果未知。"
+                "为避免重复副作用，本次没有自动重放；请先检查文件/git 状态，"
+                "再决定是否重新执行。"
+            )
+            artifact = unknown_result_artifact(name)
+            artifact["duration_ms"] = 0
+            return _InvokeOutcome(
+                content, artifact, ok=False, force_dirty=True, finalized=True
+            )
+
+        if record is not None and record.get("event") == "finished":
+            content = str(record.get("content") or "")
+            if record.get("content_truncated"):
+                content += "\n（日志中的结果已截断）"
+            return _InvokeOutcome(
+                content, replayed_artifact(record, name), ok=True
+            )
+
+        if use_journal and journal is not None:
+            journal.begin(thread_id, call_id, name, args)
+        started_at = time.perf_counter()
+        artifact: Any = None
+        try:
+            # 现有工具/沙箱是同步的：放进线程池，避免阻塞事件循环。
+            with tool_execution_context(thread_id, call_id):
+                content, artifact = unpack(
+                    await asyncio.to_thread(tool.invoke, args, config)
+                )
+            ok = artifact.get("ok", True) if isinstance(artifact, dict) else True
+        except Exception as exc:  # noqa: BLE001 - 工具失败要回灌给模型而非中断
+            content = f"工具执行异常：{type(exc).__name__}: {exc}"
+            ok = False
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        if isinstance(artifact, dict):
+            artifact["duration_ms"] = duration_ms
+        if use_journal and journal is not None:
+            journal.finish(
+                thread_id,
+                call_id,
+                name,
+                ok=bool(ok),
+                content=content,
+                artifact=artifact,
+            )
+        return _InvokeOutcome(content, artifact, ok)
 
     async def run_tools(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         thread_id = str(
@@ -230,198 +599,24 @@ def make_tools_node(
         effective_max = min(int(max_delegate_calls), delegation_budget)
         on_explore_step = current_step_kind(state) == EXPLORE
 
-        # ---- 同一条消息里的多个 delegate 并发执行（fan-out）----
-        # 先预扫描并占预算，再一次性 gather。预扫描保证：
-        #   - 被拒/未批准/当前不允许委派的调用不占预算；
-        #   - 超出有效预算的调用按原始顺序被拒绝；
-        #   - 结果按 call_id 回填，与 ToolMessage 的配对语义一致。
         parent_request = last_human_text(state["messages"])
         cwd = str(state.get("cwd", ""))
         remaining = max(effective_max - delegate_calls, 0)
-        jobs: list[tuple[str, dict[str, Any], str]] = []
-        for call in calls:
-            if str(call.get("name", "")) != DELEGATE_EXPLORE:
-                continue
-            call_id = str(call.get("id", ""))
-            decision = approvals.get(call_id)
-            if (
-                decision not in _EXECUTABLE
-                or delegate_runner is None
-                or not delegation_allowed
-                or not on_explore_step
-                or remaining <= 0
-            ):
-                continue
-            jobs.append((call_id, dict(call.get("args") or {}), decision))
-            remaining -= 1
-
-        delegate_messages: dict[str, ToolMessage] = {}
-        if jobs:
-            runner = delegate_runner
-            assert runner is not None
-            semaphore = asyncio.Semaphore(max(1, int(max_concurrent_agents)))
-
-            async def _explore(
-                call_id: str, args: dict[str, Any], decision: str
-            ) -> ToolMessage:
-                async with semaphore:
-                    try:
-                        sub = await runner(
-                            args={
-                                **args,
-                                # 子智能体也遵守同一批项目约定与指令
-                                "memories": state.get("memories") or [],
-                                "instructions": state.get(
-                                    "project_instructions"
-                                )
-                                or "",
-                            },
-                            call_id=call_id,
-                            parent_request=parent_request,
-                            cwd=cwd,
-                            config=config,
-                        )
-                        sub.decision = decision
-                        return ToolMessage(
-                            content=pack(render_subagent_result(sub), sub),
-                            tool_call_id=call_id,
-                            name=DELEGATE_EXPLORE,
-                            artifact=sub.model_dump(),
-                        )
-                    except Exception as exc:  # noqa: BLE001 - 单个子智能体失败不拖垮其它
-                        return ToolMessage(
-                            content=f"工具执行异常：{type(exc).__name__}: {exc}",
-                            tool_call_id=call_id,
-                            name=DELEGATE_EXPLORE,
-                            artifact=None,
-                        )
-
-            outcomes = await asyncio.gather(
-                *(_explore(*job) for job in jobs), return_exceptions=True
-            )
-            for (call_id, _args, _decision), outcome in zip(
-                jobs, outcomes, strict=True
-            ):
-                if isinstance(outcome, BaseException):
-                    delegate_messages[call_id] = ToolMessage(
-                        content=(
-                            f"工具执行异常：{type(outcome).__name__}: {outcome}"
-                        ),
-                        tool_call_id=call_id,
-                        name=DELEGATE_EXPLORE,
-                        artifact=None,
-                    )
-                else:
-                    delegate_messages[call_id] = outcome
-            delegate_calls += len(jobs)
-
-        # ---- 同一条消息里的多个只读工具并发执行 ----
-        # 写工具、未知工具与审批未通过的调用不进入这里，仍走下面的串行路径。
-        parallel_jobs: list[tuple[str, str, dict[str, Any], str]] = []
-        for call in calls:
-            name = str(call.get("name", ""))
-            call_id = str(call.get("id", ""))
-            decision = approvals.get(call_id)
-            if decision not in _EXECUTABLE or name == DELEGATE_EXPLORE:
-                continue
-            tool = tool_map.get(name)
-            if tool is None:
-                continue
-            args = dict(call.get("args", {}) or {})
-            if name in CWD_INJECTED_TOOLS and args.get("cwd") is None and state.get("cwd"):
-                args["cwd"] = state["cwd"]
-            if tool_level(name, args) != CommandLevel.READ:
-                continue
-            parallel_jobs.append((call_id, name, args, decision))
-
-        parallel_messages: dict[str, ToolMessage] = {}
-        if len(parallel_jobs) > 1:
-            tool_pool = governor.tool if governor is not None else None
-            tool_semaphore = (
-                None
-                if tool_pool is not None
-                else asyncio.Semaphore(max(1, int(max_concurrent_tools)))
-            )
-            tool_timeout = (
-                float(
-                    getattr(
-                        governor.settings,
-                        "concurrency_worker_timeout_s",
-                        60.0,
-                    )
-                    or 60.0
-                )
-                if governor is not None
-                else None
-            )
-
-            async def _read_only(
-                call_id: str,
-                name: str,
-                args: dict[str, Any],
-                decision: str,
-            ) -> ToolMessage:
-                tool = tool_map[name]
-                started_at = time.perf_counter()
-                try:
-                    if tool_pool is not None:
-                        async with tool_pool.lease(
-                            priority=10, timeout=tool_timeout
-                        ):
-                            with tool_execution_context(
-                                thread_id, call_id
-                            ):
-                                content, artifact = unpack(
-                                    await asyncio.to_thread(
-                                        tool.invoke, args, config
-                                    )
-                                )
-                    else:
-                        async with tool_semaphore:  # type: ignore[union-attr]
-                            with tool_execution_context(
-                                thread_id, call_id
-                            ):
-                                content, artifact = unpack(
-                                    await asyncio.to_thread(
-                                        tool.invoke, args, config
-                                    )
-                                )
-                except Exception as exc:  # noqa: BLE001
-                    content = (
-                        f"工具执行异常：{type(exc).__name__}: {exc}"
-                    )
-                    artifact = None
-                if isinstance(artifact, dict):
-                    artifact["duration_ms"] = int(
-                        (time.perf_counter() - started_at) * 1000
-                    )
-                    artifact["decision"] = decision
-                    content = pack(content, artifact)
-                return ToolMessage(
-                    content=content,
-                    tool_call_id=call_id,
-                    name=name,
-                    artifact=artifact,
-                )
-
-            outcomes = await asyncio.gather(
-                *(_read_only(*job) for job in parallel_jobs),
-                return_exceptions=True,
-            )
-            for (call_id, name, _args, _decision), outcome in zip(
-                parallel_jobs, outcomes, strict=True
-            ):
-                if isinstance(outcome, BaseException):
-                    parallel_messages[call_id] = ToolMessage(
-                        content=(
-                            f"工具执行异常：{type(outcome).__name__}: {outcome}"
-                        ),
-                        tool_call_id=call_id,
-                        name=name,
-                        artifact=None,
-                    )
-                else:
-                    parallel_messages[call_id] = outcome
+        delegate_messages, scheduled = await _schedule_delegates(
+            calls,
+            approvals,
+            state,
+            config,
+            parent_request=parent_request,
+            cwd=cwd,
+            delegation_allowed=delegation_allowed,
+            on_explore_step=on_explore_step,
+            remaining=remaining,
+        )
+        delegate_calls += scheduled
+        parallel_messages = await _schedule_read_only(
+            calls, approvals, state, config, thread_id
+        )
 
         results: list[ToolMessage] = []
         for call in calls:
@@ -431,21 +626,7 @@ def make_tools_node(
 
             decision = approvals.get(call_id)
             if decision not in _EXECUTABLE:
-                if decision == DENIED:
-                    content, recorded = _DENIED_TEXT, DENIED
-                elif decision == DENY:
-                    content, recorded = _POLICY_DENIED_TEXT, DENY
-                else:
-                    content, recorded = _NOT_APPROVED_TEXT, "missing"
-                artifact = _denied_artifact(name, args, recorded)
-                results.append(
-                    ToolMessage(
-                        content=pack(content, artifact),
-                        tool_call_id=call_id,
-                        name=name,
-                        artifact=artifact,
-                    )
-                )
+                results.append(_denied_tool_message(call_id, name, args, decision))
                 continue
 
             if name in CWD_INJECTED_TOOLS and args.get("cwd") is None and state.get("cwd"):
@@ -457,71 +638,34 @@ def make_tools_node(
                 continue
 
             # 子智能体：由宿主执行，不走普通工具的 invoke 路径。
-            # 它同样是 tools 节点的子分支，审批与预算检查已经在上面完成。
             # 已调度的调用直接取并发批次的结果；剩下的是未启用/超预算/内部异常。
             if name == DELEGATE_EXPLORE:
                 precomputed = delegate_messages.get(call_id)
                 if precomputed is not None:
                     results.append(precomputed)
                     continue
-                if delegate_runner is None:
-                    content = "探索子智能体未启用（AGENT_EXPLORE_ENABLED=false）。"
-                    results.append(
-                        ToolMessage(
-                            content=content,
-                            tool_call_id=call_id,
-                            name=name,
-                            artifact=None,
-                        )
+                results.append(
+                    _delegate_unavailable(
+                        call_id,
+                        name,
+                        args,
+                        delegate_runner=delegate_runner,
+                        delegation_allowed=delegation_allowed,
+                        on_explore_step=on_explore_step,
+                        delegate_calls=delegate_calls,
+                        effective_max=effective_max,
                     )
-                    continue
-                if not delegation_allowed:
-                    content = (
-                        "当前任务未启用探索委派（仓库规模较小或委派策略关闭）；"
-                        "请直接使用 file_read / search_code / find_files。"
-                    )
-                    results.append(
-                        ToolMessage(
-                            content=content,
-                            tool_call_id=call_id,
-                            name=name,
-                            artifact=None,
-                        )
-                    )
-                    continue
-                if not on_explore_step:
-                    content = (
-                        "只有探索步（kind=explore）可以委派；"
-                        "当前步骤请自己完成，不要调用 delegate_explore。"
-                    )
-                    results.append(
-                        ToolMessage(
-                            content=content,
-                            tool_call_id=call_id,
-                            name=name,
-                            artifact=None,
-                        )
-                    )
-                    continue
-                if delegate_calls >= effective_max:
-                    content = (
-                        f"本任务最多委派 {effective_max} 次探索，"
-                        "已达到上限，请自行使用只读工具或结束这一步。"
-                    )
-                    artifact = _denied_artifact(name, args, "rejected")
-                    results.append(
-                        ToolMessage(
-                            content=pack(content, artifact),
-                            tool_call_id=call_id,
-                            name=name,
-                            artifact=artifact,
-                        )
-                    )
-                    continue
-                # 正常不可达：预扫描只在「可执行 + 有预算」时入队。
+                )
+                continue
+
+            tool = tool_map.get(name)
+            if tool is None:
                 results.append(
                     ToolMessage(
-                        content="探索子智能体调用未被调度（内部状态不一致）。",
+                        content=(
+                            f"错误：不存在名为 {name} 的工具。"
+                            f"可用工具：{sorted(tool_map)}"
+                        ),
                         tool_call_id=call_id,
                         name=name,
                         artifact=None,
@@ -529,83 +673,22 @@ def make_tools_node(
                 )
                 continue
 
-            tool = tool_map.get(name)
-            if tool is None:
-                content = f"错误：不存在名为 {name} 的工具。可用工具：{sorted(tool_map)}"
-                results.append(
-                    ToolMessage(content=content, tool_call_id=call_id, name=name, artifact=None)
-                )
-                continue
-
-            # 有副作用的调用先查日志：崩溃恢复时不能把同一次 shell/git 再执行一遍。
-            use_journal = journal is not None and _needs_journal(name, args)
-            record = (
-                journal.lookup(thread_id, call_id) if use_journal else None
-            )
-            if record is not None and record.get("event") == "started":
-                # 只看到 started：副作用可能已经发生，也可能没有。重放不安全，
-                # 明确告诉模型“结果未知”，并强制本步进入验证。
-                content = (
-                    "上一次执行在工具返回前中断，结果未知。"
-                    "为避免重复副作用，本次没有自动重放；请先检查文件/git 状态，"
-                    "再决定是否重新执行。"
-                )
-                artifact = unknown_result_artifact(name)
-                artifact["duration_ms"] = 0
+            outcome = await _invoke(call_id, name, args, tool, config, thread_id)
+            if outcome.force_dirty:
                 dirty = True
                 run_dirty = True
+            if outcome.finalized:
                 results.append(
                     ToolMessage(
-                        content=pack(content, artifact),
+                        content=pack(outcome.content, outcome.artifact),
                         tool_call_id=call_id,
                         name=name,
-                        artifact=artifact,
+                        artifact=outcome.artifact,
                     )
                 )
                 continue
 
-            replayed = record is not None and record.get("event") == "finished"
-            artifact = None
-            if replayed:
-                content = str(record.get("content") or "")
-                if record.get("content_truncated"):
-                    content += "\n（日志中的结果已截断）"
-                artifact = replayed_artifact(record, name)
-            else:
-                if use_journal and journal is not None:
-                    journal.begin(thread_id, call_id, name, args)
-                started_at = time.perf_counter()
-                try:
-                    # 现有工具/沙箱是同步的：放进线程池，避免阻塞事件循环。
-                    with tool_execution_context(thread_id, call_id):
-                        content, artifact = unpack(
-                            await asyncio.to_thread(
-                                tool.invoke, args, config
-                            )
-                        )
-                    ok = (
-                        artifact.get("ok", True)
-                        if isinstance(artifact, dict)
-                        else True
-                    )
-                except Exception as exc:  # noqa: BLE001 - 工具失败要回灌给模型而非中断
-                    content = f"工具执行异常：{type(exc).__name__}: {exc}"
-                    ok = False
-                duration_ms = int(
-                    (time.perf_counter() - started_at) * 1000
-                )
-                if isinstance(artifact, dict):
-                    artifact["duration_ms"] = duration_ms
-                if use_journal and journal is not None:
-                    journal.finish(
-                        thread_id,
-                        call_id,
-                        name,
-                        ok=bool(ok),
-                        content=content,
-                        artifact=artifact,
-                    )
-
+            content, artifact = outcome.content, outcome.artifact
             # 执行过的调用补上审批结果，供审计区分 auto 与 approved
             if isinstance(artifact, dict):
                 artifact["decision"] = decision
@@ -619,27 +702,9 @@ def make_tools_node(
                         dirty = True
                         run_dirty = True
                         if name in _STALE_TOOLS:
-                            artifact_files = artifact.get("files")
-                            if isinstance(artifact_files, list) and artifact_files:
-                                changed_paths = [
-                                    str(item) for item in artifact_files
-                                ]
-                            else:
-                                changed_paths = [
-                                    str(
-                                        artifact.get("path")
-                                        or args.get("path")
-                                        or ""
-                                    )
-                                ]
-                            if name in {MOVE_TOOL_NAME, COPY_TOOL_NAME}:
-                                changed_paths.append(
-                                    str(args.get("source") or "")
-                                )
-                            for changed in changed_paths:
-                                if changed and changed not in stale_paths:
-                                    stale_paths.append(changed)
-                                    del stale_paths[:-50]  # 只留最近 50 个
+                            stale_paths = _record_stale(
+                                name, args, artifact, stale_paths
+                            )
                     if name == SHELL_TOOL_NAME:
                         content += _SHELL_MUTATION_NOTE
                 content = pack(content, artifact)
