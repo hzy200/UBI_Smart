@@ -1,12 +1,13 @@
 """图节点 ↔ 事件翻译的覆盖约束。
 
-runtime 把图节点的更新翻译成领域事件，用的是 `_stream` 里一长串 `if/elif`。
-漏翻译既不会报错、也不会有测试失败 —— 只是前端时间线上少一行。这个约束
-用 AST 从 `_stream` 源码里抽出它**真正比较过**的节点名，与 `build_graph`
-编译出的真实节点集比对，把"静默漏翻译"变成一次断言失败。
+runtime 把图节点的更新翻译成领域事件，分发写在 `AgentRuntime._NODE_HANDLERS`
+表与 `_update_events` 的前缀分支里（`steering*` 共用一套）。漏翻译既不会报错、
+也不会有测试失败 —— 只是前端时间线上少一行。这个约束用 AST 从实现里抽出
+**真正登记过**的节点名，与 `build_graph` 编译出的真实节点集比对，把"静默
+漏翻译"变成一次断言失败。
 
-为什么抽源码而不是维护一份常量：常量会与 `if/elif` 漂移，而 AST 读的是
-实现本身。反方向（有分支但节点已改名）由第二个用例守着。
+为什么抽源码而不是维护一份常量：常量会与分发表漂移，而 AST 读的是实现本身。
+反方向（有分支但节点已改名）由第二个用例守着。
 """
 
 from __future__ import annotations
@@ -79,46 +80,73 @@ def _graph_nodes(graph) -> set[str]:
     return set(graph.get_graph().nodes) - _META_NODES
 
 
-def _translated_nodes() -> tuple[set[str], set[str]]:
-    """`_stream` 里与 `node` 比较过的字面量，以及 `node.startswith(...)` 前缀。
-
-    Phase 3D 有四个 steering 节点共用一套翻译，用前缀分支避免复制四遍
-    if/elif；测试必须能识别这种写法，否则会误报它们"没有翻译"。
-    """
-    source = textwrap.dedent(inspect.getsource(AgentRuntime._stream))
+def _table_keys() -> set[str]:
+    """从 `AgentRuntime._NODE_HANDLERS` 的字面量里取节点名。"""
+    source = textwrap.dedent(inspect.getsource(AgentRuntime))
     names: set[str] = set()
-    prefixes: set[str] = set()
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Compare):
-            if not (isinstance(node.left, ast.Name) and node.left.id == "node"):
-                continue
-            for op, comparator in zip(node.ops, node.comparators, strict=True):
-                if (
-                    isinstance(op, ast.Eq)
-                    and isinstance(comparator, ast.Constant)
-                    and isinstance(comparator.value, str)
-                ):
-                    names.add(comparator.value)
-                elif isinstance(op, ast.In) and isinstance(
-                    comparator, (ast.Set, ast.Tuple, ast.List)
-                ):
-                    for element in comparator.elts:
-                        if (
-                            isinstance(element, ast.Constant)
-                            and isinstance(element.value, str)
-                        ):
-                            names.add(element.value)
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "startswith"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "node"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
+        value: ast.expr | None = None
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            value = node.value
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            value = node.value
+            targets = [node.target]
+        if not isinstance(value, ast.Dict):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "_NODE_HANDLERS"
+            for target in targets
         ):
-            prefixes.add(node.args[0].value)
+            continue
+        for key in value.keys:
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                names.add(key.value)
+    return names
+
+
+def _translated_nodes() -> tuple[set[str], set[str]]:
+    """分发表登记的节点名，以及 `node.startswith(...)` 前缀。
+
+    Phase 3D 有四个 steering 节点共用一套翻译，用前缀分支避免复制四遍；
+    测试必须能识别这种写法，否则会误报它们"没有翻译"。
+    """
+    names = _table_keys()
+    prefixes: set[str] = set()
+    for method in (AgentRuntime._stream, AgentRuntime._update_events):
+        source = textwrap.dedent(inspect.getsource(method))
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Compare):
+                if not (isinstance(node.left, ast.Name) and node.left.id == "node"):
+                    continue
+                for op, comparator in zip(node.ops, node.comparators, strict=True):
+                    if (
+                        isinstance(op, ast.Eq)
+                        and isinstance(comparator, ast.Constant)
+                        and isinstance(comparator.value, str)
+                    ):
+                        names.add(comparator.value)
+                    elif isinstance(op, ast.In) and isinstance(
+                        comparator, (ast.Set, ast.Tuple, ast.List)
+                    ):
+                        for element in comparator.elts:
+                            if (
+                                isinstance(element, ast.Constant)
+                                and isinstance(element.value, str)
+                            ):
+                                names.add(element.value)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "startswith"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "node"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                prefixes.add(node.args[0].value)
     return names, prefixes
 
 
@@ -132,7 +160,7 @@ def test_every_graph_node_is_translated_or_declared_silent(real_graph) -> None:
     untranslated = {node for node in nodes if not _is_translated(node, names, prefixes)}
     assert untranslated == SILENT_NODES, (
         f"这些图节点没有对应的事件翻译：{sorted(untranslated - SILENT_NODES)}。"
-        f"要么在 runtime._stream 里补上分支，要么在 SILENT_NODES 里登记并写明"
+        f"要么在 runtime._NODE_HANDLERS 里登记，要么在 SILENT_NODES 里登记并写明"
         f"为什么它对用户不可见。"
     )
 
