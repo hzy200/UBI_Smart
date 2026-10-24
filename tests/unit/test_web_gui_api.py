@@ -13,6 +13,7 @@ from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
 from coding_agent.runtime import HistoryMessage
 from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
 from coding_agent.web import local_runtime
+from coding_agent.web import services as web_services
 from coding_agent.web.auth import AuthConfig
 from coding_agent.web.routes import providers as provider_routes
 from coding_agent.web.routes import workspace as workspace_routes
@@ -406,7 +407,7 @@ def test_health_uses_the_same_secret_store_as_runtime(
         def delete(self, name: str) -> None:
             self.data.pop((self.service, name), None)
 
-    monkeypatch.setattr(web.app, "SecretStore", FakeStore)
+    monkeypatch.setattr(web_services, "SecretStore", FakeStore)
     settings = settings.model_copy(update={"deepseek_api_key": ""})
     client = TestClient(web.create_app(settings))
     data = client.get("/api/health").json()
@@ -487,7 +488,7 @@ def test_multi_user_keys_are_stored_per_user(settings, runtime, monkeypatch) -> 
             return bool(self.get(name))
 
     FakeStore.data = {}
-    monkeypatch.setattr(web.app, "SecretStore", FakeStore)
+    monkeypatch.setattr(web_services, "SecretStore", FakeStore)
 
     settings = settings.model_copy(update={"deepseek_api_key": ""})
     auth = AuthConfig(

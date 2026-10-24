@@ -34,7 +34,7 @@ review_cadence: 工作流文件变动时
 真实窗口与 OS 密钥环只做本地冒烟。
 
 **覆盖率门槛 `fail_under=76`** 按 CI 实际执行的子集定，不是贴着实测值
-（2026-10-24 CI 子集实测 **77.86%**；Linux/Windows 会有小幅漂移）。
+（2026-10-24 CI 子集实测 **77.89%**；Linux/Windows 会有小幅漂移）。
 子系统缺口见 [COVERAGE.md](COVERAGE.md)。原理见 `pyproject.toml` 的注释。
 
 ### 已知缺口

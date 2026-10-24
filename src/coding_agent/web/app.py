@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -26,22 +25,14 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
-from coding_agent.agent_protocol import AgentContext
 from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import Settings, apply_security_profile, get_settings
-from coding_agent.control.agent_client import AgentClientError
 from coding_agent.events import (
     ApprovalRequested,
     Event,
     RunFailed,
     SteeringApplied,
 )
-from coding_agent.memory.sessions import SessionIndex
-from coding_agent.provider_profiles import (
-    ProviderProfileStore,
-    merge_provider_items,
-)
-from coding_agent.secrets_store import SecretStore
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.web.auth import AuthConfig, AuthUser
 from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
@@ -77,6 +68,11 @@ from coding_agent.web.routes.uploads import (
 from coding_agent.web.routes.workspace import (
     WorkspaceDeps,
     register_workspace_routes,
+)
+from coding_agent.web.services import (
+    AgentGateway,
+    ProviderService,
+    SessionCatalog,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -231,6 +227,11 @@ def create_app(
             settings.agent_internal_token,
         )
 
+    providers = ProviderService(
+        settings,
+        base_llm_providers=base_llm_providers,
+        is_multi_user=is_multi_user,
+    )
     runtimes = LocalRuntimeRegistry(
         allow_write=allow_write,
         governor=governor,
@@ -239,7 +240,13 @@ def create_app(
         max_runtimes=settings.web_max_runtimes or 1,
         max_per_user=settings.web_max_runtimes_per_user or 1,
         runtime_ttl=settings.web_runtime_ttl_s or 0,
-        secret_store_for=lambda tenant: _tenant_store(tenant),
+        secret_store_for=providers.tenant_store,
+    )
+    gateway = AgentGateway(
+        agent_client,
+        providers,
+        effective_access=runtimes.effective_access,
+        allow_write=allow_write,
     )
     streams: dict[tuple[str, str], StreamEntry] = {}
     session_configs: dict[tuple[str, str], SessionConfig] = {}
@@ -249,6 +256,21 @@ def create_app(
     registry_lock = threading.Lock()
     session_file_lock = threading.Lock()
     limiter = FixedWindowRateLimiter(per_minute=settings.web_rate_limit_per_min)
+    catalog = SessionCatalog(
+        tenants=tenants,
+        tenant=lambda user: _tenant(user),
+        default_access=default_access,
+        control_store=control_store,
+        control_db_url=control_db_url,
+        session_configs=session_configs,
+        deleted_sessions=deleted_sessions,
+        sessions_loaded=sessions_loaded,
+        registry_lock=registry_lock,
+        session_file_lock=session_file_lock,
+        db_status=lambda: app.state.control_db_status,
+        mark_db_degraded=_mark_db_degraded,
+    )
+
 
     def _tenant(user: AuthUser) -> WebTenant:
         try:
@@ -260,46 +282,8 @@ def create_app(
                 status_code=503,
                 detail=f"工作区不可用：{type(exc).__name__}: {exc}",
             ) from exc
-        _apply_provider_profiles()
+        providers.apply()
         return tenant
-
-    def _profiles_path() -> Path:
-        return Path(settings.resolved_audit_dir).parent / (
-            "provider-profiles.json"
-        )
-
-    def _apply_provider_profiles() -> list:
-        """把 GUI 档案合并进 llm_providers；没有档案时恢复环境基线。
-
-        档案只在单用户/桌面模式启用：多用户下共享 base_url 会让一个用户
-        有机会把另一个用户的密钥发到自己的端点。
-        """
-        if is_multi_user:
-            return []
-        store = ProviderProfileStore(_profiles_path())
-        profiles = store.load()
-        if profiles:
-            items = merge_provider_items(base_llm_providers, profiles)
-            settings.llm_providers = json.dumps(
-                items, ensure_ascii=False
-            )
-        elif settings.llm_providers != base_llm_providers:
-            settings.llm_providers = base_llm_providers
-        return profiles
-
-    def _user_store(user: AuthUser) -> SecretStore:
-        return (
-            SecretStore(f"coding-agent:{user.name}")
-            if is_multi_user
-            else SecretStore()
-        )
-
-    def _tenant_store(tenant: WebTenant) -> SecretStore:
-        return (
-            SecretStore(f"coding-agent:{tenant.user}")
-            if is_multi_user
-            else SecretStore()
-        )
 
     def _rate_limit(user: AuthUser) -> None:
         if limiter.allow(user.name):
@@ -546,442 +530,6 @@ def create_app(
             entry.last_active = time.monotonic()
         return entry
 
-    def _session_file(tenant: WebTenant) -> Path:
-        return Path(tenant.settings.resolved_audit_dir) / "gui-sessions.json"
-
-    def _read_legacy_rows(path: Path) -> list[dict[str, Any]]:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return []
-        return [
-            row for row in payload if isinstance(row, dict)
-        ] if isinstance(payload, list) else []
-
-    def _install_session_rows(
-        user: AuthUser,
-        tenant: WebTenant,
-        rows: list[dict[str, Any]],
-        deleted: set[str] | None = None,
-    ) -> None:
-        with registry_lock:
-            for thread in deleted or ():
-                deleted_sessions.add((user.name, thread))
-            for row in rows:
-                thread = str(row.get("thread_id") or "")
-                if not thread:
-                    continue
-                if row.get("deleted"):
-                    deleted_sessions.add((user.name, thread))
-                    continue
-                session_configs.setdefault(
-                    (user.name, thread),
-                    SessionConfig(
-                        thread_id=thread,
-                        workspace=str(
-                            row.get("workspace") or tenant.workspace
-                        ),
-                        access_mode=normalize_access_mode(
-                            row.get("access_mode")
-                        ),
-                        model=str(row.get("model") or ""),
-                        provider=str(row.get("provider") or ""),
-                        uploaded_bytes=int(row.get("uploaded_bytes") or 0),
-                        title=str(row.get("title") or ""),
-                    ),
-                )
-
-    def _load_session_configs(user: AuthUser, tenant: WebTenant) -> None:
-        """按租户懒加载会话配置；进程重启后仍能恢复 workspace/权限/模型。
-
-        配置了 A2 数据库时以数据库为准，并一次性导入旧
-        `gui-sessions.json`；未配置时保持原有文件路径。
-        """
-        with registry_lock:
-            if user.name in sessions_loaded:
-                return
-            sessions_loaded.add(user.name)
-        path = _session_file(tenant)
-        legacy = _read_legacy_rows(path)
-        if control_store is not None and not _control_db_degraded():
-            try:
-                active, tombstones = control_store.load_sessions(user.name)
-                if not active and not tombstones and legacy:
-                    control_store.save_sessions(
-                        user.name,
-                        [row for row in legacy if not row.get("deleted")],
-                        {
-                            str(row.get("thread_id"))
-                            for row in legacy
-                            if row.get("deleted") and row.get("thread_id")
-                        },
-                    )
-                    active, tombstones = control_store.load_sessions(
-                        user.name
-                    )
-                _install_session_rows(
-                    user, tenant, active, tombstones
-                )
-                return
-            except Exception as exc:  # noqa: BLE001 - 降级为本地文件
-                _mark_db_degraded(exc)
-                _LOG.warning(
-                    "控制面数据库读取失败，改用本地会话文件",
-                    exc_info=True,
-                )
-        _install_session_rows(user, tenant, legacy)
-
-    def _persist_session_configs(
-        user: AuthUser, tenant: WebTenant
-    ) -> None:
-        with registry_lock:
-            rows = [
-                {
-                    "thread_id": config.thread_id,
-                    "workspace": config.workspace,
-                    "access_mode": config.access_mode,
-                    "model": config.model,
-                    "provider": config.provider,
-                    "uploaded_bytes": config.uploaded_bytes,
-                    "title": config.title,
-                }
-                for (owner, _), config in session_configs.items()
-                if owner == user.name
-            ]
-            tombstones = {
-                thread
-                for owner, thread in deleted_sessions
-                if owner == user.name
-            }
-        if control_store is not None:
-            if app.state.control_db_status.get("state") == "degraded":
-                return
-            try:
-                control_store.save_sessions(
-                    user.name, rows, tombstones
-                )
-            except Exception as exc:  # noqa: BLE001 - 运行中故障也要可预期
-                _mark_db_degraded(exc)
-                _LOG.warning(
-                    "控制面数据库写入失败，进入只读降级", exc_info=True
-                )
-            return
-        if control_db_url:
-            # 启动即降级：不写 JSON，避免与恢复后的数据库分叉。
-            return
-        rows.extend(
-            {"thread_id": thread, "deleted": True}
-            for thread in tombstones
-        )
-        path = _session_file(tenant)
-        with session_file_lock:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                temp = path.with_suffix(".tmp")
-                temp.write_text(
-                    json.dumps(rows, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-                os.replace(temp, path)
-            except OSError:
-                # 配置持久化失败不应让会话本身失败；内存态仍然可用。
-                pass
-
-    def _audit_workspace(
-        user: AuthUser, tenant: WebTenant, public_thread: str
-    ) -> str:
-        """没有 GUI 配置时，从审计记录恢复该 thread 原来的工作区。"""
-        try:
-            info = SessionIndex(tenant.settings.resolved_audit_dir).get(
-                tenant.thread_id(public_thread)
-            )
-        except Exception:  # noqa: BLE001 - 审计不可读时退回默认工作区
-            return ""
-        if info is None or not info.workspace:
-            return ""
-        try:
-            return tenants.resolve_workspace(user.name, info.workspace)
-        except Exception:  # noqa: BLE001
-            return ""
-
-    def _config_for(
-        user: AuthUser,
-        tenant: WebTenant,
-        public_thread: str,
-        *,
-        create: bool = True,
-    ) -> SessionConfig | None:
-        _load_session_configs(user, tenant)
-        key = (user.name, public_thread)
-        with registry_lock:
-            config = session_configs.get(key)
-        if config is not None or not create:
-            return config
-        workspace = _audit_workspace(user, tenant, public_thread) or tenant.workspace
-        config = SessionConfig(
-            thread_id=public_thread,
-            workspace=workspace,
-            access_mode=default_access,
-        )
-        with registry_lock:
-            session_configs.setdefault(key, config)
-            result = session_configs[key]
-        _persist_session_configs(user, tenant)
-        return result
-
-    def _set_session_config(
-        user: AuthUser,
-        tenant: WebTenant,
-        config: SessionConfig,
-    ) -> None:
-        with registry_lock:
-            session_configs[(user.name, config.thread_id)] = config
-        _persist_session_configs(user, tenant)
-
-    def _is_deleted(user: AuthUser, public_thread: str) -> bool:
-        _load_session_configs(user, _tenant(user))
-        with registry_lock:
-            return (user.name, public_thread) in deleted_sessions
-
-    def _reject_if_deleted(user: AuthUser, public_thread: str) -> None:
-        if _is_deleted(user, public_thread):
-            raise HTTPException(status_code=410, detail="会话已删除")
-
-    def _agent_keys(
-        user: AuthUser, tenant: WebTenant
-    ) -> dict[str, str]:
-        """把 A2 持有的 provider key 短期带给 A3；不写日志/数据库。"""
-        try:
-            store = _tenant_store(tenant)
-            keys: dict[str, str] = {}
-            for row in _provider_rows(tenant.settings, store):
-                name = str(row.get("name") or "")
-                if not name:
-                    continue
-                key = store.get(name)
-                if (
-                    not key
-                    and name == "deepseek"
-                    and not str(
-                        tenant.settings.llm_providers or ""
-                    ).strip()
-                ):
-                    key = tenant.settings.deepseek_api_key
-                if key:
-                    keys[name] = key
-            return keys
-        except Exception:  # noqa: BLE001 - 密钥不可用时由 A3 报缺 key
-            _LOG.warning("读取 A2 provider key 失败", exc_info=True)
-            return {}
-
-    def _agent_context(
-        user: AuthUser,
-        tenant: WebTenant,
-        config: SessionConfig | None,
-        *,
-        include_keys: bool = False,
-    ) -> AgentContext:
-        return AgentContext(
-            tenant=tenant.user,
-            user=user.name,
-            workspace=(
-                config.workspace if config else tenant.workspace
-            ),
-            access_mode=_effective_access(config),
-            model=config.model if config else "",
-            provider=config.provider if config else "",
-            allow_write=allow_write,
-            api_keys=(
-                _agent_keys(user, tenant) if include_keys else {}
-            ),
-        )
-
-    async def _proxy_agent(
-        stream: Any, *, public_thread: str = ""
-    ) -> StreamingResponse:
-        async def body() -> AsyncIterator[bytes]:
-            async for chunk in stream.aiter_bytes():
-                yield chunk
-
-        headers = {
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        }
-        if public_thread:
-            headers["X-Thread-Id"] = public_thread
-        return StreamingResponse(
-            body(),
-            status_code=int(stream.status_code),
-            media_type="text/event-stream",
-            headers=headers,
-        )
-
-    def _agent_failure(exc: Exception) -> HTTPException:
-        if isinstance(exc, AgentClientError):
-            return HTTPException(status_code=exc.status_code, detail=exc.detail)
-        return HTTPException(
-            status_code=502,
-            detail=f"Agent Server 不可用：{type(exc).__name__}: {exc}",
-        )
-
-    async def _agent_json(
-        user: AuthUser,
-        tenant: WebTenant,
-        config: SessionConfig | None,
-        method: str,
-        path: str,
-        *,
-        params: dict | None = None,
-        json_body: dict | None = None,
-        include_keys: bool = False,
-    ) -> dict:
-        try:
-            return await agent_client.json_request(
-                _agent_context(
-                    user, tenant, config, include_keys=include_keys
-                ),
-                method,
-                path,
-                params=params,
-                json=json_body,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise _agent_failure(exc) from exc
-
-    async def _agent_upload(
-        user: AuthUser,
-        tenant: WebTenant,
-        config: SessionConfig | None,
-        thread_id: str,
-        files: list[tuple[str, bytes, str]],
-    ) -> dict:
-        try:
-            return await agent_client.upload_files(
-                _agent_context(user, tenant, config),
-                thread_id,
-                files,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise _agent_failure(exc) from exc
-
-    def _workspace_uploaded_bytes(
-        user: AuthUser, workspace: str
-    ) -> int:
-        """同一工作区跨会话的上传总量，防止新建会话重置配额。"""
-        with registry_lock:
-            return sum(
-                config.uploaded_bytes
-                for (owner, _), config in session_configs.items()
-                if owner == user.name and config.workspace == workspace
-            )
-
-    def _provider_rows(
-        cfg: Settings, store: SecretStore
-    ) -> list[dict[str, Any]]:
-        """列出 provider/model；绝不返回密钥明文。"""
-        raw = str(cfg.llm_providers or "").strip()
-        if not raw:
-            key = bool(cfg.deepseek_api_key) or store.has("deepseek")
-            return [
-                {
-                    "name": "deepseek",
-                    "model": cfg.deepseek_model,
-                    "base_url": cfg.deepseek_base_url,
-                    "has_key": key,
-                    "capabilities": [],
-                    "task_types": [],
-                }
-            ]
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return []
-        items = parsed if isinstance(parsed, list) else [parsed]
-        rows: list[dict[str, Any]] = []
-        for index, item in enumerate(items):
-            if not isinstance(item, dict) or item.get("enabled", True) is False:
-                continue
-            name = str(item.get("name") or f"provider-{index}")
-            key = bool(item.get("api_key")) or bool(
-                item.get("api_key_env") and os.environ.get(
-                    str(item.get("api_key_env")), ""
-                )
-            ) or store.has(name)
-            rows.append(
-                {
-                    "name": name,
-                    "model": str(
-                        item.get("model") or cfg.deepseek_model
-                    ),
-                    "base_url": str(
-                        item.get("base_url") or cfg.deepseek_base_url
-                    ),
-                    "has_key": key,
-                    "capabilities": [
-                        str(value)
-                        for value in (item.get("capabilities") or [])
-                    ],
-                    "task_types": [
-                        str(value)
-                        for value in (item.get("task_types") or [])
-                    ],
-                }
-            )
-        return rows
-
-    def _validate_provider_choice(
-        cfg: Settings, store: SecretStore, provider: str
-    ) -> None:
-        if not provider:
-            return
-        names = {row["name"] for row in _provider_rows(cfg, store)}
-        if provider not in names:
-            raise HTTPException(
-                status_code=422,
-                detail=f"未知或未启用的 provider：{provider}",
-            )
-
-    def _resolve_provider(
-        cfg: Settings, store: SecretStore, name: str
-    ) -> dict[str, str] | None:
-        raw = str(cfg.llm_providers or "").strip()
-        if raw:
-            try:
-                parsed = json.loads(raw)
-            except json.JSONDecodeError:
-                return None
-            items = parsed if isinstance(parsed, list) else [parsed]
-            for index, item in enumerate(items):
-                if not isinstance(item, dict):
-                    continue
-                if item.get("enabled", True) is False:
-                    continue
-                if str(item.get("name") or f"provider-{index}") != name:
-                    continue
-                api_key = str(item.get("api_key") or "")
-                env_name = str(item.get("api_key_env") or "")
-                if not api_key and env_name:
-                    api_key = os.environ.get(env_name, "")
-                if not api_key:
-                    api_key = store.get(name)
-                return {
-                    "name": name,
-                    "base_url": str(
-                        item.get("base_url") or cfg.deepseek_base_url
-                    ),
-                    "model": str(item.get("model") or cfg.deepseek_model),
-                    "api_key": api_key,
-                }
-            return None
-        if name != "deepseek":
-            return None
-        return {
-            "name": "deepseek",
-            "base_url": cfg.deepseek_base_url,
-            "model": cfg.deepseek_model,
-            "api_key": store.get("deepseek") or cfg.deepseek_api_key,
-        }
-
     def _capabilities(config: SessionConfig | None) -> dict[str, Any]:
         access = _effective_access(config)
         read_only = access == ACCESS_READ_ONLY
@@ -1017,7 +565,7 @@ def create_app(
             return key, entry.runtime
         # 进程重启/TTL 清理后，从 per-user checkpoint 重建。
         tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread)
+        config = catalog.config_for(user, tenant, public_thread)
         runtime = _new_runtime(tenant, config)
         with registry_lock:
             runtimes.put(key, runtime)
@@ -1144,9 +692,9 @@ def create_app(
         user: AuthUser, public_thread: str
     ) -> tuple[WebTenant, SessionConfig | None]:
         tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
+        config = catalog.config_for(user, tenant, public_thread, create=False)
         if config is None:
-            workspace = _audit_workspace(user, tenant, public_thread)
+            workspace = catalog.audit_workspace(user, tenant, public_thread)
             if workspace:
                 config = SessionConfig(
                     thread_id=public_thread,
@@ -1161,9 +709,9 @@ def create_app(
             settings=settings,
             tenants=tenants,
             tenant=_tenant,
-            tenant_store=_tenant_store,
-            provider_rows=_provider_rows,
-            config_for=_config_for,
+            tenant_store=providers.tenant_store,
+            provider_rows=providers.rows,
+            config_for=catalog.config_for,
             capabilities=_capabilities,
             default_access=default_access,
             desktop_mode=desktop_mode,
@@ -1177,12 +725,12 @@ def create_app(
             allow_write=allow_write,
             is_multi_user=is_multi_user,
             base_llm_providers=base_llm_providers,
-            profiles_path=_profiles_path,
-            apply_profiles=_apply_provider_profiles,
-            resolve_provider=_resolve_provider,
-            user_store=_user_store,
+            profiles_path=providers.profiles_path,
+            apply_profiles=providers.apply,
+            resolve_provider=providers.resolve,
+            user_store=providers.user_store,
             rate_limit=_rate_limit,
-            provider_rows=_provider_rows,
+            provider_rows=providers.rows,
         ),
     )
 
@@ -1191,13 +739,13 @@ def create_app(
         SessionDeps(
             tenant=_tenant,
             sweep_expired=_sweep_expired,
-            load_configs=_load_session_configs,
-            config_for=_config_for,
-            set_config=_set_session_config,
-            persist_configs=_persist_session_configs,
+            load_configs=catalog.load,
+            config_for=catalog.config_for,
+            set_config=catalog.set_config,
+            persist_configs=catalog.persist,
             effective_access=_effective_access,
             capabilities=_capabilities,
-            reject_deleted=_reject_if_deleted,
+            reject_deleted=catalog.reject_deleted,
             reject_active=_reject_if_active,
             reject_db_degraded=_reject_if_db_degraded,
             rate_limit=_rate_limit,
@@ -1205,11 +753,11 @@ def create_app(
                 name, ws
             ),
             validate_provider=lambda tenant, user, provider: (
-                _validate_provider_choice(
-                    tenant.settings, _user_store(user), provider
+                providers.validate(
+                    tenant.settings, providers.user_store(user), provider
                 )
             ),
-            agent_json=_agent_json,
+            agent_json=gateway.json,
             ops_runtime=_ops_runtime,
             agent_client=agent_client,
             allow_write=allow_write,
@@ -1228,10 +776,10 @@ def create_app(
             resolve_workspace=lambda name, ws: tenants.resolve_workspace(
                 name, ws
             ),
-            reject_deleted=_reject_if_deleted,
-            config_for=_config_for,
-            agent_json=_agent_json,
-            agent_failure=_agent_failure,
+            reject_deleted=catalog.reject_deleted,
+            config_for=catalog.config_for,
+            agent_json=gateway.json,
+            agent_failure=gateway.failure,
             agent_client=agent_client,
             default_access=default_access,
             allow_write=allow_write,
@@ -1245,15 +793,15 @@ def create_app(
             settings=settings,
             tenant=_tenant,
             rate_limit=_rate_limit,
-            config_for=_config_for,
-            set_config=_set_session_config,
+            config_for=catalog.config_for,
+            set_config=catalog.set_config,
             reject_active=_reject_if_active,
-            reject_deleted=_reject_if_deleted,
+            reject_deleted=catalog.reject_deleted,
             agent_client=agent_client,
-            agent_upload=_agent_upload,
-            agent_json=_agent_json,
+            agent_upload=gateway.upload,
+            agent_json=gateway.json,
             ops_runtime=_ops_runtime,
-            workspace_uploaded_bytes=_workspace_uploaded_bytes,
+            workspace_uploaded_bytes=catalog.workspace_uploaded_bytes,
         ),
     )
 
@@ -1262,11 +810,11 @@ def create_app(
         OpsDeps(
             tenant=_tenant,
             sweep_expired=_sweep_expired,
-            load_configs=_load_session_configs,
-            config_for=_config_for,
+            load_configs=catalog.load,
+            config_for=catalog.config_for,
             deleted_sessions=deleted_sessions,
             agent_client=agent_client,
-            agent_json=_agent_json,
+            agent_json=gateway.json,
             ops_runtime=_ops_runtime,
             rate_limit=_rate_limit,
             get_entry=_get_entry,
@@ -1280,9 +828,9 @@ def create_app(
             config_and_tenant=_config_and_tenant,
             reject_active=_reject_if_active,
             agent_client=agent_client,
-            agent_json=_agent_json,
+            agent_json=gateway.json,
             ops_runtime=_ops_runtime,
-            set_config=_set_session_config,
+            set_config=catalog.set_config,
             effective_access=_effective_access,
         ),
     )
@@ -1300,13 +848,13 @@ def create_app(
             rate_limit=_rate_limit,
             sweep_expired=_sweep_expired,
             tenant=_tenant,
-            config_for=_config_for,
-            set_config=_set_session_config,
-            reject_deleted=_reject_if_deleted,
+            config_for=catalog.config_for,
+            set_config=catalog.set_config,
+            reject_deleted=catalog.reject_deleted,
             agent_client=agent_client,
-            agent_context=_agent_context,
-            agent_failure=_agent_failure,
-            proxy_agent=_proxy_agent,
+            agent_context=gateway.context,
+            agent_failure=gateway.failure,
+            proxy_agent=gateway.proxy,
             stream_guard=_stream_guard,
             start_stream=_start_stream,
             buffered_sse=_buffered_sse,
@@ -1337,8 +885,8 @@ def create_app(
             config_and_tenant=_config_and_tenant,
             reject_active=_reject_if_active,
             agent_client=agent_client,
-            agent_json=_agent_json,
-            set_config=_set_session_config,
+            agent_json=gateway.json,
+            set_config=catalog.set_config,
             effective_access=_effective_access,
             ops_runtime=_ops_runtime,
         ),
