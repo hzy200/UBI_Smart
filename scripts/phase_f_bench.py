@@ -6,7 +6,8 @@
 测量：
   1. ExecutionService 代理相对 backend 直调的开销；
   2. 控制面 SQLite/MySQL 的会话写入与审计索引耗时、库体积；
-  3. A2 代理 SSE 的首事件延迟（fake A3，不发真实模型请求）。
+  3. A2 进程从启动到 /healthz 就绪（agent_state=ok）的耗时；
+  4. A2 代理 SSE 的首事件延迟（fake A3，不发真实模型请求）。
 
 不设阈值；输出 JSON，便于版本间比较。长会话渲染需要浏览器，未纳入本脚本。
 """
@@ -285,6 +286,7 @@ def measure_sse_proxy(workdir: Path, rounds: int = 20) -> dict:
             "AGENT_WSL_WORKSPACE": str(workdir / "ws"),
         }
     )
+    startup_started = time.perf_counter()
     proc = smoke._start(
         [
             sys.executable,
@@ -311,6 +313,7 @@ def measure_sse_proxy(workdir: Path, rounds: int = 20) -> dict:
             30,
             "A2 握手",
         )
+        startup_s = time.perf_counter() - startup_started
         # 预热同一会话，排除首次建会话/写 SQLite 的冷启动成本。
         for _ in range(2):
             _run_sse_once(base, token, "bench-sse")
@@ -321,6 +324,8 @@ def measure_sse_proxy(workdir: Path, rounds: int = 20) -> dict:
         fake.shutdown()
         fake.server_close()
     return {
+        # 单次样本：进程启动 + 导入 + 握手 + /healthz 就绪。
+        "a2_startup": _stats([startup_s]),
         "first_event": _stats(first_events),
         "a2_to_fake_a3": True,
     }

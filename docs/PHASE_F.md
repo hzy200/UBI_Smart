@@ -41,19 +41,25 @@ WSL/Linux 沙箱用例需要真实执行面，CI 的 Linux runner 只跑
 
 脚本：`scripts/phase_f_bench.py`。不设阈值，输出 JSON 供版本间比较。
 
-本机实测（2026-10-24 P3 重跑，Windows 11 / conda `agent`；MySQL 未配置，
+本机实测（2026-10-24 P4 重跑，Windows 11 / conda `agent`；MySQL 未配置，
 保留上一轮数值作参考）：
 
 | 指标 | 结果 |
 |---|---|
-| ExecutionService 直调 backend | p50 0.004ms / p95 0.008ms（400 次） |
-| 经 ExecutionService + 回执 | p50 1.065ms / p95 1.709ms；回执约 381 B/次（400 次） |
-| SQLite `save_sessions`（10 行） | p50 11.31ms / p95 16.05ms（60 次） |
-| SQLite `index_audit`（500 条） | 42.25ms；库文件 96 KiB |
+| A2 进程启动 → `/healthz` 就绪 | **5.61s**（单次样本；P4 前为 27.15s） |
+| A2 代理 SSE 首事件（fake A3） | p50 30.99ms / p95 44.32ms（20 次，已预热） |
+| ExecutionService 直调 backend | p50 0.003ms / p95 0.007ms（400 次） |
+| 经 ExecutionService + 回执 | p50 1.018ms / p95 1.509ms；回执约 381 B/次（400 次） |
+| SQLite `save_sessions`（10 行） | p50 10.55ms / p95 14.15ms（60 次） |
+| SQLite `index_audit`（500 条） | 38.71ms；库文件 96 KiB |
 | MySQL `save_sessions`（10 行） | p50 13.80ms / p95 15.66ms（上一轮，本轮未重跑） |
 | MySQL `index_audit`（500 条） | 178.39ms；表数据+索引 128 KiB（上一轮） |
-| A2 代理 SSE 首事件（fake A3） | p50 25.20ms / p95 42.27ms（20 次，已预热） |
 
+> **A2 启动口径**：从 `Popen` 到 `/healthz` 返回 `agent_state=ok`，含进程启动、
+> 模块导入与 A3 握手。P4 发现拆分模式仍在模块级导入 A3 runtime（连带
+> `torch`/`transformers`），改为 `web/local_runtime.py` 内延迟导入后，
+> 启动从 ~27s 降到 ~5.6s。单次样本只用于趋势，不设阈值。
+>
 > 原始 JSON 不落库：需要版本对比时重跑脚本并保存输出；上表是 2026-10-24
 > 的实测快照，代码/依赖变动后应视为过期。
 

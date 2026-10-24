@@ -13,13 +13,27 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
 from coding_agent.access import ACCESS_READ_ONLY
-from coding_agent.runtime import AgentRuntime
 from coding_agent.tenancy import WebTenant
+
+if TYPE_CHECKING:  # 只用于类型标注：拆分模式下 A2 不应导入 A3 runtime
+    from coding_agent.runtime import AgentRuntime
+
+
+class _LazyRuntime:
+    """延迟到真正创建 runtime 时才导入 A3（否则 A2 启动会连带加载 torch）。"""
+
+    def __call__(self, *args: Any, **kwargs: Any) -> AgentRuntime:
+        from coding_agent.runtime import AgentRuntime as runtime_cls
+
+        return runtime_cls(*args, **kwargs)
+
+
+AgentRuntime = _LazyRuntime()
 
 
 @dataclass

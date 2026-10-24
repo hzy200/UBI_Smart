@@ -22,8 +22,8 @@ note: |
 | 项 | 值 |
 | --- | --- |
 | 源文件 | **179** |
-| 源码行数 | **43,775** |
-| 函数/方法 | **1,652** |
+| 源码行数 | **43,789** |
+| 函数/方法 | **1,653** |
 | 测试文件 / 行数 | **168 / 42,896** |
 | 测试:源码 | **0.98 : 1** |
 | 快反馈用例 | **1,904**（`pytest -m "not wsl and not llm"`；223 deselected） |
@@ -97,7 +97,7 @@ P2 拆分后的关键分发函数：
 runtime -> audit config events graph memory messages sandbox steering
            tools execution orchestrator            (中枢，合理)
 web/app -> control
-web/local_runtime -> runtime                      (唯一的同进程回退适配器)
+web/local_runtime -> runtime                      (唯一的同进程回退适配器；延迟导入)
 agent_server -> agent_protocol event_transport workspace runtime
 control -> agent_protocol event_transport
 graph   -> config llm messages sandbox steering tools orchestrator.graph

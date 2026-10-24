@@ -22,7 +22,7 @@ pytest -m "not wsl and not llm" --cov --cov-report=term-missing
 - 不走真实 WSL/bwrap：Windows 本地没有安装 WSL 项目依赖；
 - `mysql` 标记用例在未设置 `AGENT_TEST_MYSQL_URL` 时 skip；
 - 本轮 `-m "not wsl and not llm"` 收集 **1,904** 个用例，**223** 个被 deselect；
-- 总语句 **19,936**，未覆盖 **3,947**，**80.20%**（门槛 76%）。
+- 总语句 **19,940**，未覆盖 **3,948**，**80.20%**（门槛 76%）。
 
 ## 2. P3 目标达成情况
 
