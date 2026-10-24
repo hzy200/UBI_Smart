@@ -39,6 +39,7 @@ from coding_agent.audit import (
 )
 from coding_agent.audit.logger import now_iso
 from coding_agent.cli.platform import SandboxProbe, resolve_workspace
+from coding_agent.cli.renderer import CliRenderer
 from coding_agent.config import (
     PRODUCTION_PROFILES,
     Settings,
@@ -46,31 +47,7 @@ from coding_agent.config import (
     get_settings,
     shadowed_env_keys,
 )
-from coding_agent.events import (
-    ApprovalRequested,
-    AssistantToken,
-    CostReport,
-    Event,
-    FileChanged,
-    OrchestrationFinished,
-    PlanCreated,
-    PlanRevised,
-    RepairStarted,
-    ReviewFinished,
-    RunFailed,
-    RunFinished,
-    StepFinished,
-    StepStarted,
-    SubAgentFinished,
-    SubAgentStarted,
-    TaskGraphCreated,
-    ToolCallFinished,
-    ToolCallStarted,
-    Verification,
-    WorkerFinished,
-    WorkerStarted,
-    WorkflowSelected,
-)
+from coding_agent.events import ApprovalRequested, Event
 from coding_agent.llm.deepseek import MissingApiKeyError, build_llm
 from coding_agent.llm.prompts import SYSTEM_PROMPT
 from coding_agent.memory.embeddings import embedding_status
@@ -489,197 +466,9 @@ def chat() -> None:
 def _make_renderer() -> Callable[[Event], None]:
     """把事件映射为终端输出。
 
-    这是「前端只消费事件」的一个具体实现；TUI / Web 会各写一份自己的映射表。
+    具体映射在 `cli/renderer.py` 的表驱动实现里；TUI / Web 各写一份自己的。
     """
-    state: dict[str, Any] = {"plan": [], "total": 1, "answering": False}
-
-    def render(event: Event) -> None:
-        if isinstance(event, PlanCreated):
-            state["plan"] = list(event.steps)
-            state["total"] = max(len(event.steps), 1)
-            if event.steps:
-                _render_plan(event.steps, 0)
-                console.print("\n[dim]开始执行…[/]")
-            if event.degraded:
-                # 不能静默：多步任务退化成单步，用户会以为它真的做了规划
-                console.print(
-                    "[yellow]! 规划未解析，已退化为单步执行"
-                    "（模型未返回可解析的步骤，请检查模型输出）[/]"
-                )
-
-        elif isinstance(event, PlanRevised):
-            # 执行中重建了剩余计划：先把新计划摆出来，再继续往下走
-            state["plan"] = list(event.steps)
-            state["total"] = max(len(event.steps), 1)
-            console.print("\n[yellow]↻ 计划已调整[/]")
-            if event.steps:
-                _render_plan(event.steps, event.step_idx)
-
-        elif isinstance(event, StepStarted):
-            # 单步计划下标题只是重复用户问题，省略
-            if event.total > 1:
-                head = f"第 {event.index + 1}/{event.total} 步"
-                console.print(f"\n[cyan]{head}[/] {escape(event.text)}")
-            console.print("[bold green]助手 › [/]", end="")
-
-        elif isinstance(event, StepFinished):
-            if event.budget_exhausted:
-                suffix = "[dim]（工具预算耗尽）[/]"
-            elif event.cancelled:
-                # 被重规划放弃的步骤：不能说成「预算耗尽」——它根本没试过
-                suffix = "[dim]（本步骤未执行完，已放弃）[/]"
-            else:
-                suffix = ""
-            _emit(f"\n{suffix}\n")
-
-        elif isinstance(event, AssistantToken):
-            # respond 与 act 说的内容常有重叠（架构上就是「每步小结 + 最终汇总」）。
-            # 给最终答复一个明确的起点，读者才不会以为是重复输出。
-            if event.node == "respond" and not state["answering"]:
-                state["answering"] = True
-                console.print("\n[dim]── 最终答复 ──[/]")
-            _emit(event.text)
-
-        elif isinstance(event, ToolCallStarted):
-            label = f"[{event.level}] " if event.level else ""
-            console.print(
-                f"\n[dim]→ {escape(label)}{escape(event.name)}: {escape(event.summary)}[/]"
-            )
-
-        elif isinstance(event, SubAgentStarted):
-            console.print(
-                f"[cyan]◈ 探索子智能体开始[/] [dim]{escape(event.goal)}[/]"
-            )
-
-        elif isinstance(event, SubAgentFinished):
-            style = "green" if event.status == "success" else "yellow"
-            console.print(
-                f"[{style}]◈ 探索子智能体 {escape(event.status)}[/] "
-                f"[dim]{escape(event.summary)}[/]"
-            )
-
-        elif isinstance(event, WorkflowSelected):
-            console.print(
-                f"[cyan]◈ 工作流：{escape(event.workflow)}[/] "
-                f"[dim]{escape(event.reason)}[/]"
-            )
-
-        elif isinstance(event, TaskGraphCreated):
-            suffix = " [yellow]（已降级）[/]" if event.degraded else ""
-            console.print(
-                f"[cyan]◈ 任务图：{len(event.tasks)} 个只读任务[/]{suffix}"
-            )
-            for task in event.tasks:
-                console.print(
-                    f"  [dim]{escape(str(task.get('id', '')))} "
-                    f"({escape(str(task.get('role', '')))}): "
-                    f"{escape(str(task.get('goal', '')))}[/]"
-                )
-
-        elif isinstance(event, WorkerStarted):
-            console.print(
-                f"[dim]  → worker {escape(event.role)}/{escape(event.task_id)}: "
-                f"{escape(event.goal)}[/]"
-            )
-
-        elif isinstance(event, WorkerFinished):
-            style = (
-                "green"
-                if event.status == "success"
-                else "yellow"
-                if event.status == "partial"
-                else "red"
-            )
-            console.print(
-                f"[{style}]  ← worker {escape(event.role)}/{escape(event.task_id)} "
-                f"{escape(event.status)}[/] [dim]{escape(event.summary)}[/]"
-            )
-
-        elif isinstance(event, OrchestrationFinished):
-            console.print(
-                f"[cyan]◈ 编排完成[/] [dim]成功 {event.completed}，"
-                f"失败/阻塞 {event.failed}：{escape(event.summary)}[/]"
-            )
-
-        elif isinstance(event, RepairStarted):
-            console.print(
-                f"[yellow]↻ 第 {event.attempt}/{event.limit} 次修复[/] "
-                f"[dim]{escape(event.summary)}[/]"
-            )
-
-        elif isinstance(event, ApprovalRequested):
-            pass  # 由 _run_events 负责提问，渲染层不重复输出
-
-        elif isinstance(event, ToolCallFinished):
-            if event.decision == "denied":
-                console.print("[red]← 已被用户拒绝[/]")
-                return
-            if event.rejected:
-                console.print("[red]← 已被安全策略拒绝[/]")
-                return
-            if event.skipped:
-                console.print("[dim]← 已跳过（环境未配置）[/]")
-                return
-            if event.interrupted:
-                console.print("[yellow]← 结果未知（执行中断，未自动重放）[/]")
-                return
-            if event.ok:
-                mark, style = "✓", "dim"
-            elif event.exit_code is not None:
-                mark, style = f"✗ exit={event.exit_code}", "yellow"
-            else:
-                mark, style = "✗", "yellow"
-            elapsed = f" {event.duration_ms / 1000:.2f}s" if event.duration_ms else ""
-            console.print(f"[{style}]← {mark}{elapsed}[/]")
-
-        elif isinstance(event, FileChanged):
-            stat = f"+{event.added} -{event.removed}"
-            stamp = f" · {event.snapshot_id}" if event.snapshot_id else ""
-            console.print(f"[magenta]✎ {escape(event.path)}[/] [dim]{stat}{stamp}[/]")
-
-        elif isinstance(event, Verification):
-            if event.status == "not_configured":
-                console.print("[dim]验证：未检测到可用的测试命令[/]")
-            elif event.status == "skipped":
-                pass
-            elif event.ok:
-                console.print(f"[green]验证通过[/] [dim]{escape(event.summary)}[/]")
-            else:
-                console.print(f"[red]验证失败[/] [dim]{escape(event.summary)}[/]")
-                for issue in event.issues[:5]:
-                    console.print(f"  [red]·[/] {escape(issue)}")
-
-        elif isinstance(event, ReviewFinished):
-            if event.status == "skipped":
-                pass
-            elif event.blocked:
-                console.print(f"[red]代码审查未通过[/] [dim]{escape(event.summary)}[/]")
-                for finding in event.findings[:5]:
-                    console.print(f"  [red]·[/] {escape(finding)}")
-            elif event.status == "warned":
-                console.print(f"[yellow]代码审查有告警[/] [dim]{escape(event.summary)}[/]")
-            else:
-                console.print(f"[green]代码审查通过[/] [dim]{escape(event.summary)}[/]")
-
-        elif isinstance(event, RunFailed):
-            console.print(f"\n[red]运行失败：{escape(event.message)}[/]")
-
-        elif isinstance(event, CostReport):
-            line = f"成本 ${event.cost_usd:.4f}"
-            if event.budget_usd > 0:
-                line += f" / 预算 ${event.budget_usd:.2f}（{event.ratio:.0%}）"
-            if event.billed_usd:
-                line += f" / 账单 ${event.billed_usd:.4f}（差 ${event.billing_delta_usd:+.4f}）"
-            console.print(f"[dim]{escape(line)}[/]")
-            if event.billing_error:
-                console.print(f"[yellow]账单对账失败：{escape(event.billing_error)}[/]")
-            for alert in event.alerts:
-                console.print(f"[yellow]⚠ {escape(alert)}[/]")
-
-        elif isinstance(event, RunFinished):
-            _emit("\n")
-
-    return render
+    return CliRenderer(console, _emit, _render_plan).render
 
 
 def _is_danger_level(level: str) -> bool:
