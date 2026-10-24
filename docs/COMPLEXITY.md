@@ -21,18 +21,18 @@ note: |
 
 | 项 | 值 |
 | --- | --- |
-| 源文件 | **165** |
-| 源码行数 | **42,612** |
-| 函数/方法 | **1,554** |
+| 源文件 | **166** |
+| 源码行数 | **42,687** |
+| 函数/方法 | **1,555** |
 | 测试文件 / 行数 | **163 / 41,448** |
 | 测试:源码 | **0.98 : 1** |
 | 快反馈用例 | **1,806**（`pytest -m "not wsl and not llm"`；223 deselected） |
-| 覆盖率 | **77.59%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
+| 覆盖率 | **77.62%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
 
 测试体量已接近源码；但覆盖率只覆盖 CI 子集，真实 WSL/bwrap 与桌面入口
 不在其中，不能把全局数字当成所有子系统的健康度。
 
-## 2. 复杂度分布（1,554 个函数）
+## 2. 复杂度分布（1,555 个函数）
 
 | 指标 | 中位 | 均值 | 超阈值 |
 | --- | --- | --- | --- |
@@ -72,7 +72,7 @@ note: |
 
 | 文件 | 行 | 函数 | 备注 |
 | --- | --- | --- | --- |
-| `web/app.py` | **2,464** | 112 | A2 路由 + 装配，`create_app` 2,291 行；system/providers/sessions/workspace 已拆出 |
+| `web/app.py` | **2,248** | 112 | A2 路由 + 装配，`create_app` 2,075 行；system/providers/sessions/workspace/uploads 已拆出 |
 | `runtime.py` | **2,918** | 89 | 编排中枢 + 事件翻译 + worker 协调，复杂度天然集中 |
 | `cli/app.py` | **2,012** | 54 | 命令 + 渲染 |
 | `tui/app.py` | **1,552** | 72 | Textual 界面 + 事件映射 |
@@ -119,18 +119,18 @@ tui/web -> audit config events runtime
 
 | 维度 | 评价 |
 | --- | --- |
-| 规模控制 | **需关注**：`web/app.py` 2,464 行（`create_app` 2,291）、`runtime.py` 2,918 行、`agent_server.py` 1,066 行 |
+| 规模控制 | **需关注**：`web/app.py` 2,248 行（`create_app` 2,075）、`runtime.py` 2,918 行、`agent_server.py` 1,066 行 |
 | 函数粒度 | **好**：中位 11 行 / CC 3；但 >40 行占 12.5% |
 | 复杂度集中度 | **可接受**：8.8% 函数 CC>10，位置可解释 |
 | 真·复杂点 | `_stream`、`create_app`、`create_agent_app`、scheduler、`run_tools`、fan-in |
 | 耦合 | **改善**：A2/A3 反向边已消除；同进程回退隔离在 `web/local_runtime`，CLI 适配器在 `cli/platform` |
-| 可测性 | **分层**：0.98:1 测试比；CI 子集 77.59%，但 `implement.py` 19%、`control_server.py` 42%、桌面入口 0% |
+| 可测性 | **分层**：0.98:1 测试比；CI 子集 77.62%，但 `implement.py` 19%、`control_server.py` 42%、桌面入口 0% |
 
 ## 7. 可选降复杂度动作（按性价比）
 
 | # | 动作 | 收益 | 风险 |
 | --- | --- | --- | --- |
-| 1 | `web/app.py::create_app` 按领域拆 APIRouter + `Deps` | **最高**：system/providers/sessions/workspace 已拆；剩余 2,291 行 | 中（路由/认证/回退语义须不变） |
+| 1 | `web/app.py::create_app` 按领域拆 APIRouter + `Deps` | **最高**：system/providers/sessions/workspace/uploads 已拆；剩余 2,075 行 | 中（路由/认证/回退语义须不变） |
 | 2 | `runtime._stream` 的 per-node 分支拆成 `_emit_*` 或 `{node: handler}` | **最高**：把最大函数降到若干小函数；已有事件流测试兜底 | 中（编排核心，须行为不变） |
 | 3 | `agent_server.create_agent_app` 拆 routes / RunState / SSE primitive | 高：A3 装配可维护，减少与同进程路径分叉 | 中 |
 | 4 | `orchestrator/scheduler.py::scheduler` 拆成并发派发 / 重试 / 合并三块 | 高：编排逻辑可单测、可组合 | 中 |

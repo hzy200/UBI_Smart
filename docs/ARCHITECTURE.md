@@ -715,8 +715,8 @@ P1 已把 A2↔A3 DTO、事件传输与工作区浏览下沉到 `agent_protocol`
 `event_transport` / `workspace`；`agent_server` 不再依赖 `web/` 或
 `control.agent_client`。同进程回退已隔离到 `web/local_runtime.py`；
 CLI 的沙箱探测已收窄到 `cli/platform.py`。A2 的系统/能力路由已拆到
-`web/routes/system.py` / `providers.py` / `sessions.py` / `workspace.py`，
-A3 的 RunState/SSE 与租户上下文已拆到
+`web/routes/system.py` / `providers.py` / `sessions.py` / `workspace.py` /
+`uploads.py`，A3 的 RunState/SSE 与租户上下文已拆到
 `agent_server_support.py` / `agent_context.py`；其余路由仍在
 `create_app` / `create_agent_app` 内，后续继续按领域拆。
 

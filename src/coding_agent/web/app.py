@@ -19,9 +19,9 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -62,6 +62,10 @@ from coding_agent.web.routes.sessions import (
     register_session_routes,
 )
 from coding_agent.web.routes.system import SystemDeps, register_system_routes
+from coding_agent.web.routes.uploads import (
+    UploadDeps,
+    register_upload_routes,
+)
 from coding_agent.web.routes.workspace import (
     WorkspaceDeps,
     register_workspace_routes,
@@ -105,10 +109,6 @@ class RestoreRequest(BaseModel):
     snapshot_id: str = ""
     prefix: str = ""
     dry_run: bool = False
-
-
-class UploadDeleteRequest(BaseModel):
-    path: str = Field(min_length=1, max_length=4096)
 
 
 class MemoryRequest(BaseModel):
@@ -1270,240 +1270,6 @@ def create_app(
         )
         return {"thread_id": target_public, "source_thread_id": public_thread}
 
-    @app.post("/api/sessions/{thread_id}/uploads")
-    async def upload_files(
-        thread_id: str,
-        user: UserDep,
-        files: Annotated[list[UploadFile], File()],
-    ) -> dict:
-        """上传写入 `.agent/uploads`，不授予模型修改源码的能力。"""
-        _rate_limit(user)
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_active(user, public_thread)
-        if len(files) > max(1, int(settings.web_max_upload_files)):
-            raise HTTPException(
-                status_code=413,
-                detail=f"单次最多上传 {settings.web_max_upload_files} 个文件",
-            )
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
-        if config is None:
-            raise HTTPException(status_code=404, detail="会话不存在")
-        if agent_client is not None:
-            payload: list[tuple[str, bytes, str]] = []
-            total = 0
-            for item in files:
-                data = await item.read()
-                if len(data) > settings.web_max_upload_bytes:
-                    raise HTTPException(
-                        status_code=413, detail="单个文件超过上传上限"
-                    )
-                total += len(data)
-                payload.append(
-                    (
-                        item.filename or "upload.bin",
-                        data,
-                        item.content_type or "application/octet-stream",
-                    )
-                )
-            current = _workspace_uploaded_bytes(user, config.workspace)
-            if current + total > settings.web_max_upload_total_bytes:
-                raise HTTPException(
-                    status_code=413,
-                    detail=(
-                        "工作区累计上传超过上限 "
-                        f"{settings.web_max_upload_total_bytes} 字节"
-                    ),
-                )
-            result = await _agent_upload(
-                user, tenant, config, public_thread, payload
-            )
-            added = sum(
-                int(item.get("bytes", 0))
-                for item in result.get("uploads", [])
-            )
-            config.uploaded_bytes += added
-            _set_session_config(user, tenant, config)
-            return result
-        runtime = _ops_runtime(tenant, config)
-        internal = tenant.thread_id(public_thread)
-        uploaded = []
-        before_bytes = config.uploaded_bytes
-        total_limit = settings.web_max_upload_total_bytes
-        # 已知大小时先整批预检，避免写到一半才因配额失败。
-        known_sizes: list[int] | None = []
-        for item in files:
-            size = getattr(item, "size", None)
-            if size is None:
-                known_sizes = None
-                break
-            if size > settings.web_max_upload_bytes:
-                raise HTTPException(
-                    status_code=413,
-                    detail=(
-                        f"{item.filename} 超过上限 "
-                        f"{settings.web_max_upload_bytes} 字节"
-                    ),
-                )
-            known_sizes.append(int(size))
-        if known_sizes is not None:
-            current = _workspace_uploaded_bytes(user, config.workspace)
-            if current + sum(known_sizes) > total_limit:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"工作区累计上传超过上限 {total_limit} 字节",
-                )
-        try:
-            for item in files:
-                data = await item.read()
-                if len(data) > settings.web_max_upload_bytes:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=(
-                            f"{item.filename} 超过上限 "
-                            f"{settings.web_max_upload_bytes} 字节"
-                        ),
-                    )
-                if (
-                    _workspace_uploaded_bytes(user, config.workspace)
-                    + len(data)
-                    > total_limit
-                ):
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"工作区累计上传超过上限 {total_limit} 字节",
-                    )
-                try:
-                    saved = runtime.store_upload(
-                        item.filename or "upload.bin",
-                        data,
-                        thread_id=internal,
-                        max_bytes=settings.web_max_upload_bytes,
-                    )
-                except ValueError as exc:
-                    raise HTTPException(
-                        status_code=422, detail=str(exc)
-                    ) from exc
-                except Exception as exc:  # noqa: BLE001 - 沙箱/路径错误要可读报出
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"{type(exc).__name__}: {exc}",
-                    ) from exc
-                config.uploaded_bytes += len(data)
-                uploaded.append(
-                    {
-                        **saved,
-                        "name": item.filename or "upload.bin",
-                        "content_type": item.content_type or "",
-                    }
-                )
-        finally:
-            if config.uploaded_bytes != before_bytes:
-                _set_session_config(user, tenant, config)
-            await runtime.aclose()
-        return {"uploads": uploaded}
-
-    def _upload_rows(
-        workspace: str, internal: str
-    ) -> tuple[list[dict[str, Any]], int]:
-        base = Path(workspace) / ".agent" / "uploads" / internal
-        rows: list[dict[str, Any]] = []
-        total = 0
-        if not base.is_dir():
-            return rows, total
-        for path in sorted(base.rglob("*"))[:500]:
-            if not path.is_file():
-                continue
-            try:
-                size = path.stat().st_size
-            except OSError:
-                continue
-            total += size
-            rows.append(
-                {
-                    "relative_path": path.relative_to(workspace).as_posix(),
-                    "bytes": size,
-                }
-            )
-        return rows, total
-
-    @app.get("/api/sessions/{thread_id}/uploads")
-    async def list_uploads(thread_id: str, user: UserDep) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
-        if agent_client is not None:
-            data = await _agent_json(
-                user, tenant, config, "GET",
-                f"/v1/uploads/{public_thread}",
-            )
-            data["accounted_bytes"] = (
-                config.uploaded_bytes if config else 0
-            )
-            data["workspace_bytes"] = _workspace_uploaded_bytes(
-                user,
-                config.workspace if config else tenant.workspace,
-            )
-            return data
-        workspace = config.workspace if config else tenant.workspace
-        internal = tenant.thread_id(public_thread)
-        rows, actual = await asyncio.to_thread(
-            _upload_rows, workspace, internal
-        )
-        return {
-            "uploads": rows,
-            "used_bytes": actual,
-            "accounted_bytes": config.uploaded_bytes if config else 0,
-            "max_file_bytes": settings.web_max_upload_bytes,
-            "max_files_per_request": settings.web_max_upload_files,
-            "max_total_bytes": settings.web_max_upload_total_bytes,
-            "workspace_bytes": _workspace_uploaded_bytes(user, workspace),
-        }
-
-    @app.delete("/api/sessions/{thread_id}/uploads")
-    async def delete_upload(
-        thread_id: str,
-        request: UploadDeleteRequest,
-        user: UserDep,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_active(user, public_thread)
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
-        if config is None:
-            raise HTTPException(status_code=404, detail="会话不存在")
-        if agent_client is not None:
-            result = await _agent_json(
-                user, tenant, config, "DELETE",
-                f"/v1/uploads/{public_thread}",
-                json_body={"path": request.path},
-            )
-            config.uploaded_bytes = max(
-                0,
-                config.uploaded_bytes - int(result.get("bytes", 0)),
-            )
-            _set_session_config(user, tenant, config)
-            return result
-        internal = tenant.thread_id(public_thread)
-        prefix = f".agent/uploads/{internal}/"
-        rel = request.path.strip().replace("\\", "/")
-        if not rel.startswith(prefix):
-            raise HTTPException(status_code=422, detail="只能删除本会话的上传")
-        root = Path(config.workspace).resolve()
-        try:
-            target = (root / rel).resolve()
-            target.relative_to(root)
-        except (OSError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail="路径越界") from exc
-        if not target.is_file():
-            raise HTTPException(status_code=404, detail="文件不存在")
-        size = target.stat().st_size
-        target.unlink()
-        config.uploaded_bytes = max(0, config.uploaded_bytes - size)
-        _set_session_config(user, tenant, config)
-        return {"ok": True, "bytes": size}
-
     @app.get("/api/recovery")
     async def recovery(user: UserDep) -> dict:
         """列出需要用户处理的会话：待审批、暂停、异常中断或仍在运行。"""
@@ -2458,6 +2224,24 @@ def create_app(
             default_access=default_access,
             allow_write=allow_write,
             desktop_mode=desktop_mode,
+        ),
+    )
+
+    register_upload_routes(
+        app,
+        UploadDeps(
+            settings=settings,
+            tenant=_tenant,
+            rate_limit=_rate_limit,
+            config_for=_config_for,
+            set_config=_set_session_config,
+            reject_active=_reject_if_active,
+            reject_deleted=_reject_if_deleted,
+            agent_client=agent_client,
+            agent_upload=_agent_upload,
+            agent_json=_agent_json,
+            ops_runtime=_ops_runtime,
+            workspace_uploaded_bytes=_workspace_uploaded_bytes,
         ),
     )
 
