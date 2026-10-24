@@ -1,4 +1,4 @@
-<!-- owner: 项目作者 · last_reviewed: 2026-10-22 · review_cadence: 命令、状态数字或架构变动时 -->
+<!-- owner: 项目作者 · last_reviewed: 2026-10-24 · review_cadence: 命令、状态数字或架构变动时 -->
 
 # CodingAgent
 
@@ -22,13 +22,14 @@ orchestrator 子图，拆成 DAG 并发处理，最后把结构化结果交回�
 
 | 项 | 结果 |
 |---|---|
-| 测试 | `pytest -m "not llm"` **1765 passed**（含真实 WSL，2026-10-22 实跑） |
-| 覆盖率 | **86.6%**（2026-10-22 实跑，`fail_under=76`） |
-| CI 子集 | `pytest -m "not wsl and not llm"` **1546 passed**，覆盖率 **80.7%** |
+| 快反馈 | `pytest -m "not wsl and not llm"` 收集 **1,904**（deselect 223），0 failed |
+| 覆盖率 | **80.20%**（CI 子集，`fail_under=76`；见 [COVERAGE.md](docs/COVERAGE.md)） |
+| 全量含 WSL | 本轮未重跑；WSL/执行面仍由 `-m wsl` / `-m execution` 平台门禁守着 |
 | lint | `ruff check src tests` 干净 |
+| 前端 | `build_frontend.py` 构建 + `tsc --noEmit` 通过，`static/app.js` 无漂移 |
 | 说明 | 另有 3 个 `llm` 标记用例需要 `DEEPSEEK_API_KEY`，默认排除；不加 `-m` 时会真实调用模型 |
 
-> 上表是 **2026-10-22 本机实跑**的快照；最新结果见上方 CI badge。
+> 上表是 **2026-10-24 本机实跑**的快照；最新结果见上方 CI badge。
 > 数字会随代码变化，长期事实源是 CI 与 `docs/contracts/`，不是这张表。
 
 四个选题创新点均已落地并有测试守着：双工具架构、可审计的命令安全策略、
@@ -67,6 +68,26 @@ orchestrator 子图，拆成 DAG 并发处理，最后把结构化结果交回�
 │  stdin → bash；ulimit/timeout；词法 + realpath 路径校验；写前快照     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+### 四层部署形态
+
+桌面与 Web 的拆分模式按 A1–A4 分层；CLI/TUI 仍可在同进程直接持有 runtime：
+
+```
+A1 前端（CLI / TUI / Web / Desktop）
+        │ HTTP / SSE
+A2 control_server + control/ + web/ 路由
+        │ agent_protocol + event_transport
+A3 agent_server + runtime + graph + orchestrator
+        │ ExecutionService
+A4 execution + tools + sandbox
+```
+
+- A2 只做认证、会话目录、代理与降级，不执行工具；
+- A3 持有 runtime / 图 / 编排，通过 ExecutionService 调 A4；
+- 前端永远拿不到 `tools/` 与 `sandbox/`，因此无法绕过命令分级审批。
+
+分层边由 `tests/unit/test_architecture.py` 的 AST 扫描守住。
 
 ### 两条执行路径
 
@@ -163,6 +184,13 @@ CodingAgent/
 │  ├─ messages.py              # 消息文本提取
 │  ├─ diffing.py               # unified diff 生成与统计
 │  ├─ steering.py              # 按 thread 隔离的运行中指令队列
+│  ├─ agent_protocol.py        # A2↔A3 DTO / 版本与能力协议
+│  ├─ event_transport.py       # 共享 SSE 事件传输（内存 / Redis）
+│  ├─ control_server.py        # A2 独立进程入口：认证 / 代理 / 降级
+│  ├─ agent_server.py          # A3 独立进程入口：仅装配
+│  ├─ agent_server_routes/     # A3 领域路由（lifecycle / workspace / state）
+│  ├─ control/                 # A2 控制面：schema / store / 迁移 / 备份
+│  ├─ workspace/               # A2/A3 共用的只读工作区浏览
 │  ├─ graph/                   # 主图
 │  │  ├─ state.py              #   跨节点状态
 │  │  ├─ routing.py            #   条件边（纯函数）
@@ -190,6 +218,11 @@ CodingAgent/
 │  │  ├─ pathguard.py          #   词法路径守卫 + Windows↔WSL 转换
 │  │  ├─ fs.py                 #   沙箱内读写 + realpath 校验 + run 级读缓存
 │  │  └─ snapshots.py          #   写前快照
+│  ├─ execution/               # A4 执行契约
+│  │  ├─ service.py            #   ExecutionService（代理 / 回执 / 重放）
+│  │  ├─ contracts.py          #   ExecutionRequest / ExecutionResult
+│  │  ├─ sandbox_backend.py    #   WSL/Linux 沙箱适配器
+│  │  └─ host_ops.py           #   宿主内部执行 kind 白名单（ADR-0011）
 │  ├─ tools/                   # 能力层
 │  │  ├─ registry.py           #   工具注册
 │  │  ├─ artifacts.py          #   结构化产物
@@ -202,7 +235,9 @@ CodingAgent/
 │  ├─ llm/                     # DeepSeek 客户端 · 提示词 · 上下文裁剪
 │  ├─ memory/                  # checkpoint · 会话索引 · 长期记忆
 │  ├─ audit/                   # JSONL 审计
-│  └─ cli/ tui/ web/ desktop/   # 四种前端
+│  ├─ cli/                     # 命令 + 表驱动事件渲染（cli/renderer.py）
+│  ├─ tui/                     # Textual 界面 + 表驱动事件映射
+│  └─ web/ desktop/            # Web 路由 + 桌面壳（A1）
 ├─ tests/
 │  ├─ unit/                    # 纯逻辑 + 假图驱动的 runtime 事件流
 │  ├─ integration/             # 真实 WSL 沙箱
@@ -222,10 +257,11 @@ CodingAgent/
 |---|---|
 | 命令分级 / 安全规则 | `sandbox/policy.py`（新工具在 `graph/nodes/approve.py::tool_level` 登记） |
 | 加一个工具 | `tools/` 写 builder → `tools/registry.py` 注册 → `approve.tool_level` 登记 |
-| 加一个图节点 | `graph/nodes/` 写节点 → `graph/build.py` 接线 → `graph/routing.py` 加边 → `runtime._stream` 翻译事件 |
+| 加一个图节点 | `graph/nodes/` 写节点 → `graph/build.py` 接线 → `graph/routing.py` 加边 → 在 `runtime._NODE_HANDLERS` 登记并补 `_on_*` 事件处理器 |
 | 加一个 worker 角色 | `orchestrator/workers.py` 扩展 runner → `contracts.py` 角色枚举 → 工具白名单 |
 | 改调度策略 | `orchestrator/scheduler.py`（ready/依赖/重试/deadline） |
 | 改写隔离 | `orchestrator/implement.py` + `orchestrator/merge.py` + `tools/files.py` |
+| 增加宿主内部命令 | `execution/host_ops.py` 登记 kind → 更新 ADR-0011 → 补 `test_host_ops.py` |
 | 加一个前端 | 只依赖 `runtime.AgentRuntime` + `events`，**不要**导入 `tools/`/`sandbox/` |
 
 **不纳入版本控制**：`.env`（密钥）、`.agent/`（审计、checkpoint、快照、artifact、
@@ -407,7 +443,10 @@ TUI 快捷键：`Ctrl+Q` 退出（运行中会确认） · `Ctrl+N` 新会话 ·
 - `approval_gate` 只做决定（放行/询问/拒绝），保持纯函数；
 - `tools` 节点负责强制，是所有工具执行的唯一咽喉；
 - **fail closed**：审批记录缺失、答复无法解析、非交互环境，一律拒绝；
-- 审批结果一次性有效，不会跨轮次误放行。
+- 审批结果一次性有效，不会跨轮次误放行；
+- 宿主内部执行（补丁合并 / worktree / 补丁生成）不经过模型，只允许
+  `execution/host_ops.py::host_run` 的 kind 白名单；未知 origin/kind 或不匹配
+  命令一律拒绝，见 [ADR-0011](docs/adr/0011-host-side-execution.md)。
 
 ### 并发 worker 的权限
 
@@ -547,8 +586,9 @@ BM25，`agent memory --vector-status/--reindex` 用于检查与重建索引。�
 复用 Web 的事件与审批链路。默认只读；会话可选择只读/审批写/自动写，按会话绑定工作区，
 支持 SSE、计划/工具/文件面板、审批、pause/cancel/add/replan、快照/diff/回滚、
 checkpoint/fork/rewind、模型选择、GUI 注入 API Key（OS 密钥环）与文件上传。
-Phase 0 还提供 WSL 内 Agent Server：`python -m coding_agent.server`，
-Windows 只通过 loopback/SSE 访问，工具不再逐条启动 `wsl.exe`。
+当前拆分模式：Windows A2 `python -m coding_agent.control_server` +
+WSL A3 `python -m coding_agent.agent_server`；Windows 只通过 loopback/SSE
+访问，工具不再逐条启动 `wsl.exe`。旧 `python -m coding_agent.server` 保留兼容。
 详见 [docs/GUI.md](docs/GUI.md)、[docs/PHASE0.md](docs/PHASE0.md)
 与 [docs/PHASE1.md](docs/PHASE1.md)、[docs/PHASE2.md](docs/PHASE2.md)、
 [docs/PHASE3.md](docs/PHASE3.md)、[docs/PHASE4.md](docs/PHASE4.md)、
@@ -575,7 +615,8 @@ Markdown/代码块渲染、审批弹窗。侧栏常驻显示会话、工作区�
 审批、pause/cancel/add/replan、审批/暂停后的 resume。
 默认按 `untrusted` profile 运行，并支持 Bearer Token + per-user 工作区；
 公网部署必须配置 token 与 TLS（见 [USAGE.md](docs/USAGE.md#公网--多用户部署)）。
-前端拆成静态 HTML/CSS/JS，不引构建链；端点与 TUI 共用同一套 runtime/steering 语义。
+前端源码在 `frontend/src`，由 esbuild 构建到 `static/app.js`；CI 会跑
+`tsc --noEmit` 并校验生成物无漂移。端点与 TUI 共用同一套 runtime/steering 语义。
 Web 在 runtime 被 TTL 清理或进程重启后，会从 per-user checkpoint 重建并 resume。
 
 **CLI 实时干预**：`agent steer --thread-id <id> pause|cancel|add|replan`
@@ -621,6 +662,25 @@ python tests/eval/langsmith_suite.py --run --smoke
 
 CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`，
 覆盖率门槛 76。沙箱层由本地 `-m wsl` 用例守着，CI 会显式提示这个缺口。
+
+### 性能基线
+
+```bash
+python scripts/phase_f_bench.py
+# 可选：--mysql-url 指向独立测试库
+```
+
+只做趋势比较，不设硬阈值。2026-10-24 本机快照：
+
+| 指标 | 结果 |
+|---|---|
+| A2 启动 → `/healthz` 就绪 | 5.61s（单次样本） |
+| A2 代理 SSE 首事件 | p50 30.99ms / p95 44.32ms |
+| SQLite 控制面写入（10 行） | p50 10.55ms / p95 14.15ms |
+| ExecutionService 代理 | p50 1.018ms / p95 1.509ms |
+
+完整口径与限制见 [docs/PHASE_F.md](docs/PHASE_F.md)。长会话渲染仍按
+[docs/PHASE_E.md](docs/PHASE_E.md) 的手测清单执行，不纳入脚本。
 
 测试分层：
 
@@ -806,6 +866,10 @@ CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`
 | [docs/HARNESS.md](docs/HARNESS.md) | 独立 orchestrator 子图、事件驱动 DAG、并发 worker、fan-in、干预与评测 |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | 运行 / 开发 / 使用三套工作流、路由与状态生命周期 |
 | [docs/COMPLEXITY.md](docs/COMPLEXITY.md) | 复杂度度量、热点分布、耦合方向与降复杂度建议 |
+| [docs/COVERAGE.md](docs/COVERAGE.md) | 覆盖率口径、P3 模块目标与剩余缺口 |
+| [docs/PHASE_F.md](docs/PHASE_F.md) | 安全验收矩阵、性能基线、迁移/回滚演练 |
+| [docs/PHASE_E.md](docs/PHASE_E.md) | 前端体验、SSE 治理与长会话手测清单 |
+| [docs/CI.md](docs/CI.md) | CI/Docs 流水线步骤与覆盖率门槛 |
 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | 环境配置、依赖版本快照、复现与导出、常见问题 |
 | [docs/MANUAL.md](docs/MANUAL.md) | **配置指南与使用手册**：配置分组、常用配方、CLI/TUI/REPL/Web、审批、排障 |
 | [docs/USAGE.md](docs/USAGE.md) | 常见工作流、配置来源、故障排查 |

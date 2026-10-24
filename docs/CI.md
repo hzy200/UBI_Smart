@@ -4,7 +4,7 @@ doc_id: ci
 title: 流水线（pipeline as code）
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 review_cadence: 工作流文件变动时
 ---
 
@@ -34,7 +34,7 @@ review_cadence: 工作流文件变动时
 真实窗口与 OS 密钥环只做本地冒烟。
 
 **覆盖率门槛 `fail_under=76`** 按 CI 实际执行的子集定，不是贴着实测值
-（2026-10-24 CI 子集实测 **77.89%**；Linux/Windows 会有小幅漂移）。
+（2026-10-24 CI 子集实测 **80.20%**，1,904 个用例；Linux/Windows 会有小幅漂移）。
 子系统缺口见 [COVERAGE.md](COVERAGE.md)。原理见 `pyproject.toml` 的注释。
 
 ### 已知缺口

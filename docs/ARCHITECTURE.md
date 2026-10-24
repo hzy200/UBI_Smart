@@ -85,8 +85,13 @@ LLM 拿不到操作系统句柄，只能产出结构化调用 `{tool, args}`；�
 为什么这条最重要：一旦前端能直接调工具，就会出现**绕过审批的第二条执行路径** ——
 Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性，不是代码风格。
 
-> `cli/` 是唯一的例外：`doctor` 与 `sandbox-init` 需要直接探测沙箱。
-> 它们是诊断命令，不执行模型意图。
+> `cli/` 只能通过 `cli/platform.py` 这个窄接口探测沙箱（`doctor` /
+> `sandbox-init`）；其余 cli 模块仍禁止导入 `tools/` 或 `sandbox/`，由 AST 测试锁定。
+
+桌面/Web 的拆分模式另有 A1–A4 部署边（见 §12）：A2 不执行工具，A3 通过
+`execution/` 调 A4。宿主内部的合并 / worktree / 补丁生成不经模型，只允许经
+`execution/host_ops.py::host_run` 的 kind 白名单（ADR-0011），未知 origin/kind
+一律拒绝。
 
 ## 3. 目录职责
 
@@ -99,6 +104,7 @@ Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性�
 | `graph/routing.py` | 条件边 | 不做副作用 |
 | `agents/` | 子智能体循环（独立上下文） | 不直接写主 state、不产生写路径 |
 | `tools/` | 能力：执行 + 回报 | 不做安全判定（判定在 approval_gate） |
+| `execution/` | A4 执行契约 / 后端适配 / 宿主内部命令白名单 | 不做审批；不接收模型自由文本 |
 | `sandbox/policy.py` | 命令分级、会话策略 | 不执行命令 |
 | `sandbox/fs.py` | 沙箱内文件读写 + 路径双重校验 | 不做业务判断 |
 | `audit/` | JSONL 审计 | 不解析工具文本输出 |
@@ -513,12 +519,14 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
 1. 在 `graph/nodes/` 写节点函数：签名 `(state, config) -> dict`，返回**状态增量**
 2. 在 `graph/build.py` 接线
 3. 在 `graph/routing.py` 加条件边
-4. 若产生用户可见的东西，在 `runtime._stream` 里把对应的 `updates` 翻译成事件
+4. 若产生用户可见的东西，在 `runtime._NODE_HANDLERS` 登记节点名，并补一个
+   `_on_<node>` 事件处理器（`runtime._stream` 只负责流模式分发）
 5. **回来同步 `estimate_recursion_limit`** —— 那个公式算歪过三次，每次都是漏算了
    某个会「重新开始」的机制
 6. 在 `graph/state.py` 声明新字段，并想清楚**谁写入、谁重置**（漏重置会让状态跨步串味；
    重置过头会把跨步需要的东西清掉 —— `review_watermark` 就是后者）
-7. 前端（`cli/app.py`、`tui/app.py`）补事件映射
+7. 前端补事件映射：CLI 在 `cli/renderer.py` 的 `_handlers` 登记，TUI 在
+   `tui/app.py` 的 `_EVENT_HANDLERS` 登记
 
 节点里不要 yield 事件、不要写审计 —— 那些是 runtime 的职责。
 唯一例外是 `scheduler` 的 `get_stream_writer()` custom 事件（worker 实时进度），
@@ -527,6 +535,18 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
 第 4 与第 7 步都有守卫：`test_graph_event_coverage.py` 用 AST 断言「每个图节点要么
 有事件翻译、要么在 `SILENT_NODES` 里显式登记」，漏翻译会当场变红；前端漏映射则
 **不报错，只是时间线上少一行**，所以那一步得自己盯着。
+
+### 加一条宿主内部命令
+
+宿主自己的合并 / worktree / 补丁生成命令**不能**直接调用 `sandbox.run`：
+
+1. 在 `execution/host_ops.py::HOST_KINDS` 登记 `kind` 与允许的命令前缀；
+2. 调用 `host_run(..., origin="host", kind=..., cwd=...)`；
+3. 同步更新 [ADR-0011](adr/0011-host-side-execution.md) 的白名单与理由；
+4. `tests/unit/test_host_ops.py` 会校验 kind/命令前缀，并用 AST 禁止
+   `orchestrator/` 直接调用 `sandbox.run`。
+
+模型可控的参数不能走这条路——那必须回到工具 + 审批。
 
 ### 加一个前端
 
@@ -705,8 +725,10 @@ Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL�
   与 ExecutionService 两处拒绝；
 - **迁移/回滚**：SQLite 与 MySQL 都完成
   `upgrade → 备份 → downgrade base → upgrade → 恢复` 演练；
-- **性能基线**：`phase_f_bench.py` 覆盖 ExecutionService 代理、控制面写入与
-  A2 代理 SSE 首事件延迟；不设硬阈值，按同平台趋势比较；
+- **性能基线**：`phase_f_bench.py` 覆盖 A2 启动 → `/healthz` 就绪、
+  ExecutionService 代理、控制面写入与 A2 代理 SSE 首事件延迟；不设硬阈值，
+  按同平台趋势比较。P4 将 A3 runtime 改为延迟导入后，A2 启动从约 27s
+  降到约 5.6s；
 - **平台门禁**：WSL 隔离用 `pytest -m wsl`，Linux bwrap 用
   `pytest -m execution` / `test_bwrap.py`；CI 只跑 SQLite 演练与快反馈，
   平台缺口在 [ACCEPTANCE.md](ACCEPTANCE.md) 中显式保留。
@@ -723,4 +745,10 @@ CLI 的沙箱探测已收窄到 `cli/platform.py`。A2 的系统/能力路由已
 `create_agent_app` 已降到 321 行，只负责装配。A2 的会话目录/Provider/
 Agent 代理已下沉到 `web/services.py`，`create_app` 降到 758 行。
 
-详见 [PHASE_F.md](PHASE_F.md)。
+P2 把 `runtime._stream`、scheduler、`run_tools`、implement 与 CLI/TUI 事件
+分发拆小或表驱动化；P3 新增宿主执行白名单 `execution/host_ops.py`（ADR-0011），
+并把 implement / control_server / sandbox_backend / 桌面入口的覆盖率拉到目标；
+P4 延迟导入 A3 runtime，缩短 A2 启动。
+
+详见 [PHASE_F.md](PHASE_F.md)、[COVERAGE.md](COVERAGE.md)、
+[COMPLEXITY.md](COMPLEXITY.md)。

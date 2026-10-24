@@ -194,5 +194,6 @@ A3 已不再依赖 `web/` 或 `control.agent_client`：`agent_server.py` 使用
 | 出问题了 | `docs/runbook.yaml` |
 | 验收某条需求 | `docs/acceptance/acceptance-criteria.yaml` |
 
-**不要**把 README 的配置表当事实源——README 未纳入本次分层改造，其中的
-配置摘录与测试数字可能已过期，以 `docs/contracts/` 与实测为准。
+**不要**把 README 的配置表当事实源——它只是常用示例，不是全量清单；
+配置以 `docs/contracts/config.md`、工具等级以 `docs/contracts/tools.yaml` 为准，
+状态数字以 CI / `docs/COVERAGE.md` 的实测为准。
