@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from coding_agent import __version__
 from coding_agent.config import Settings
 from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
 from coding_agent.tenancy import WebTenant
@@ -105,7 +106,10 @@ def test_healthz_is_public(monkeypatch, tmp_path) -> None:
     response = client.get("/healthz")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["version"] == __version__
+    assert body["agent_state"] == "in_process"
 
 
 def test_loopback_anonymous_is_allowed(tmp_path) -> None:

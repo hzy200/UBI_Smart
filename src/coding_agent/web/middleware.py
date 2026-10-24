@@ -58,11 +58,22 @@ class SecurityHeadersMiddleware:
 
 
 class BodySizeLimitMiddleware:
-    """按 Content-Length 拒绝超大请求；Pydantic 的 max_length 仍是第二道。"""
+    """按 Content-Length 拒绝超大请求；上传端点单独使用更大的上限。"""
 
-    def __init__(self, app: ASGIApp, *, max_bytes: int) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        max_bytes: int,
+        upload_max_bytes: int | None = None,
+        upload_suffix: str = "/uploads",
+    ) -> None:
         self.app = app
         self.max_bytes = max(1, int(max_bytes or 1))
+        self.upload_max_bytes = (
+            max(1, int(upload_max_bytes)) if upload_max_bytes else None
+        )
+        self.upload_suffix = upload_suffix
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -72,15 +83,34 @@ class BodySizeLimitMiddleware:
             key.decode("latin-1").lower(): value.decode("latin-1")
             for key, value in scope.get("headers") or []
         }
+        limit = self.max_bytes
+        path = str(scope.get("path") or "")
+        if self.upload_max_bytes and path.endswith(self.upload_suffix):
+            limit = self.upload_max_bytes
         raw = headers.get("content-length")
+        method = str(scope.get("method") or "").upper()
+        transfer = headers.get("transfer-encoding", "").lower()
+        if (
+            raw is None
+            and method in {"POST", "PUT", "PATCH"}
+            and "chunked" in transfer
+        ):
+            # 没有 Content-Length 就无法在读取前拒绝超大请求；直接要求
+            # 定长请求，避免 chunked 绕过上限。
+            response = JSONResponse(
+                {"detail": "chunked 请求体不受支持；请发送 Content-Length"},
+                status_code=411,
+            )
+            await response(scope, receive, send)
+            return
         if raw is not None:
             try:
                 length = int(raw)
             except ValueError:
                 length = 0
-            if length > self.max_bytes:
+            if length > limit:
                 response = JSONResponse(
-                    {"detail": f"请求体超过上限 {self.max_bytes} 字节"},
+                    {"detail": f"请求体超过上限 {limit} 字节"},
                     status_code=413,
                 )
                 await response(scope, receive, send)

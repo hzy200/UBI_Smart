@@ -141,8 +141,10 @@ def test_index_has_no_build_chain(settings) -> None:
     assert "/static/style.css" in html
     assert "webpack" not in html.lower()
     assert "vite" not in html.lower()
+    assert "/static/vendor/alpine-csp.min.js" in html
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/static/style.css").status_code == 200
+    assert client.get("/static/vendor/alpine-csp.min.js").status_code == 200
 
 
 def test_health_reports_configuration(settings) -> None:
@@ -284,6 +286,19 @@ def test_security_headers_are_present(monkeypatch, settings) -> None:
     assert "default-src 'self'" in response.headers["content-security-policy"]
 
 
+def test_chunked_body_is_rejected(settings) -> None:
+    client = TestClient(web.create_app(settings))
+    response = client.post(
+        "/api/run",
+        content=iter([b"{}"]),
+        headers={
+            "Content-Type": "application/json",
+            "Transfer-Encoding": "chunked",
+        },
+    )
+    assert response.status_code == 411
+
+
 def test_oversized_body_is_rejected(monkeypatch, settings) -> None:
     settings = settings.model_copy(update={"web_max_body_bytes": 32})
     client = _client(monkeypatch, settings)
@@ -353,6 +368,24 @@ def test_steering_and_resume_share_the_suspended_runtime(
     assert [f["type"] for f in _frames(resumed.text)][-1] == "run_finished"
     assert runtime.steering_resumed == 1
     assert runtime.closed is True
+
+
+def test_resume_approval_rejects_a_steering_pause(
+    monkeypatch, settings
+) -> None:
+    runtime = FakeRuntime(
+        events=[
+            RunStarted(thread_id="t"),
+            SteeringApplied(action="pause", detail="paused"),
+        ]
+    )
+    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    client = TestClient(web.create_app(settings))
+    client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
+
+    response = client.post("/api/resume/t", json={"decisions": {}})
+    assert response.status_code == 409
+    assert runtime.resumed == []
 
 
 def test_resume_steering_rejects_a_non_paused_session(
