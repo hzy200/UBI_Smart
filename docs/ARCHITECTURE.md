@@ -718,7 +718,8 @@ CLI 的沙箱探测已收窄到 `cli/platform.py`。A2 的系统/能力路由已
 `web/routes/system.py` / `providers.py` / `sessions.py` / `workspace.py` /
 `uploads.py` / `ops.py` / `snapshots.py` / `runs.py` / `desktop.py` /
 `compact.py`，A3 的 RunState/SSE 与租户上下文已拆到
-`agent_server_support.py` / `agent_context.py`；其余路由仍在
-`create_app` / `create_agent_app` 内，后续继续按领域拆。
+`agent_server_support.py` / `agent_context.py`，A3 生命周期路由已移到
+`agent_server_routes/lifecycle.py`；`create_agent_app` 剩工作区/状态路由，
+后续继续拆。`create_agent_app` 已降到 711 行。
 
 详见 [PHASE_F.md](PHASE_F.md)。

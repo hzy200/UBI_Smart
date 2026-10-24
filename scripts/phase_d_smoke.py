@@ -510,9 +510,11 @@ class Smoke:
         env = _clean_env()
         env.update(
             {
+                # 用不存在的父目录让 SQLite 立即失败；不可达 MySQL 在部分
+                # Windows 防火墙配置下会等 TCP 超时，拖慢演练。
                 "AGENT_CONTROL_DB_URL": (
-                    "mysql+pymysql://smoke:smoke@127.0.0.1:1/smoke"
-                    "?connect_timeout=1"
+                    "sqlite:///"
+                    f"{(self.tmp / 'missing-dir' / 'control.db').as_posix()}"
                 ),
                 "AGENT_AUDIT_DIR": str(self.tmp / "migrate-audit"),
             }
