@@ -41,17 +41,21 @@ WSL/Linux 沙箱用例需要真实执行面，CI 的 Linux runner 只跑
 
 脚本：`scripts/phase_f_bench.py`。不设阈值，输出 JSON 供版本间比较。
 
-本机实测（2026-10-24，Windows 11 / conda `agent` / 本机 MySQL 8.0.27）：
+本机实测（2026-10-24 P3 重跑，Windows 11 / conda `agent`；MySQL 未配置，
+保留上一轮数值作参考）：
 
 | 指标 | 结果 |
 |---|---|
-| ExecutionService 直调 backend | p50 0.003ms / p95 0.008ms（100 次） |
-| 经 ExecutionService + 回执 | p50 0.739ms / p95 1.065ms；回执约 378 B/次 |
-| SQLite `save_sessions`（10 行） | p50 9.63ms / p95 13.56ms（60 次） |
-| SQLite `index_audit`（500 条） | 37.65ms；库文件 96 KiB |
-| MySQL `save_sessions`（10 行） | p50 13.80ms / p95 15.66ms（60 次） |
-| MySQL `index_audit`（500 条） | 178.39ms；表数据+索引 128 KiB |
-| A2 代理 SSE 首事件（fake A3） | p50 20.38ms / p95 43.58ms（20 次，已预热） |
+| ExecutionService 直调 backend | p50 0.004ms / p95 0.008ms（400 次） |
+| 经 ExecutionService + 回执 | p50 1.065ms / p95 1.709ms；回执约 381 B/次（400 次） |
+| SQLite `save_sessions`（10 行） | p50 11.31ms / p95 16.05ms（60 次） |
+| SQLite `index_audit`（500 条） | 42.25ms；库文件 96 KiB |
+| MySQL `save_sessions`（10 行） | p50 13.80ms / p95 15.66ms（上一轮，本轮未重跑） |
+| MySQL `index_audit`（500 条） | 178.39ms；表数据+索引 128 KiB（上一轮） |
+| A2 代理 SSE 首事件（fake A3） | p50 25.20ms / p95 42.27ms（20 次，已预热） |
+
+> 原始 JSON 不落库：需要版本对比时重跑脚本并保存输出；上表是 2026-10-24
+> 的实测快照，代码/依赖变动后应视为过期。
 
 口径与限制：
 
