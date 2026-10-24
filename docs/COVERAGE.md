@@ -22,7 +22,7 @@ pytest -m "not wsl and not llm" --cov --cov-report=term-missing
 - 不走真实 WSL/bwrap：Windows 本地没有安装 WSL 项目依赖；
 - `mysql` 标记用例在未设置 `AGENT_TEST_MYSQL_URL` 时 skip；
 - 本轮 `-m "not wsl and not llm"` 收集 **1806** 个用例，**223** 个被 deselect；
-- 总语句 **19,592**，未覆盖 **4,377**，**77.66%**（门槛 76%）。
+- 总语句 **19,615**，未覆盖 **4,376**，**77.69%**（门槛 76%）。
 
 ## 2. 子系统缺口
 
@@ -48,7 +48,7 @@ pytest -m "not wsl and not llm" --cov --cov-report=term-missing
 ## 3. 结论
 
 - 旧的 75.36% / 86.6% 不能继续引用；以本页和 CI 输出为准；
-- 全局 77.66% 不代表新子系统健康：`implement.py`、`control_server.py`、
+- 全局 77.69% 不代表新子系统健康：`implement.py`、`control_server.py`、
   `sandbox_backend.py`、桌面入口仍是明显缺口；
 - `implement.py` 的多数未覆盖行依赖 WSL 集成路径，不能只在 CI 里堆单测；
   应优先抽纯规划/合并逻辑，用 fake sandbox 覆盖；

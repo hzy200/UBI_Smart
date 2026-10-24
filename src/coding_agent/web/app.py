@@ -17,7 +17,7 @@ import os
 import threading
 import time
 from collections.abc import AsyncIterator
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -61,6 +61,10 @@ from coding_agent.web.routes.sessions import (
     SessionDeps,
     register_session_routes,
 )
+from coding_agent.web.routes.snapshots import (
+    SnapshotDeps,
+    register_snapshot_routes,
+)
 from coding_agent.web.routes.system import SystemDeps, register_system_routes
 from coding_agent.web.routes.uploads import (
     UploadDeps,
@@ -101,14 +105,6 @@ class ResumeRequest(BaseModel):
 
 class CompactRequest(BaseModel):
     keep_recent: int = Field(default=6, ge=1, le=50)
-
-
-class RestoreRequest(BaseModel):
-    thread_id: str
-    path: str = ""
-    snapshot_id: str = ""
-    prefix: str = ""
-    dry_run: bool = False
 
 
 @dataclass
@@ -1676,246 +1672,6 @@ def create_app(
                 )
         return tenant, config
 
-    @app.get("/api/snapshots")
-    async def snapshots(
-        user: UserDep,
-        thread_id: str,
-        limit: int = 20,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        tenant, config = _config_and_tenant(user, public_thread)
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "GET", "/v1/snapshots",
-                params={"thread_id": public_thread, "limit": limit},
-            )
-        runtime = _ops_runtime(tenant, config)
-        try:
-            entries = runtime.list_snapshots(limit=max(1, limit))
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=503,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            await runtime.aclose()
-        return {"snapshots": [asdict(entry) for entry in entries]}
-
-    @app.get("/api/diff")
-    async def diff(
-        user: UserDep,
-        thread_id: str,
-        path: str = "",
-        snapshot_id: str = "",
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        tenant, config = _config_and_tenant(user, public_thread)
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "GET", "/v1/diff",
-                params={
-                    "thread_id": public_thread,
-                    "path": path,
-                    "snapshot_id": snapshot_id,
-                },
-            )
-        runtime = _ops_runtime(tenant, config)
-        try:
-            text = runtime.diff_snapshot(
-                path=path or None,
-                snapshot_id=snapshot_id or None,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=503,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            await runtime.aclose()
-        return {"diff": text}
-
-    @app.post("/api/restore")
-    async def restore(
-        request: RestoreRequest,
-        user: UserDep,
-    ) -> dict:
-        public_thread = _check_thread_id(request.thread_id)
-        _reject_if_active(user, public_thread)
-        tenant, config = _config_and_tenant(user, public_thread)
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "POST", "/v1/restore",
-                json_body=request.model_dump(),
-            )
-        runtime = _ops_runtime(tenant, config)
-        try:
-            if request.prefix:
-                results = runtime.restore_since(
-                    request.prefix, dry_run=request.dry_run
-                )
-                return {"results": [asdict(item) for item in results]}
-            result = runtime.restore(
-                path=request.path or None,
-                snapshot_id=request.snapshot_id or None,
-            )
-            return asdict(result)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=503,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            await runtime.aclose()
-
-    @app.get("/api/run_started/{thread_id}")
-    async def run_started(
-        thread_id: str,
-        user: UserDep,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        tenant, config = _config_and_tenant(user, public_thread)
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "GET",
-                f"/v1/run_started/{public_thread}",
-            )
-        runtime = _ops_runtime(tenant, config)
-        try:
-            prefix = runtime.last_run_started_at(
-                tenant.thread_id(public_thread)
-            )
-        finally:
-            await runtime.aclose()
-        return {"prefix": prefix}
-
-    @app.get("/api/checkpoints/{thread_id}")
-    async def checkpoints(
-        thread_id: str,
-        user: UserDep,
-        limit: int = 20,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        tenant, config = _config_and_tenant(user, public_thread)
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "GET",
-                f"/v1/checkpoints/{public_thread}",
-                params={"limit": limit},
-            )
-        runtime = _ops_runtime(tenant, config)
-        try:
-            found = await runtime.checkpoints(
-                tenant.thread_id(public_thread),
-                limit=max(1, limit),
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=503,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            await runtime.aclose()
-        return {"checkpoints": found}
-
-    @app.post("/api/fork/{thread_id}")
-    async def fork(
-        thread_id: str,
-        user: UserDep,
-        checkpoint_id: str = "",
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_active(user, public_thread)
-        tenant, config = _config_and_tenant(user, public_thread)
-        if agent_client is not None:
-            result = await _agent_json(
-                user, tenant, config, "POST",
-                f"/v1/fork/{public_thread}",
-                params={"checkpoint_id": checkpoint_id},
-            )
-            target_public = str(result.get("thread_id") or "")
-            if target_public:
-                _set_session_config(
-                    user,
-                    tenant,
-                    SessionConfig(
-                        thread_id=target_public,
-                        workspace=(
-                            config.workspace
-                            if config
-                            else tenant.workspace
-                        ),
-                        access_mode=_effective_access(config),
-                        model=config.model if config else "",
-                        provider=config.provider if config else "",
-                    ),
-                )
-            return result
-        runtime = _ops_runtime(tenant, config)
-        try:
-            target_internal = await runtime.fork(
-                tenant.thread_id(public_thread),
-                checkpoint_id=checkpoint_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=409,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            await runtime.aclose()
-        target_public = tenant.public_thread(target_internal)
-        _set_session_config(
-            user,
-            tenant,
-            SessionConfig(
-                thread_id=target_public,
-                workspace=config.workspace if config else tenant.workspace,
-                access_mode=_effective_access(config),
-                model=config.model if config else "",
-                provider=config.provider if config else "",
-            ),
-        )
-        return {"thread_id": target_public}
-
-    @app.post("/api/rewind/{thread_id}")
-    async def rewind(
-        thread_id: str,
-        user: UserDep,
-        steps: int = 1,
-        checkpoint_id: str = "",
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_active(user, public_thread)
-        tenant, config = _config_and_tenant(user, public_thread)
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, config, "POST",
-                f"/v1/rewind/{public_thread}",
-                params={
-                    "steps": max(1, steps),
-                    "checkpoint_id": checkpoint_id,
-                },
-            )
-        runtime = _ops_runtime(tenant, config)
-        try:
-            found = await runtime.rewind(
-                tenant.thread_id(public_thread),
-                checkpoint_id=checkpoint_id,
-                steps=max(1, steps),
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=409,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            await runtime.aclose()
-        return {"checkpoint_id": found}
-
-    # ------------------------------------------------------------------
-    # 记忆 / 审计
-    # ------------------------------------------------------------------
-
     register_system_routes(
         app,
         SystemDeps(
@@ -2032,6 +1788,19 @@ def create_app(
             rate_limit=_rate_limit,
             get_entry=_get_entry,
             control_store=control_store,
+        ),
+    )
+
+    register_snapshot_routes(
+        app,
+        SnapshotDeps(
+            config_and_tenant=_config_and_tenant,
+            reject_active=_reject_if_active,
+            agent_client=agent_client,
+            agent_json=_agent_json,
+            ops_runtime=_ops_runtime,
+            set_config=_set_session_config,
+            effective_access=_effective_access,
         ),
     )
 
