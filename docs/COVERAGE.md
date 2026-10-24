@@ -22,7 +22,7 @@ pytest -m "not wsl and not llm" --cov --cov-report=term-missing
 - 不走真实 WSL/bwrap：Windows 本地没有安装 WSL 项目依赖；
 - `mysql` 标记用例在未设置 `AGENT_TEST_MYSQL_URL` 时 skip；
 - 本轮 `-m "not wsl and not llm"` 收集 **1806** 个用例，**223** 个被 deselect；
-- 总语句 **19,316**，未覆盖 **4,307**，**77.70%**（门槛 76%）。
+- 总语句 **19,326**，未覆盖 **4,310**，**77.70%**（门槛 76%）。
 
 ## 2. 子系统缺口
 
