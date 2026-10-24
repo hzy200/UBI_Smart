@@ -28,7 +28,6 @@ from pydantic import BaseModel, Field
 
 from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
 from coding_agent.agent_protocol import AgentContext, AgentRunRequest
-from coding_agent.audit import read_records_many
 from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import Settings, apply_security_profile, get_settings
 from coding_agent.control.agent_client import AgentClientError
@@ -56,6 +55,7 @@ from coding_agent.web.middleware import (
 from coding_agent.web.models import (
     SessionConfig,
 )
+from coding_agent.web.routes.ops import OpsDeps, register_ops_routes
 from coding_agent.web.routes.providers import ProviderDeps, register_provider_routes
 from coding_agent.web.routes.sessions import (
     SessionDeps,
@@ -109,16 +109,6 @@ class RestoreRequest(BaseModel):
     snapshot_id: str = ""
     prefix: str = ""
     dry_run: bool = False
-
-
-class MemoryRequest(BaseModel):
-    action: Literal["remember", "forget", "clear", "pin", "priority"]
-    thread_id: str = ""
-    text: str = Field(default="", max_length=4_000)
-    index: int = -1
-    scope: str = "project"
-    pinned: bool = True
-    priority: int = 0
 
 
 @dataclass
@@ -1270,109 +1260,6 @@ def create_app(
         )
         return {"thread_id": target_public, "source_thread_id": public_thread}
 
-    @app.get("/api/recovery")
-    async def recovery(user: UserDep) -> dict:
-        """列出需要用户处理的会话：待审批、暂停、异常中断或仍在运行。"""
-        await _sweep_expired()
-        tenant = _tenant(user)
-        _load_session_configs(user, tenant)
-        if agent_client is not None:
-            data = await _agent_json(
-                user, tenant, None, "GET", "/v1/recovery"
-            )
-            rows = []
-            for item in data.get("items", []):
-                thread = str(item.get("thread_id") or "")
-                if not thread:
-                    continue
-                if (user.name, thread) in deleted_sessions:
-                    continue
-                config = _config_for(
-                    user, tenant, thread, create=False
-                )
-                rows.append(
-                    {
-                        **item,
-                        "title": (
-                            (config.title if config else "")
-                            or item.get("title", "")
-                        ),
-                        "workspace": (
-                            config.workspace
-                            if config
-                            else item.get("workspace", "")
-                        ),
-                    }
-                )
-            return {"items": rows}
-        found = SessionIndex(
-            tenant.settings.resolved_audit_dir
-        ).list(limit=50)
-        rows: list[dict[str, Any]] = []
-        checked = 0
-        for info in found:
-            public_thread = tenant.public_thread(info.thread_id)
-            if (user.name, public_thread) in deleted_sessions:
-                continue
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-            entry = _get_entry(user.name, public_thread)
-            internal = tenant.thread_id(public_thread)
-            status = ""
-            approvals = 0
-            if entry is not None:
-                if getattr(entry.runtime, "_stream_active", False):
-                    status = "running"
-                elif entry.runtime.is_paused(internal):
-                    status = "paused"
-                else:
-                    try:
-                        approvals = len(
-                            await entry.runtime.pending_approvals(internal)
-                        )
-                    except Exception:  # noqa: BLE001
-                        approvals = 0
-                    if approvals:
-                        status = "approval"
-            elif info.interrupted and checked < 10:
-                checked += 1
-                runtime = _ops_runtime(tenant, config)
-                try:
-                    if runtime.is_paused(internal):
-                        status = "paused"
-                    else:
-                        approvals = len(
-                            await runtime.pending_approvals(internal)
-                        )
-                        if approvals:
-                            status = "approval"
-                        else:
-                            status = "interrupted"
-                except Exception:  # noqa: BLE001 - 探测失败仍按中断展示
-                    status = "interrupted"
-                finally:
-                    await runtime.aclose()
-            if not status:
-                continue
-            rows.append(
-                {
-                    "thread_id": public_thread,
-                    "title": (
-                        (config.title if config else "")
-                        or info.title
-                        or public_thread
-                    ),
-                    "workspace": (
-                        config.workspace if config else info.workspace
-                    ),
-                    "last_active": info.last_seen,
-                    "status": status,
-                    "approvals": approvals,
-                }
-            )
-        return {"items": rows}
-
     @app.get("/api/approvals/{thread_id}")
     async def pending_approvals(
         thread_id: str,
@@ -2029,120 +1916,6 @@ def create_app(
     # 记忆 / 审计
     # ------------------------------------------------------------------
 
-    @app.get("/api/memory")
-    async def memory(
-        user: UserDep,
-        scope: str = "project",
-    ) -> dict:
-        tenant = _tenant(user)
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, None, "GET", "/v1/memory",
-                params={"scope": scope},
-            )
-        runtime = _ops_runtime(tenant, None)
-        try:
-            facts = runtime.memories(scope=scope)
-        finally:
-            await runtime.aclose()
-        return {"facts": facts}
-
-    @app.post("/api/memory")
-    async def memory_write(
-        request: MemoryRequest,
-        user: UserDep,
-    ) -> dict:
-        _rate_limit(user)
-        tenant = _tenant(user)
-        if agent_client is not None:
-            return await _agent_json(
-                user, tenant, None, "POST", "/v1/memory",
-                json_body=request.model_dump(),
-            )
-        runtime = _ops_runtime(tenant, None)
-        internal = tenant.thread_id(request.thread_id) if request.thread_id else ""
-        try:
-            if request.action == "remember":
-                facts = runtime.remember(
-                    request.text,
-                    thread_id=internal,
-                    scope=request.scope,
-                )
-            elif request.action == "forget":
-                facts = runtime.forget(
-                    request.index,
-                    thread_id=internal,
-                    scope=request.scope,
-                )
-            elif request.action == "clear":
-                facts = runtime.clear_memory(
-                    thread_id=internal, scope=request.scope
-                )
-            elif request.action == "pin":
-                facts = runtime.pin_memory(
-                    request.index,
-                    pinned=request.pinned,
-                    thread_id=internal,
-                    scope=request.scope,
-                )
-            else:
-                facts = runtime.set_memory_priority(
-                    request.index,
-                    request.priority,
-                    thread_id=internal,
-                    scope=request.scope,
-                )
-        except (IndexError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        finally:
-            await runtime.aclose()
-        return {"facts": facts}
-
-    @app.get("/api/audit")
-    async def audit(
-        user: UserDep,
-        thread_id: str = "",
-        limit: int = 100,
-    ) -> dict:
-        tenant = _tenant(user)
-        if agent_client is not None:
-            data = await _agent_json(
-                user, tenant, None, "GET", "/v1/audit",
-                params={
-                    "thread_id": (
-                        _check_thread_id(thread_id) if thread_id else ""
-                    ),
-                    "limit": max(1, limit),
-                },
-            )
-            if control_store is not None:
-                try:
-                    control_store.index_audit(
-                        user.name, list(data.get("records", []))
-                    )
-                except Exception:  # noqa: BLE001 - 索引失败不影响查询
-                    _LOG.warning("审计索引写入失败", exc_info=True)
-            return data
-        runtime = _ops_runtime(tenant, None)
-        try:
-            internal = (
-                tenant.thread_id(_check_thread_id(thread_id))
-                if thread_id
-                else None
-            )
-            records = read_records_many(
-                runtime.audit_files,
-                thread_id=internal,
-                limit=max(1, limit),
-            )
-        finally:
-            await runtime.aclose()
-        return {
-            "records": [
-                record.model_dump(mode="json") for record in records
-            ]
-        }
-
     register_system_routes(
         app,
         SystemDeps(
@@ -2242,6 +2015,23 @@ def create_app(
             agent_json=_agent_json,
             ops_runtime=_ops_runtime,
             workspace_uploaded_bytes=_workspace_uploaded_bytes,
+        ),
+    )
+
+    register_ops_routes(
+        app,
+        OpsDeps(
+            tenant=_tenant,
+            sweep_expired=_sweep_expired,
+            load_configs=_load_session_configs,
+            config_for=_config_for,
+            deleted_sessions=deleted_sessions,
+            agent_client=agent_client,
+            agent_json=_agent_json,
+            ops_runtime=_ops_runtime,
+            rate_limit=_rate_limit,
+            get_entry=_get_entry,
+            control_store=control_store,
         ),
     )
 
