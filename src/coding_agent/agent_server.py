@@ -25,7 +25,7 @@ import sys
 import time
 from collections import deque
 from collections.abc import AsyncIterator
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -35,16 +35,21 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from coding_agent import AGENT_API_VERSION, __version__
-from coding_agent.access import normalize_access_mode
+from coding_agent.agent_context import AgentRuntimeFactory
 from coding_agent.agent_protocol import AGENT_CAPABILITIES, AgentContext
+from coding_agent.agent_server_support import (
+    RunState,
+    _is_suspended,
+    _safe_tenant,
+    _sse_with_id,
+    _terminal_payload,
+)
 from coding_agent.audit.logger import audit_files_by_day, read_records_many
 from coding_agent.config import Settings, get_settings
 from coding_agent.event_transport import build_event_transport
 from coding_agent.events import (
-    ApprovalRequested,
     Event,
     RunFailed,
-    SteeringApplied,
 )
 from coding_agent.memory.sessions import SessionIndex
 from coding_agent.project_env import probe_project
@@ -58,25 +63,6 @@ from coding_agent.workspace.browse import (
 
 _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
 _STREAM_BUFFER_MAX_EVENTS = 5_000
-
-
-class _ContextSecretStore:
-    """运行期密钥只在 A3 内存；A2 每次请求短期注入。"""
-
-    def __init__(self, keys: dict[str, str] | None = None) -> None:
-        self._keys = dict(keys or {})
-
-    def get(self, name: str) -> str:
-        return self._keys.get(str(name), "")
-
-    def set(self, name: str, value: str) -> None:
-        self._keys[str(name)] = str(value)
-
-    def delete(self, name: str) -> None:
-        self._keys.pop(str(name), None)
-
-    def has(self, name: str) -> bool:
-        return bool(self.get(name))
 
 
 class RunBody(BaseModel):
@@ -120,51 +106,6 @@ class CompactBody(BaseModel):
     keep_recent: int = 6
 
 
-@dataclass
-class RunState:
-    key: tuple[str, str]
-    thread_id: str
-    runtime: AgentRuntime
-    events: deque[tuple[int, Event]] = field(default_factory=deque)
-    chars: int = 0
-    seq: int = 0
-    done: bool = False
-    suspended: bool = False
-    updated: float = field(default_factory=time.monotonic)
-    task: Any = None
-    subscribers: list[asyncio.Queue] = field(default_factory=list)
-
-
-def _sse(event: Event) -> str:
-    return f"data: {event.model_dump_json()}\n\n"
-
-
-def _sse_with_id(event: Event, seq: int) -> str:
-    return f"id: {seq}\ndata: {event.model_dump_json()}\n\n"
-
-
-def _is_suspended(event: Event) -> bool:
-    return isinstance(event, ApprovalRequested) or (
-        isinstance(event, SteeringApplied) and event.action == "pause"
-    )
-
-
-def _terminal_payload(payload: str) -> bool:
-    try:
-        data = json.loads(payload)
-    except ValueError:
-        return False
-    kind = data.get("type")
-    if kind in {"run_finished", "run_failed", "approval_requested"}:
-        return True
-    return kind == "steering_applied" and data.get("action") == "pause"
-
-
-def _safe_tenant(value: str) -> str:
-    text = re.sub(r"[^A-Za-z0-9_.-]", "", str(value or ""))[:64]
-    return text or "local"
-
-
 def create_agent_app(
     settings: Settings | None = None,
     *,
@@ -172,6 +113,7 @@ def create_agent_app(
     runtime_factory: Any = AgentRuntime,
 ) -> FastAPI:
     settings = settings or get_settings()
+    agent_factory = AgentRuntimeFactory(settings, runtime_factory)
     expected = str(token or os.environ.get("AGENT_INTERNAL_TOKEN", "")).strip()
     if not expected:
         raise ValueError("AGENT_INTERNAL_TOKEN 未配置，拒绝启动无鉴权的 Agent Server")
@@ -205,44 +147,6 @@ def create_agent_app(
             )
         return context
 
-    def _tenant_settings(context: AgentContext) -> Settings:
-        tenant = _safe_tenant(context.tenant)
-        base = Path(
-            settings.agent_data_root
-            or (settings.resolved_audit_dir.parent / "agent")
-        ) / tenant
-        base.mkdir(parents=True, exist_ok=True)
-        return settings.model_copy(
-            update={
-                "audit_dir": str(base / "audit"),
-                "checkpoint_path": str(base / "checkpoints.sqlite"),
-                "steering_dir": str(base / "steering"),
-                "memory_root": str(base / "memory"),
-                "memory_global_root": str(base / "memory" / "global"),
-                "wsl_workspace": context.workspace,
-            }
-        )
-
-    def _new_runtime(context: AgentContext) -> AgentRuntime:
-        access = normalize_access_mode(context.access_mode) or "read_only"
-        try:
-            Path(context.workspace).mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"无法创建 workspace：{type(exc).__name__}: {exc}",
-            ) from exc
-        return runtime_factory(
-            _tenant_settings(context),
-            workspace=context.workspace,
-            allow_write=bool(context.allow_write),
-            approval_mode="ask",
-            access_mode=access,
-            model_override=context.model,
-            provider_name=context.provider,
-            secret_store=_ContextSecretStore(context.api_keys),
-        )
-
     def _key(context: AgentContext, thread_id: str) -> tuple[str, str]:
         return (_safe_tenant(context.tenant), thread_id)
 
@@ -255,7 +159,7 @@ def create_agent_app(
         key = _key(context, thread_id)
         runtime = runs.get(key)
         if runtime is None and create:
-            runtime = _new_runtime(context)
+            runtime = agent_factory.new(context)
             runs[key] = runtime
         return runtime
 
@@ -466,7 +370,7 @@ def create_agent_app(
         context = _context(request)
         thread_id = body.thread_id
         _stream_guard(context, thread_id)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         return _buffered_sse(
             await _start(
                 context,
@@ -597,7 +501,7 @@ def create_agent_app(
         runtime = _runtime_for(context, thread_id, create=False)
         temporary = None
         if runtime is None:
-            runtime = _new_runtime(context)
+            runtime = agent_factory.new(context)
             temporary = runtime
         try:
             found = await runtime.pending_approvals(thread_id)
@@ -661,7 +565,7 @@ def create_agent_app(
         runtime = _runtime_for(context, thread_id, create=False)
         temporary = None
         if runtime is None:
-            runtime = _new_runtime(context)
+            runtime = agent_factory.new(context)
             temporary = runtime
         try:
             messages = await runtime.history(
@@ -747,7 +651,7 @@ def create_agent_app(
         request: Request, thread_id: str, limit: int = 20
     ) -> dict:
         context = _context(request)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         try:
             entries = runtime.list_snapshots(limit=max(1, limit))
         except Exception as exc:  # noqa: BLE001
@@ -764,7 +668,7 @@ def create_agent_app(
         snapshot_id: str = "",
     ) -> dict:
         context = _context(request)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         try:
             text = runtime.diff_snapshot(
                 path=path or None,
@@ -780,7 +684,7 @@ def create_agent_app(
     async def restore(body: RestoreBody, request: Request) -> dict:
         context = _context(request)
         _reject_active(context, body.thread_id)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         try:
             if body.prefix:
                 results = runtime.restore_since(
@@ -800,7 +704,7 @@ def create_agent_app(
     @app.get("/v1/run_started/{thread_id}")
     async def run_started(thread_id: str, request: Request) -> dict:
         context = _context(request)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         try:
             return {
                 "prefix": runtime.last_run_started_at(thread_id)
@@ -813,7 +717,7 @@ def create_agent_app(
         thread_id: str, request: Request, limit: int = 20
     ) -> dict:
         context = _context(request)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         try:
             found = await runtime.checkpoints(
                 thread_id, limit=max(1, limit)
@@ -832,7 +736,7 @@ def create_agent_app(
     ) -> dict:
         context = _context(request)
         _reject_active(context, thread_id)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         try:
             target = await runtime.fork(
                 thread_id, checkpoint_id=checkpoint_id
@@ -852,7 +756,7 @@ def create_agent_app(
     ) -> dict:
         context = _context(request)
         _reject_active(context, thread_id)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         try:
             found = await runtime.rewind(
                 thread_id,
@@ -868,7 +772,7 @@ def create_agent_app(
     @app.get("/v1/memory")
     async def memory(request: Request, scope: str = "project") -> dict:
         context = _context(request)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         try:
             return {"facts": runtime.memories(scope=scope)}
         finally:
@@ -877,7 +781,7 @@ def create_agent_app(
     @app.post("/v1/memory")
     async def memory_write(body: MemoryBody, request: Request) -> dict:
         context = _context(request)
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         internal = body.thread_id
         try:
             if body.action == "remember":
@@ -917,7 +821,7 @@ def create_agent_app(
     # ------------------------------------------------------------------
 
     def _audit_dir(context: AgentContext) -> Path:
-        return Path(_tenant_settings(context).resolved_audit_dir)
+        return Path(agent_factory.tenant_settings(context).resolved_audit_dir)
 
     def _audit_paths(context: AgentContext) -> list[Path]:
         by_day = audit_files_by_day(_audit_dir(context))
@@ -1040,7 +944,7 @@ def create_agent_app(
             raise HTTPException(
                 status_code=413, detail="工作区累计上传超过上限"
             )
-        runtime = _new_runtime(context)
+        runtime = agent_factory.new(context)
         uploaded = []
         try:
             for name, data, content_type in blobs:

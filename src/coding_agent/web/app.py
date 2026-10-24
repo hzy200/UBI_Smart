@@ -18,19 +18,17 @@ import re
 import subprocess
 import threading
 import time
-import uuid
 from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from coding_agent import __version__
 from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
 from coding_agent.agent_protocol import AgentContext, AgentRunRequest
 from coding_agent.audit import read_records_many
@@ -53,12 +51,15 @@ from coding_agent.provider_profiles import (
 from coding_agent.secrets_store import SecretStore, SecretStoreUnavailable
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.web.auth import AuthConfig, AuthUser
+from coding_agent.web.dependencies import UserDep
 from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
 from coding_agent.web.middleware import (
     BodySizeLimitMiddleware,
     FixedWindowRateLimiter,
     SecurityHeadersMiddleware,
 )
+from coding_agent.web.routes.system import SystemDeps, register_system_routes
+from coding_agent.web.validation import check_thread_id as _check_thread_id
 from coding_agent.workspace.browse import (
     BrowseError,
     git_summary,
@@ -70,20 +71,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 _LOG = logging.getLogger(__name__)
 
 WEB_APPROVAL_MODE = "ask"
-_THREAD_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # 每个会话的重放缓冲上限；超出后丢最旧事件（序号仍连续）。
 _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
 # A2 周期探测 A3；A3 重启后状态自动从 unavailable 回到 ok。
 AGENT_PROBE_INTERVAL_S = 5.0
-
-
-def current_user(request: Request) -> AuthUser:
-    """从 app.state 读取认证配置，避免把 token 表放进依赖闭包。"""
-    config: AuthConfig = request.app.state.auth
-    return config.user_from_request(request)
-
-
-UserDep = Annotated[AuthUser, Depends(current_user)]
 
 
 class RunRequest(BaseModel):
@@ -220,18 +211,6 @@ def _event_is_terminal(payload: str) -> bool:
     if kind in {"run_finished", "run_failed", "approval_requested"}:
         return True
     return kind == "steering_applied" and data.get("action") == "pause"
-
-
-def _check_thread_id(thread_id: str) -> str:
-    text = str(thread_id or "").strip()
-    if not text:
-        return uuid.uuid4().hex[:12]
-    if not _THREAD_RE.match(text):
-        raise HTTPException(
-            status_code=422,
-            detail="thread_id 只允许字母、数字、下划线、连字符，长度 1–64",
-        )
-    return text
 
 
 def create_app(
@@ -1222,20 +1201,6 @@ def create_app(
     if agent_client is not None:
         app.router.on_shutdown.append(agent_client.aclose)
 
-    @app.get("/healthz")
-    async def healthz() -> dict:
-        """公开存活探针：不暴露模型、Key、工作区等配置。"""
-        return {
-            "status": "ok",
-            "version": __version__,
-            "agent_state": getattr(
-                app.state, "agent_status", {"state": "unknown"}
-            ).get("state", "unknown"),
-            "db_state": getattr(
-                app.state, "control_db_status", {"state": "disabled"}
-            ).get("state", "disabled"),
-        }
-
     @app.post("/api/desktop/shutdown")
     async def desktop_shutdown(user: UserDep) -> dict:
         """桌面 server 的优雅退出入口；仅 desktop_mode 暴露。"""
@@ -1282,56 +1247,6 @@ def create_app(
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-    @app.get("/api/health")
-    async def health(
-        user: UserDep,
-    ) -> dict:
-        """认证后的联通测试：不调用模型，只报配置是否齐备。"""
-        from coding_agent.llm.deepseek import MissingApiKeyError, build_llm
-
-        try:
-            tenant = tenants.for_user(user.name)
-        except Exception as exc:  # noqa: BLE001 - 沙箱不可用也要可读报出
-            return {
-                "model": settings.deepseek_model,
-                "endpoint": settings.deepseek_base_url,
-                "tracing": settings.langsmith_tracing,
-                "workspace": None,
-                "api_key": bool(settings.deepseek_api_key),
-                "reachable": bool(settings.deepseek_api_key),
-                "error": f"{type(exc).__name__}: {exc}",
-                "user": user.name,
-            }
-        store = _tenant_store(tenant)
-        rows = _provider_rows(tenant.settings, store)
-        payload = {
-            "model": tenant.settings.deepseek_model,
-            "endpoint": tenant.settings.deepseek_base_url,
-            "tracing": tenant.settings.langsmith_tracing,
-            "workspace": tenant.workspace,
-            "api_key": any(row["has_key"] for row in rows),
-            "reachable": False,
-            "error": "",
-            "user": user.name,
-        }
-        try:
-            build_llm(
-                tenant.settings, streaming=False, secret_store=store
-            )
-            payload["reachable"] = True
-        except Exception as exc:  # noqa: BLE001 - 诊断端点不能 500
-            payload["error"] = (
-                f"{type(exc).__name__}: {exc}"
-                if not isinstance(exc, MissingApiKeyError)
-                else str(exc)
-            )
-        return payload
-
-    @app.get("/api/workspace")
-    async def workspace(user: UserDep) -> dict:
-        tenant = _tenant(user)
-        return {"user": user.name, "workspace": tenant.workspace}
 
     @app.get("/api/project")
     async def project(user: UserDep, workspace: str = "") -> dict:
@@ -2194,30 +2109,6 @@ def create_app(
                 }
             )
         return {"items": rows}
-
-    @app.get("/api/capabilities")
-    async def capabilities(
-        user: UserDep,
-        thread_id: str = "",
-    ) -> dict:
-        tenant = _tenant(user)
-        config = None
-        if thread_id:
-            public_thread = _check_thread_id(thread_id)
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-        return {
-            "default_access_mode": default_access or "legacy",
-            "desktop_mode": desktop_mode,
-            "agent": getattr(
-                app.state, "agent_status", {"state": "unknown"}
-            ),
-            "db": getattr(
-                app.state, "control_db_status", {"state": "disabled"}
-            ),
-            **_capabilities(config),
-        }
 
     @app.get("/api/providers")
     async def providers(user: UserDep) -> dict:
@@ -3129,5 +3020,20 @@ def create_app(
                 record.model_dump(mode="json") for record in records
             ]
         }
+
+    register_system_routes(
+        app,
+        SystemDeps(
+            settings=settings,
+            tenants=tenants,
+            tenant=_tenant,
+            tenant_store=_tenant_store,
+            provider_rows=_provider_rows,
+            config_for=_config_for,
+            capabilities=_capabilities,
+            default_access=default_access,
+            desktop_mode=desktop_mode,
+        ),
+    )
 
     return app

@@ -22,7 +22,7 @@ pytest -m "not wsl and not llm" --cov --cov-report=term-missing
 - 不走真实 WSL/bwrap：Windows 本地没有安装 WSL 项目依赖；
 - `mysql` 标记用例在未设置 `AGENT_TEST_MYSQL_URL` 时 skip；
 - 本轮 `-m "not wsl and not llm"` 收集 **1806** 个用例，**223** 个被 deselect；
-- 总语句 **19,389**，未覆盖 **4,384**，**77.39%**（门槛 76%）。
+- 总语句 **19,447**，未覆盖 **4,384**，**77.46%**（门槛 76%）。
 
 ## 2. 子系统缺口
 
@@ -39,6 +39,8 @@ pytest -m "not wsl and not llm" --cov --cov-report=term-missing
 | `control/backup.py` | 51% | MySQL 备份/恢复分支未覆盖 |
 | `web/local_runtime.py` | 85% | 同进程回退；配额/TTL 分支基本覆盖 |
 | `cli/platform.py` | 89% | doctor/sandbox-init 适配器 |
+| `agent_context.py` | 92% | A3 租户目录与 runtime 构造 |
+| `agent_server_support.py` | 77% | RunState / SSE 原语 |
 
 `execution/service.py`（89%）、`control/migrate.py`（92%）、
 `control/store.py`（89%）、`web/app.py`（77%）相对较好。
@@ -46,7 +48,7 @@ pytest -m "not wsl and not llm" --cov --cov-report=term-missing
 ## 3. 结论
 
 - 旧的 75.36% / 86.6% 不能继续引用；以本页和 CI 输出为准；
-- 全局 77.39% 不代表新子系统健康：`implement.py`、`control_server.py`、
+- 全局 77.46% 不代表新子系统健康：`implement.py`、`control_server.py`、
   `sandbox_backend.py`、桌面入口仍是明显缺口；
 - `implement.py` 的多数未覆盖行依赖 WSL 集成路径，不能只在 CI 里堆单测；
   应优先抽纯规划/合并逻辑，用 fake sandbox 覆盖；
