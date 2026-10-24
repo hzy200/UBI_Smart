@@ -319,6 +319,25 @@
       ]
     },
     {
+      "event_type": "reasoning_token",
+      "class": "ReasoningToken",
+      "doc": "provider 暴露的 reasoning/thinking 流（best-effort）。\n\n不是所有模型都提供；前端应默认折叠，不能把它当最终答复。",
+      "fields": [
+        {
+          "name": "node",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        }
+      ]
+    },
+    {
       "event_type": "repair_started",
       "class": "RepairStarted",
       "doc": "验证失败后开始第 N 次修复。",

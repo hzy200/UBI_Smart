@@ -202,6 +202,31 @@ scenarios:
       历史上 docs/IMPROVEMENT_PLAN.md 与 docs/PLAN.md 被多处引用但文件不存在，
       已归档到 docs/archive/README.md。
 
+  - id: RB-016
+    symptom: 控制面 healthz 显示 db_state=degraded，新建/重命名会话返回 503
+    signal: 'GET /healthz 返回 db_state=degraded；POST /api/sessions 返回 503'
+    cause: AGENT_CONTROL_DB_URL 指向的数据库不可达，或运行中写入失败
+    steps:
+      - 'curl -s http://127.0.0.1:8780/healthz'
+      - 检查 MySQL 服务与连接串（mysqladmin ping / 账号权限）
+      - 修复后重启控制面（systemctl restart coding-agent-control，或重开桌面）
+    verify: /healthz 返回 db_state=ok，新建会话不再 503
+    last_drilled: none
+    note: |
+      降级期间已有会话的 run/SSE 不受影响；会话列表回退到本地文件，
+      新建/重命名/删除/切模型被拒绝，数据库恢复需重启控制面。
+
+  - id: RB-017
+    symptom: 需要迁移或恢复控制面数据库
+    signal: '升级前、迁移失败后，或需要回滚控制面数据'
+    steps:
+      - 'python scripts/backup_control_db.py --out D:/backups --keep 7'
+      - 'alembic -c src/coding_agent/control/alembic.ini upgrade head'
+      - 'python scripts/restore_control_db.py --source D:/backups/control-xxxx.sql'
+    verify: 备份输出 ok=true；迁移后 /healthz db_state=ok；恢复后会话标题一致
+    last_drilled: none
+    note: 备份只包含 A2 业务库，不含 checkpoint、工作区文件或 API Key
+
 escalation:
   - 涉及 sandbox/ 或审批语义的异常 → 对照 docs/THREAT_MODEL.md 第 4 节，
     确认防线等级没有下降，不要"先修好再说"

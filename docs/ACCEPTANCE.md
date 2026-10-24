@@ -4,7 +4,7 @@ doc_id: acceptance
 title: 需求对照与自检
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 review_cadence: 每次发版前
 note: |
   第 1 节是需求 → 落点 → 验证的对照表。
@@ -43,12 +43,16 @@ note: |
 | checkpoint 回滚 | checkpoint 负责**会话状态**恢复；快照负责**文件内容**回滚 | `test_checkpointer.py` + `agent undo` |
 | 会话分叉/回退 | `AgentRuntime.fork/rewind`；历史不删除，回退即新建分支 | `agent fork` / `agent rewind`；`test_runtime_checkpoints.py` |
 | 上下文治理 | 字符 + 估算 token 双预算、400 降档重试、确定性摘要、`ContextTrimmed` 指标 | `tests/eval/context_memory_bench.py` |
-| 长期记忆治理 | top-K 相关注入、`memory_search`/`memory_save`、冲突替换、过期、来源、写入锁与密钥扫描 | `test_memory.py` + `context_memory_bench.py` |
+| 长期记忆治理 | BM25 + 时间/置顶/优先级、可选本地/远程向量 RRF（失败回退 BM25；远程仅 local profile 双重 opt-in）、项目/全局作用域、planner/respond 注入、`memory_search`/`memory_save`、冲突分级、过期、来源/原因、写入锁、读写密钥扫描、`kind=memory` 审计、备份与恢复 | `test_memory.py` + `test_semantic_memory.py` + `test_embeddings.py` + `test_nodes_llm.py` + `context_memory_bench.py` |
 | 分层项目指令 | 发现并合并 `AGENTS.md` / `CLAUDE.md`（根目录到 4 层子目录） | `agent run` 系统提示；`test_instructions.py` |
 | 运行中实时干预 | `steering.py` + `graph/nodes/steering.py` + TUI 斜杠命令 | TUI `/pause` `/resume` `/cancel` `/add` `/replan`；`test_steering.py` |
 | 动态任务图 + 并发 worker | `orchestrator/`（survey/plan/scheduler/fan-in） | `test_orchestrator.py`；[tests/eval/README](../tests/eval/README.md) |
-| 流式输出 | 事件流 → CLI/TUI 逐字渲染 / Web SSE | `agent chat`；`/api/run` |
-| Web/UI 最小验证 | `web/`（SSE 对话 + 多会话 + 联通测试） | `agent web` |
+| 流式输出 | 事件流 → CLI/TUI 逐字渲染 / Web+GUI SSE | `agent chat`；`/api/run` |
+| 事件重放 | 后台 run task + 递增 `id` + `GET /api/stream/{thread}?after=` | `tests/unit/test_web_stream_buffer.py` |
+| 桌面 GUI | `desktop/` + pywebview + 本地 FastAPI；默认只读、会话级工作区/权限/模型 | `agent gui`；`docs/GUI.md` |
+| 文件上传 | 写入 `.agent/uploads`；单文件/数量/工作区累计上限；不授予模型写权限 | `test_web_gui_api.py` |
+| GUI 密钥 | OS 密钥环；多用户按 `coding-agent:<user>` 隔离；不进 `.env`/日志 | `test_web_gui_api.py` |
+| Web/UI 验证 | `web/`（SSE 对话 + 多会话 + 联通测试）；`desktop/` 复用同一后端 | `agent web` / `agent gui` |
 | LangSmith 追踪 | `runtime._trace_metadata` + `config.apply_tracing_env` | `agent doctor` + LangSmith 项目 |
 | 冒烟测试 / 场景演示 | `scripts/demo.py` 四场景 | `python scripts/demo.py` |
 
@@ -91,7 +95,7 @@ review 的「改动前」**直接复用快照**（不变量 8：所有写操作�
 ruff check .
 
 # 2. 全量测试（含真实 WSL 沙箱）
-pytest -m "not llm"          # 期望 1561 passed
+pytest -m "not llm"          # 全量含 WSL；先运行 agent sandbox-init
 # 另有 3 条 llm 标记用例需要 DEEPSEEK_API_KEY；不要用裸 pytest 代替 ——
 # 不加 -m 时它们会真的调用模型（本机配了 key 就产生费用）。
 
@@ -102,22 +106,40 @@ agent doctor                 # 期望「全部通过」
 agent sandbox-init
 pytest -m wsl -q             # 沙箱链路
 
-# 5. 场景演示（需要 API Key，会真实调用模型）
+# 5. Phase D 双平台故障演练（无需 API Key / WSL / MySQL）
+python scripts/phase_d_smoke.py
+
+# 6. Linux systemd 安装验收（需要 root 与 Linux 主机）
+sudo packaging/systemd/install.sh --python /opt/coding-agent/venv/bin/python
+curl -fsS http://127.0.0.1:8790/healthz
+curl -fsS http://127.0.0.1:8780/healthz
+sudo packaging/systemd/install.sh --uninstall   # 保留配置与数据
+
+# 7. 前端构建与类型检查
+python scripts/build_frontend.py
+npx --yes -p typescript@5.9.3 tsc --noEmit -p src/coding_agent/web/frontend/tsconfig.json
+
+# 8. Phase F 安全与迁移验收
+pytest -m "not llm" tests/unit/test_phase_f_security.py -q
+python scripts/phase_f_drill.py          # upgrade/备份/downgrade/恢复
+python scripts/phase_f_bench.py          # 记录性能趋势，不设阈值
+
+# 9. 场景演示（需要 API Key，会真实调用模型）
 python scripts/demo.py --list
 python scripts/demo.py --only 1
 ```
 
-当前状态（2026-10-18，Phase 4D 动态任务图落地后）：
+当前状态（2026-10-24，Phase F 收口；WSL 全量未在本轮重跑）：
 
 | 项 | 结果 |
 |---|---|
-| 测试 | **1561 passed**（`pytest -m "not llm"`，含真实 WSL），其中 `wsl` 标记 **211**，无失败；另 3 条 `llm` 用例需 API Key |
-| 覆盖率 | **87.5%**（`pytest -m "not llm" --cov`，含真实 WSL）；**CI 子集 80.7%**，门槛 `fail_under=76` |
+| 快反馈 | `pytest -m "not wsl and not llm"` 收集 **1,806**，deselect **223**；MySQL 集成用例在无 `AGENT_TEST_MYSQL_URL` 时 skip |
+| 覆盖率 | **77.70%**（CI 子集，门槛 76）；子系统缺口见 [COVERAGE.md](COVERAGE.md) |
 | lint | 干净（`ruff check src tests`） |
-| 快反馈 | `pytest -m "not wsl and not llm"` = **1350 passed**（deselect 214 = 211 个 `wsl` + 3 个 `llm`，两组无交集）；需装齐 `.[dev,ui,web]`，缺 `textual` 时 TUI 整目录 skip（TUI 49 条） |
-| 能力评测 | **两个套件，各记各的基线**：`default` 29 个短任务最新两轮 **29/29、29/29（100%，spread 0，无翻转）** —— 该套件已**饱和**，测不出进一步改进；旧基线 12/29 = 41.4% 只能当历史坐标。`long` 原有 5 个长程任务（38 文件 / 近千行仓库，改动跨度 3–8 文件，通过率 **2/5 = 30%**，`spread` 20pp；新增 `parallel_modules` 后共 6 个，旧 5 任务基线只能当历史坐标）。报告带机制指标、worker 成本/并发/冲突与噪声块；对比与干预延迟见 [tests/eval/README](../tests/eval/README.md) |
-| LangSmith | `coding-agent-full-v1` 共 **150** 条（139 capability + 11 mechanism）：**11/11 mechanism、6/6 smoke capability、139 capability 全量 138/139 = 99.3%**；`full` 套件 **104/104** 种子失败且参考解通过；量化报告见 [LANGSMITH_REPORT.md](LANGSMITH_REPORT.md)；真实 CLI direct 修复与 4-worker 并发写编排均通过 |
-| CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web]"` → ruff → `pytest -m "not wsl and not llm"` |
+| 全量含 WSL | 本轮未重跑；旧 1561 passed / 87.5% 不再作为当前结论 |
+| 能力评测 | （历史基线，2026-10-18，未在本轮重跑）`default` 29 个短任务两轮 29/29（已饱和）；`long` 5 个长程任务 2/5。详见 [tests/eval/README](../tests/eval/README.md) |
+| LangSmith | （历史基线，未在本轮重跑）`coding-agent-full-v1` 150 条，capability 138/139；详见 [LANGSMITH_REPORT.md](LANGSMITH_REPORT.md) |
+| CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型 → `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |
 
 > **口径提醒**：单次运行的通过率**说明不了任何事**。同一份代码曾跑出 52% 与 83%
 > （`spread` 31 个百分点、11/29 任务翻转）—— 上一版把这读作「已落进 30–70% 区间、
@@ -130,13 +152,12 @@ python scripts/demo.py --only 1
 > **口径提醒**：全量一律写 `pytest -m "not llm"`。裸 `pytest` 会把那 3 条 `llm` 用例一起跑、
 > 真的调用模型 —— 本机 `.env` 配了 key 就计费，而它们本意是"需要时手动跑"。
 >
-> **CI 与本地不是一回事**：CI 是 Linux runner、没有 WSL2，只跑快反馈那 1309 个用例，
-> 覆盖率 80.7%。沙箱层与能力层的覆盖（`tools/files.py` 85%、`sandbox/snapshots.py` 88%）
-> 全靠 `-m wsl` 的 211 个用例，它们**只在本地执行**。CI 会以 `::warning::` 显式提示这个缺口 ——
-> 详见 [archive/README.md](archive/README.md)（原 `IMPROVEMENT_PLAN.md` 的 Q1 去向）；
-> 缺陷与待办现集中在 [tech-debt.yaml](tech-debt.yaml)。
+> **CI 与本地不是一回事**：CI 是 Linux runner、没有 WSL2，只跑快反馈那 1,806 个用例
+> （其中 1 个 mysql 用例 skip），覆盖率 77.70%。沙箱层与能力层的覆盖仍依赖
+> `-m wsl`，本轮未重跑；CI 会以 `::warning::` 显式提示这个缺口。
+> 缺陷与待办集中在 [tech-debt.yaml](tech-debt.yaml)。
 >
-> 上面每个数字都是量出来的，命令见本节第 2–4 条；改动后请重跑核对，别手抄。
+> 上面每个数字都来自 2026-10-24 的实测；改动后请重跑核对，别手抄。
 
 ## 4. 已知限制
 
@@ -150,7 +171,7 @@ python scripts/demo.py --only 1
 pause/cancel/add/replan。认证使用 Bearer Token；每个用户有独立
 workspace/audit/checkpoint/memory；非 loopback 必须 token + TLS（本进程
 或可信反向代理）。默认仍只监听 `127.0.0.1`，未配置 token 时只允许 loopback
-匿名。主交付界面仍是 TUI/CLI。
+匿名。主交付界面是 TUI/CLI，桌面 GUI 复用同一套 runtime 与审批语义。
 
 **长期记忆只支持显式增删，不做 LLM 自动提炼。**
 自动记忆容易积累噪声，也难以回答"这条结论是哪来的"。
@@ -192,17 +213,28 @@ add/replan 仍可恢复。
 其余约 4 字符/token」的保守估算再兜一层。遇到 context-length 400 时 act/respond
 会用减半预算重裁并重试一次。每次运行的 token 用量仍取自模型的 `usage_metadata`，
 累计写入 `run_end` 审计（provider 未回报时为 `None`）。
-**成本预算与模型分层未实现**：worker/总 token 只计量与报告，运行中不会因超预算硬停。
+**成本预算已接入调度准入**：任务级 `max_tokens` 会在 implement worker 内硬停；
+scheduler 的全局 token 预算在派发前按「显式 `max_tokens` 或同角色历史 EWMA ×1.2」
+预留，放不下时 next-fit 选其它任务；预留仍是估算，不是精确 prompt token 计数。
+模型分层（按任务难度选模型）仍未实现。
 
-**共享文件的并发写未实现。**
-当前用 write_scope 不重叠 + 顺序 patch 合并规避；three-way rebase / 冲突自动
-合并留给后续。写 worker 取消时未合并的 patch 丢弃，已合并改动保留。
+**共享文件的并发写默认关闭。**
+默认仍要求 write_scope 不重叠；开启 `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` 后
+用 `git apply --3way` 预演与合并；合并按共享文件的连通分量隔离，真实冲突
+只回滚该分量。写 worker 取消时未合并的 patch 丢弃，已合并改动保留。
 
 ### 未验证
 
 **TUI 在真实交互终端下的视觉效果。**
-自动化测试用 Textual 无头驱动（45 个用例），覆盖了事件映射、计划面板、
+自动化测试用 Textual 无头驱动（62 个用例），覆盖了事件映射、计划/任务面板、
 审批弹窗、斜杠命令，但**配色、边框、滚动行为需要人工看一眼**。
+
+**Phase D 的桌面 WSL 启动链与真实 LLM 链路。**
+`phase_d_smoke.py` 在 Windows/Linux 本机用 loopback 进程验证了 A2/A3 的握手、
+崩溃恢复、数据库降级、版本不匹配与迁移失败，但**没有经过桌面启动器拉起 WSL
+发行版**（本机 WSL 未安装项目依赖），也**没有跑真实模型/工具/审批/快照**。
+发版前需要在一台装好 WSL 发行版与 API Key 的机器上走一遍
+`agent gui` + 一次真实 run。
 
 **沙箱隔离：默认到 WSL 发行版级，可选用 bwrap 做内核级隔离。**
 默认（`AGENT_SHELL_SANDBOX=off`）是非 root 用户 + 工作区限定 + 资源上限 +
@@ -275,9 +307,11 @@ add/replan 仍可恢复。
 ### 5.3 Phase 3D（已实现）
 
 - [x] `SteeringController` 按 `thread_id` 隔离；runtime `steer()` 入队并写
-      `kind=steering` 审计（含来源/动作）；
+      `kind=steering` 审计（含来源/动作）；指令与暂停标记绑定 `run_id`，
+      新 run 只清理旧残留并落审计；
 - [x] `/pause` 在四个节点边界消费，`interrupt()` + checkpoint 挂起；
       `/resume` 通过 `resume_steering()` 继续，恢复次数受 `AGENT_MAX_RESUMES` 限制；
+      CLI `agent resume` 可从 checkpoint 恢复 steering/审批挂起；
 - [x] `/cancel` 协作式取消：只读/写 worker 在轮次与工具执行前检查；
       implement worker 取消后不生成 patch；scheduler 合并前再检查一次；
 - [x] 已合并的 implement 改动保留（明确策略），未合并 patch 丢弃；
@@ -351,6 +385,142 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] 递归上限同步增加 `extend_tasks` 超步；
 - [x] 单测覆盖校验、节点、worker 报告映射、runtime 事件、TUI；
 - [x] `ruff`、CI 子集、全量、WSL 集成通过。
+
+### 5.8 桌面 Phase 3：工作区与项目 Python（已实现）
+
+- [x] Windows 原生文件夹选择，自动转成 `/mnt/<drive>/...` 或 WSL 路径；
+- [x] `/mnt` 工作区显示 9P 性能提示，可一键复制到 WSL 原生目录（拒绝覆盖）；
+- [x] 设置页同时展示项目 Python / Agent Python / 包管理器 / 锁文件 / 测试命令；
+- [x] 项目存在 `.venv/venv/env` 时，自动测试命令使用项目解释器；
+- [x] 在 VS Code 中通过 `code --remote wsl+<distro>` 打开工作区；
+- [x] 浏览器模式隐藏桌面专属按钮，`GET /api/project` 仍可用；
+- [x] 探测只读：不创建 venv、不安装依赖、不执行项目脚本。
+
+### 5.9 桌面 Phase 4：功能补齐（已实现）
+
+- [x] 会话搜索、重命名、tombstone 删除与 Markdown 导出；
+- [x] 只读文件树/文件查看器：路径越界、二进制、大小截断均有边界；
+- [x] Git 只读面板：分支、ahead/behind、改动、最近提交、diff；
+- [x] 快照逐文件“接受/拒绝”，拒绝复用 `/api/restore` 并留底；
+- [x] 上传列表、配额、删除与拖拽；
+- [x] 恢复中心识别待审批/暂停/运行中/异常中断；
+- [x] Provider 档案 CRUD、环境基线合并与 `/models` 发现（多用户禁用写入）；
+- [x] 设置页展示预算/上传上限，可开系统通知。
+
+### 5.10 桌面 Phase 5：质量与可选能力（已实现）
+
+- [x] 诊断包包含版本/配置/脱敏日志/WSL 概况，且不泄露密钥；
+- [x] server 崩溃看门狗按退避重启并重载窗口，关窗后停止；
+- [x] 清单式更新检查（semver 比较、http(s) 校验），不自动安装；
+- [x] 快照 diff 折叠、文件树懒加载、Git diff 截断；
+- [x] 本地 OpenAI 兼容端点预设；
+- [x] 自动更新回滚、MCP/插件、多窗口/IDE 扩展列为后续可选。
+
+### 5.11 Phase A：四层架构契约与基线（设计完成，行为未变）
+
+- [x] A1 前端 / A2 控制面 / A3 编排面 / A4 执行面的职责与依赖方向写入
+      [PHASE_A.md](PHASE_A.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 第 12–15 节；
+- [x] 三种部署基线：Windows 11（A2 原生 + MySQL + WSL A3/A4）、Linux（原生）、
+      Standalone（CLI/TUI 直连 A3+A4，无 A2/MySQL）；
+- [x] 数据归属矩阵：MySQL 只存业务数据；checkpoint/工作区/密钥/运行状态不落库；
+- [x] A2/A3 控制 API、SSE（seq/重放/挂起）与审批字段冻结；
+- [x] Agent 功能 parity 清单覆盖 direct/orchestrated、审批、checkpoint、
+      steering、工具、快照、记忆、审计与沙箱；
+- [x] 关键路由、事件、会话字段与工具清单由
+      `tests/unit/test_layer_contracts.py` 守住；
+- [x] Phase B 五项决策已确认：A2 各平台原生、SecretProvider 两档、
+      MySQL 只做索引 + 共享事件传输、SQLite 一等公民、静态 SPA + esbuild/TS；
+- [x] 现有行为未改变，Phase B 才引入控制面抽取与 MySQL schema。
+      决策理由与代价见 [ADR-0010](adr/0010-four-layer-phase-b-decisions.md)。
+
+### 5.12 Phase B：控制面首切片（已实现，默认关闭）
+
+- [x] A2 SQLAlchemy schema：sessions/runs/audit_index/provider_profiles/usage；
+- [x] `AGENT_CONTROL_DB_URL` 可选启用；空值继续使用 `gui-sessions.json`；
+- [x] 旧 JSON 一次性导入；DB 重启后恢复会话目录与 tombstone；
+- [x] SecretProvider 两档接口（keyring / systemd-creds）；
+- [x] 共享事件传输：内存默认、Redis Streams 可选；SSE 可按 `seq` 跨 A2 重启重放；
+- [x] 新流起始序号接续 transport 的 `latest_seq`，审批/收尾事件终止重放；
+- [x] 独立 Agent Server：内部 token + context 鉴权，run/resume/steer/
+      approvals/status/history 生命周期 API；
+- [x] A2 配置 `AGENT_INTERNAL_URL` 后通过 `HttpAgentClient` 代理运行生命周期；
+- [x] B4.2：文件/Git/项目环境、快照/checkpoint/fork/rewind/compact、记忆、
+      上传、审计、会话索引、恢复中心路由已迁移到 Agent Server；
+- [x] A2 provider key 随运行短期注入 A3 内存；审计查询时幂等写入 MySQL 索引；
+- [x] `scripts/build_services.py` 构建 `CodingAgentAgent`/`CodingAgentControl`；
+      Linux systemd unit、Windows SYSTEM 开机任务与环境文件示例已提供；
+- [x] 前端源迁到 `frontend/src/app.ts`，esbuild 生成 CSP 兼容的 `static/app.js`；
+- [x] schema 在 SQLite 实际建表、MySQL DDL 编译通过；
+- [x] 默认行为不变，Standalone 仍走本地文件/SQLite。
+
+### 5.13 Phase C：ExecutionService 契约（C0/C1 已实现，C2/C3 路径迁移）
+
+- [x] `ExecutionRequest` / `ExecutionResult` / `ExecutionBackend` 契约；
+- [x] `op_id` 幂等、冲突检测、跨服务重启回执日志；
+- [x] 执行 `seq` 按 run 单调递增，与 SSE `seq` 独立；
+- [x] `SandboxExecutionBackend` 包装 WSL/Linux 沙箱，run/读/写/列目录/stat/
+      git/snapshot/restore/worktree 可用；
+- [x] `AgentRuntime` 用 `ExecutionSandbox` 代理既有 sandbox，工具执行统一到 L4；
+- [x] 共享契约用例 + WSL 本地通过 + Linux CI `pytest -m execution`；
+- [x] WSL shell/snapshot/git/verify 集成回归通过；
+- [x] 工具调用级 op_id（run_id+tool_call_id+序号）重试命中回执；
+- [x] `record_unknown/record_cancelled` 提供 unknown/cancelled 终态；
+- [x] 合并 `git apply/--check/--numstat` 走 ExecutionService 并写回执；
+- [ ] merge 回执尚未进入 Scheduler 事件；Linux CI 实跑与回执轮转待补。
+
+### 5.14 Phase D：双平台部署与故障演练（已实现，桌面 WSL 启动链待打包验收）
+
+- [x] A2/A3 版本握手：A3 `/healthz` 与 `/v1/meta`，协议版本不匹配在
+      A2 `agent_state` 中可见；
+- [x] 桌面启动器切到 Windows A2 + WSL A3：固定端口、内存 token 复用、
+      双进程 watchdog、关闭顺序；
+- [x] A2 每 5 秒探测 A3；A3 重启后自动从 `unavailable` 回到 `ok`；
+- [x] 控制面数据库 Alembic baseline（旧库 stamp）、有界连接池、
+      只读降级、备份/恢复脚本与 runbook；
+- [x] Linux systemd 单元顺序/权限/`ExecStartPre --migrate-only`，
+      以及 `install.sh`（打包/源码两种模式）；
+- [x] WSL Ubuntu 24.04 + systemd 255 完整安装演练：启动、握手、迁移、
+      会话持久化、A3 重启恢复、`--uninstall`；
+- [x] `scripts/phase_d_smoke.py` 7/7：启动握手、会话 CRUD、A3 崩溃恢复、
+      A2 重启持久化、数据库降级、版本不匹配、迁移失败；
+- [x] CI 安装 `db` extras，并在快反馈后执行 `phase_d_smoke.py`；
+- [ ] Windows 桌面完整 WSL 启动链尚未在打包发行版中验收
+      （本机 WSL 未安装项目依赖，代码路径与单测已覆盖）；
+- [ ] 真实 LLM run、工具、审批、快照回滚未纳入协议级 smoke；
+- [x] Phase E 已补齐主题/字体/快捷键、SSE 重连、任务字段与推理分块，
+      详见 [PHASE_E.md](PHASE_E.md)；JS 窗口化虚拟列表与浏览器自动化测试
+      仍未做。
+
+### 5.15 Phase E：前端补齐（已实现，交互靠手测）
+
+- [x] 深/浅/跟随系统主题；字体字族、字号、密度持久化；
+- [x] 快捷键 `Ctrl/Cmd+K`、`Ctrl/Cmd+Enter`、`Esc`、`?`；
+- [x] 可访问性：`:focus-visible`、`aria-live`/`role`/`aria-label`、
+      `prefers-reduced-motion`；
+- [x] SSE 客户端独立模块；`seq` 去重、自动重连退避、连接状态、失败重试；
+- [x] 审批/steering 恢复保留 `lastSeq`，不重放历史事件；
+- [x] 任务卡显示依赖、worker、耗时、token、tool_calls、merge_error；
+- [x] reasoning 按节点分块折叠；隐私开关默认关闭；
+- [x] 代码高亮/复制、代码块折叠、diff 复制；
+- [x] 长会话 `content-visibility: auto`；
+- [x] 前端资产测试与 CI 构建漂移/类型检查门禁；
+- [ ] 未做 JS 窗口化虚拟列表与浏览器自动化测试；手测清单见 PHASE_E.md。
+
+### 5.16 Phase F：安全与性能验收（已实现，平台门禁见下）
+
+- [x] 密钥不落控制面数据库/Provider API/日志；
+- [x] 审计与错误脱敏覆盖 `sk-…`、私钥、JWT、DB URL；
+- [x] 内部接口 token、前端认证、路径逃逸与 A2 不执行工具的既有用例；
+- [x] SQLite 迁移/回滚/备份/恢复演练：upgrade → 备份 → downgrade base →
+      upgrade → 恢复 → 数据一致；
+- [x] MySQL 8.0.27 独立测试库完成同一演练；
+- [x] 性能基线脚本：ExecutionService 代理、SQLite/MySQL 控制面写入、
+      A2 代理 SSE 首事件延迟；
+- [x] CI 执行 `phase_f_drill.py`（SQLite）；
+- [ ] WSL/bwrap 真实隔离需要 `pytest -m wsl` / `pytest -m execution`；
+- [ ] MySQL 最小权限账号与 `SHOW GRANTS` 需要人工/DBA 环境验证；
+- [ ] 浏览器长会话渲染与真实工具 I/O 开销仍需人工或平台验收；
+- [ ] 提示注入（T2 主战场）仍按 THREAT_MODEL 的残余边界处理。
 
 ## 6. 冻结
 

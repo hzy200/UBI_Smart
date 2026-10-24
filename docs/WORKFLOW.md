@@ -121,8 +121,9 @@ direct 路径的失败分支：verify/review 没过且还有预算 → repair �
 - 节点不产事件（例外：`scheduler` 的 custom stream）；前端测试不关心图，
   节点测试不关心事件。
 - 流式只在 `act` / `respond`（`messages` 模式），planner 的结构化调用不流式。
+- provider 暴露 reasoning 时额外发 `ReasoningToken`（best-effort，不伪造，不写审计）。
 - **挂起时以 `ApprovalRequested` 收尾，不发 `RunFinished`** → 前端据此判断该 resume 还是收工。
-- 前端三种实现（CLI/TUI/Web）共用同一套 `Event`；前端不得导入 `tools`/`sandbox`（AST 测试守着）。
+- 前端四种实现（CLI/TUI/Web/Desktop GUI）共用同一套 `Event`；前端不得导入 `tools`/`sandbox`（AST 测试守着）。
 
 ### 2.6 防失控的闸
 
@@ -313,7 +314,7 @@ CI（ubuntu，无 WSL）: pip install -e ".[dev,ui,web]" → ruff → pytest -m 
 - **本地三档**：`not wsl and not llm`（快，约 1 分钟）→ `wsl`（真实沙箱）→
   `llm`（真调模型，需 Key，仅 3 条）。
 - **CI 与本地互补**：CI 无 WSL，只跑无沙箱用例。因此有两条硬约束——
-  ① 标为 unit 的用例**真的不能碰 WSL**；② CI 必须装齐 `ui`/`web` extras（TUI/Web 测试需要）。
+  ① 标为 unit 的用例**真的不能碰 WSL**；② CI 必须装齐 `ui`/`web` extras（TUI/Web 测试需要；Desktop 测试用 mock，不要求 pywebview）。
   这两条都曾导致过 CI 失败。
 - **自动守卫**：`tests/conftest.py` 对未标 `wsl`/`wsl_env` 的用例把 `WslSandbox._exec` 换成当场失败，
   任何平台生效——"漏标"在本地就红，而不是等 Linux CI。显式探测宿主环境的用例（`doctor`）标
@@ -377,7 +378,7 @@ Web 端点提供 `/api/steer`、`/api/resume`、`/api/resume_steering`，
 
 **并发假设**：单个 `AgentRuntime` 实例按「单会话、单线程」使用；跨 thread 复用靠按 thread
 分桶的状态（`_pending_calls` / `_progress` / `_resume_counts`）。若要并发跑多个会话，
-应为每个会话各建一个 runtime——当前三种前端（CLI/TUI/Web 各请求）都满足这一假设。
+应为每个会话各建一个 runtime——当前四种前端（CLI/TUI/Web/Desktop GUI）都满足这一假设。
 
 ## 7. 相关文档
 

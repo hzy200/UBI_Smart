@@ -1,0 +1,100 @@
+name: LLM Regression
+
+# 真实 provider 的回归不能进 PR 门禁：要 API Key、有费用、还有运行间噪声。
+# 这里用定时 + 手动触发补上这个缺口；PR 仍只跑 `-m "not llm"`。
+#
+# 前置条件：
+#   1. 仓库 secret 配置 DEEPSEEK_API_KEY；
+#   2. 若要跑 `run_eval`，需要一台带 WSL2 的 self-hosted runner，
+#      并打上 `wsl` 标签（GitHub 托管 runner 没有 WSL 发行版）。
+
+on:
+  schedule:
+    # 每周一 03:00 UTC。避开 docs.yml 的 02:00。
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      run_eval:
+        description: "在带 WSL2 的 self-hosted runner 上跑 eval 冒烟"
+        type: boolean
+        default: false
+      suite:
+        description: "eval 套件（成本：long 远高于 default）"
+        type: choice
+        options:
+          - default
+          - long
+        default: default
+      repeat:
+        description: "eval 重复次数（成本按倍数增长）"
+        default: "1"
+
+jobs:
+  llm-tests:
+    # 结构化输出等 `-m llm` 用例不需要 WSL，托管 runner 即可。
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装（仅运行真实模型用例所需依赖）
+        run: pip install -e ".[dev]"
+
+      - name: 检查 API Key
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "::error::缺少 DEEPSEEK_API_KEY secret，真实模型回归无法执行。"
+            exit 1
+          fi
+
+      - name: 真实 provider 回归
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: pytest -m llm -q --junitxml=llm-junit.xml
+
+      - name: 上传测试结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-junit
+          path: llm-junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # 手动触发的能力评测。eval 会真实启动 WSL 沙箱，因此只能跑在
+  # self-hosted WSL runner 上；没有该 runner 时请不要勾选 run_eval。
+  llm-eval:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_eval }}
+    runs-on: [self-hosted, wsl]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装
+        run: pip install -e ".[dev]"
+
+      - name: 能力评测冒烟
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: >-
+          python -m tests.eval.runner
+          --suite "${{ inputs.suite }}"
+          --repeat "${{ inputs.repeat }}"
+          --baseline "llm-eval-${{ github.run_id }}.json"
+
+      - name: 上传评测结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-eval
+          path: llm-eval-${{ github.run_id }}.json
+          if-no-files-found: ignore
+          retention-days: 14

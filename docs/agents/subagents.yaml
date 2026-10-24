@@ -121,8 +121,8 @@ skills:
 
   - id: patch_merge_transaction
     trigger: implement worker 完成
-    flow: 全部 git apply --check → 解析路径 → 全部留快照 → 顺序 apply
-    failure: 反向撤销已应用补丁，必要时恢复快照；整批回滚，不留半合并状态
+    flow: 按共享文件分连通分量 → 分量内 check/解析路径/留快照/顺序 apply
+    failure: 只反向撤销本分量已应用补丁，必要时恢复快照；其它分量不受影响
 
   - id: steering
     trigger: 用户 pause / cancel / add / replan

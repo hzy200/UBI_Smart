@@ -42,6 +42,8 @@ PACKAGES: list[tuple[str, str]] = [
     ("UI", "textual"),
     ("Web", "fastapi"),
     ("Web", "uvicorn"),
+    ("Desktop", "pywebview"),
+    ("Secrets", "keyring"),
 ]
 
 KNOWN_PACKAGES = {package for _, package in PACKAGES}

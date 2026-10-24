@@ -24,6 +24,13 @@ agent doctor                  # 期望「全部通过」，不需要 API Key
 agent sandbox-init            # 创建沙箱工作区
 ```
 
+桌面 GUI（可选）：
+
+```bash
+pip install -e ".[web,desktop,secrets]"
+agent gui                     # 默认只读；--write 才允许会话选择写模式
+```
+
 前置条件：Anaconda/Miniconda、WSL2 + Ubuntu（**非 root 用户**）、DeepSeek API Key。
 可选：`wsl -d Ubuntu -- sudo apt-get install -y bubblewrap`（内核级隔离）。
 
@@ -73,7 +80,7 @@ pytest -m "not llm"           # 全量（含真实 WSL）
 | 编排 / 并发 / 写隔离 | [`HARNESS.md`](HARNESS.md) + `src/coding_agent/orchestrator/AGENTS.md` |
 | 沙箱 / 安全 | [`THREAT_MODEL.md`](THREAT_MODEL.md) + `src/coding_agent/sandbox/AGENTS.md` |
 | 工具 | `src/coding_agent/tools/AGENTS.md` + [`contracts/tools.yaml`](contracts/tools.yaml) |
-| 前端 | [`WORKFLOW.md`](WORKFLOW.md) §4（**不得 import tools/ 或 sandbox/**） |
+| 前端 / GUI | [`WORKFLOW.md`](WORKFLOW.md) §4（**不得 import tools/ 或 sandbox/**）+ [`GUI.md`](GUI.md) |
 | 配置 | [`contracts/config.md`](contracts/config.md)（全量，代码生成） |
 | 评测 | [`../tests/eval/README.md`](../tests/eval/README.md)（噪声口径必读） |
 
@@ -92,7 +99,7 @@ pytest -m "not llm"           # 全量（含真实 WSL）
 | "命令等级是模型自己报的" | 不是。宿主看命令文本判定，模型自报不算数 |
 | "`-y` 就全自动了" | 只跳过 L2，**L3 始终要人确认** |
 | "经 shell 改的文件也能回滚" | 不能。经 shell 的修改不产生快照 |
-| "TUI/Web 可以自己放行审批" | 不能。审批强制在 `tools` 节点，前端绕不过 |
+| "TUI/Web/GUI 可以自己放行审批" | 不能。审批强制在 `tools` 节点，前端绕不过 |
 | "default 评测套件 100% 说明智能体很强" | 说明**这把尺子已饱和、没有区分度**，不是智能体完美 |
 | "评测涨了 10 个点" | 先看 `spread`。同份代码曾跑出 52% 与 83%（spread 31pp） |
 | "词法守卫能挡住逃逸" | 不能。它是 best-effort，T2 必须靠 bwrap 兜底 |

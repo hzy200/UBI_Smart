@@ -27,7 +27,13 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 | 快反馈测试（单元+TUI+Web，无 WSL/无 Key） | `pytest -m "not wsl and not llm"` |
 | 全量测试（**含真实 WSL**） | `pytest -m "not llm"` |
 | 只跑沙箱层 | `pytest -m wsl` |
+| 执行后端契约 | `pytest -m execution -q` |
+| MySQL 控制面契约（独立 test 库） | `AGENT_TEST_MYSQL_URL=... pytest -m mysql` |
 | 覆盖率（与 CI 同口径） | `pytest -m "not wsl and not llm" --cov --cov-report=term-missing` |
+| Phase D 故障演练 | `python scripts/phase_d_smoke.py` |
+| Phase F 迁移/回滚演练 | `python scripts/phase_f_drill.py` |
+| 性能基线 | `python scripts/phase_f_bench.py` |
+| 前端构建 / 类型检查 | `python scripts/build_frontend.py` |
 | 提交前一把梭 | `make check`（= lint + 快反馈） |
 | 环境自检（不需要 API Key） | `agent doctor` |
 | 重生成 L0 契约 | `python scripts/gen_contracts.py` |
@@ -51,23 +57,43 @@ src/coding_agent/
   config.py         配置（构造函数参数 > .env > 环境变量 > 默认值）★
   graph/            主图：state / routing（纯函数）/ build / nodes/
   orchestrator/     独立 harness 子图：survey → plan → scheduler ⇄ steering → fan_in
+  execution/        A4 执行契约：ExecutionService / backend / proxy ★
   sandbox/          执行安全层：wsl_exec / policy / pathguard / fs / snapshots / limits
   tools/            能力层：shell / files / git / deps / search / symbols / testrun / delegate
+  control/          A2 控制面：schema / store / transport / 协议 / 迁移 / 备份
+  agent_server.py   A3 独立进程入口：runs / stream / resume / workspace 路由
+  control_server.py A2 独立进程入口：认证 / 会话目录 / 代理 / 降级
   agents/           explore / review 子智能体循环
   llm/              DeepSeek 客户端 · 提示词 · 上下文裁剪 · provider 路由
   memory/           checkpoint · 会话索引 · 长期记忆
   audit/            JSONL 审计 ★
-  cli/ tui/ web/    三种前端
+  cli/ tui/ web/ desktop/  四种前端
 ```
 
-依赖方向（单向，无环，`tests/unit/test_architecture.py` 用 AST 守着）：
+分层与当前调用链：
 
 ```
-cli/tui/web → runtime → graph → orchestrator → agents/tools → sandbox
+A1 cli/tui/web static/desktop
+        │ HTTP / SSE
+A2 control_server + control/ + web/app 路由
+        │ 内部 token + X-Agent-Context
+A3 agent_server + runtime + graph + orchestrator
+        │ ExecutionService
+A4 execution + tools + sandbox
+
+runtime -> execution -> sandbox；tools -> sandbox
 ```
 
-**前端（cli/tui/web）不得 import `tools/` 或 `sandbox/`**——这是安全属性，
+**前端（cli/tui/web/desktop）不得 import `tools/` 或 `sandbox/`**——这是安全属性，
 不是代码风格。它保证任何界面都绕不过命令分级审批。
+
+已知例外（P1 收敛，不要在别处扩散）：
+
+- `web/app.py` 的同进程回退仍直接持有 `runtime`（standalone/旧部署路径）；
+- `agent_server.py` 仍从 `web.browse` 取文件助手、从 `control.agent_client`
+  取 `AgentContext`，这两处是反向依赖；
+- `cli/app.py` 直接 import `WslSandbox`（doctor/sandbox-init 历史路径），
+  计划用 `cli/platform.py` 收窄成只读探测接口。
 
 按子目录分层注入的模块级指令：`src/coding_agent/{graph,orchestrator,sandbox,tools}/AGENTS.md`。
 

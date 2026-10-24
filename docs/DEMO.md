@@ -135,6 +135,20 @@ cat calc.py          # 确认已还原
 
 ---
 
+## 备选：桌面 GUI 演示
+
+```bash
+pip install -e ".[web,desktop,secrets]"
+agent gui                 # 默认只读
+agent gui --write         # 允许会话选择审批写/自动写
+```
+
+- 会话创建时选择工作区、文件权限（只读/审批写/自动写）和模型；
+- 左侧会话/工作区，中间流式对话，右侧计划/工具/文件/任务/记忆/审计；
+- 审批用应用内模态，默认拒绝；支持 pause/cancel/add/replan；
+- 文件面板可看 diff、回滚本轮或按 checkpoint 分叉；
+- 设置页可注入 API Key、测试 provider 连通性、切换主题/字号/密度。
+
 ## 备选：TUI 演示
 
 如果评委更想看交互，用 `agent tui`：

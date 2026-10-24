@@ -204,7 +204,7 @@ def render_events(events: list[dict[str, Any]]) -> tuple[str, str]:
         "事实源：`src/coding_agent/events.py`（pydantic 模型）。",
         "机器可读版本：[`events.json`](events.json)。",
         "",
-        "前端（CLI / TUI / Web）**只**消费这里的事件，不导入 `tools/` 与 `sandbox/`。",
+        "前端（CLI / TUI / Web / Desktop GUI）**只**消费这里的事件，不导入 `tools/` 与 `sandbox/`。",
         "这条边界由 `tests/unit/test_architecture.py` 用 AST 扫描守住。",
         "",
         f"共 **{len(events)}** 个事件类型。",
@@ -579,7 +579,15 @@ def render_dependencies() -> str:
         return out
 
     runtime = grab("dependencies = [")
-    groups = {"dev": grab("dev = ["), "ui": grab("ui = ["), "web": grab("web = [")}
+    groups = {
+        "dev": grab("dev = ["),
+        "ui": grab("ui = ["),
+        "web": grab("web = ["),
+        "desktop": grab("desktop = ["),
+        "secrets": grab("secrets = ["),
+        "build": grab("build = ["),
+        "embeddings": grab("embeddings = ["),
+    }
 
     md: list[str] = [
         GENERATED_BANNER,
@@ -604,6 +612,10 @@ def render_dependencies() -> str:
         "dev": "pytest / ruff / pytest-xdist / pytest-cov —— 跑测试与 lint",
         "ui": "`agent tui`（Textual）",
         "web": "`agent web`（FastAPI + uvicorn）",
+        "desktop": "`agent gui`（pywebview 桌面窗口）",
+        "secrets": "GUI 注入 API Key（OS 密钥环）",
+        "build": "Windows Portable 构建（PyInstaller）",
+        "embeddings": "记忆向量检索（fastembed 本地模型）",
     }
     for extra, deps in groups.items():
         md.append(f"| `{extra}` | {purpose.get(extra, '')} | {', '.join(f'`{d}`' for d in deps)} |")

@@ -9,12 +9,13 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **150** 个配置项。
+共 **178** 个配置项。
 
 ## 通用
 
 | 环境变量 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|---|
+| `AGENT_AGENT_DATA_ROOT` | `agent_data_root` | `str` | `""` | Agent Server 的租户数据根；空 = 审计目录旁的 agent/。 |
 | `AGENT_ALLOW_RULES` | `allow_rules` | `str` | `""` | 持久放行规则，逗号分隔的 `tool:glob`，例如 `shell_exec:git status*,run_tests:*`。只覆盖原本会 ASK 的 L2。 |
 | `AGENT_APPROVAL_MODE` | `approval_mode` | `str` | `"ask"` | ask（逐条询问）\| approve（自动放行 L2；L3 仍需确认）\| deny（一律拒绝） |
 | `AGENT_AUDIT_DIR` | `audit_dir` | `str` | `""` | 留空表示自动用 <当前目录>/.agent/audit |
@@ -42,6 +43,8 @@
 | `AGENT_CONTEXT_MAX_CHARS` | `context_max_chars` | `int` | `60000` | ---------- 上下文裁剪 ---------- 0 表示不裁剪；这些值作用于发给模型的历史，不改写会话状态 |
 | `AGENT_CONTEXT_MAX_TOKENS` | `context_max_tokens` | `int` | `0` |  |
 | `AGENT_CONTEXT_TOOL_CHARS` | `context_tool_chars` | `int` | `1500` |  |
+| `AGENT_CONTROL_DB_AUTO_CREATE` | `control_db_auto_create` | `bool` | `true` | SQLite/开发环境自动建表；MySQL 生产迁移用 alembic upgrade 或 control_server --migrate（迁移前自动备份）。 |
+| `AGENT_CONTROL_DB_URL` | `control_db_url` | `str` | `""` | ---------- A2 控制面（Phase B，可选） ---------- 空 = 继续用 gui-sessions.json / 本地文件（Standalone 与旧部署）。 例：mysql+pymysql://user:pass@127.0.0.1/coding_agent |
 | `AGENT_COST_ALERT_RATIO` | `cost_alert_ratio` | `float` | `0.8` | 达到预算的该比例时发出告警（0~1） |
 | `AGENT_DELEGATE_LARGE_CALLS` | `delegate_large_calls` | `int` | `4` |  |
 | `AGENT_DELEGATE_LARGE_FILES` | `delegate_large_files` | `int` | `300` |  |
@@ -49,11 +52,19 @@
 | `AGENT_DELEGATE_MEDIUM_FILES` | `delegate_medium_files` | `int` | `100` |  |
 | `AGENT_DELEGATE_MIN_FILES` | `delegate_min_files` | `int` | `30` | ---- 成本感知的委派预算（按仓库文件数分级）---- 小于 min_files：不委派，直接读；[min, medium)：medium_calls； [medium, large)：large_calls；>= large：max_delegate_calls。 |
 | `AGENT_DEPS_DETECT_TTL_S` | `deps_detect_ttl_s` | `float` | `30.0` | 包管理器探测缓存时间；安装后会主动失效。 |
+| `AGENT_EVENT_TRANSPORT` | `event_transport` | `str` | `"memory"` | ---------- 共享事件传输（Phase B3） ---------- memory = 单实例内存；redis = Redis Streams（多实例 SSE 重放）。 |
+| `AGENT_EVENT_TRANSPORT_MAXLEN` | `event_transport_maxlen` | `int` | `10000` |  |
+| `AGENT_EVENT_TRANSPORT_PREFIX` | `event_transport_prefix` | `str` | `"coding-agent:events"` |  |
+| `AGENT_EVENT_TRANSPORT_TTL_S` | `event_transport_ttl_s` | `int` | `3600` |  |
+| `AGENT_EVENT_TRANSPORT_URL` | `event_transport_url` | `str` | `""` |  |
+| `AGENT_EXECUTION_BACKEND` | `execution_backend` | `str` | `"auto"` | auto：Windows 用 wsl.exe，Linux/WSL 内直接本地执行 local：强制本地 Linux 执行；wsl：强制 wsl.exe（兼容旧 Host 模式） |
 | `AGENT_EXPLORE_ENABLED` | `explore_enabled` | `bool` | `false` | ---------- 子智能体（Phase 1：只读 Explore）---------- **默认关闭**：它会给主模型多一个工具、改变 agent 行为，打开后旧评测基线 不再可比。评测时显式设置 AGENT_EXPLORE_ENABLED=true 做 A/B。 |
 | `AGENT_EXPLORE_MAX_REPORT_CHARS` | `explore_max_report_chars` | `int` | `4000` | 返回给主模型的摘要上限（字符） |
 | `AGENT_EXPLORE_MAX_ROUNDS` | `explore_max_rounds` | `int` | `8` | 子智能体最多几轮「模型 → 工具」；到顶后强制生成报告，状态记 partial。 定位一个跨文件功能通常需要 6–10 轮只读检索；6 轮实测会频繁 partial。 |
 | `AGENT_EXPLORE_TIMEOUT` | `explore_timeout` | `int` | `120` | 整个子智能体的墙钟上限（秒） |
 | `AGENT_INSTRUCTIONS_ENABLED` | `instructions_enabled` | `bool` | `true` | 是否发现并注入仓库内的 AGENTS.md / CLAUDE.md（分层项目指令）。 |
+| `AGENT_INTERNAL_TOKEN` | `agent_internal_token` | `str` | `""` |  |
+| `AGENT_INTERNAL_URL` | `agent_internal_url` | `str` | `""` | ---------- A2 → A3 内部连接（Phase B4） ---------- 空 = A2 与 Agent 同进程（默认，兼容旧部署）。 |
 | `AGENT_LLM_AIMD_MAX` | `llm_aimd_max` | `int` | `8` |  |
 | `AGENT_LLM_AIMD_MIN` | `llm_aimd_min` | `int` | `1` | LLM 每个 provider 的自适应并发范围。 |
 | `AGENT_LLM_FALLBACK_ON_ERROR` | `llm_fallback_on_error` | `bool` | `true` | 非 429 错误是否也尝试下一个 provider。 |
@@ -77,11 +88,24 @@
 | `AGENT_MAX_RESUMES` | `max_resumes` | `int` | `50` | 同一会话内「挂起→恢复」的总次数上限，防前端反复 resume 绕开 recursion_limit |
 | `AGENT_MAX_SAME_FAILURES` | `max_same_failures` | `int` | `2` | 连续出现同一失败签名多少次后停止 repair、改走 replan。 24 次相同失败验证的教训：没有这道闸，repair 会把同一类修改重复到额度耗尽。 |
 | `AGENT_MAX_TOOL_ROUNDS` | `max_tool_rounds` | `int` | `12` |  |
+| `AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS` | `memory_allow_remote_embeddings` | `bool` | `false` |  |
+| `AGENT_MEMORY_EMBEDDING_API_KEY` | `memory_embedding_api_key` | `str` | `""` |  |
+| `AGENT_MEMORY_EMBEDDING_BASE_URL` | `memory_embedding_base_url` | `str` | `""` | 远程 OpenAI-compatible embedding（默认关闭，需双重显式开启）。 |
+| `AGENT_MEMORY_EMBEDDING_BATCH_SIZE` | `memory_embedding_batch_size` | `int` | `64` |  |
+| `AGENT_MEMORY_EMBEDDING_CACHE_DIR` | `memory_embedding_cache_dir` | `str` | `""` |  |
+| `AGENT_MEMORY_EMBEDDING_DIM` | `memory_embedding_dim` | `int` | `512` |  |
+| `AGENT_MEMORY_EMBEDDING_MODEL` | `memory_embedding_model` | `str` | `"BAAI/bge-small-zh-v1.5"` |  |
+| `AGENT_MEMORY_EMBEDDING_PROVIDER` | `memory_embedding_provider` | `str` | `"local"` |  |
+| `AGENT_MEMORY_EMBEDDING_TIMEOUT_S` | `memory_embedding_timeout_s` | `float` | `10.0` |  |
+| `AGENT_MEMORY_FUSION` | `memory_fusion` | `str` | `"rrf"` |  |
+| `AGENT_MEMORY_GLOBAL_ROOT` | `memory_global_root` | `str` | `""` | 跨工作区全局记忆根；空 = 沙箱 $HOME/.agent-memory/global。 |
 | `AGENT_MEMORY_ROOT` | `memory_root` | `str` | `""` | 长期记忆根目录（WSL 绝对路径）；空则按 trust_repo_memory 推导。 |
 | `AGENT_MEMORY_TOP_K` | `memory_top_k` | `int` | `8` | 每次运行注入系统提示的长期记忆条数（按与请求的相关度取前 K 条）。 0 表示不限制，整份注入 —— 记忆上限 50 条，但每条都会进入每一轮 system prompt。 |
+| `AGENT_MEMORY_VECTOR_ENABLED` | `memory_vector_enabled` | `bool` | `false` | 可选向量检索：默认关闭，开启后仍以 BM25 为回退。 |
+| `AGENT_MEMORY_VECTOR_TOP_N` | `memory_vector_top_n` | `int` | `20` |  |
 | `AGENT_NUDGE_EMPTY_STEPS` | `nudge_empty_steps` | `bool` | `true` | 「一步没有任何改动」时是否给它一次重做的机会。  背景：`dirty=False` 时 verify 与 review 都会短路，控制流直接 advance —— 于是「这一步只读了文件」与「这一步做完了」在图上**无法区分**。实测过一整批 长程任务因此把计划"读"完就算完成：10 次运行里 5 次一次写都没尝试过。  默认开启，但**必须可关**：它会改变所有任务的行为，现有基线因此不再可比 （评测的 baseline 里记了这个开关）。 |
 | `AGENT_ORCHESTRATOR_ADD_EXPLORE_TESTS` | `orchestrator_add_explore_tests` | `bool` | `false` | 只读模式下模型只给一个任务时，是否强行补一个「找测试」explore 任务。 默认关闭：这会增加一次 worker 成本，只有演示并发/确实需要测试画像时才值得。 |
-| `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` | `orchestrator_allow_overlap` | `bool` | `false` | 允许多个 implement 修改同一文件；合并时用 git apply --3way。 有真实冲突时整批回滚，不会把冲突标记落进主工作区。 |
+| `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` | `orchestrator_allow_overlap` | `bool` | `false` | 允许多个 implement 修改同一文件；合并时用 git apply --3way。 有真实冲突时只回滚本分量，不会把冲突标记落进主工作区。 |
 | `AGENT_ORCHESTRATOR_CHECKPOINT_EVERY` | `orchestrator_checkpoint_every` | `int` | `4` | scheduler 每完成多少个任务返回一次父图，形成 checkpoint/干预边界。 |
 | `AGENT_ORCHESTRATOR_CONTEXT_CHARS` | `orchestrator_context_chars` | `int` | `8000` | 交给主 agent 的 worker 汇总上限（字符）。 |
 | `AGENT_ORCHESTRATOR_ENABLED` | `orchestrator_enabled` | `bool` | `true` | ---------- Orchestrator（Phase 3A）---------- 新架构默认启用：满足规模阈值的仓库走 harness；小仓库仍走 direct 快速路径。 |
@@ -118,6 +142,7 @@
 | `AGENT_RUN_COST_BUDGET_USD` | `run_cost_budget_usd` | `float` | `0.0` | 单次 run 的成本预算（USD）；0 = 不告警 |
 | `AGENT_RUN_DEADLINE_S` | `run_deadline_s` | `int` | `1800` | 一次完整运行（含审批/暂停后的 resume）的总墙钟上限，0 表示不限制。 与 recursion_limit 互补：后者管步数，这里管时间（例如模型长时间卡住）。 |
 | `AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS` | `sandbox_max_concurrent_commands` | `int` | `8` | 同时启动的 wsl.exe 进程上限。并发 worker 会各自调用沙箱，没有这层 背压时 4 个 worker 的一次工具轮次就能同时拉起十几个 WSL 进程。 |
+| `AGENT_SECRET_PROVIDER` | `secret_provider` | `str` | `"auto"` | auto \| keyring \| systemd；服务器部署用 systemd-creds，Vault/KMS 走同一 Protocol。 |
 | `AGENT_SECURITY_PROFILE` | `security_profile` | `str` | `"local"` | ---------- 安全 profile 与不可信仓库 ---------- local（默认，面向可信仓库）\| untrusted（bwrap + 禁网 + 强制 ask + 不信任仓库指令/记忆）。 |
 | `AGENT_SESSION_BRIEF_CHARS` | `session_brief_chars` | `int` | `4000` | 编排子图/worker 的会话约束摘要上限（字符）。独立子图不复制 messages， 这里从 checkpoint 抽最近若干轮压缩后注入；0 表示关闭。 |
 | `AGENT_SHELL_CPU_SECONDS` | `shell_cpu_seconds` | `int` | `600` | 沙箱资源上限，0 表示不限制 |
@@ -145,6 +170,9 @@
 | `AGENT_WEB_MAX_PROMPT_CHARS` | `web_max_prompt_chars` | `int` | `100000` |  |
 | `AGENT_WEB_MAX_RUNTIMES` | `web_max_runtimes` | `int` | `8` |  |
 | `AGENT_WEB_MAX_RUNTIMES_PER_USER` | `web_max_runtimes_per_user` | `int` | `2` |  |
+| `AGENT_WEB_MAX_UPLOAD_BYTES` | `web_max_upload_bytes` | `int` | `20971520` | 单次上传的单文件上限；上传走单独授权，写入 .agent/uploads。 |
+| `AGENT_WEB_MAX_UPLOAD_FILES` | `web_max_upload_files` | `int` | `20` | 单次请求最多上传几个文件。 |
+| `AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES` | `web_max_upload_total_bytes` | `int` | `209715200` | 每个会话累计上传上限，防止反复上传占满工作区。 |
 | `AGENT_WEB_MEMORY_ROOT` | `web_memory_root` | `str` | `""` | per-user WSL 侧记忆根目录；空 = 沙箱 $HOME/agent-memory。 记忆在沙箱内、仓库之外，避免不可信仓库预置记忆。 |
 | `AGENT_WEB_RATE_LIMIT_PER_MIN` | `web_rate_limit_per_min` | `int` | `60` |  |
 | `AGENT_WEB_RUNTIME_TTL_S` | `web_runtime_ttl_s` | `int` | `1800` | 挂起 runtime 的空闲保留时间；超时后释放，resume 时从 checkpoint 重建。 |

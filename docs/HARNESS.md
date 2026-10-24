@@ -22,9 +22,9 @@ note: |
 > AST 符号检索 `symbol_search`、可选 LSP 客户端（initialize /
 > workspace-symbol / definition / references / pull+publish diagnostics）、
 > 批量快照读写、常驻 WSL shell 会话池（默认开启，异常自动回退）、
-> 共享文件多 worker 的 3-way 合并（临时 index 预演，冲突整批回滚）、
-> steering 队列跨进程持久化、Web/CLI 实时控制入口（SSE 审批 /
-> pause/cancel/add/replan / resume + `agent steer`）、
+> 共享文件多 worker 的 3-way 合并（临时 index 预演，冲突只回滚所在连通分量）、
+> steering 队列跨进程持久化并绑定 `run_id`、Web/CLI 实时控制入口（SSE 审批 /
+> pause/cancel/add/replan / resume + `agent steer` / `agent resume`）、
 > scheduler 全局 token 准入（派发前按角色预留）、fan-in reducer、
 > 429 自适应降并发。
 > 多 provider 路由（429/错误 fallback）与跨进程限流协调已实现
@@ -399,7 +399,7 @@ CLI `agent run` 本身仍是单向事件流，不提供进程内交互入口。
   implement patch 合并，新任务只允许只读（worktree 基于 HEAD）；
 - 事件：`SteeringApplied(action, task_id, detail)`、`WorkflowRevised(reason, tasks)`；
 - 审计：提交时写 `kind=steering`，含 `source`/动作/目标；worker 内部工具仍逐条落账。
-  TUI/Web 走 `AgentRuntime.steer()`；CLI 走 `submit_steering_command()`，
+  TUI/Web/GUI 走 `AgentRuntime.steer()`；CLI 走 `submit_steering_command()`，
   同样先落审计再写队列；
 
 ### 10.3 边界与已知限制
@@ -478,8 +478,18 @@ runtime 同时消费 `messages` / `updates` / `custom` 三种流，并用
 - **记忆检索**：每次运行按请求相关度取 top-K（`memory_top_k`）注入；
   模型可在运行中用 `memory_search` 按需检索，`--write` 会话另有 `memory_save`；
   explore/review/implement worker 也按任务目标注入相关记忆；
-- **记忆治理**：写入前扫描密钥；高度相似的事实保留最新版本；来源/时间/过期
-  记录在 `memory.meta.json`；跨进程写入用沙箱内 `mkdir` 锁串行化；
+- **记忆检索**：确定性 BM25 + updated_at 时间衰减 + pinned/priority 权重；
+  可选本地向量检索（fastembed）或 OpenAI-compatible 远程 embedding 与 BM25
+  做 RRF 融合；远程必须双重显式开启且仅 local profile 可用，
+  embedding/索引失败自动回退 BM25；项目记忆优先于可选的全局记忆
+  （`AGENT_MEMORY_GLOBAL_ROOT`）；planner/respond 也会收到有界记忆摘要；
+- **记忆治理**：写入前和读取时都扫描密钥（读取命中只阻止注入）；高度相似的事实
+  保留最新版本，中等相似的事实在 meta 标记 `conflicts_with`；
+  来源/原因/时间/过期/线程信息记录在 `memory.meta.json`；
+  每次写入前备份到 `.agent/memory.backups/`（保留 20 份），`agent memory
+  --history/--restore` 可回退；用户与模型写入都落 `kind=memory` 审计；
+  跨进程写入用沙箱内 `mkdir` 锁串行化，残留锁超过阈值会被清理；
+  不可信/生产 profile 下 `memory_save` 升级为 L2/拒绝；
 - **分层指令**：`AGENTS.md` / `CLAUDE.md` 从根目录到 4 层子目录发现并合并，
   与长期记忆分开管理；
 - **可观测**：`ContextTrimmed` 事件给出裁剪前后字符/ token 与是否降档；
@@ -576,8 +586,9 @@ test worker 失败后重试 1 次，最终自动验证通过。review 任务在�
   工作区是**git 仓库根**且干净；`.agent/` 与 `__pycache__/` 不计入脏改动；
 - 合并前先 `git apply --check`，再为补丁涉及的主工作区文件留快照；
   `worker_results` 记录 `snapshot_ids`，`agent undo` 可回滚合并；
-- 同一批 implement 补丁作为**一个事务**：全部 check/快照后顺序 apply；
-  任一失败反向撤销已应用补丁，必要时恢复快照，避免半合并状态；
+- 同一批 implement 补丁按**共享文件的连通分量**分批，每个分量各自作为一个
+  事务：全部 check/快照后顺序 apply；任一失败只反向撤销本分量，必要时恢复
+  快照，其它分量不受影响，避免半合并状态；
 - worker 内部工具调用逐条写审计（含 `agent_id`/`task_id`），eval 记录
   `worker_tool_calls` / `worker_merged`；
 - 任务图校验失败时，写模式退化为**一个** implement 任务：优先覆盖源码顶层目录，
@@ -681,7 +692,7 @@ worker 的脏检查会把它们误判为用户改动。`implement._git_ready` �
 | 事件 | 修改 `events.py`、`runtime.py` |
 | 审计 | 修改 `audit/models.py` |
 | 配置 | 修改 `config.py`、`.env.example` |
-| 前端 | 修改 `cli/app.py`、`tui/app.py`（树状进度） |
+| 前端 | 修改 `cli/app.py`、`tui/app.py`、`web/static/app.js`（树状进度） |
 | 评测 | 修改 `tests/eval/harness.py`、`runner.py` |
 
 **不建议**：

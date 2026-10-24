@@ -4,7 +4,7 @@ doc_id: architecture
 title: 架构
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 review_cadence: 拓扑或状态字段变动时
 note: |
   第 6 节的 56 条不变量与第 7 节的取舍是本项目最硬的 L2 资产。
@@ -36,7 +36,7 @@ LLM 拿不到操作系统句柄，只能产出结构化调用 `{tool, args}`；�
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ 前端  cli/   tui/   web/                                  │
+│ 前端  cli/   tui/   web/   desktop/                        │
 │   只消费领域事件，**不得导入 tools/ 或 sandbox/**           │
 └───────────────────────┬──────────────────────────────────┘
                         │ AsyncIterator[Event]
@@ -80,7 +80,7 @@ LLM 拿不到操作系统句柄，只能产出结构化调用 `{tool, args}`；�
 ```
 
 **依赖方向是单向的**，`tests/unit/test_architecture.py` 用 AST 扫描守住最关键的一条：
-`tui/` 与 `web/` 若导入 `coding_agent.tools` 或 `coding_agent.sandbox` 直接失败。
+`tui/`、`web/`、`desktop/` 若导入 `coding_agent.tools` 或 `coding_agent.sandbox` 直接失败。
 
 为什么这条最重要：一旦前端能直接调工具，就会出现**绕过审批的第二条执行路径** ——
 Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性，不是代码风格。
@@ -103,6 +103,8 @@ Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性�
 | `sandbox/fs.py` | 沙箱内文件读写 + 路径双重校验 | 不做业务判断 |
 | `audit/` | JSONL 审计 | 不解析工具文本输出 |
 | `memory/` | checkpoint / 会话索引 / 长期记忆 | 不持有业务状态 |
+| `desktop/` | 桌面壳：local FastAPI + pywebview + 随机 token | 不实现业务逻辑；不直接调用工具 |
+| `access.py` | 会话访问模式（只读/审批写/自动写） | 不做执行判定（在 policy） |
 
 ## 4. 一次完整运行
 
@@ -162,6 +164,10 @@ Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性�
 - **审计与事件同源**。绝大多数事件来自同一份 `updates`；`scheduler` 的 worker
   事件来自 custom stream，runtime 同样在翻译时写审计，不存在“界面显示了但没记账”。
 - **挂起时以 `ApprovalRequested` 收尾**，不发 `RunFinished` —— 前端据此判断该 resume 还是收工。
+- **桌面/Web 默认启用缓冲 SSE**：`/api/run` 把运行放进后台 task，事件带递增
+  `id` 写入内存环形缓冲；HTTP 连接只是订阅者，断开不会取消运行。
+  `GET /api/stream/{thread}?after=<seq>` 或 `Last-Event-ID` 可重放。
+  缓冲是单进程内存态，多实例部署仍需共享存储/粘性会话。
 
 ## 5. 图状态与生命周期
 
@@ -264,7 +270,7 @@ checkpoint 保存；未消费指令与 pause 标记由 `SteeringController` 原�
 | 52 | **读缓存必须有字节上限，且只缓存模型可能复用的内容** | 长会话/大仓库里普通 dict 会无限增长。`ReadCache` 按字节做 LRU，超大单值直接不缓存；统计命中率供 run 指标 | `test_read_cache_evicts_least_recently_used_by_bytes`、`test_read_cache_skips_values_larger_than_the_limit` |
 | 53 | **批量编辑必须“全量校验后一次落盘”** | 逐条编辑中途失败会留下半批修改，模型难以恢复。`file_edit_many` 先在内存中应用全部编辑、统一语法/陈旧/scope 校验，再用一次 `write_many` 落盘；任一失败整批不写 | `test_edit_many_applies_to_multiple_files_in_one_call`、`test_edit_many_rejects_the_whole_batch_on_a_bad_match` |
 | 54 | **每个工具调用都要有统一耗时；重复探测要有 TTL** | 只靠 shell 的 duration 无法定位文件/检索工具慢在哪；AST 索引与包管理器探测每次重跑是纯浪费。tools 节点统一测 `duration_ms`，索引/探测按 TTL 缓存 | `test_selected_command_appends_a_safe_pytest_nodeid`、`test_read_cache_clear_and_stats` |
-| 55 | **等待合并的 implement 必须离开 pending** | 一个 implement 完成、另一个还在跑时，前者会停在 merge 队列。若状态仍是 pending，`refresh_ready` 会把它重新排进 ready，导致同一任务被重复启动、同一补丁被重复加入批次，合并时第二次 apply 失败并整批回滚（实测 4 个 worker 全部失败） | `test_completed_implement_is_not_relaunched_while_waiting_for_merge` |
+| 55 | **等待合并的 implement 必须离开 pending** | 一个 implement 完成、另一个还在跑时，前者会停在 merge 队列。若状态仍是 pending，`refresh_ready` 会把它重新排进 ready，导致同一任务被重复启动、同一补丁被重复加入批次，合并时第二次 apply 必然失败并触发回滚；按分量隔离后，同文件分量仍会一起回滚（当时实测 4 个 worker 全部失败） | `test_completed_implement_is_not_relaunched_while_waiting_for_merge` |
 | 56 | **worktree 内的快照目录被 gitignore 时，`git add` 的 ignored-path 警告不是失败** | 快照写在 worktree 的 `.agent/`，它通常被 `.gitignore` 忽略；`git add -A` 会以 exit=1 报警告，但真实改动已暂存。直接返回“无改动”会让所有 implement worker 失败 | `test_implement_worker_creates_a_clean_patch`（setup 含 `.gitignore`） |
 
 ## 7. 关键取舍
@@ -487,7 +493,7 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
 - 内容级 secret 识别是模式匹配，不覆盖任意自定义凭据格式。
 - bwrap 是 Linux 命名空间隔离，不防内核逃逸或恶意 WSL 发行版；仍未接入
   seccomp / cgroup。
-- 不提供 Web 上传/克隆；仓库由管理员预置。
+- 不提供 clone；仓库由管理员预置。Web/GUI 提供受控上传，只写入会话工作区的 `.agent/uploads`，不授予模型改源码的能力，单文件/数量（按工作区跨会话）累计上限由 `AGENT_WEB_MAX_UPLOAD_BYTES` / `AGENT_WEB_MAX_UPLOAD_FILES` / `AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES` 控制。
 - 不做跨进程 WSL 总配额；Web 按单进程部署。
 
 ## 11. 扩展点
@@ -529,3 +535,179 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
 3. **不要导入 `tools/` 或 `sandbox/`**（架构测试会拦）
 
 参考 `tui/app.py` 的事件映射表，或 `web/app.py` 里 `model_dump_json()` 直接当 SSE 帧的写法。
+桌面 GUI（`desktop/`）只是 `web/` 的本地启动壳：随机 token、loopback、单实例锁；
+事件与审批仍由同一套 FastAPI/runtime 处理。新增接口必须同时考虑 Web 多用户授权。
+
+## 12. 目标四层架构（Phase A 契约，Phase B–D 已落地）
+
+Phase A 把拆分写成契约；Phase B 抽出控制面，Phase C 统一执行契约，Phase D
+接上 Windows/Linux 双平台部署。当前目标拓扑与三种基线均已可运行，细节见
+[PHASE_A.md](PHASE_A.md)、[PHASE_B.md](PHASE_B.md)、[PHASE_C.md](PHASE_C.md)、
+[PHASE_D.md](PHASE_D.md)。
+
+> 命名：本节用 **A1 前端 / A2 控制面 / A3 编排面 / A4 执行面**。
+> 不要用 L1–L4：L0–L3 是命令风险分级，另有一套“文档 L 层”用法。
+
+```text
+A1 前端（浏览器 / pywebview / CLI / TUI）
+        │ 控制 API + SSE
+A2 控制面（认证、租户、会话目录、配额、Provider、审计索引）
+        │ 内部运行 API（loopback/socket + 短期 token）
+A3 编排面（LangGraph、LLM、审批决定、checkpoint、steering、编排 worker）
+        │ 执行请求（同一 host 或本地 socket）
+A4 执行面（shell、文件、Git、测试、快照、worktree、上传）
+
+多实例时：A3 → 共享事件传输层（Redis Streams）→ A2 订阅/代理 SSE；
+单实例可继续用内存适配器。MySQL 只做索引，不承担热重放。
+```
+
+三种部署基线：
+
+| 基线 | A1 | A2 | A3/A4 |
+|---|---|---|---|
+| Windows 11 桌面 | pywebview/浏览器 | Windows 原生进程 + 本机 MySQL | 专用 WSL2 发行版 |
+| Linux | 浏览器 | systemd + MySQL/MariaDB | 原生 Linux（bwrap/cgroup） |
+| Standalone | CLI/TUI | 无 | 原生 WSL/Linux，本地文件/SQLite |
+
+Windows 与 Linux 的执行语义都保持 Linux；Windows 不做原生 bash 工具层。
+Standalone 是原 Agent 的保留通道：CLI/TUI 直接持有 A3+A4，不要求 A2 或 MySQL。
+
+## 13. A2/A3 边界与数据归属
+
+- **A2 不执行工具**，也不直接读写工作区；文件/Git/上传/快照由 A3/A4 提供并代理。
+- **A3 决定审批与命令分级**，**A4 二次强制**路径/能力限制；A2 只转运审批。
+- **MySQL 只属于 A2**：用户、租户、会话目录、运行/审批索引、用量汇总、Provider
+  档案、设置、上传元数据。**不存** checkpoint、文件内容、API Key、运行状态。
+- **A3 拥有** checkpoint、运行状态、pending approval、steering、记忆与本地审计链。
+- **A4 拥有**工作区、快照、附件字节、Git/worktree。
+- **密钥**由 A2 的 SecretProvider 托管，短期注入 A3 内存；桌面用 OS 密钥环，
+  服务器用 Vault/KMS/systemd-creds；WSL 无 Secret Service 时不落盘、不入
+  MySQL/日志/前端。
+- **审计**：A3 本地哈希链是可信源，A2 只建查询索引，不重写链。
+- **事件**：MySQL 只做查询索引；多实例用共享事件传输层按 `seq` 重放，
+  单实例保留内存适配器。
+- **A2→A3 内部 API**：`/v1/runs|stream|resume|resume_steering|steer|approvals|
+  status|history`，Bearer 内部 token + base64 `X-Agent-Context`；运行生命周期
+  可走独立 `coding-agent-agent` 进程，未配置时仍同进程。Phase D 增加
+  `/v1/meta`（版本/能力握手）、`/v1/cancel_all` 与 `/v1/shutdown`。
+
+对外控制 API 仍以现有 `/api/*` 为基线；事件唯一契约仍是 `events.py`（28 个领域
+事件）。SSE 的 `seq`、`Last-Event-ID` 重放、挂起收尾语义冻结在 Phase A：
+`ApprovalRequested` 或 `SteeringApplied(pause)` 表示挂起且不发 `RunFinished`。
+默认仍是单进程内存缓冲；配置 `AGENT_EVENT_TRANSPORT=redis` 后，事件同时写入
+共享传输，A2 在本地流缺失时按 `seq` 重放（当前轮询式，consumer group 待补）。
+
+## 14. 跨平台、安全与性能边界
+
+**安全**：前端不接触工具/沙箱与 API Key；A2 不执行命令；A3 做策略决定；A4
+做最终路径/能力校验；内部接口只走 loopback/本地 socket，远程必须 TLS/mTLS；
+Windows 专用 WSL 发行版、非 root、`appendWindowsPath=false`，高风险 profile
+关闭 interop；Linux 非 root + bwrap/namespace/cgroup，不可用时 fail closed；
+MySQL 仅本机、最小权限；审计按租户单写者。
+
+**性能**：A2↔A3 只传控制与事件，工具 I/O 不跨层；MySQL 不进 SSE 热路径；
+Windows 工作区必须放 ext4，禁止每次工具调用跨 `/mnt`；A1 长会话用虚拟滚动/
+增量渲染，A3 事件批量输出。
+
+## 15. Phase A 状态
+
+- 文档与契约完成，代码行为未改变；
+- 关键路由、事件字段、会话字段与工具清单由
+  `tests/unit/test_layer_contracts.py` 冻结；
+- Phase B 才引入控制面抽取与 MySQL schema，A3/A4 的功能只做接口包装，不删减。
+- Phase B 的五项落地决策（A2 原生、SecretProvider 分档、事件共享传输、
+  SQLite 一等公民、静态 SPA + esbuild/TS）已记录在
+  [ADR-0010](adr/0010-four-layer-phase-b-decisions.md)。
+- Phase B 已落地：可选 `AGENT_CONTROL_DB_URL` 的会话目录、SecretProvider
+  接口、内存/Redis 事件传输、SSE 按 seq 重放，以及独立 Agent Server 的
+  运行生命周期 + 文件/快照/记忆/上传/审计路由（`AGENT_INTERNAL_URL`）。
+  A2 provider key 随运行短期注入 A3 内存；审计索引在查询时拉取并幂等写入
+  MySQL。默认仍走旧 JSON/内存/同进程。A2/A3 原生可执行目录与 systemd/
+  Windows 开机任务已提供；前端源已迁到 `frontend/src` 并由 esbuild 生成
+  `static/app.js`。consumer group、SCM 服务包装与严格 TS 类型待后续。
+  见 [PHASE_B.md](PHASE_B.md)。
+
+## 16. Phase C：ExecutionService（C0/C1）
+
+A3→A4 只通过 `ExecutionService`：`ExecutionRequest` 带
+`op_id/kind/run_id/payload`，`ExecutionResult` 带 `status/seq/receipt`。
+`op_id` 幂等由工作区 `.agent/execution/receipts.jsonl` 承载；`seq` 按 run
+单调递增且与 Web SSE 序号独立。
+
+当前实现 `run/read_file/write_file/list_dir/stat/git/snapshot/restore/
+worktree_create/worktree_remove/patch_apply`。`AgentRuntime` 用
+`ExecutionSandbox` 包住 sandbox：既有 shell/文件/Git/快照/worktree 代码仍
+调用 `sandbox.run()`，但实际执行统一经过 A4 backend；工具层没有第二条路径。
+
+工具调用由 `run_id + tool_call_id` 上下文生成稳定 op_id，重试/恢复命中执行
+回执；`record_unknown/record_cancelled` 提供 unknown/cancelled 终态。
+合并路径的 `git apply` 也走 ExecutionService 并写回执，但回执尚未进入
+Scheduler 事件。WSL 与 Linux local 共用 `tests/contract/execution_cases.py`；
+Linux CI 跑 local，Windows 本地跑 WSL。详见 [PHASE_C.md](PHASE_C.md)。
+
+## 17. Phase D：双平台部署状态
+
+### Windows 桌面
+
+```text
+A1 pywebview → Windows A2（127.0.0.1:8780，随机前端 token）
+                         │ loopback + 内部 token
+                         ▼
+                   WSL A3（127.0.0.1:8790）
+```
+
+- A3 先启动并返回端口；A2 注入 `AGENT_INTERNAL_URL/TOKEN` 后启动；
+- 端口固定，token 只保存在 supervisor 内存，A3 重启复用同一 token/端口；
+- `desktop.watchdog.supervise_many` 同时守护 A2/A3；
+- A2 每 5 秒探测 A3，A3 重启后自动从 `unavailable` 回到 `ok`；
+- `--host-mode` 保留旧单进程路径一个版本；standalone 不受影响。
+
+### Linux
+
+systemd 顺序：`coding-agent-agent` → `coding-agent-control`；A2 通过
+`ExecStartPre=... --migrate-only` 在启动前迁移。`packaging/systemd/install.sh`
+创建用户/目录/env/单元，支持打包二进制与源码 venv 两种模式。
+
+### 健康、降级与恢复
+
+- A2 `/healthz`：`version / agent_state / db_state`；
+  A3 `/healthz`：`version / api_version`；
+- `ControlStore` 初始化或写入失败 → 只读降级，写操作 503，运行/SSE 不受影响；
+- 迁移前自动备份；SQLite 复制、MySQL `mysqldump`；恢复脚本默认先备份当前库；
+- `scripts/phase_d_smoke.py` 覆盖启动握手、会话、A3 崩溃、A2 重启、
+  数据库降级、版本不匹配与迁移失败（7/7 通过）。
+
+### 数据边界不变
+
+Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL；A2 仍不执行
+工具，A3/A4 仍持有执行语义。桌面 WSL 完整启动链与真实 LLM run 仍需在打包
+环境验收。
+
+## 18. Phase E：前端状态
+
+- A1 只消费后端领域事件；`frontend/src/sse.ts` 负责帧解析、`seq` 去重与
+  `Last-Event-ID` 对应的 `after` 重放参数；
+- 主题令牌集中在 `style.css`：深/浅/跟随系统，字体、字号、密度与快捷键
+  持久化；关键弹窗与对话区带 aria 语义；
+- 任务卡显示依赖、worker、耗时、token；推理按节点分块且默认不渲染；
+- 长会话用 `content-visibility: auto` 降低渲染成本；代码块使用本地
+  highlight.js 与复制按钮；
+- `static/app.js` 由 esbuild 生成，CI 重建并检查漂移，同时跑 `tsc --noEmit`。
+
+未做：JS 窗口化虚拟列表、浏览器自动化测试（手测清单见
+[PHASE_E.md](PHASE_E.md)）。
+
+## 19. Phase F：安全与性能验收
+
+- **密钥边界**：控制面数据库按字节扫描不含 provider key；Provider API 只返回
+  `has_key`，不返回明文；日志与审计在落盘/回灌前经过 `redact_secrets`；
+- **内部边界**：A2/A3 只绑 loopback，内部接口必须 token，路径越界在文件工具
+  与 ExecutionService 两处拒绝；
+- **迁移/回滚**：SQLite 与 MySQL 都完成
+  `upgrade → 备份 → downgrade base → upgrade → 恢复` 演练；
+- **性能基线**：`phase_f_bench.py` 覆盖 ExecutionService 代理、控制面写入与
+  A2 代理 SSE 首事件延迟；不设硬阈值，按同平台趋势比较；
+- **平台门禁**：WSL 隔离用 `pytest -m wsl`，Linux bwrap 用
+  `pytest -m execution` / `test_bwrap.py`；CI 只跑 SQLite 演练与快反馈，
+  平台缺口在 [ACCEPTANCE.md](ACCEPTANCE.md) 中显式保留。
+详见 [PHASE_F.md](PHASE_F.md)。

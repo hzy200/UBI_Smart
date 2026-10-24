@@ -44,7 +44,7 @@ WSL2 登录 bash → （可选）bwrap 挂载命名空间 → 命令
 Linux 用户空间（非 root）
 ```
 
-攻击面：shell 命令、文件工具路径、git/deps 参数、审批交互、前端 SSE/HTML、checkpoint/审计文件。
+攻击面：shell 命令、文件工具路径、git/deps 参数、审批交互、前端 SSE/HTML、文件上传、GUI 本地服务、checkpoint/审计文件、密钥环。
 
 ## 3. 两个威胁模型
 
@@ -106,7 +106,7 @@ Linux 用户空间（非 root）
 | 资源上限（CPU/文件/进程，沙箱内 `ulimit`+`timeout`） | `sandbox/limits.py` | T1 | [`test_limits.py`](../tests/unit/test_limits.py)、[`test_sandbox_timeout_cleanup.py`](../tests/unit/test_sandbox_timeout_cleanup.py) |
 | 审计（宿主侧、追加写、失败显式报出） | `audit/` | **接近 T2**（沙箱改不到） | [`test_audit.py`](../tests/unit/test_audit.py)、[`test_audit_chain.py`](../tests/unit/test_audit_chain.py) |
 | 可选内核级隔离 `AGENT_SHELL_SANDBOX=bwrap` | `sandbox/wsl_exec.py` | **T2 的一层**（opt-in，默认 off） | [`test_bwrap_args.py`](../tests/unit/test_bwrap_args.py)、[`test_bwrap.py`](../tests/integration/test_bwrap.py) |
-| 前端只消费事件、HTML 用 `textContent` | `tui/` `web/` | 接近 T2（无 XSS、无旁路执行） | [`test_web_app.py`](../tests/unit/test_web_app.py)、[`test_web_auth.py`](../tests/unit/test_web_auth.py)、[`test_cli_render.py`](../tests/unit/test_cli_render.py) |
+| 前端只消费事件；GUI HTML 经 DOMPurify/CSP | `tui/` `web/` `desktop/` | 接近 T2（降低 XSS 面、无旁路执行） | [`test_web_app.py`](../tests/unit/test_web_app.py)、[`test_web_auth.py`](../tests/unit/test_web_auth.py)、[`test_cli_render.py`](../tests/unit/test_cli_render.py) |
 | 编排写 worker：独立 worktree + `write_scope` + 合并前快照 | `orchestrator/implement.py`、`nodes.py` | T1（仍是 `--write` 预授权下的受控写路径） | [`test_write_scope.py`](../tests/unit/test_write_scope.py)、[`test_atomic_merge.py`](../tests/unit/test_atomic_merge.py)、[`test_implement_worker.py`](../tests/integration/test_implement_worker.py) |
 | worker 提议任务只能只读，host 复核角色/去重/依赖/总量 | `orchestrator/graph.py::validate_proposals` | T1（不允许 worker 自由扩大写范围） | [`test_orchestrator.py`](../tests/unit/test_orchestrator.py) |
 
@@ -196,7 +196,19 @@ Linux 用户空间（非 root）
   **L3 始终需要人工确认**。
 - **Web**：Bearer Token 认证；未配置 token 只允许 loopback 匿名；非 loopback
   必须 token + TLS（本进程或可信反向代理），否则拒绝启动。
-- **达标**：T2 场景仍应禁用 `approve` 模式（L2 仍会被自动放行）。
+- **桌面 GUI**：只绑 loopback；每次启动生成随机 token，**不允许匿名**；随机端口；
+  `TrustedHostMiddleware` 限制 Host；单实例锁。窗口关闭即停止服务。
+- **访问模式**：只读会话在策略层拒绝 shell/tests/git/deps/LSP，并关闭自动
+  verify 与编排 implement；`symbol_search` 强制 AST；写模式必须由服务端
+  `--write` 显式开启，持久化配置不能反向提权。
+- **上传**：单文件/数量/工作区跨会话累计限额、basename 清洗、SandboxFs 路径双重校验、写审计；
+  写入 `.agent/uploads`，不自动执行/解压，不授予模型源码写权限。
+- **密钥**：GUI 注入的 key 只进 OS 密钥环，不回传、不写 `.env`、不写日志；
+  连通性测试显式 `trust_env=False`，不走环境代理；
+  多用户 Web 按 `coding-agent:<user>` 隔离；仍推荐管理员统一配置默认 key，
+  `base_url` 始终由管理员配置。
+- **达标**：T2 场景仍应禁用 `approve` 模式（L2 仍会被自动放行）；只读 GUI
+  不应被当成“可以运行测试”的沙箱。
 
 ## 6. 结论
 

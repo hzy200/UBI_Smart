@@ -28,7 +28,7 @@ conda activate agent
 ```bash
 conda create -n agent python=3.11 -y
 conda activate agent
-pip install -e ".[dev,ui,web]"     # 可编辑安装 + 各组依赖，见下表
+pip install -e ".[dev,ui,web,desktop]"  # 可编辑安装 + 各组依赖，见下表
 ```
 
 `pip install` 的 extra 组按需取舍：
@@ -39,6 +39,8 @@ pip install -e ".[dev,ui,web]"     # 可编辑安装 + 各组依赖，见下表
 | `dev` | `pytest` / `ruff` / `pytest-xdist` / `pytest-cov` —— 跑测试与 lint |
 | `ui` | `agent tui`（Textual） |
 | `web` | `agent web`（FastAPI + uvicorn） |
+| `desktop` | `agent gui`（pywebview 桌面窗口，需同时装 `web`） |
+| `secrets` | GUI 注入 API Key（写入操作系统密钥环） |
 
 > ⚠️ **必须先激活环境**：`agent` 命令装在环境自己的 `Scripts/` 下
 > （conda 为 `D:\anaconda3\envs\agent\Scripts`），未激活时不在 PATH 上，
@@ -61,10 +63,14 @@ agent --help
 ### 首次运行
 
 ```bash
-cp .env.example .env              # 填入 DEEPSEEK_API_KEY
+agent init                        # 或 cp .env.example .env；然后填入 DEEPSEEK_API_KEY
 agent doctor                      # 环境自检（不需要 API Key）
 agent sandbox-init                # 创建沙箱工作区
 ```
+
+多轮带工具对话用 `agent repl`；shell 补全用 `agent --install-completion`。
+L2 持久放行规则用 `agent rules --add "shell_exec:git status*"` 管理，
+写入 `.env` 的 `AGENT_ALLOW_RULES`，新进程生效。
 
 `doctor` 会检查：Python、依赖、API Key、WSL 发行版、沙箱用户是否非 root、
 工作区是否存在、检索后端（ripgrep / grep）、shell 隔离后端（`off` / `bwrap`）。
@@ -92,6 +98,86 @@ L2/L3 默认会**停下来问**。`--yes` 只跳过 L2；L3（`rm -rf`、`git re
 ```
 
 非交互环境（管道、CI）没有 stdin，一律**按拒绝处理**。这是有意的 fail closed。
+
+### 桌面 GUI 的权限模式
+
+`agent gui` 默认只读；`agent gui --write` 才允许会话选择写模式。每个会话在
+创建时绑定一档：
+
+| 模式 | 行为 |
+|---|---|
+| 只读 | 只允许读取文件/检索；shell、测试、Git、依赖、自动 verify、implement worker 全部拒绝 |
+| 审批写 | L1 文件写与 L2/L3 变更逐条审批 |
+| 自动写 | L1 自动；L2/L3 仍需审批 |
+
+只读模式不会运行任何项目命令；宿主侧的只读检索/解析工具仍可用。
+`production` / `ops` profile 永远强制只读 + deny。详见
+[GUI.md](GUI.md#3-文件访问权限)。
+
+## 桌面 GUI
+
+```bash
+pip install -e ".[web,desktop,secrets]"
+agent gui                     # 默认只读；本地随机端口 + 随机 token
+agent gui --write             # 允许会话选择审批写/自动写
+agent gui --workspace D:\proj
+```
+
+桌面窗口关闭前会协作式取消运行并最多等待 5 秒；超时仍关闭，checkpoint
+保留。设置页可测试 provider 连通性（只请求 `/models`，不发送任务内容）。
+
+窗口内可以：SSE 对话、查看计划/工具/文件改动、审批、pause/cancel/add/replan、
+快照 diff/回滚、checkpoint 回退/分叉、模型选择、GUI 注入 API Key、上传文件。
+上传写入工作区 `.agent/uploads`，不授予模型改源码的能力；单文件、单次数量
+与会话累计大小分别由 `AGENT_WEB_MAX_UPLOAD_BYTES`、
+`AGENT_WEB_MAX_UPLOAD_FILES`、`AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES` 限制。
+完整说明见 [GUI.md](GUI.md)。
+
+Phase 1 的 Windows 启动器/WSL Server 见 [PHASE1.md](PHASE1.md)；
+Phase 2 的专用 WSL 发行版与安装包见 [PHASE2.md](PHASE2.md)；
+Phase 3 的工作区选择、项目 Python 探测与 VS Code 集成见
+[PHASE3.md](PHASE3.md)。设置页可查看项目/Agent 两套解释器与建议测试命令，
+`/mnt` 工作区可一键复制到 WSL 原生目录。
+Phase 4 的会话管理、文件树、Git、上传、恢复中心与 Provider 档案见
+[PHASE4.md](PHASE4.md)；Phase 5 的诊断包、崩溃重启、更新检查与本地模型见
+[PHASE5.md](PHASE5.md)。四层架构、数据归属与 Windows+Linux 跨平台契约见
+[PHASE_A.md](PHASE_A.md)（Phase A 为设计契约，当前行为不变）。
+Phase B 的 A2 控制面 schema、会话目录接入与可选 MySQL 配置见
+[PHASE_B.md](PHASE_B.md)；Phase C 的 ExecutionService 契约与执行测试矩阵见
+[PHASE_C.md](PHASE_C.md)；Phase D 的 Windows 双进程 + WSL 启动、Linux
+systemd 安装、MySQL 迁移/备份与故障演练见 [PHASE_D.md](PHASE_D.md)；
+Phase E 的主题/字体/快捷键、SSE 重连、任务与推理、代码高亮与前端构建门禁见
+[PHASE_E.md](PHASE_E.md)；Phase F 的密钥/路径边界、性能基线与迁移回滚演练见
+[PHASE_F.md](PHASE_F.md)。
+
+安全/迁移演练（无需 API Key）：
+
+```bash
+pytest -m "not llm" tests/unit/test_phase_f_security.py -q
+python scripts/phase_f_drill.py
+python scripts/phase_f_bench.py     # 记录趋势，不设阈值
+```
+
+Linux 主机安装：
+
+```bash
+sudo packaging/systemd/install.sh --python /opt/coding-agent/venv/bin/python
+# 卸载（保留 /etc/coding-agent 与 /var/lib/coding-agent）
+sudo packaging/systemd/install.sh --uninstall
+```
+
+故障演练（无需 API Key）：
+
+```bash
+python scripts/phase_d_smoke.py
+```
+
+`agent gui` 首次运行会打开配置向导，之后直接启动；`agent gui --setup`
+可重新配置；`--host-mode` 回退旧宿主模式。
+
+Phase 0 的 WSL 内 Agent Server 见 [PHASE0.md](PHASE0.md)：
+`python -m coding_agent.server --port 8765 --token <token> --workspace <WSL路径>`，
+Windows 浏览器访问 `http://127.0.0.1:8765/#token=<token>`。
 
 ## 常见工作流
 
@@ -216,8 +302,9 @@ AGENT_ORCHESTRATOR_ENABLED=true AGENT_ORCHESTRATOR_WRITE_ENABLED=true \
 ```
 
 TUI 运行中可输入 `/pause` `/resume` `/cancel` `/add [角色] <目标>` `/replan`；
-CLI 与 Web 只透传事件，不提供控制入口。任务图、worker 成本/并发/冲突与
-干预延迟的评测方法见 [tests/eval/README.md](../tests/eval/README.md)。
+CLI 用 `agent steer` 注入指令、用 `agent resume` 从挂起状态恢复，Web 也提供
+对应按钮。任务图、worker 成本/并发/冲突与干预延迟的评测方法见
+[tests/eval/README.md](../tests/eval/README.md)。
 
 ## 配置来源
 
@@ -407,6 +494,10 @@ agent web --host 127.0.0.1 --behind-proxy
 非 loopback 且没有 token 会被拒绝；没有 TLS 且未声明 `--behind-proxy` /
 `--allow-insecure-remote` 也会被拒绝。同一数据目录只允许一个 Web 进程
 （单进程共享 governor）；不要使用 `uvicorn --workers > 1`。
+
+桌面/Web 的运行由后台 task 持有，SSE 连接断开不会取消运行；
+`GET /api/stream/{thread}?after=<seq>`（或 `Last-Event-ID`）可重放事件。
+事件缓冲在单进程内存中，多实例部署需要共享存储或粘性会话。
 
 4. 审计校验：
 

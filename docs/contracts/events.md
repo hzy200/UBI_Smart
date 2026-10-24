@@ -5,10 +5,10 @@
 事实源：`src/coding_agent/events.py`（pydantic 模型）。
 机器可读版本：[`events.json`](events.json)。
 
-前端（CLI / TUI / Web）**只**消费这里的事件，不导入 `tools/` 与 `sandbox/`。
+前端（CLI / TUI / Web / Desktop GUI）**只**消费这里的事件，不导入 `tools/` 与 `sandbox/`。
 这条边界由 `tests/unit/test_architecture.py` 用 AST 扫描守住。
 
-共 **27** 个事件类型。
+共 **28** 个事件类型。
 
 ## `approval_requested`
 
@@ -136,6 +136,19 @@ planner 完成分解。
 | `steps` | `list[str]` | `"Field(default_factory=list)"` |  |
 | `kinds` | `list[str]` | `"Field(default_factory=list)"` |  |
 | `step_idx` | `int` | `0` |  |
+
+## `reasoning_token`
+
+类 `ReasoningToken`
+
+provider 暴露的 reasoning/thinking 流（best-effort）。
+
+不是所有模型都提供；前端应默认折叠，不能把它当最终答复。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `node` | `str` | `""` |  |
+| `text` | `str` | `""` |  |
 
 ## `repair_started`
 

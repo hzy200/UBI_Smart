@@ -19,16 +19,23 @@ review_cadence: 工作流文件变动时
 
 | 步骤 | 命令 |
 |---|---|
-| 安装 | `pip install -e ".[dev,ui,web]"` |
+| 安装 | `pip install -e ".[dev,ui,web,db]"` |
 | lint | `ruff check src tests` |
+| 前端构建/类型 | `python scripts/build_frontend.py` + `tsc --noEmit` + `git diff --exit-code static/app.js` |
 | 测试 + 覆盖率 | `pytest -m "not wsl and not llm" --cov --cov-report=term-missing` |
+| 执行契约 | `pytest -m execution -q` |
+| Phase D 故障演练 | `python scripts/phase_d_smoke.py --timeout 60` |
+| Phase F 迁移/回滚 | `python scripts/phase_f_drill.py` |
 | 显式化沙箱缺口 | `::warning::` 提示 wsl 用例未执行 |
 
 必须装齐 `ui` / `web` extras：TUI（textual）与 Web（fastapi）测试需要它们，
 缺一个会导致 collection error 而非 skip。这两条都曾导致过 CI 失败。
+`desktop` 测试用 mock 覆盖启动/取消逻辑，不要求 CI 安装 pywebview；
+真实窗口与 OS 密钥环只做本地冒烟。
 
 **覆盖率门槛 `fail_under=76`** 按 CI 实际执行的子集定，不是贴着实测值
-（Windows 实测 78.87%，CI 跑 Linux 会小幅漂移）。原理见 `pyproject.toml` 的注释。
+（2026-10-24 CI 子集实测 **77.70%**；Linux/Windows 会有小幅漂移）。
+子系统缺口见 [COVERAGE.md](COVERAGE.md)。原理见 `pyproject.toml` 的注释。
 
 ### 已知缺口
 

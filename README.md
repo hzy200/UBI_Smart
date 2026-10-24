@@ -38,7 +38,7 @@ orchestrator 子图，拆成 DAG 并发处理，最后把结构化结果交回�
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ 前端：CLI / TUI / Web                                                │
+│ 前端：CLI / TUI / Web / Desktop GUI                                  │
 │ 只消费 Event；不导入 tools / sandbox                                 │
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ AsyncIterator[Event]
@@ -130,8 +130,9 @@ survey
 全部 --check → 解析路径 → 全部留快照 → 顺序 git apply → 失败则反向撤销/回滚
 ```
 
-同一批 implement 补丁作为**一个事务**合并：任一补丁冲突，整批回滚，不会留下
-半合并状态。`write_scope` 有**写时校验**：文件工具在 I/O 前就拒绝越界路径，
+补丁按**共享文件的连通分量**分批，每个分量作为一个事务：分量内任一补丁冲突
+只回滚本分量，不会影响改其它文件的 worker，也不会留下半合并状态。
+`write_scope` 有**写时校验**：文件工具在 I/O 前就拒绝越界路径，
 事后 diff 校验保留为第二道防线。
 
 fan-in 不再只做位置截断：
@@ -145,7 +146,7 @@ fan-in 不再只做位置截断：
 ### 事件边界
 
 前端只消费 `events.py` 中的 pydantic 事件，不认识 LangGraph，也拿不到工具与沙箱。
-CLI / TUI / Web 因此都无法绕过命令分级审批。这条边界由
+CLI / TUI / Web / Desktop GUI 因此都无法绕过命令分级审批。这条边界由
 `tests/unit/test_architecture.py` 用 AST 扫描守住。
 
 细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 与
@@ -201,7 +202,7 @@ CodingAgent/
 │  ├─ llm/                     # DeepSeek 客户端 · 提示词 · 上下文裁剪
 │  ├─ memory/                  # checkpoint · 会话索引 · 长期记忆
 │  ├─ audit/                   # JSONL 审计
-│  └─ cli/ tui/ web/           # 三种前端
+│  └─ cli/ tui/ web/ desktop/   # 四种前端
 ├─ tests/
 │  ├─ unit/                    # 纯逻辑 + 假图驱动的 runtime 事件流
 │  ├─ integration/             # 真实 WSL 沙箱
@@ -251,6 +252,9 @@ pip install -e ".[dev,ui,web]"
 | `dev` | `pytest` / `ruff` / `pytest-xdist` / `pytest-cov` |
 | `ui` | `agent tui`（Textual） |
 | `web` | `agent web`（FastAPI + uvicorn） |
+| `desktop` | `agent gui`（pywebview 窗口） |
+| `secrets` | GUI 注入 API Key（OS 密钥环） |
+| `embeddings` | 记忆向量检索（fastembed 本地模型） |
 
 验证安装：
 
@@ -262,11 +266,13 @@ agent --help
 ### 2. 配置与运行
 
 ```bash
-cp .env.example .env              # 填入 DEEPSEEK_API_KEY
+agent init                        # 或 cp .env.example .env；然后填入 DEEPSEEK_API_KEY
 agent doctor                      # 环境自检（不需要 API Key）
 agent sandbox-init                # 创建沙箱工作区
 agent run "看看当前工作区有哪些文件"
 agent tui                         # 终端界面
+agent gui                         # 桌面图形界面（默认只读）
+agent gui --write                 # 允许会话选择审批写/自动写
 ```
 
 默认配置已启用 harness 路径；小仓库仍由 runtime 选择 direct 快速路径。
@@ -276,22 +282,32 @@ agent tui                         # 终端界面
 
 | 命令 | 用途 |
 |---|---|
+| `agent init` | 从 `.env.example` 创建 `.env`（默认不覆盖） |
 | `agent doctor` | 环境自检：Python、依赖、API Key、WSL、检索后端、shell 隔离 |
 | `agent sandbox-init` | 创建并校验沙箱工作区 |
 | `agent chat` | 纯流式对话（无工具），验证 API 联通 |
-| `agent run <指令>` | 跑一轮任务；`-C` 指定工作区，`--write` 放开写入，`-y` 跳过确认 |
-| `agent tui` | 终端界面（推荐，能力最全） |
+| `agent repl` | 带工具的交互式多轮会话（支持审批与 `/new`） |
+| `agent run <指令>` | 跑一轮任务；`-C` 指定工作区，`--write` 放开写入，`-y` 跳过确认，`--plan-only` 只预览计划 |
+| `agent resume --thread-id <id>` | 从 checkpoint 恢复审批/`/pause` 挂起的会话（跨进程） |
+| `agent tui` | 终端界面（能力最全） |
+| `agent gui` | 桌面图形界面：SSE、计划/工具/文件、审批、快照回滚、模型/密钥、上传（需 `.[web,desktop]`，密钥注入再加 `.[secrets]`） |
 | `agent steer --thread-id <id> <action>` | 向运行中的会话注入 pause/cancel/add/replan |
-| `agent web` | Web 验证界面：SSE、审批、pause/cancel/add/replan、resume（需 `.[web]`） |
+| `agent web` | Web 验证/多用户界面：SSE、审批、pause/cancel/add/replan、resume（需 `.[web]`） |
 | `agent snapshots` / `undo` / `diff` | 查看快照、回滚、看改动 |
-| `agent sessions` | 历史会话列表 |
+| `agent sessions` / `history` | 历史会话列表 / 单个会话的对话记录（支持 `--json`） |
 | `agent memory` | 查看/维护项目记忆 |
-| `agent audit` | 查看审计日志 |
+| `agent rules` | 查看/添加/删除 `AGENT_ALLOW_RULES` 持久放行规则 |
+| `agent audit` | 查看审计日志（支持 `--json`） |
 
-TUI 快捷键：`Ctrl+Q` 退出 · `Ctrl+N` 新会话 · `Ctrl+L` 清屏。
+Shell 补全：`agent --install-completion` / `agent --show-completion`（Typer 内置）。
+
+TUI 快捷键：`Ctrl+Q` 退出（运行中会确认） · `Ctrl+N` 新会话 · `Ctrl+L` 清屏 ·
+`F2` / `Ctrl+J` 多行输入。
+输入框内 `↑/↓` 浏览历史，`→` 接受斜杠命令补全。
 
 斜杠命令：`/help` `/new` `/clear` `/workspace` `/audit` `/snapshots` `/diff`
-`/undo` `/sessions` `/switch` `/memory` `/remember` `/forget` `/quit`。
+`/undo` `/sessions` `/switch` `/checkpoints` `/status` `/cost` `/memory`
+`/remember` `/forget` `/quit`。
 
 运行中干预：`/pause` `/resume` `/cancel` `/add [角色] <目标>` `/replan`。
 
@@ -500,22 +516,60 @@ agent undo                   # 回滚最近一次改动
 agent sessions                       # 历史会话
 agent run --thread-id <id> "继续"     # 接着某个会话
 agent memory --add "本仓库用 uv"      # 记一条项目约定
+agent memory --history               # 查看记忆备份
+agent memory --restore <备份 id>      # 恢复到某次写入前
 agent checkpoints --thread-id <id>   # 查看可回退/分叉的 checkpoint
 agent fork --thread-id <id>          # 从当前状态分叉出新会话
 agent rewind --thread-id <id> -n 1   # 回退 1 个 checkpoint（历史保留）
 ```
 
 会话存在 SQLite 中，跨进程可恢复。会话列表直接归纳自审计日志。
-项目记忆是 `.agent/memory.md` 的纯文本（一行一条），每次运行按与请求的相关度
-取前 `AGENT_MEMORY_TOP_K` 条注入系统提示；模型也可以用 `memory_search` 按需检索，
-`--write` 会话可用 `memory_save` 记下一条稳定约定。写入前会扫描密钥；高度相似
-的新旧事实保留最新版本；来源/时间/过期信息在同目录的 `memory.meta.json`。
-仓库内的 `AGENTS.md` / `CLAUDE.md` 作为分层指令单独注入。刻意不做后台自动提炼。
+项目记忆是 `.agent/memory.md` 的纯文本（一行一条），每次运行用 **BM25 + 时间衰减 +
+pinned/priority 权重** 取前 `AGENT_MEMORY_TOP_K` 条注入系统提示；模型也可以用
+`memory_search` 按需检索，`--write` 会话可用 `memory_save` 记下一条稳定约定。
+写入前和读取时都会扫描密钥；高相似事实自动替换，中等相似事实保留并标记
+`conflicts_with`（`agent memory --conflicts` 查看）；来源/原因/时间/过期/线程信息
+在同目录的 `memory.meta.json`；每次写入前备份到 `.agent/memory.backups/`（保留
+20 份）。用户与模型的记忆写入都会落 `kind=memory` 审计。不可信/生产 profile 下
+`memory_save` 会升级为需确认或拒绝，且不可信仓库的记忆根按工作区哈希隔离。
+可用 `AGENT_MEMORY_GLOBAL_ROOT` 配置跨工作区全局记忆（`agent memory --global`），
+项目记忆优先于全局记忆。可选安装 `.[embeddings]` 并设置
+`AGENT_MEMORY_VECTOR_ENABLED=true` 启用本地向量混合检索（RRF）；也可用
+`provider=remote` 接 OpenAI-compatible embedding，但必须同时设置
+`AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS=true`，且 untrusted/production
+profile 一律拒绝（记忆内容会离开本机）。任何 embedding 失败都会自动回退
+BM25，`agent memory --vector-status/--reindex` 用于检查与重建索引。仓库内的 `AGENTS.md` / `CLAUDE.md` 作为分层指令单独注入。
+刻意不做后台自动提炼。
 
 ## 界面
 
-**TUI 是主要界面**（`agent tui`）：计划面板、任务图/worker 时间线、流式输出、
-审批弹窗。侧栏常驻显示会话、工作区与权限等级。
+**桌面 GUI**（`agent gui`）：Windows 薄壳 + WSL 内 Agent Server（Phase 1），
+复用 Web 的事件与审批链路。默认只读；会话可选择只读/审批写/自动写，按会话绑定工作区，
+支持 SSE、计划/工具/文件面板、审批、pause/cancel/add/replan、快照/diff/回滚、
+checkpoint/fork/rewind、模型选择、GUI 注入 API Key（OS 密钥环）与文件上传。
+Phase 0 还提供 WSL 内 Agent Server：`python -m coding_agent.server`，
+Windows 只通过 loopback/SSE 访问，工具不再逐条启动 `wsl.exe`。
+详见 [docs/GUI.md](docs/GUI.md)、[docs/PHASE0.md](docs/PHASE0.md)
+与 [docs/PHASE1.md](docs/PHASE1.md)、[docs/PHASE2.md](docs/PHASE2.md)、
+[docs/PHASE3.md](docs/PHASE3.md)、[docs/PHASE4.md](docs/PHASE4.md)、
+[docs/PHASE5.md](docs/PHASE5.md)。四层（前端/控制面/编排面/执行面）与
+Windows+Linux 跨平台契约见 [docs/PHASE_A.md](docs/PHASE_A.md)；
+Phase B 控制面首切片见 [docs/PHASE_B.md](docs/PHASE_B.md)；
+Phase C 的执行契约见 [docs/PHASE_C.md](docs/PHASE_C.md)。
+Windows 上 `agent gui` 默认走“配置向导 + WSL Agent Server + WebView”；
+Phase 2 提供专用 WSL 发行版与 Inno Setup 安装包构建脚本；
+Phase 3 增加原生文件夹选择、`/mnt` → WSL 复制、VS Code Remote-WSL 打开，
+并在设置页同时展示项目 Python 与 Agent Python（项目测试优先用项目解释器）。
+Phase 4 补齐会话搜索/改名/删除/导出、只读文件树、Git 面板、逐文件接受/拒绝、
+上传配额、恢复中心、Provider 档案与模型发现、预算与系统通知。
+Phase 5 增加脱敏诊断包、server 崩溃看门狗、清单式更新检查、diff 折叠与
+本地 OpenAI 兼容端点预设。Phase A 是先行的架构契约：前端 / 控制面 / 编排面 /
+执行面四分，Windows 用 WSL 执行面、Linux 用原生执行面，控制面可接 Windows
+本机 MySQL；当前代码行为不变。
+
+**TUI 是能力最全的终端界面**（`agent tui`）：计划面板、任务/worker 状态面板、可滚动流式输出、
+Markdown/代码块渲染、审批弹窗。侧栏常驻显示会话、工作区、权限等级、模型、
+运行状态与成本；输入框支持 ↑/↓ 命令历史、斜杠命令补全与多行编辑（F2）。
 
 **Web 是验证/多用户界面**（`agent web`）：SSE 流式对话、多会话列表、
 审批、pause/cancel/add/replan、审批/暂停后的 resume。
@@ -526,7 +580,7 @@ Web 在 runtime 被 TTL 清理或进程重启后，会从 per-user checkpoint �
 
 **CLI 实时干预**：`agent steer --thread-id <id> pause|cancel|add|replan`
 把指令写入 `.agent/steering/`，运行中的进程在下一个边界消费。
-Web 支持跨进程 resume；TUI 持有进程内 runtime；CLI 不提供 resume 子命令。
+Web、CLI（`agent resume`）都支持跨进程 resume；TUI 持有进程内 runtime。
 
 ## 演示
 
@@ -548,7 +602,7 @@ make check            # lint + 快反馈测试
 make test-all         # 全量（含真实 WSL）
 make cov              # 快反馈子集 + 覆盖率门槛
 
-pytest -m "not wsl and not llm"   # 单元 + TUI + Web
+pytest -m "not wsl and not llm"   # 单元 + TUI + Web + Desktop
 pytest -m "not llm"               # 全量（含真实 WSL）
 ruff check src tests
 
@@ -572,7 +626,7 @@ CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`
 
 - `tests/unit`：纯逻辑，含假图驱动的 runtime 事件流；
 - `tests/integration`：真实 WSL 沙箱，环境不具备时自动跳过；
-- `tests/tui` 与 `tests/unit/test_web_app.py`：无头界面；
+- `tests/tui`、`tests/unit/test_web_app.py` 与 `tests/unit/test_desktop_bootstrap.py`：无头界面；
 - `tests/eval`：能力评测，需 API Key，不进 CI。
 
 关键不变量见
@@ -605,7 +659,7 @@ CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`
 | `AGENT_ORCHESTRATOR_WORKER_MODEL` | 空 | worker 专用模型；空 = 继承主模型 |
 | `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` | `false` / — | 调用链追踪 |
 
-配置多个 provider 时默认按 `AGENT_LLM_ROUTING_STRATEGY=cost` 选择可用且未超配额的最便宜 provider（`priority` 策略则按配置顺序）。每个 provider 可配置 `input_cost_per_1m` / `output_cost_per_1m`、`max_tokens`、`max_cost` 配额，以及 `capabilities` / `task_types` 过滤；用量从模型回报的 usage 累计。429 会把该 provider 放入冷却并自动切到下一个，非 429 错误由 `AGENT_LLM_FALLBACK_ON_ERROR` 控制是否 fallback。冷却与用量默认写入 `.agent/rate_limits.json`（文件锁 + 原子替换），多个 `agent` 进程共享；scheduler 的限流退避也会写入同一份全局协调器。每次 run 结束前会发出 `CostReport`（tokens、费用、provider 拆分、预算告警），CLI/TUI/Web 都会展示。开启 `AGENT_BILLING_ENABLED` 后，还会按 provider 的 `billing` 配置拉取账单 API，报告账单金额与本地估算的差额；单个 provider 对账失败不会影响 run。
+配置多个 provider 时默认按 `AGENT_LLM_ROUTING_STRATEGY=cost` 选择可用且未超配额的最便宜 provider（`priority` 策略则按配置顺序）。每个 provider 可配置 `input_cost_per_1m` / `output_cost_per_1m`、`max_tokens`、`max_cost` 配额，以及 `capabilities` / `task_types` 过滤；用量从模型回报的 usage 累计。429 会把该 provider 放入冷却并自动切到下一个，非 429 错误由 `AGENT_LLM_FALLBACK_ON_ERROR` 控制是否 fallback。冷却与用量默认写入 `.agent/rate_limits.json`（文件锁 + 原子替换），多个 `agent` 进程共享；scheduler 的限流退避也会写入同一份全局协调器。每次 run 结束前会发出 `CostReport`（tokens、费用、provider 拆分、预算告警），CLI/TUI/Web/Desktop GUI 都会展示。开启 `AGENT_BILLING_ENABLED` 后，还会按 provider 的 `billing` 配置拉取账单 API，报告账单金额与本地估算的差额；单个 provider 对账失败不会影响 run。
 
 ### WSL2 沙箱
 
@@ -635,7 +689,7 @@ CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`
 |---|---|---|
 | `AGENT_ORCHESTRATOR_ENABLED` | `true` | 启用 harness；小仓库仍走 direct 快速路径 |
 | `AGENT_ORCHESTRATOR_WRITE_SCOPE_ENFORCE` | `true` | 写时校验 `write_scope` |
-| `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` | `false` | 允许多个 implement 改同一文件；用 `git apply --3way` 合并，冲突整批回滚 |
+| `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` | `false` | 允许多个 implement 改同一文件；用 `git apply --3way` 合并，冲突只回滚所在分量 |
 | `AGENT_ORCHESTRATOR_FANOUT_ARTIFACTS` | `true` | fan-in 落 `.agent/artifacts/` |
 | `AGENT_ORCHESTRATOR_MIN_FILES` | `30` | 文件数达到该值才进入编排 |
 | `AGENT_ORCHESTRATOR_MAX_TASKS` | `6` | 任务总数（含动态扩展） |
@@ -691,6 +745,18 @@ CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`
 |---|---|---|
 | `AGENT_CONTEXT_MAX_CHARS` / `_MAX_TOKENS` / `_KEEP_RECENT` / `_TOOL_CHARS` | `60000` / `0` / `12` / `1500` | 上下文裁剪；字符/token 任一超限即降档，0 = 该预算关闭 |
 | `AGENT_MEMORY_TOP_K` | `8` | 每次运行注入的相关记忆条数；0 = 全部注入 |
+| `AGENT_MEMORY_GLOBAL_ROOT` | 空 = `$HOME/.agent-memory/global` | 跨工作区全局记忆根 |
+| `AGENT_MEMORY_VECTOR_ENABLED` | `false` | 开启 BM25 + 向量混合检索；失败自动回退 BM25 |
+| `AGENT_MEMORY_EMBEDDING_PROVIDER` | `local` | `local`（fastembed）/ `hash`（测试）/ `none` |
+| `AGENT_MEMORY_EMBEDDING_MODEL` | `BAAI/bge-small-zh-v1.5` | 本地模型 |
+| `AGENT_MEMORY_EMBEDDING_DIM` | `512` | 必须与模型输出维度一致 |
+| `AGENT_MEMORY_VECTOR_TOP_N` | `20` | 向量/词法各取多少候选做 RRF |
+| `AGENT_MEMORY_FUSION` | `rrf` | 当前只支持 `rrf` |
+| `AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS` | `false` | 远程 embedding 双重开关；仅 local profile 可用 |
+| `AGENT_MEMORY_EMBEDDING_BASE_URL` | 空 | OpenAI-compatible base URL，如 `https://api.openai.com/v1` |
+| `AGENT_MEMORY_EMBEDDING_API_KEY` | 空 | 远程 embedding Key |
+| `AGENT_MEMORY_EMBEDDING_TIMEOUT_S` | `10` | 远程请求超时 |
+| `AGENT_MEMORY_EMBEDDING_BATCH_SIZE` | `64` | 单次请求的事实条数 |
 | `AGENT_INSTRUCTIONS_ENABLED` | `true` | 发现并注入仓库内的 `AGENTS.md` / `CLAUDE.md`（最多 4 层、总量 24k 字符） |
 | `AGENT_SESSION_BRIEF_CHARS` | `4000` | 编排子图/worker 的会话约束摘要上限；0 = 关闭 |
 | `AGENT_READ_CACHE_MAX_BYTES` | `64MB` | run 级文件内容缓存上限（LRU）；0 = 关闭 |
@@ -726,11 +792,11 @@ CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`
 
 ## 已知限制与后续
 
-- 测试影响分析优先用 **AST import 图 + 反向依赖闭包**，并保留文件名启发式兜底；动态 import/复杂包根仍可能漏判，匹配不到时跑完整验证；
-- 共享文件的多个 implement 默认仍要求 `write_scope` 不重叠；开启 `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` 后用 3-way 合并，真实冲突会整批回滚；
-- steering 指令与 pause 标记默认落盘；跨进程恢复需走 `resume`，新 run 会按设计清空旧指令；
-- 任务级 token 上限与 scheduler 全局 token 准入已接入；预留是角色级估算，不是精确的 prompt token 计数；
-- 最近一轮只跑了非 LLM 回归；真实模型评测需自行执行并承担 API 费用。
+- 测试影响分析优先用 **AST import 图 + 反向依赖闭包**，并保留文件名启发式兜底；字面量 `importlib.import_module` / `__import__` 会补进 import 图，非字面量动态导入、语法错误或改动文件未被索引时**保守回退全量验证**；复杂包根仍按 `src` / `lib` 识别；
+- 共享文件的多个 implement 默认仍要求 `write_scope` 不重叠；开启 `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` 后用 3-way 合并，真实冲突只回滚共享文件所在的连通分量；
+- steering 指令与 pause 标记默认落盘并绑定 `run_id`；新 run 只清理旧 run 残留（清理动作落审计），跨进程恢复可用 `agent resume`、TUI 或 Web；
+- 任务级 token 上限与 scheduler 全局 token 准入已接入；派发预留优先用显式 `max_tokens`，否则用同角色历史用量 EWMA ×1.2（下限 500 / 上限 16000），仍不是精确的 prompt token 计数；
+- 真实模型回归由 `.github/workflows/llm.yml` 每周定时跑 `-m llm`（需 `DEEPSEEK_API_KEY` secret）；能力评测（`tests/eval`）仍需带 WSL2 的 runner 或本地执行，并自行承担 API 费用。
 
 ## 文档
 
@@ -741,6 +807,7 @@ CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | 运行 / 开发 / 使用三套工作流、路由与状态生命周期 |
 | [docs/COMPLEXITY.md](docs/COMPLEXITY.md) | 复杂度度量、热点分布、耦合方向与降复杂度建议 |
 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | 环境配置、依赖版本快照、复现与导出、常见问题 |
+| [docs/MANUAL.md](docs/MANUAL.md) | **配置指南与使用手册**：配置分组、常用配方、CLI/TUI/REPL/Web、审批、排障 |
 | [docs/USAGE.md](docs/USAGE.md) | 常见工作流、配置来源、故障排查 |
 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 需求逐条对照、自检清单、已知限制 |
 | [docs/rfc/](docs/rfc/README.md) | RFC 流程与模板（动手前的范围与权衡；批准后落 ADR、契约与验收锚点） |

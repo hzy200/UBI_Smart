@@ -4,7 +4,7 @@ doc_id: glossary
 title: 统一语言词汇表
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 review_cadence: 引入新术语或发现新歧义时
 criticality: 高
 note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系统并存，动手前先查这里。
@@ -111,8 +111,8 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 
 | 词 | 在哪一侧 | 说明 |
 |---|---|---|
-| **宿主侧** | Windows | `<cwd>/.agent/`：checkpoint、audit、steering、rate_limits |
-| **沙箱侧** / **工作区** | WSL2 | `<工作区>/.agent/`：backups（快照）、memory.md、artifacts |
+| **宿主侧** | Windows 或 Linux 宿主进程 | `<cwd>/.agent/`：checkpoint、audit、steering、rate_limits |
+| **沙箱侧** / **工作区** | WSL2（Windows）或 Linux 本地 | `<工作区>/.agent/`：backups（快照）、memory.md、artifacts |
 | **工作区**（workspace） | 沙箱内 | 用户用 `-C` 指定的根目录；所有读写与命令限定在此 |
 
 两侧都在 `.agent/` 下但**内容不同、被保护的方式不同**，别混。
@@ -129,7 +129,20 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 | `checkpoint_every` | 每完成多少个任务形成一次 checkpoint/干预边界；**不再限制每边界能启动几个** |
 | `steering` | 运行中干预（pause/cancel/add/replan），只在节点边界消费 |
 
-## 九、评测术语
+## 九、GUI / 会话权限术语
+
+| 词 | 含义 |
+|---|---|
+| 桌面 GUI | `desktop/` 启动的 pywebview 窗口；Windows 默认经 WSL Agent Server，Linux 走本机 `run_desktop`；复用 `web/` 与 `AgentRuntime`，不是第二套执行链路 |
+| `access_mode` | 会话级权限：`read_only`（只读、不运行）、`write_ask`（逐条审批）、`write_auto`（L1 自动） |
+| 会话配置 | `thread_id → workspace / access_mode / model / provider / uploaded_bytes`；持久化在租户审计目录的 `gui-sessions.json` |
+| 缓冲 SSE / 事件重放 | 运行由后台 task 持有，事件带递增 `id`；`after` / `Last-Event-ID` 可补齐断线期间的事件 |
+| 上传收件箱 | 用户上传写入工作区 `.agent/uploads`，不授予模型改源码权限；有单文件、单次数量、会话累计上限 |
+| provider profile | provider/model/base_url/成本/能力组合；单用户/桌面可在 GUI 增删改，多用户必须用 `AGENT_LLM_PROVIDERS`（profile 写入返回 403） |
+| 密钥命名空间 | 桌面用默认 `coding-agent`，多用户用 `coding-agent:<user>`；key 只进 OS 密钥环 |
+| 压缩并分叉 | 用确定性摘要 + 最近纯文本轮次创建新 thread；原 thread 保留，不原地删消息 |
+
+## 十、评测术语
 
 | 词 | 含义 |
 |---|---|
@@ -142,3 +155,35 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 
 > 措辞上刻意**不写**「置信区间 / 显著性」：重复 2~3 次没有那种统计效力，
 > 把它写成区间等于给噪声套上科学的壳。
+
+## 十一、目标架构分层（A1–A4）
+
+> 不要写 L1–L4：命令风险分级已经占用 L0–L3，文档还有“文档 L 层”用法。
+> 架构层一律用 **A1–A4**，见 [PHASE_A.md](PHASE_A.md)。
+
+| 规范名 | 职责 | 当前锚点 |
+|---|---|---|
+| **A1 前端** | 渲染、SSE、审批交互、主题/字体、平台桥 | `src/coding_agent/web/static/`、`src/coding_agent/cli/app.py`、`src/coding_agent/tui/app.py` |
+| **A2 控制面** | 认证、租户、会话目录、运行/审批索引、配额、Provider 档案、MySQL | `src/coding_agent/web/app.py`、`src/coding_agent/tenancy.py` |
+| **A3 编排面** | 图、LLM、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/coding_agent/runtime.py`、`src/coding_agent/graph/`、`src/coding_agent/orchestrator/` |
+| **A4 执行面** | shell、文件、Git、测试、快照、worktree、上传落盘 | `src/coding_agent/tools/`、`src/coding_agent/sandbox/` |
+
+| 词 | 含义 |
+|---|---|
+| 控制面 | A2：业务与数据管理，**不执行工具**、不直接读写工作区 |
+| 编排面 | A3：决定“做什么、是否批准”，拥有 checkpoint/运行状态 |
+| 执行面 | A4：唯一产生副作用的地方，做路径/能力二次强制 |
+| Standalone / Agent 本地模式 | CLI/TUI 直接驱动 A3+A4，不依赖 A2、MySQL 或前端 |
+| 运行索引 | A2 保存的 run 状态/时间线索引，不是 checkpoint 本身 |
+| 审计索引 | A2 保存的查询索引；可信源仍是 A3 的本地哈希链 |
+| `seq`（SSE） | 同一 thread 内单调的事件序号，用于 `after` / `Last-Event-ID` 重放 |
+| 会话租约 | 目标态：同一会话同时只允许一个活跃 run 的租约；当前由单进程 registry 近似 |
+| 执行回执（receipt） | 目标态：A4 对一次执行返回的幂等结果与快照/退出信息 |
+| SecretProvider | A2 的密钥托管抽象：桌面用 OS 密钥环，服务器用 Vault/KMS/systemd-creds；WSL 不持久化 |
+| 共享事件传输 | 多实例 A3→A2 的事件通道（建议 Redis Streams），按 thread 保序、短 TTL、按 `seq` 重放；单实例用内存适配器 |
+| Standalone 持久化 | CLI/TUI/开发/测试/eval 的本地文件/SQLite，不依赖 A2 或 MySQL |
+| SPA + esbuild/TS | 前端保持静态 SPA 与 CSP，用 esbuild/TypeScript 构建，不引入 React/Vue |
+| ExecutionService | A3→A4 的唯一执行入口：请求/回执/幂等/执行序号；不做审批 |
+| `op_id` | 执行请求的幂等键；同一 op_id 不同 payload 是冲突 |
+| 执行 `seq` | 按 run 单调的执行操作序号，**不等于** Web SSE 的事件 `seq` |
+| 执行回执 | `.agent/execution/receipts.jsonl` 中的结果；重复 op_id 返回 replayed=true |

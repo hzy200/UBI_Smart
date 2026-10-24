@@ -4,7 +4,7 @@ doc_id: adr-index
 title: 架构决策记录索引
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 review_cadence: 每次新增决策时
 ---
 
@@ -35,6 +35,8 @@ review_cadence: 每次新增决策时
 | [0006](0006-eval-judge-stdlib-unittest.md) | 评测判定固定用 stdlib unittest，不用 pytest | accepted | 评测 · 事故驱动 |
 | [0007](0007-eval-fixture-deterministic-generator.md) | 长程评测仓库用确定性生成器，不用真实仓库 | accepted | 评测 · 偏离计划 |
 | [0008](0008-memory-no-auto-distillation.md) | 长期记忆只做显式增删，不做 LLM 自动提炼 | accepted | 记忆 · 可审计性 |
+| [0009](0009-desktop-gui-access-modes.md) | 桌面 GUI 复用本地 FastAPI，并引入三档会话访问模式 | accepted | GUI · 安全 · 权限 |
+| [0010](0010-four-layer-phase-b-decisions.md) | 四层拆分的 Phase B 落地决策 | accepted | 架构 · 控制面 · 事件 · 前端 |
 
 ## 待补录候选
 

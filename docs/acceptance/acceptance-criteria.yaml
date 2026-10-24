@@ -8,7 +8,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 review_cadence: 需求或测试变动时
 convention:
   id_prefix: REQ
@@ -217,14 +217,15 @@ criteria:
     tests: [tests/unit/test_orchestrator.py::test_overlapping_write_scopes_are_rejected, tests/unit/test_orchestrator.py::test_implement_tasks_cannot_depend_on_each_other]
 
   - id: REQ-22
-    title: 同一批 implement 补丁作为一个事务合并
+    title: implement 补丁按文件连通分量各自原子合并
     given: 一批 implement patch
     when: 宿主在主工作区合并
     then: |
-      全部 --check → 解析路径 → 全部留快照 → 顺序 apply；
-      任一失败反向撤销已应用补丁，必要时恢复快照，**不留半合并状态**。
+      按共享文件分成互不影响的连通分量；分量内全部 --check → 解析路径 →
+      全部留快照 → 顺序 apply；任一失败只反向撤销本分量，必要时恢复快照，
+      其它分量不受影响，**不留半合并状态**。
     status: implemented
-    tests: [tests/unit/test_atomic_merge.py::test_second_patch_failure_rolls_back_the_first, tests/integration/test_implement_worker.py::test_merged_patch_takes_snapshots_so_undo_can_restore]
+    tests: [tests/unit/test_atomic_merge.py::test_failure_only_rolls_back_its_component, tests/unit/test_atomic_merge.py::test_failure_rolls_back_the_whole_shared_component, tests/integration/test_implement_worker.py::test_merged_patch_takes_snapshots_so_undo_can_restore]
 
   - id: REQ-23
     title: 等待合并的 implement 不会被重新派发
@@ -291,7 +292,7 @@ criteria:
   # ---------------------------------------------------------------- 前端边界
   - id: REQ-30
     title: 前端不得导入 tools/ 或 sandbox/
-    given: cli/ tui/ web/ 任一模块
+    given: cli/ tui/ web/ desktop/ 任一模块
     when: AST 扫描检查 import
     then: 没有任何指向 tools/ 或 sandbox/ 的边
     status: implemented
@@ -386,3 +387,838 @@ criteria:
     then: 开跑**之前**退出码 2 拒绝（--force 可绕过并标记 comparable=false）
     status: implemented
     tests: [tests/unit/test_eval_compare.py::test_delta_within_spread_refuses_conclusions]
+
+  # ---------------------------------------------------------------- 桌面 GUI
+  - id: REQ-41
+    title: 桌面 GUI 只监听 loopback 且要求随机 token
+    given: agent gui 启动
+    when: 访问 /api/*
+    then: 无 token 返回 401；/healthz 仍可用于启动探针；服务只绑 127.0.0.1
+    status: implemented
+    tests: [tests/unit/test_desktop_bootstrap.py::test_desktop_server_requires_token]
+
+  - id: REQ-42
+    title: 只读会话不执行任何项目命令
+    given: 会话 access_mode=read_only
+    when: 模型请求 shell_exec / run_tests / git / deps
+    then: 策略层直接拒绝；自动 verify 与编排 implement 也被关闭
+    status: implemented
+    tests: [tests/unit/test_approve.py::test_read_only_denies_execution_even_at_read_level, tests/unit/test_approve.py::test_read_only_never_asks_for_writes]
+
+  - id: REQ-43
+    title: 写模式必须由服务端显式开启
+    given: 服务端未带 --write
+    when: 创建 write_ask / write_auto 会话
+    then: 返回 403；只有只读会话可创建
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_write_mode_requires_server_write_flag]
+
+  - id: REQ-44
+    title: 模型切换只在空闲时生效
+    given: 会话没有运行中的 runtime
+    when: POST /api/sessions/{thread}/model
+    then: 保留 thread/checkpoint，下一次 run 用新 provider/model 重建 runtime
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_model_switch_is_idle_only_and_reaches_runtime]
+
+  - id: REQ-45
+    title: 上传只进 .agent/uploads
+    given: 已绑定工作区的会话
+    when: 上传文件
+    then: 写入 .agent/uploads，且不授予模型写源码权限；文件名只取 basename
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_upload_goes_to_agent_uploads]
+
+  - id: REQ-46
+    title: 会话配置可跨进程恢复
+    given: 已创建会话
+    when: 进程重启后读取 /api/capabilities
+    then: workspace / access_mode / model 从租户目录的 gui-sessions.json 恢复
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_session_config_survives_app_restart]
+
+  - id: REQ-47
+    title: 上下文压缩只分叉，不原地删消息
+    given: 一个已有 tool_calls 的会话
+    when: POST /api/context/{thread}/compact
+    then: 新建 thread 只含确定性摘要 + 最近纯文本轮次；原 thread 保留；新分支不含 ToolMessage / tool_calls
+    status: implemented
+    tests: [tests/unit/test_compact.py::test_compact_creates_a_text_only_branch, tests/unit/test_web_gui_api.py::test_compact_creates_a_new_session]
+
+  - id: REQ-48
+    title: reasoning 流只在 provider 提供时展示
+    given: 模型 chunk 携带 reasoning_content 或 reasoning/thinking content block
+    when: runtime 消费 messages 流
+    then: 发 ReasoningToken；拿不到时返回空串，不伪造；GUI 默认折叠
+    status: implemented
+    tests: [tests/unit/test_reasoning.py::test_reasoning_from_additional_kwargs, tests/unit/test_reasoning.py::test_no_reasoning_returns_empty]
+
+  - id: REQ-49
+    title: 多用户 API Key 按用户隔离
+    given: Web 多用户模式，两个已认证用户
+    when: 用户 A 通过 GUI 保存 provider key
+    then: key 写入 coding-agent:<user> 命名空间；用户 B 看不到；provider base_url 仍由管理员配置
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_multi_user_keys_are_stored_per_user]
+
+  - id: REQ-50
+    title: 运行与 SSE 连接解耦，可按序号重放
+    given: stream_buffer 模式（desktop / agent web）
+    when: 客户端断开后重新连接 /api/stream/{thread}?after=N
+    then: 后台 run task 继续；事件带 id；重连补齐 N 之后的事件；正常结束关闭 runtime
+    status: implemented
+    tests: [tests/unit/test_web_stream_buffer.py::test_buffered_stream_has_sequence_ids, tests/unit/test_web_stream_buffer.py::test_buffered_stream_replays_after_sequence]
+
+  - id: REQ-51
+    title: 桌面关窗先协作式取消运行
+    given: 桌面模式下有运行中的会话
+    when: 关闭窗口
+    then: 先调用 /api/desktop/cancel_all，最多等待 5 秒再停服务；超时 checkpoint 保留
+    status: implemented
+    tests: [tests/unit/test_desktop_bootstrap.py::test_desktop_cancel_all_endpoint_is_desktop_only]
+
+  - id: REQ-52
+    title: provider 连通性测试不发送用户内容
+    given: 已配置 provider 与 key
+    when: 点击测试连接
+    then: 只请求管理员配置的 base_url 的 /models；不发送任务内容、不记录 key
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_provider_connection_probe, tests/unit/test_web_gui_api.py::test_provider_connection_probe_requires_key]
+
+  - id: REQ-53
+    title: 上传有会话累计配额
+    given: 会话累计上传接近上限
+    when: 再上传文件
+    then: 超过 AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES 返回 413
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_upload_total_quota]
+
+  - id: REQ-54
+    title: 事件重放缓冲有字节上限
+    given: 单个会话事件总量超过缓冲上限
+    when: 追加新事件
+    then: 从最旧事件开始淘汰；序号仍递增，重放从剩余事件开始
+    status: implemented
+    tests: [tests/unit/test_web_stream_buffer.py::test_buffer_evicts_old_events_by_size]
+
+  - id: REQ-55
+    title: 持久化写模式不能绕过服务端只读启动
+    given: 曾以 --write 创建 write_auto 会话
+    when: 以未带 --write 的服务重启
+    then: capabilities 显示只读，run 使用 read_only；不会暴露写工具
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_persisted_write_mode_cannot_bypass_readonly_server]
+
+  - id: REQ-56
+    title: resume 不取消 active 流
+    given: 会话已有运行中的缓冲流
+    when: 调用 /api/resume
+    then: 返回 409；只有 done 且 suspended 的流允许 resume
+    status: implemented
+    tests: [tests/unit/test_web_stream_buffer.py::test_resume_rejects_a_finished_stream]
+
+  - id: REQ-57
+    title: 只读模式不启动 LSP
+    given: access_mode=read_only 且配置了 AGENT_LSP_COMMAND
+    when: 调用 symbol_search / code_intel
+    then: symbol_search 只用 AST；code_intel 在策略层拒绝并返回 skipped
+    status: implemented
+    tests: [tests/unit/test_approve.py::test_read_only_denies_execution_even_at_read_level]
+
+  - id: REQ-58
+    title: resume 后事件序号继续递增
+    given: 一次审批挂起，最后事件序号为 N
+    when: resume 继续运行
+    then: 新流首个事件序号为 N+1，客户端可用 after=N 重连
+    status: implemented
+    tests: [tests/unit/test_web_stream_buffer.py::test_buffered_approval_keeps_runtime_for_resume]
+
+  - id: REQ-59
+    title: 上传配额按工作区跨会话计算
+    given: 同一工作区已有上传字节
+    when: 新建会话继续上传
+    then: 仍受 AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES 限制；已知大小先整批预检
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_upload_total_quota]
+
+  - id: REQ-60
+    title: provider 测试不走环境代理
+    given: 主机配置 HTTP_PROXY
+    when: GUI 测试 provider 连通性
+    then: 直连管理员配置的 base_url，不把 Authorization 发给代理
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_provider_connection_probe]
+
+  - id: REQ-61
+    title: 无 GUI 配置的旧会话使用审计里的工作区
+    given: 会话由 CLI/TUI 创建，只有审计记录
+    when: GUI 打开其快照/回滚/resume
+    then: 从 run_start 审计恢复 workspace，而不是使用当前默认工作区
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_legacy_session_uses_audit_workspace]
+
+  - id: REQ-62
+    title: health 与 runtime 使用同一密钥存储
+    given: 用户在 GUI 注入 provider key
+    when: 读取 /api/health
+    then: 使用同一租户密钥环判断 api_key/reachable；provider 配置损坏返回 200 + error，不 500
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_health_uses_the_same_secret_store_as_runtime, tests/unit/test_web_gui_api.py::test_health_reports_broken_provider_config]
+
+  - id: REQ-63
+    title: 未运行的会话也出现在侧栏
+    given: 会话创建后尚未执行
+    when: GET /api/sessions
+    then: 从 gui-sessions.json 合并出该会话，而不是等审计记录出现
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_created_session_is_visible_before_its_first_run]
+
+  - id: REQ-64
+    title: 暂停状态下取消必须触发恢复消费指令
+    given: 会话处于 steering pause
+    when: 用户点击取消
+    then: 前端先提交 cancel，再调用 resume_steering 让节点边界消费；不会留下永远暂停的任务
+    status: implemented
+    tests: []
+    note: 前端行为，当前由手工冒烟覆盖；后端 resume_steering 语义已有测试
+
+  - id: REQ-65
+    title: 执行后端可按平台选择
+    given: AGENT_EXECUTION_BACKEND=auto/local/wsl
+    when: 构造 AgentRuntime / tools / tenancy
+    then: Windows auto 用 WSL；Linux/WSL 内 auto 用 LocalLinuxSandbox；可显式覆盖
+    status: implemented
+    tests: [tests/unit/test_execution_backend.py::test_auto_backend_follows_platform, tests/unit/test_execution_backend.py::test_explicit_local_backend]
+
+  - id: REQ-66
+    title: Agent Server 可在 WSL 内独立运行
+    given: WSL 内 venv 与项目依赖
+    when: python -m coding_agent.server --workspace <path>
+    then: Windows 可通过 loopback 访问静态页/API；工具走本地 bash，不再逐条 wsl.exe
+    status: implemented
+    tests: []
+    see: docs/PHASE0.md
+    note: 由 scripts/phase0_wsl_smoke.py 手工/脚本验证
+
+  - id: REQ-67
+    title: WSL 冒烟覆盖 SSE 审批、resume、重放、快照、压缩
+    given: WSL 内 local 后端 + fake runtime
+    when: 运行 scripts/phase0_wsl_smoke.py
+    then: 全部通过；快照/回滚使用真实 SandboxFs，SSE/审批/重放使用缓冲流
+    status: implemented
+    tests: []
+    see: scripts/phase0_wsl_smoke.py
+
+  - id: REQ-68
+    title: Windows 启动器首次运行提供 WSL 配置向导
+    given: 首次运行 agent gui 或 --setup
+    when: LocalAppData 中没有 launcher.json
+    then: 向导检测发行版、工作区、WSL Python 依赖，并保存配置
+    status: implemented
+    tests: [tests/unit/test_desktop_launcher.py::test_launcher_config_roundtrip]
+    see: docs/PHASE1.md
+
+  - id: REQ-69
+    title: 启动器通过 stdin 传 token，A2/A3 固定端口握手
+    given: launcher.json 已配置
+    when: 启动 WSL A3 与 Windows A2
+    then: token 不出现在命令行；A3 先启动并握手，A2 注入内部地址后再启动；launcher 等待 healthz 后开窗
+    status: implemented
+    tests: [tests/unit/test_desktop_launcher.py::test_build_agent_command_uses_stdin_token_and_port, tests/unit/test_desktop_topology.py::test_start_control_injects_agent_endpoint]
+
+  - id: REQ-70
+    title: 关窗优雅停止 WSL server
+    given: 桌面窗口运行中
+    when: 关闭窗口
+    then: cancel_all → shutdown → 等待退出；超时才 terminate/kill；不残留 server
+    status: implemented
+    tests: []
+    see: docs/PHASE1.md
+    note: 由启动器端到端冒烟验证
+
+  - id: REQ-71
+    title: LocalAppData 与 WSL 数据目录分离
+    given: Windows 启动器
+    when: 首次保存配置/启动
+    then: launcher.json/logs/state 在 %LOCALAPPDATA%；audit/checkpoint/steering 在 WSL ~/.coding-agent
+    status: implemented
+    tests: [tests/unit/test_desktop_launcher.py::test_launcher_config_roundtrip]
+
+  - id: REQ-72
+    title: 专用 WSL 发行版可构建并预装 Agent
+    given: Windows + WSL2 + 网络
+    when: python scripts/build_wsl_distro.py
+    then: 生成 CodingAgent-rootfs.tar；包含 agent 用户、/opt/coding-agent/venv、git/rg/bwrap
+    status: implemented
+    tests: []
+    see: docs/PHASE2.md
+
+  - id: REQ-73
+    title: 启动器优先自动导入 bundled WSL 发行版
+    given: 安装包包含 wsl/CodingAgent-rootfs.tar 且无 launcher.json
+    when: 首次启动
+    then: 自动 wsl --import CodingAgent，写入默认 distro/workspace/python；失败回退向导
+    status: implemented
+    tests: [tests/unit/test_desktop_launcher.py::test_launcher_config_roundtrip]
+    see: docs/PHASE2.md
+
+  - id: REQ-74
+    title: 安装包与 WebView2 bootstrapper 构建脚本
+    given: PyInstaller + Inno Setup 6
+    when: scripts/build_installer.ps1
+    then: 生成 dist/CodingAgent-Setup.exe；包含 app/rootfs/WebView2；可选 signtool 签名
+    status: implemented
+    tests: []
+    see: packaging/installer/CodingAgent.iss
+
+  - id: REQ-75
+    title: 只读探测项目 Python 与工作区模式
+    given: 工作区已有 .venv/venv/env 或只有系统 python3
+    when: 调用 probe_project
+    then: 返回项目/Agent 两套解释器、包管理器、锁文件与警告；/mnt 明确提示性能问题
+    status: implemented
+    tests: [tests/unit/test_project_env.py::test_project_venv_is_preferred_over_system_python, tests/unit/test_project_env.py::test_mnt_workspace_is_flagged_as_slow]
+    see: docs/PHASE3.md
+
+  - id: REQ-76
+    title: 项目测试使用项目解释器
+    given: 工作区存在 .venv/bin/python 且能 import pytest
+    when: 自动探测测试命令
+    then: 返回 "<project python> -m pytest -q"，不再借用 Agent 的 python3
+    status: implemented
+    tests: [tests/unit/test_testrun_parse.py::test_project_venv_python_is_used_for_pytest]
+
+  - id: REQ-77
+    title: 桌面桥选择文件夹、VS Code 与复制到 WSL
+    given: pywebview 桌面窗口
+    when: 调用 DesktopApi
+    then: 返回 WSL 路径；用列表参数启动 code --remote；/mnt 复制拒绝覆盖且无 shell 拼接
+    status: implemented
+    tests: [tests/unit/test_desktop_api.py::test_open_in_vscode_builds_wsl_remote_command, tests/unit/test_desktop_api.py::test_copy_runs_cp_without_shell_and_reports_done]
+    see: docs/PHASE3.md
+
+  - id: REQ-78
+    title: 项目环境 HTTP 端点
+    given: 已认证的单用户或桌面客户端
+    when: GET /api/project?workspace=...
+    then: 返回探测结果并带 desktop_mode；工作区仍经租户解析约束
+    status: implemented
+    tests: [tests/unit/test_web_gui_api.py::test_project_endpoint_resolves_workspace_and_reports_desktop_mode]
+
+  - id: REQ-79
+    title: 会话搜索、重命名、删除与导出
+    given: 已有会话
+    when: 调用 sessions 的 q/rename/delete/export
+    then: 标题可改；搜索命中标题/thread/工作区；删除后列表隐藏且再创建返回 410；导出含对话
+    status: implemented
+    tests: [tests/unit/test_phase4_api.py::test_session_rename_search_export_and_delete]
+    see: docs/PHASE4.md
+
+  - id: REQ-80
+    title: 文件树与只读查看器拒绝越界
+    given: 任意工作区
+    when: 用 ../、绝对路径或符号链接访问
+    then: 返回 422；正常目录只读列出，二进制文件不展示内容
+    status: implemented
+    tests: [tests/unit/test_browse.py::test_paths_cannot_escape_workspace, tests/unit/test_browse.py::test_read_file_reports_binary_and_truncation]
+
+  - id: REQ-81
+    title: Git 面板只读
+    given: 工作区是 Git 仓库
+    when: GET /api/git
+    then: 返回分支、改动与提交；不执行任何写命令
+    status: implemented
+    tests: [tests/unit/test_browse.py::test_git_summary_reads_status_and_log]
+
+  - id: REQ-82
+    title: 恢复中心识别异常中断
+    given: 审计里有 run_start 但没有 run_end/run_error
+    when: GET /api/recovery
+    then: 该会话以 interrupted 状态出现，可打开/恢复或删除
+    status: implemented
+    tests: [tests/unit/test_phase4_api.py::test_interrupted_session_appears_in_recovery]
+
+  - id: REQ-83
+    title: Provider 档案 CRUD 与多用户边界
+    given: 单用户桌面或 Web 多用户
+    when: 读写 /api/provider-profiles
+    then: 单用户档案合并进 llm_providers 并即时出现在 /api/providers；多用户写入返回 403
+    status: implemented
+    tests: [tests/unit/test_phase4_api.py::test_provider_profile_crud_changes_provider_rows, tests/unit/test_phase4_api.py::test_multi_user_rejects_provider_profile_writes]
+
+  - id: REQ-84
+    title: 上传列表、配额与删除
+    given: 会话存在上传文件
+    when: GET/DELETE /api/sessions/{id}/uploads
+    then: 返回文件与占用；删除只允许本会话目录且文件确实消失
+    status: implemented
+    tests: [tests/unit/test_phase4_api.py::test_uploads_can_be_listed_and_deleted]
+
+  - id: REQ-85
+    title: 预算与上传上限可查询
+    given: 服务端配置预算/上传上限
+    when: GET /api/capabilities
+    then: 返回 run_cost_budget_usd 与 max_upload_bytes，GUI 展示并可开系统通知
+    status: implemented
+    tests: [tests/unit/test_phase4_api.py::test_capabilities_expose_budget_and_upload_limits]
+
+  - id: REQ-86
+    title: 诊断包脱敏
+    given: 桌面日志中可能含 sk-/Bearer/token 文本
+    when: 生成诊断包
+    then: zip 含 summary/配置/日志/WSL 概况；所有成员中的密钥片段都被替换为 [redacted]
+    status: implemented
+    tests: [tests/unit/test_phase5_desktop.py::test_collect_diagnostics_writes_redacted_zip, tests/unit/test_phase5_desktop.py::test_sanitize_redacts_common_secret_shapes]
+    see: docs/PHASE5.md
+
+  - id: REQ-87
+    title: server 崩溃自动重启
+    given: 窗口打开且 server 进程意外退出
+    when: 看门狗轮询到进程结束
+    then: 按退避最多重试 3 次，成功回调新 server；耗尽次数返回 failed；关窗后停止
+    status: implemented
+    tests: [tests/unit/test_phase5_desktop.py::test_watchdog_restarts_after_crash, tests/unit/test_phase5_desktop.py::test_watchdog_reports_failure_after_attempts, tests/unit/test_phase5_desktop.py::test_watchdog_does_nothing_after_stop]
+
+  - id: REQ-88
+    title: 更新检查
+    given: AGENT_UPDATE_MANIFEST_URL 指向合法 JSON 清单
+    when: 桌面端检查更新
+    then: 正确比较点分版本并返回 available/download_url/notes；非法清单或非 http(s) 返回错误
+    status: implemented
+    tests: [tests/unit/test_phase5_desktop.py::test_update_check_compares_versions, tests/unit/test_phase5_desktop.py::test_update_check_rejects_bad_manifest]
+
+  - id: REQ-89
+    title: 性能细节与本地模型预设
+    given: 大 diff 或需要本地 OpenAI 兼容端点
+    when: 使用桌面 UI
+    then: diff 超过 200 行默认折叠；Provider 表单可一键填入 Ollama/LM Studio 端点
+    status: implemented
+    tests: []
+    see: docs/PHASE5.md
+
+  - id: REQ-90
+    title: 四层架构与数据归属契约
+    given: Phase A 设计阶段
+    when: 阅读架构与 Phase A 文档
+    then: A1-A4 职责、三种部署基线、MySQL/A3/A4/密钥的数据归属明确；Agent 功能零删减
+    status: implemented
+    tests: []
+    see: docs/PHASE_A.md
+
+  - id: REQ-91
+    title: 控制面路由契约冻结
+    given: Phase A 基线
+    when: 检查 FastAPI 路由
+    then: 会话/运行/SSE/审批/恢复/文件/Git/checkpoint 等控制入口全部存在
+    status: implemented
+    tests: [tests/unit/test_layer_contracts.py::test_control_routes_are_frozen]
+
+  - id: REQ-92
+    title: 领域事件契约冻结
+    given: Phase A 基线
+    when: 检查 events.py
+    then: 28 个领域事件类型齐全；审批事件带 request_id/tool/command/level/reason
+    status: implemented
+    tests: [tests/unit/test_layer_contracts.py::test_event_contract_is_frozen]
+
+  - id: REQ-93
+    title: SSE 与挂起语义冻结
+    given: Phase A 基线
+    when: 检查 SSE 帧与挂起判定
+    then: id/data 帧、审批/pause 收尾、RunFinished 不误判为挂起
+    status: implemented
+    tests: [tests/unit/test_layer_contracts.py::test_sse_framing_and_suspension_are_frozen]
+
+  - id: REQ-94
+    title: Agent 工具与会话字段 parity
+    given: Phase A 基线
+    when: 检查工具契约与会话字段
+    then: 25 个静态工具与 SessionConfig 的 title/uploaded_bytes 等字段仍在
+    status: implemented
+    tests: [tests/unit/test_layer_contracts.py::test_session_and_tool_contract_are_frozen]
+
+  - id: REQ-95
+    title: Phase B 落地决策已记录
+    given: 进入 Phase B 前
+    when: 阅读 ADR 与 Phase A 文档
+    then: |
+      A2 原生、SecretProvider 两档、共享事件传输、SQLite 一等公民、
+      静态 SPA+esbuild/TS 五项决策及代价明确
+    status: implemented
+    tests: []
+    see: docs/adr/0010-four-layer-phase-b-decisions.md
+
+  - id: REQ-96
+    title: A2 控制面 schema 与 MySQL 兼容
+    given: 配置或测试控制面数据库
+    when: 建表
+    then: sessions/runs/audit_index/provider_profiles/usage/meta 表齐全，MySQL DDL 可编译
+    status: implemented
+    tests: [tests/unit/test_control_store.py::test_schema_is_mysql_compatible_and_versioned]
+    see: docs/PHASE_B.md
+
+  - id: REQ-97
+    title: 会话目录跨 A2 重启恢复
+    given: AGENT_CONTROL_DB_URL 指向 SQLite/MySQL
+    when: 创建/改名/删除会话后重启 A2
+    then: 标题与 tombstone 从数据库恢复；默认未配置 DB 时仍写 gui-sessions.json
+    status: implemented
+    tests: [tests/unit/test_control_store.py::test_web_sessions_survive_restart_with_control_db, tests/unit/test_control_store.py::test_without_db_behavior_stays_file_based]
+
+  - id: REQ-98
+    title: 旧 gui-sessions.json 一次性导入
+    given: 数据库为空且存在旧会话文件
+    when: A2 首次加载
+    then: 旧会话导入控制面，之后以数据库为准
+    status: implemented
+    tests: [tests/unit/test_control_store.py::test_legacy_json_is_imported_once]
+
+  - id: REQ-99
+    title: SecretProvider 两档与事件传输
+    given: 桌面或服务器配置
+    when: 选择 secret provider / 发布事件
+    then: keyring 或 systemd-creds 可用；内存/Redis 传输按 seq 重放
+    status: implemented
+    tests: [tests/unit/test_control_services.py::test_build_secret_provider_selects_tier, tests/unit/test_control_services.py::test_memory_transport_replays_by_seq, tests/unit/test_control_services.py::test_redis_stream_transport_publishes_and_replays]
+
+  - id: REQ-100
+    title: SSE 跨 A2 重启按 seq 重放
+    given: AGENT_EVENT_TRANSPORT 为 memory 或 redis，且本地 streams 为空
+    when: GET /api/stream/{thread}?after=N
+    then: 从 transport 重放 N 之后的事件，到收尾/审批事件停止；已追平返回 204
+    status: implemented
+    tests: [tests/unit/test_web_stream_buffer.py::test_transport_replays_after_local_stream_is_gone, tests/unit/test_web_stream_buffer.py::test_transport_replay_stops_at_approval]
+
+  - id: REQ-101
+    title: 重启后事件序号连续
+    given: transport 已保留旧进程的事件
+    when: 新 A2 对同一 thread 启动新运行
+    then: 新流首个 seq = 旧 latest_seq + 1
+    status: implemented
+    tests: [tests/unit/test_web_stream_buffer.py::test_transport_sequence_continues_after_restart]
+
+  - id: REQ-102
+    title: Redis Streams latest_seq 与重放
+    given: Redis 传输适配器
+    when: 发布事件并查询 latest_seq
+    then: 返回最大 seq，replay 只返回 after 之后的事件
+    status: implemented
+    tests: [tests/unit/test_control_services.py::test_redis_stream_transport_publishes_and_replays]
+
+  - id: REQ-103
+    title: Agent Server 内部鉴权与运行 SSE
+    given: AGENT_INTERNAL_TOKEN 已配置
+    when: A2 用 Bearer + X-Agent-Context 调用 /v1/runs
+    then: 无 token 返回 401；合法请求返回带 seq 的 SSE 并正常收尾
+    status: implemented
+    tests: [tests/unit/test_agent_server.py::test_agent_server_run_and_sse, tests/unit/test_agent_server.py::test_agent_server_requires_token_and_context]
+
+  - id: REQ-104
+    title: A2 通过 HTTP 代理运行生命周期
+    given: A2 配置 agent_client（或 AGENT_INTERNAL_URL）
+    when: 调用 /api/run、/api/stream、/api/status、/api/thread、/api/approvals
+    then: 原始 SSE/JSON 透传；未配置时仍走同进程
+    status: implemented
+    tests: [tests/unit/test_agent_server.py::test_a2_proxies_lifecycle_to_agent_server]
+
+  - id: REQ-105
+    title: Agent 审批恢复序号连续
+    given: 运行以 approval_requested 挂起
+    when: 调用 /v1/resume
+    then: 恢复事件首 seq = 挂起事件 seq + 1，并以 run_finished 收尾
+    status: implemented
+    tests: [tests/unit/test_agent_server.py::test_agent_server_approval_resume_keeps_sequence]
+
+  - id: REQ-106
+    title: 文件/快照/记忆/审计/上传路由迁移
+    given: A2 配置 agent_client
+    when: 调用文件树、快照、记忆、审计、上传接口
+    then: 请求转发到 Agent Server；A2 不直接读工作区；返回结构保持兼容
+    status: implemented
+    tests: [tests/unit/test_agent_server.py::test_a2_proxies_files_snapshots_memory_and_audit]
+
+  - id: REQ-107
+    title: A2 provider key 短期注入 A3
+    given: A2 持有 provider key
+    when: 远程启动 run/resume
+    then: key 随 X-Agent-Context 注入 A3 内存 SecretStore，不落盘/日志
+    status: implemented
+    tests: [tests/unit/test_agent_server.py::test_a2_proxies_lifecycle_to_agent_server]
+
+  - id: REQ-108
+    title: 审计索引幂等回传
+    given: A2 配置 AGENT_CONTROL_DB_URL
+    when: 查询 Agent Server 审计
+    then: 记录按 hash 幂等写入 control_audit_index，重复查询不重复插入
+    status: implemented
+    tests: [tests/unit/test_control_store.py::test_audit_index_is_idempotent]
+
+  - id: REQ-109
+    title: A2/A3 原生服务打包
+    given: PyInstaller 与部署环境
+    when: 运行 build_services.py 并安装 systemd/Windows 开机任务
+    then: 生成 CodingAgentAgent/CodingAgentControl；服务只绑 loopback，环境文件含 token
+    status: implemented
+    tests: [tests/unit/test_layer_contracts.py::test_native_service_packaging_assets_exist]
+    see: docs/PHASE_B.md
+
+  - id: REQ-110
+    title: 前端由 esbuild/TypeScript 生成
+    given: frontend/src/app.ts 与 esbuild 配置
+    when: 构建前端
+    then: static/app.js 带生成头、保留 Alpine 注册，且不引入框架/eval
+    status: implemented
+    tests: [tests/unit/test_layer_contracts.py::test_frontend_is_built_from_ts_source]
+
+  - id: REQ-111
+    title: ExecutionService 幂等与序号
+    given: 同一 op_id 的 ExecutionRequest
+    when: 重复提交或使用不同 payload
+    then: 重复返回同一回执且不重复执行；不同 payload 抛 ExecutionConflict；seq 按 run 连续
+    status: implemented
+    tests: [tests/unit/test_execution_service.py::test_same_op_id_is_idempotent, tests/unit/test_execution_service.py::test_journal_survives_service_restart, tests/unit/test_execution_service.py::test_same_op_id_with_different_payload_is_a_conflict]
+    see: docs/PHASE_C.md
+
+  - id: REQ-112
+    title: WSL/Linux 共用执行契约
+    given: WSL 或 Linux local 执行后端
+    when: 运行 tests/contract/execution_cases.py
+    then: run/读写/列目录/stat/幂等/路径逃逸行为一致
+    status: implemented
+    tests: [tests/integration/test_execution_contract_wsl.py::test_wsl_execution_contract, tests/integration/test_execution_contract_local.py::test_local_linux_execution_contract]
+
+  - id: REQ-113
+    title: 未知执行 kind 不伪装
+    given: 未定义的执行 kind
+    when: 调用 ExecutionService
+    then: 返回 unsupported 回执而不是静默执行
+    status: implemented
+    tests: [tests/unit/test_execution_service.py::test_unsupported_kind_is_a_receipt_not_an_exception]
+
+  - id: REQ-114
+    title: Runtime 执行路径统一到 L4
+    given: AgentRuntime 构造并解析 workspace
+    when: 工具调用 sandbox.run
+    then: 经 ExecutionSandbox/ExecutionService 进入 A4 backend；settings/其他属性仍委托
+    status: implemented
+    tests: [tests/unit/test_execution_service.py::test_execution_sandbox_proxy_routes_run_and_delegates]
+
+  - id: REQ-115
+    title: git/snapshot/worktree 执行契约
+    given: ExecutionService 已实现这些 kind
+    when: 提交 git/snapshot/restore/worktree 请求
+    then: 通过 backend 执行并返回结构化回执；快照契约在 WSL 上验证
+    status: implemented
+    tests: [tests/unit/test_execution_service.py::test_git_snapshot_restore_and_worktree_dispatch, tests/integration/test_execution_contract_wsl.py::test_wsl_execution_contract]
+
+  - id: REQ-116
+    title: 工具级 op_id 与回执
+    given: 图/Scheduler 设置 run_id + tool_call_id 上下文
+    when: 工具执行 sandbox.run
+    then: 生成稳定 op_id；同一调用重试返回回执而不重复执行
+    status: implemented
+    tests: [tests/unit/test_execution_service.py::test_tool_context_produces_stable_op_ids_and_replays]
+
+  - id: REQ-117
+    title: 合并 Git 路径走 ExecutionService
+    given: 合并补丁的主工作区路径
+    when: git apply/--check/--numstat
+    then: 通过 ExecutionService(kind=git) 执行并写回执，不回退 sandbox.run
+    status: implemented
+    tests: [tests/unit/test_execution_service.py::test_merge_git_path_uses_execution_service]
+
+  - id: REQ-118
+    title: unknown/cancelled 终态
+    given: 工具返回前被中断或明确取消
+    when: record_unknown / record_cancelled
+    then: 写入终态回执；重复提交返回同一回执
+    status: implemented
+    tests: [tests/unit/test_execution_service.py::test_unknown_and_cancelled_receipts_are_terminal]
+
+  - id: REQ-119
+    title: A2/A3 协议版本握手
+    given: A2 配置 AGENT_INTERNAL_URL
+    when: 启动时探测 A3 /v1/meta
+    then: 协议版本一致才视为 ok；不一致为 incompatible；A3 不可达为 unavailable
+    status: implemented
+    tests: [tests/unit/test_agent_handshake.py::test_agent_server_meta_requires_token, tests/unit/test_agent_handshake.py::test_handshake_reports_incompatible_agent]
+
+  - id: REQ-120
+    title: 桌面双进程启动
+    given: 桌面启动器已配置 WSL 发行版
+    when: 启动桌面
+    then: 先起 WSL A3，再起 Windows A2，A2 注入内部 URL/token 并打开窗口
+    status: implemented
+    tests: [tests/unit/test_desktop_topology.py::test_start_control_injects_agent_endpoint, tests/unit/test_desktop_launcher.py::test_build_control_command_enables_desktop]
+    see: docs/PHASE_D.md
+
+  - id: REQ-121
+    title: A2 周期探测 A3 并自动恢复
+    given: A2 已连接 A3
+    when: A3 崩溃后重启
+    then: A2 先变为 unavailable，探测恢复后再回到 ok，无需重启 A2
+    status: implemented
+    tests: [tests/unit/test_desktop_topology.py::test_a2_probe_recovers_after_agent_restart]
+
+  - id: REQ-122
+    title: 控制面数据库 Alembic 迁移
+    given: 新库或 Phase B 用 create_all 建的旧库
+    when: 执行 upgrade
+    then: 新库建表并写 revision；旧库只 stamp 基线，不重复建表
+    status: implemented
+    tests: [tests/unit/test_control_migrations.py::test_upgrade_creates_schema_and_is_idempotent, tests/unit/test_control_migrations.py::test_legacy_create_all_is_stamped_without_rebuild]
+
+  - id: REQ-123
+    title: 控制面 MySQL 有界连接池
+    given: AGENT_CONTROL_DB_URL 指向 MySQL
+    when: 构造 ControlStore
+    then: 使用固定 pool_size/max_overflow/recycle/timeout，而不是无限连接
+    status: implemented
+    tests: [tests/unit/test_control_store.py::test_mysql_engine_uses_bounded_pool]
+
+  - id: REQ-124
+    title: 控制面数据库不可用时只读降级
+    given: 数据库配置了但连接失败
+    when: A2 启动并接收会话写请求
+    then: A2 仍启动，healthz db_state=degraded；GET 会话可用，写操作返回 503
+    status: implemented
+    tests: [tests/unit/test_control_degraded.py::test_app_starts_degraded_when_store_unavailable, tests/unit/test_control_degraded.py::test_write_failure_switches_to_degraded]
+
+  - id: REQ-125
+    title: 控制面数据库备份与恢复
+    given: 已有控制面业务数据
+    when: 执行备份、修改数据、再恢复
+    then: 恢复后数据回到备份点；备份不含 checkpoint/工作区/API Key
+    status: implemented
+    tests: [tests/unit/test_control_backup.py::test_sqlite_backup_and_restore]
+
+  - id: REQ-126
+    title: Linux systemd 顺序与迁移
+    given: A2/A3 systemd 单元已安装
+    when: 启动 coding-agent-control
+    then: 先等待 agent 单元；ExecStartPre 执行迁移；失败则阻止 A2 启动
+    status: implemented
+    tests: [tests/unit/test_linux_deploy.py::test_control_unit_orders_agent_and_runs_migration, tests/unit/test_linux_deploy.py::test_migrate_only_creates_sqlite_schema]
+
+  - id: REQ-127
+    title: Linux 安装脚本可重复执行
+    given: Linux 主机以 root 运行安装脚本
+    when: 执行 install.sh
+    then: 创建用户/目录/env/单元；语法可校验；支持 --no-start 与 --uninstall
+    status: implemented
+    tests: [tests/unit/test_linux_deploy.py::test_install_script_is_valid_shell, tests/unit/test_linux_deploy.py::test_install_script_creates_user_dirs_and_secrets]
+
+  - id: REQ-128
+    title: Phase D 故障演练覆盖
+    given: 本机可启动 A2/A3 进程
+    when: 运行 scripts/phase_d_smoke.py
+    then: 启动握手、会话、A3 崩溃、A2 重启、DB 降级、版本不匹配、迁移失败全部通过
+    status: implemented
+    tests: [tests/unit/test_phase_d_smoke.py::test_help_lists_failure_drill_options]
+    see: docs/PHASE_D.md
+
+  - id: REQ-129
+    title: 主题、字体、密度与跟随系统
+    given: 用户打开界面设置
+    when: 切换主题/字体/字号/密度
+    then: body class 与 CSS 令牌生效，设置写入 localStorage；跟随系统走 prefers-color-scheme
+    status: implemented
+    tests: [tests/unit/test_web_frontend_assets.py::test_theme_and_accessibility_markers]
+    see: docs/PHASE_E.md
+
+  - id: REQ-130
+    title: SSE 客户端模块与重连
+    given: 流式运行中断开连接
+    when: 客户端重新连接
+    then: 按 seq 去重，保留 lastSeq；自动退避重连并显示连接状态，失败可重试上一条
+    status: implemented
+    tests: [tests/unit/test_web_frontend_assets.py::test_bundle_is_generated_and_contains_phase_e_hooks]
+    see: docs/PHASE_E.md
+
+  - id: REQ-131
+    title: 任务字段与推理分块
+    given: 编排运行产生 task/worker 与 reasoning 事件
+    when: 前端渲染任务与推理
+    then: 任务卡显示依赖/worker/耗时/token；推理按节点折叠，默认不展示
+    status: implemented
+    tests: [tests/unit/test_web_frontend_assets.py::test_bundle_is_generated_and_contains_phase_e_hooks]
+    see: docs/PHASE_E.md
+
+  - id: REQ-132
+    title: 代码高亮与复制
+    given: 模型输出包含代码块
+    when: 消息渲染完成
+    then: 使用本地 highlight.js 高亮；代码块可复制，长代码块可滚动
+    status: implemented
+    tests: [tests/unit/test_web_frontend_assets.py::test_vendor_assets_are_documented]
+    see: docs/PHASE_E.md
+
+  - id: REQ-133
+    title: 长会话渲染优化
+    given: 会话包含大量消息与卡片
+    when: 浏览器渲染
+    then: 消息/工具/文件/任务卡使用 content-visibility，仅渲染可视区
+    status: implemented
+    tests: [tests/unit/test_web_frontend_assets.py::test_theme_and_accessibility_markers]
+    see: docs/PHASE_E.md
+
+  - id: REQ-134
+    title: 前端构建与类型门禁
+    given: 修改 frontend/src 并提交
+    when: CI 运行
+    then: 重建 static/app.js 后无漂移，tsc --noEmit 通过
+    status: implemented
+    tests: [tests/unit/test_web_frontend_assets.py::test_bundle_is_generated_and_contains_phase_e_hooks]
+    see: docs/PHASE_E.md
+
+  - id: REQ-135
+    title: 密钥不落控制面数据库/接口/日志
+    given: 控制面配置了 provider key
+    when: 创建会话、写审计索引、读取 Provider
+    then: SQLite/MySQL 无 key 字节；/api/providers 不返回 key；日志不含 key
+    status: implemented
+    tests: [tests/unit/test_phase_f_security.py::test_control_db_does_not_contain_provider_key, tests/unit/test_phase_f_security.py::test_providers_api_never_returns_key, tests/unit/test_phase_f_security.py::test_secret_is_not_logged]
+    see: docs/PHASE_F.md
+
+  - id: REQ-136
+    title: 审计与错误脱敏
+    given: 文本中出现 sk-、私钥、JWT 或带密码 DB URL
+    when: 调用 redact_secrets
+    then: 敏感值被替换为 REDACTED，字段名保留
+    status: implemented
+    tests: [tests/unit/test_phase_f_security.py::test_redaction_removes_provider_key]
+
+  - id: REQ-137
+    title: 路径逃逸与内部鉴权
+    given: 未授权的内部请求或越界路径
+    when: 调用 A3 /v1/meta 或浏览工作区外路径
+    then: 分别返回 401 或路径错误，不读取工作区外内容
+    status: implemented
+    tests: [tests/unit/test_agent_handshake.py::test_agent_server_meta_requires_token, tests/unit/test_browse.py::test_paths_cannot_escape_workspace, tests/unit/test_web_auth.py::test_api_requires_a_token]
+
+  - id: REQ-138
+    title: 控制面迁移/回滚/备份/恢复演练
+    given: 控制面数据库已有数据
+    when: 执行 upgrade → 备份 → downgrade base → upgrade → 恢复
+    then: downgrade 后表消失、重升级为空、恢复后数据回到备份点
+    status: implemented
+    tests: [tests/unit/test_phase_f_drill.py::test_sqlite_drill_upgrade_downgrade_backup_restore]
+    see: docs/PHASE_F.md
+
+  - id: REQ-139
+    title: MySQL 迁移/回滚/备份/恢复
+    given: 独立 MySQL 测试库
+    when: 执行同一演练
+    then: revision 回到 head，备份可恢复，数据一致
+    status: implemented
+    tests: [tests/unit/test_phase_f_drill.py::test_drill_help]
+    see: docs/PHASE_F.md
+
+  - id: REQ-140
+    title: 性能基线可复现
+    given: 本机环境
+    when: 运行 phase_f_bench.py
+    then: 输出 ExecutionService 代理、控制面写入、SSE 首事件延迟的 JSON
+    status: implemented
+    tests: [tests/unit/test_phase_f_drill.py::test_bench_help]
+    see: docs/PHASE_F.md

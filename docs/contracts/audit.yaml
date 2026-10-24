@@ -23,10 +23,12 @@ kinds:
   - kind: worker
   - kind: orchestration
   - kind: steering
+  - kind: memory
   - kind: run_end
   - kind: run_error
   - kind: recovery
   - kind: concurrency
+  - kind: compact
 
 decisions:
   - value: auto

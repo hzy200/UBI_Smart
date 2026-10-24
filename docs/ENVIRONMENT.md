@@ -4,7 +4,7 @@ doc_id: environment
 title: 环境配置
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 review_cadence: 依赖或 Python 版本变动时
 note: 声明的依赖范围见 docs/contracts/dependencies.md（代码生成）。
 ---
@@ -40,6 +40,9 @@ note: 声明的依赖范围见 docs/contracts/dependencies.md（代码生成）�
    ```bash
    wsl -d Ubuntu -- sudo apt-get install -y bubblewrap
    ```
+5. （前端开发）**Node.js 18+ / npx**：修改 `frontend/src/*.ts` 后运行
+   `python scripts/build_frontend.py` 重新生成 `static/app.js`；
+   CI 会重建并检查生成物漂移，同时跑 `tsc --noEmit`。
 
 ## 3. 从零配置（完整流程）
 
@@ -74,13 +77,50 @@ make check                    # ruff + 快反馈测试
 | `dev` | `pytest` / `ruff` / `pytest-xdist` / `pytest-cov` —— 跑测试与 lint |
 | `ui` | `agent tui`（Textual） |
 | `web` | `agent web`（FastAPI + uvicorn） |
+| `desktop` | `agent gui`（pywebview 窗口，需同时装 `web`） |
+| `secrets` | GUI 注入 API Key（OS 密钥环） |
+| `db` | MySQL 驱动、Alembic 迁移与 `--migrate-only` |
+| `events` | Redis Streams，多实例 SSE 重放 |
+| `build` | Windows Portable 构建（PyInstaller） |
+| `embeddings` | 记忆向量检索（fastembed 本地模型） |
 
 > ⚠️ 激活环境是**必须**的：`agent` 命令装在环境自己的 `Scripts/` 下
 > （`D:\anaconda3\envs\agent\Scripts`），未激活时不在 PATH，直接敲 `agent` 会「找不到命令」。
 
+### Linux 服务器部署（Phase D）
+
+控制面与 Agent Server 可以装在 Linux 主机上，不依赖 WSL：
+
+```bash
+sudo apt-get install -y python3.12-venv
+sudo python3 -m venv /opt/coding-agent/venv
+sudo /opt/coding-agent/venv/bin/pip install "/path/to/CodingAgent[web,db]"
+sudo packaging/systemd/install.sh --python /opt/coding-agent/venv/bin/python
+```
+
+- 安装脚本创建 `coding-agent` 用户与 `/etc/coding-agent`、`/var/lib/coding-agent`、
+  `/srv/coding-agent/workspaces`，并注册两个 systemd 单元；
+- MySQL 初始化：`mysql -u root -p < packaging/mysql/init.sql`，然后在
+  `/etc/coding-agent/control.env` 配置 `AGENT_CONTROL_DB_URL`；
+- A2 的 `ExecStartPre --migrate-only` 在启动前迁移，迁移前自动备份；
+- 备份/恢复：`scripts/backup_control_db.py` / `restore_control_db.py`；
+- 故障演练：`python scripts/phase_d_smoke.py`（不需要 API Key）；
+- 卸载：`sudo packaging/systemd/install.sh --uninstall`（保留配置与数据）。
+
+### 安全 / 性能 / 迁移验收（Phase F）
+
+```bash
+pytest -m "not llm" tests/unit/test_phase_f_security.py -q
+python scripts/phase_f_drill.py        # SQLite；加 --mysql-url 跑独立测试库
+python scripts/phase_f_bench.py       # 性能趋势，不设阈值
+```
+
+WSL/bwrap 的真实隔离用例需要平台执行面：Windows 本地 `pytest -m wsl`，
+Linux 用 `pytest -m execution` 与 `pytest tests/integration/test_bwrap.py`。
+
 ## 4. 实测版本快照
 
-当前环境（2026-10-04 首测，2026-10-22 复核未变）直接依赖的 install 版本：
+当前环境（2026-10-04 首测，2026-10-23 复核）直接依赖的 install 版本：
 
 | 分组 | 包 | 版本 |
 |---|---|---|
@@ -102,8 +142,10 @@ make check                    # ruff + 快反馈测试
 | UI | `textual` | 8.2.8 |
 | Web | `fastapi` | 0.141.1 |
 | Web | `uvicorn` | 0.52.1 |
+| Desktop | `pywebview` | 6.2.1 |
+| Secrets | `keyring` | 25.7.0 |
 
-Python 3.11.15 · pip 26.1.2 · 环境内共 239 个包。
+Python 3.11.15 · pip 26.1.2 · 环境内共 257 个包。
 
 > 这段是**实测快照**，会随环境漂移；声明依赖以 `pyproject.toml` 与
 > `docs/contracts/dependencies.md` 为准。

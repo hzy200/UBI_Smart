@@ -20,6 +20,8 @@
 - `typer>=0.12`
 - `rich>=13.7`
 - `python-dotenv>=1.0`
+- `httpx>=0.27`
+- `sqlalchemy>=2.0`
 
 ## 可选 extras
 
@@ -27,5 +29,9 @@
 |---|---|---|
 | `dev` | pytest / ruff / pytest-xdist / pytest-cov —— 跑测试与 lint | `pytest>=8.2`, `ruff>=0.5`, `pytest-xdist>=3.6`, `pytest-cov>=5.0` |
 | `ui` | `agent tui`（Textual） | `textual>=0.80` |
-| `web` | `agent web`（FastAPI + uvicorn） | `fastapi>=0.115`, `uvicorn>=0.30` |
+| `web` | `agent web`（FastAPI + uvicorn） | `fastapi>=0.115`, `uvicorn>=0.30`, `python-multipart>=0.0.9` |
+| `desktop` | `agent gui`（pywebview 桌面窗口） | `pywebview>=5.0` |
+| `secrets` | GUI 注入 API Key（OS 密钥环） | `keyring>=24` |
+| `build` | Windows Portable 构建（PyInstaller） | `pyinstaller>=6` |
+| `embeddings` | 记忆向量检索（fastembed 本地模型） | `fastembed>=0.3` |
 

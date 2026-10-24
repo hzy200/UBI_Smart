@@ -9,8 +9,9 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 150,
+  "count": 178,
   "env_vars": [
+    "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_RULES",
     "AGENT_APPROVAL_MODE",
     "AGENT_AUDIT_DIR",
@@ -38,6 +39,8 @@
     "AGENT_CONTEXT_MAX_CHARS",
     "AGENT_CONTEXT_MAX_TOKENS",
     "AGENT_CONTEXT_TOOL_CHARS",
+    "AGENT_CONTROL_DB_AUTO_CREATE",
+    "AGENT_CONTROL_DB_URL",
     "AGENT_COST_ALERT_RATIO",
     "AGENT_DELEGATE_LARGE_CALLS",
     "AGENT_DELEGATE_LARGE_FILES",
@@ -45,11 +48,19 @@
     "AGENT_DELEGATE_MEDIUM_FILES",
     "AGENT_DELEGATE_MIN_FILES",
     "AGENT_DEPS_DETECT_TTL_S",
+    "AGENT_EVENT_TRANSPORT",
+    "AGENT_EVENT_TRANSPORT_MAXLEN",
+    "AGENT_EVENT_TRANSPORT_PREFIX",
+    "AGENT_EVENT_TRANSPORT_TTL_S",
+    "AGENT_EVENT_TRANSPORT_URL",
+    "AGENT_EXECUTION_BACKEND",
     "AGENT_EXPLORE_ENABLED",
     "AGENT_EXPLORE_MAX_REPORT_CHARS",
     "AGENT_EXPLORE_MAX_ROUNDS",
     "AGENT_EXPLORE_TIMEOUT",
     "AGENT_INSTRUCTIONS_ENABLED",
+    "AGENT_INTERNAL_TOKEN",
+    "AGENT_INTERNAL_URL",
     "AGENT_LLM_AIMD_MAX",
     "AGENT_LLM_AIMD_MIN",
     "AGENT_LLM_FALLBACK_ON_ERROR",
@@ -73,8 +84,21 @@
     "AGENT_MAX_RESUMES",
     "AGENT_MAX_SAME_FAILURES",
     "AGENT_MAX_TOOL_ROUNDS",
+    "AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS",
+    "AGENT_MEMORY_EMBEDDING_API_KEY",
+    "AGENT_MEMORY_EMBEDDING_BASE_URL",
+    "AGENT_MEMORY_EMBEDDING_BATCH_SIZE",
+    "AGENT_MEMORY_EMBEDDING_CACHE_DIR",
+    "AGENT_MEMORY_EMBEDDING_DIM",
+    "AGENT_MEMORY_EMBEDDING_MODEL",
+    "AGENT_MEMORY_EMBEDDING_PROVIDER",
+    "AGENT_MEMORY_EMBEDDING_TIMEOUT_S",
+    "AGENT_MEMORY_FUSION",
+    "AGENT_MEMORY_GLOBAL_ROOT",
     "AGENT_MEMORY_ROOT",
     "AGENT_MEMORY_TOP_K",
+    "AGENT_MEMORY_VECTOR_ENABLED",
+    "AGENT_MEMORY_VECTOR_TOP_N",
     "AGENT_NUDGE_EMPTY_STEPS",
     "AGENT_ORCHESTRATOR_ADD_EXPLORE_TESTS",
     "AGENT_ORCHESTRATOR_ALLOW_OVERLAP",
@@ -114,6 +138,7 @@
     "AGENT_RUN_COST_BUDGET_USD",
     "AGENT_RUN_DEADLINE_S",
     "AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS",
+    "AGENT_SECRET_PROVIDER",
     "AGENT_SECURITY_PROFILE",
     "AGENT_SESSION_BRIEF_CHARS",
     "AGENT_SHELL_CPU_SECONDS",
@@ -141,6 +166,9 @@
     "AGENT_WEB_MAX_PROMPT_CHARS",
     "AGENT_WEB_MAX_RUNTIMES",
     "AGENT_WEB_MAX_RUNTIMES_PER_USER",
+    "AGENT_WEB_MAX_UPLOAD_BYTES",
+    "AGENT_WEB_MAX_UPLOAD_FILES",
+    "AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES",
     "AGENT_WEB_MEMORY_ROOT",
     "AGENT_WEB_RATE_LIMIT_PER_MIN",
     "AGENT_WEB_RUNTIME_TTL_S",
@@ -163,6 +191,14 @@
     "LANGSMITH_TRACING"
   ],
   "fields": [
+    {
+      "name": "agent_data_root",
+      "env": "AGENT_AGENT_DATA_ROOT",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "Agent Server 的租户数据根；空 = 审计目录旁的 agent/。"
+    },
     {
       "name": "allow_rules",
       "env": "AGENT_ALLOW_RULES",
@@ -380,6 +416,22 @@
       "doc": ""
     },
     {
+      "name": "control_db_auto_create",
+      "env": "AGENT_CONTROL_DB_AUTO_CREATE",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "SQLite/开发环境自动建表；MySQL 生产迁移用 alembic upgrade 或 control_server --migrate（迁移前自动备份）。"
+    },
+    {
+      "name": "control_db_url",
+      "env": "AGENT_CONTROL_DB_URL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "---------- A2 控制面（Phase B，可选） ---------- 空 = 继续用 gui-sessions.json / 本地文件（Standalone 与旧部署）。 例：mysql+pymysql://user:pass@127.0.0.1/coding_agent"
+    },
+    {
       "name": "cost_alert_ratio",
       "env": "AGENT_COST_ALERT_RATIO",
       "type": "float",
@@ -436,6 +488,54 @@
       "doc": "包管理器探测缓存时间；安装后会主动失效。"
     },
     {
+      "name": "event_transport",
+      "env": "AGENT_EVENT_TRANSPORT",
+      "type": "str",
+      "default": "memory",
+      "section": "通用",
+      "doc": "---------- 共享事件传输（Phase B3） ---------- memory = 单实例内存；redis = Redis Streams（多实例 SSE 重放）。"
+    },
+    {
+      "name": "event_transport_maxlen",
+      "env": "AGENT_EVENT_TRANSPORT_MAXLEN",
+      "type": "int",
+      "default": 10000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "event_transport_prefix",
+      "env": "AGENT_EVENT_TRANSPORT_PREFIX",
+      "type": "str",
+      "default": "coding-agent:events",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "event_transport_ttl_s",
+      "env": "AGENT_EVENT_TRANSPORT_TTL_S",
+      "type": "int",
+      "default": 3600,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "event_transport_url",
+      "env": "AGENT_EVENT_TRANSPORT_URL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "execution_backend",
+      "env": "AGENT_EXECUTION_BACKEND",
+      "type": "str",
+      "default": "auto",
+      "section": "通用",
+      "doc": "auto：Windows 用 wsl.exe，Linux/WSL 内直接本地执行 local：强制本地 Linux 执行；wsl：强制 wsl.exe（兼容旧 Host 模式）"
+    },
+    {
       "name": "explore_enabled",
       "env": "AGENT_EXPLORE_ENABLED",
       "type": "bool",
@@ -474,6 +574,22 @@
       "default": true,
       "section": "通用",
       "doc": "是否发现并注入仓库内的 AGENTS.md / CLAUDE.md（分层项目指令）。"
+    },
+    {
+      "name": "agent_internal_token",
+      "env": "AGENT_INTERNAL_TOKEN",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "agent_internal_url",
+      "env": "AGENT_INTERNAL_URL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "---------- A2 → A3 内部连接（Phase B4） ---------- 空 = A2 与 Agent 同进程（默认，兼容旧部署）。"
     },
     {
       "name": "llm_aimd_max",
@@ -660,6 +776,94 @@
       "doc": ""
     },
     {
+      "name": "memory_allow_remote_embeddings",
+      "env": "AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_embedding_api_key",
+      "env": "AGENT_MEMORY_EMBEDDING_API_KEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_embedding_base_url",
+      "env": "AGENT_MEMORY_EMBEDDING_BASE_URL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "远程 OpenAI-compatible embedding（默认关闭，需双重显式开启）。"
+    },
+    {
+      "name": "memory_embedding_batch_size",
+      "env": "AGENT_MEMORY_EMBEDDING_BATCH_SIZE",
+      "type": "int",
+      "default": 64,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_embedding_cache_dir",
+      "env": "AGENT_MEMORY_EMBEDDING_CACHE_DIR",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_embedding_dim",
+      "env": "AGENT_MEMORY_EMBEDDING_DIM",
+      "type": "int",
+      "default": 512,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_embedding_model",
+      "env": "AGENT_MEMORY_EMBEDDING_MODEL",
+      "type": "str",
+      "default": "BAAI/bge-small-zh-v1.5",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_embedding_provider",
+      "env": "AGENT_MEMORY_EMBEDDING_PROVIDER",
+      "type": "str",
+      "default": "local",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_embedding_timeout_s",
+      "env": "AGENT_MEMORY_EMBEDDING_TIMEOUT_S",
+      "type": "float",
+      "default": 10.0,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_fusion",
+      "env": "AGENT_MEMORY_FUSION",
+      "type": "str",
+      "default": "rrf",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "memory_global_root",
+      "env": "AGENT_MEMORY_GLOBAL_ROOT",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "跨工作区全局记忆根；空 = 沙箱 $HOME/.agent-memory/global。"
+    },
+    {
       "name": "memory_root",
       "env": "AGENT_MEMORY_ROOT",
       "type": "str",
@@ -674,6 +878,22 @@
       "default": 8,
       "section": "通用",
       "doc": "每次运行注入系统提示的长期记忆条数（按与请求的相关度取前 K 条）。 0 表示不限制，整份注入 —— 记忆上限 50 条，但每条都会进入每一轮 system prompt。"
+    },
+    {
+      "name": "memory_vector_enabled",
+      "env": "AGENT_MEMORY_VECTOR_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "可选向量检索：默认关闭，开启后仍以 BM25 为回退。"
+    },
+    {
+      "name": "memory_vector_top_n",
+      "env": "AGENT_MEMORY_VECTOR_TOP_N",
+      "type": "int",
+      "default": 20,
+      "section": "通用",
+      "doc": ""
     },
     {
       "name": "nudge_empty_steps",
@@ -697,7 +917,7 @@
       "type": "bool",
       "default": false,
       "section": "通用",
-      "doc": "允许多个 implement 修改同一文件；合并时用 git apply --3way。 有真实冲突时整批回滚，不会把冲突标记落进主工作区。"
+      "doc": "允许多个 implement 修改同一文件；合并时用 git apply --3way。 有真实冲突时只回滚本分量，不会把冲突标记落进主工作区。"
     },
     {
       "name": "orchestrator_checkpoint_every",
@@ -988,6 +1208,14 @@
       "doc": "同时启动的 wsl.exe 进程上限。并发 worker 会各自调用沙箱，没有这层 背压时 4 个 worker 的一次工具轮次就能同时拉起十几个 WSL 进程。"
     },
     {
+      "name": "secret_provider",
+      "env": "AGENT_SECRET_PROVIDER",
+      "type": "str",
+      "default": "auto",
+      "section": "通用",
+      "doc": "auto | keyring | systemd；服务器部署用 systemd-creds，Vault/KMS 走同一 Protocol。"
+    },
+    {
       "name": "security_profile",
       "env": "AGENT_SECURITY_PROFILE",
       "type": "str",
@@ -1202,6 +1430,30 @@
       "default": 2,
       "section": "通用",
       "doc": ""
+    },
+    {
+      "name": "web_max_upload_bytes",
+      "env": "AGENT_WEB_MAX_UPLOAD_BYTES",
+      "type": "int",
+      "default": 20971520,
+      "section": "通用",
+      "doc": "单次上传的单文件上限；上传走单独授权，写入 .agent/uploads。"
+    },
+    {
+      "name": "web_max_upload_files",
+      "env": "AGENT_WEB_MAX_UPLOAD_FILES",
+      "type": "int",
+      "default": 20,
+      "section": "通用",
+      "doc": "单次请求最多上传几个文件。"
+    },
+    {
+      "name": "web_max_upload_total_bytes",
+      "env": "AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES",
+      "type": "int",
+      "default": 209715200,
+      "section": "通用",
+      "doc": "每个会话累计上传上限，防止反复上传占满工作区。"
     },
     {
       "name": "web_memory_root",

@@ -35,23 +35,23 @@ items:
     do_not: 不要凭猜测改请求构造 —— 上一个这么做的人引入了不可验证的改动
 
   - id: TD-003
-    title: 共享文件的并发写未实现
+    title: 共享文件的并发写默认关闭
     where: orchestrator/implement.py, orchestrator/merge.py
-    why_now: 当前用 write_scope 不重叠 + 顺序 patch 合并规避；
-      3-way rebase / 冲突自动合并留给后续
+    why_now: 默认用 write_scope 不重叠 + 顺序 patch 合并规避；开启 overlap 后
+      用 3-way 预演/合并，真实冲突只回滚共享文件所在分量，冲突自动解决留给后续
     debt_type: 能力缺口
     severity: medium
     workaround: AGENT_ORCHESTRATOR_ALLOW_OVERLAP=true 时用临时 index 3-way 预演，
-      真实冲突仍整批回滚
+      真实冲突只回滚所在分量
     owner: 项目作者
     due: 需要多人改同一文件时
     do_not: 不要用"放宽 write_scope 校验"来绕过 —— 那样会留下半合并状态
 
   - id: TD-004
-    title: 成本预算与模型分层只计量不硬停
+    title: 模型分层未实现；成本预算已接入调度准入
     where: llm/, orchestrator/scheduler.py
-    why_now: 任务级 token 上限与 scheduler 全局准入已接入，
-      但预留是角色级 EWMA 估算，不是精确 prompt token 计数
+    why_now: 任务级 token 上限与 scheduler 全局准入已接入（implement worker
+      会硬停），但预留是同角色历史 EWMA 估算，不是精确 prompt token 计数
     debt_type: 能力缺口
     severity: low
     workaround: CostReport 会报告预算告警；AGENT_ORCHESTRATOR_WORKER_MODEL 可手动分层
@@ -123,3 +123,27 @@ paid_off:
     how: 结果进入合并队列时立即置 merging 并离开 pending
     regression: test_completed_implement_is_not_relaunched_while_waiting_for_merge
     see: docs/postmortem/2026-10-21-orchestrated-write.md
+
+  - id: TD-009
+    title: 事件缓冲只在单进程内存中，多实例不共享
+    where: web/app.py
+    why_now: 已实现后台 run task + 事件序号 + `Last-Event-ID` 重放；但缓冲在
+      单进程内存里，多实例需要共享存储或粘性会话
+    debt_type: 架构
+    severity: low
+    workaround: Web 按单进程部署；桌面单客户端
+    owner: 项目作者
+    due: 多实例 Web 部署时
+    do_not: 不要把多实例直接指向同一工作区/数据目录
+
+  - id: TD-010
+    title: 多用户 API Key 依赖宿主密钥环，未做跨机器同步
+    where: secrets_store.py, web/app.py
+    why_now: 已按用户隔离写入 OS 密钥环；但多机部署时各实例的密钥环不共享，
+      也没有轮换/审计界面
+    debt_type: 运维
+    severity: low
+    workaround: 用环境变量/管理员统一配置作为跨实例的默认 key
+    owner: 项目作者
+    due: 多实例 Web 部署时
+    do_not: 不要把明文 key 写进租户 JSON、.env 或前端 localStorage

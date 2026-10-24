@@ -15,14 +15,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: 安装（开发 + 界面依赖）
-        run: pip install -e ".[dev,ui,web]"
+      - name: 安装（开发 + 界面 + 控制面数据库依赖）
+        run: pip install -e ".[dev,ui,web,db]"
       - name: Lint
         run: ruff check src tests
+      - name: 前端构建与类型检查
+        # static/app.js 是生成物：源码改了但没重建会让 CI 红。
+        run: |
+          python scripts/build_frontend.py
+          git diff --exit-code -- src/coding_agent/web/static/app.js
+          npx --yes -p typescript@5.9.3 tsc --noEmit -p src/coding_agent/web/frontend/tsconfig.json
       - name: 测试 + 覆盖率
         # 门槛（fail_under=76）与说明在 pyproject.toml 的 [tool.coverage.report]。
         # term-missing 是刻意的：沙箱层与能力层的缺口必须留在日志里能看见。
         run: pytest -m "not wsl and not llm" --cov --cov-report=term-missing
+      - name: 执行后端契约（Linux local）
+        # WSL 契约在 Windows 本地用 `pytest -m wsl` 跑；这里验证 Linux 本地后端。
+        run: pytest -m execution -q
+      - name: Phase D 故障演练
+        # 启动本机 loopback A2/A3；覆盖握手、崩溃恢复、DB 降级、版本不匹配、
+        # 迁移失败。不调用 LLM，不依赖 WSL 或 MySQL 服务。
+        run: python scripts/phase_d_smoke.py --timeout 60
+      - name: Phase F 迁移/回滚演练（SQLite）
+        # 覆盖 upgrade → 备份 → downgrade base → upgrade → 恢复。
+        run: python scripts/phase_f_drill.py
       - name: 显式化沙箱层缺口
         # 没有这一步，"CI 全绿" 很容易被读成 "沙箱层也没问题" —— 恰恰相反：
         # 执行真实命令的那一层在 CI 里**一行都没跑**，它的低覆盖就写在上面

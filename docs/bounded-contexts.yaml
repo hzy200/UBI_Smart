@@ -7,14 +7,15 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 review_cadence: 模块边界或依赖方向变动时
 
 # ===========================================================================
 # 允许的依赖方向（单向、无环）
 # ===========================================================================
 dependency_rules:
-  - "cli/tui/web → runtime"
+  - "cli/tui/web/desktop → runtime"
+  - "desktop     → web, access, config"
   - "runtime     → graph, orchestrator, sandbox, tools, audit, memory, steering, llm"
   - "graph       → orchestrator, tools, sandbox, llm, messages, config, steering"
   - "orchestrator→ agents, tools, sandbox, llm, codeintel, graph.state, config, steering"
@@ -26,14 +27,14 @@ dependency_rules:
   - "audit       → (无内部依赖)"
 
 forbidden:
-  - from: [cli, tui, web]
+  - from: [cli, tui, web, desktop]
     to: [tools, sandbox]
     why: |
       安全属性，不是代码风格。前端只消费 events.py 的领域事件，
       拿不到工具与沙箱，因此任何界面都绕不过命令分级审批。
     enforced_by: tests/unit/test_architecture.py（AST 扫描）
   - from: [orchestrator]
-    to: [cli, tui, web]
+    to: [cli, tui, web, desktop]
     why: 编排层不知道前端存在
   - from: [sandbox]
     to: [tools, graph, orchestrator]
@@ -90,8 +91,9 @@ contexts:
     downstream: []
     change_note: |
       只读、不写工作区；LSP 未配置时必须降级为 AST 索引。
-      索引是静态近似（动态 import、条件 import 会偏保守），不要把结果当成
-      类型检查或安全判定的依据。
+      索引是静态近似：字面量 importlib.import_module / __import__ 会补进图，
+      非字面量动态 import、条件 import 或索引不可用时回退全量验证；
+      不要把结果当成类型检查或安全判定的依据。
 
   - id: subagents
     name: 子智能体
@@ -129,14 +131,15 @@ contexts:
 
   - id: frontends
     name: 前端
-    path: [cli/, tui/, web/]
-    owns: [事件渲染, 审批交互, 会话管理, Web 认证与租户隔离]
+    path: [cli/, tui/, web/, desktop/]
+    owns: [事件渲染, 审批交互, 会话管理, Web 认证与租户隔离, 桌面壳, 密钥注入, 受控上传, 事件重放]
     upstream: []
     downstream: [runtime]
     constraint: 不得 import tools/ 或 sandbox/（AST 测试守着）
     note: |
       Web 默认 untrusted profile（bwrap + 禁网 + 强制 ask + 不信任仓库指令/记忆），
       只监听 127.0.0.1；公网必须 token + TLS。
+      桌面 GUI 只绑 loopback，每次启动随机 token，不允许匿名。
 
   - id: evaluation
     name: 能力评测
@@ -147,6 +150,68 @@ contexts:
     note: |
       它是**尺子**不是回归：评测通过率下降只说明能力变了，需要人判断。
       判定固定 stdlib unittest（ADR-0006），仓库用确定性生成器（ADR-0007）。
+
+# ===========================================================================
+# 目标四层（Phase A 契约，未落地）
+# ===========================================================================
+# 当前 contexts 仍是代码事实源；target_layers 只描述未来职责与数据边界，
+# 不代表已经存在的包。实现顺序与控制 API 见 docs/PHASE_A.md。
+target_layers:
+  - id: a1-frontend
+    name: 前端
+    current_anchors: [web/static/, cli/, tui/, desktop/]
+    owns: [交互与渲染, 主题/字体, SSE 展示, 审批交互, 平台桥]
+    must_not: [执行工具, 读写工作区, 持有 API Key]
+
+  - id: a2-control-plane
+    name: 控制面
+    current_anchors: [web/app.py, web/auth.py, tenancy.py, control/]
+    owns: [认证与租户, 会话目录, 运行/审批索引, 配额, Provider 档案, MySQL, SecretProvider]
+    data: [MySQL]
+    native_on: [Windows, Linux]
+    must_not: [执行工具, 直接读写工作区, 存储 checkpoint/文件内容/API Key]
+
+  - id: a3-orchestration
+    name: 编排面
+    current_anchors: [runtime.py, graph/, orchestrator/, llm/, steering.py]
+    owns: [图与 LLM, 审批决定, checkpoint, steering, 编排 worker, 成本/限流, 本地审计链]
+    data: [checkpoint, steering, audit, memory]
+    must_not: [绕过审批执行副作用, 让前端直接调用]
+
+  - id: a4-execution
+    name: 执行面
+    current_anchors: [tools/, sandbox/, memory/]
+    owns: [shell, 文件 I/O, Git, 测试, 快照, worktree, 上传落盘]
+    data: [workspace, snapshots, uploads]
+    must_not: [做审批决定, 接受未经 A3 校验的调用]
+
+target_infrastructure:
+  - id: shared-event-transport
+    owns: [SSE 热事件发布与重放, 按 thread 保序, consumer group, 短 TTL]
+    recommended: Redis Streams
+    fallback: 单实例内存适配器
+    must_not: [替代 checkpoint, 承担 MySQL 查询索引]
+  - id: secrets
+    desktop: OS 密钥环（Credential Manager / Secret Service）
+    server: Vault/KMS 或 systemd-creds
+    wsl: 不落盘；由 A2 按运行注入 A3 内存
+  - id: persistence
+    control_plane: MySQL（仅 A2）
+    standalone: 本地文件/SQLite（CLI/TUI/开发/测试/eval）
+  - id: frontend-build
+    output: 静态 SPA（CSP 兼容）
+    toolchain: esbuild + TypeScript
+    framework: none
+
+target_boundaries:
+  - "A1 → A2：HTTP + SSE，不直连 A3/A4"
+  - "A2 → A3：内部 token + context 的 /v1 生命周期 API；A2 不执行工具"
+  - "A2 → A3 未配置 AGENT_INTERNAL_URL 时仍同进程（兼容旧部署）"
+  - "A3 → A4：已校验的执行请求；A4 二次强制路径/能力"
+  - "A2 在各平台原生运行；WSL 只承载 A3/A4"
+  - "A2 是 MySQL 唯一访问方；A3/A4 不直连"
+  - "多实例 A3 → 共享事件传输 → A2；MySQL 只做索引"
+  - "Standalone：CLI/TUI → A3+A4，无 A2/MySQL"
 
 # ===========================================================================
 # 改动范围判定
