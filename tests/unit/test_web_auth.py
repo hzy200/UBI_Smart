@@ -14,6 +14,7 @@ from coding_agent.config import Settings
 from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
 from coding_agent.tenancy import WebTenant
 from coding_agent.web import app as web_app
+from coding_agent.web import local_runtime
 from coding_agent.web.auth import AuthConfig
 
 
@@ -166,7 +167,7 @@ def test_threads_are_isolated_between_users(monkeypatch, tmp_path) -> None:
         )
 
     monkeypatch.setattr(web_app.TenantManager, "for_user", _tenant_for)
-    monkeypatch.setattr(web_app, "AgentRuntime", _SuspendingRuntime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", _SuspendingRuntime)
     client = TestClient(
         web_app.create_app(
             settings,

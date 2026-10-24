@@ -713,7 +713,7 @@ Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL�
 
 P1 已把 A2↔A3 DTO、事件传输与工作区浏览下沉到 `agent_protocol` /
 `event_transport` / `workspace`；`agent_server` 不再依赖 `web/` 或
-`control.agent_client`。仍待收口：`web/app.py` 的同进程回退持有 runtime、
-`cli/app.py` 直接 import sandbox。
+`control.agent_client`。同进程回退已隔离到 `web/local_runtime.py`；
+CLI 的沙箱探测已收窄到 `cli/platform.py`。
 
 详见 [PHASE_F.md](PHASE_F.md)。

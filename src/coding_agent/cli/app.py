@@ -38,6 +38,7 @@ from coding_agent.audit import (
     verify_audit_files,
 )
 from coding_agent.audit.logger import now_iso
+from coding_agent.cli.platform import SandboxProbe, resolve_workspace
 from coding_agent.config import (
     PRODUCTION_PROFILES,
     Settings,
@@ -76,7 +77,6 @@ from coding_agent.memory.embeddings import embedding_status
 from coding_agent.memory.sessions import SessionIndex, format_table_rows
 from coding_agent.messages import text_of
 from coding_agent.runtime import AgentRuntime, submit_steering_command
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
 from coding_agent.steering import SteeringCommand
 from coding_agent.workspace_lock import WorkspaceLock
 
@@ -295,7 +295,7 @@ def doctor() -> None:
         )
     )
 
-    distros = WslSandbox.list_distros()
+    distros = SandboxProbe.list_distros()
     has_wsl = settings.wsl_distro in distros
     results.append(
         _report(
@@ -306,7 +306,7 @@ def doctor() -> None:
     )
 
     if has_wsl:
-        sandbox = WslSandbox(settings)
+        sandbox = SandboxProbe(settings)
         workspace = resolve_workspace(settings, sandbox)
         # bwrap 的 workdir 读 sandbox.settings；配置留空时写回推导值。
         sandbox.settings = settings.model_copy(
@@ -378,9 +378,9 @@ def doctor() -> None:
 def sandbox_init() -> None:
     """创建并校验沙箱工作区目录。"""
     settings = get_settings()
-    sandbox = WslSandbox(settings)
+    sandbox = SandboxProbe(settings)
 
-    if not WslSandbox.available(settings.wsl_distro):
+    if not SandboxProbe.available(settings.wsl_distro):
         console.print(f"[red]WSL 发行版 {settings.wsl_distro} 不可用[/]")
         raise typer.Exit(code=1)
 

@@ -12,6 +12,7 @@ from coding_agent.config import Settings
 from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
 from coding_agent.runtime import HistoryMessage
 from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
+from coding_agent.web import local_runtime
 from coding_agent.web.auth import AuthConfig
 
 
@@ -133,7 +134,7 @@ def runtime(monkeypatch) -> SimpleNamespace:
         state.instances.append(instance)
         return instance
 
-    monkeypatch.setattr(web.app, "AgentRuntime", factory)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", factory)
     return state
 
 

@@ -16,6 +16,7 @@ from coding_agent.events import (
     RunFinished,
     RunStarted,
 )
+from coding_agent.web import local_runtime
 
 
 class FakeRuntime:
@@ -81,7 +82,7 @@ def _frames(text: str) -> list[tuple[int | None, dict]]:
 
 def test_buffered_stream_has_sequence_ids(settings, monkeypatch) -> None:
     runtime = FakeRuntime()
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
     client = TestClient(web.create_app(settings, stream_buffer=True))
 
     response = client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -99,7 +100,7 @@ def test_buffered_stream_has_sequence_ids(settings, monkeypatch) -> None:
 
 def test_buffered_stream_replays_after_sequence(settings, monkeypatch) -> None:
     monkeypatch.setattr(
-        web.app, "AgentRuntime", lambda *a, **k: FakeRuntime()
+        local_runtime, "AgentRuntime", lambda *a, **k: FakeRuntime()
     )
     client = TestClient(web.create_app(settings, stream_buffer=True))
     client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -115,7 +116,7 @@ def test_buffered_stream_turns_exceptions_into_run_failed(
     settings, monkeypatch
 ) -> None:
     runtime = FakeRuntime(error=RuntimeError("boom"))
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
     client = TestClient(web.create_app(settings, stream_buffer=True))
 
     response = client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -129,7 +130,7 @@ def test_buffered_approval_keeps_runtime_for_resume(
     settings, monkeypatch
 ) -> None:
     runtime = FakeRuntime(approval=True)
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
     client = TestClient(web.create_app(settings, stream_buffer=True))
 
     response = client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -161,7 +162,7 @@ def test_buffer_evicts_old_events_by_size(settings, monkeypatch) -> None:
             yield RunFinished(thread_id=thread_id, answer="done")
 
     monkeypatch.setattr(web.app, "_STREAM_BUFFER_MAX_CHARS", 500)
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: BigRuntime())
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: BigRuntime())
     client = TestClient(web.create_app(settings, stream_buffer=True))
     client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
 
@@ -173,7 +174,7 @@ def test_buffer_evicts_old_events_by_size(settings, monkeypatch) -> None:
 
 def test_resume_rejects_a_finished_stream(settings, monkeypatch) -> None:
     monkeypatch.setattr(
-        web.app, "AgentRuntime", lambda *a, **k: FakeRuntime()
+        local_runtime, "AgentRuntime", lambda *a, **k: FakeRuntime()
     )
     client = TestClient(web.create_app(settings, stream_buffer=True))
     client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -183,7 +184,7 @@ def test_resume_rejects_a_finished_stream(settings, monkeypatch) -> None:
 
 def test_stream_endpoint_requires_buffer_mode(settings, monkeypatch) -> None:
     monkeypatch.setattr(
-        web.app, "AgentRuntime", lambda *a, **k: FakeRuntime()
+        local_runtime, "AgentRuntime", lambda *a, **k: FakeRuntime()
     )
     client = TestClient(web.create_app(settings))
     assert client.get("/api/stream/t").status_code == 404
@@ -194,7 +195,7 @@ def test_transport_replays_after_local_stream_is_gone(
 ) -> None:
     transport = MemoryEventTransport()
     monkeypatch.setattr(
-        web.app, "AgentRuntime", lambda *a, **k: FakeRuntime()
+        local_runtime, "AgentRuntime", lambda *a, **k: FakeRuntime()
     )
     first = TestClient(
         web.create_app(
@@ -226,7 +227,7 @@ def test_transport_sequence_continues_after_restart(
 ) -> None:
     transport = MemoryEventTransport()
     monkeypatch.setattr(
-        web.app, "AgentRuntime", lambda *a, **k: FakeRuntime()
+        local_runtime, "AgentRuntime", lambda *a, **k: FakeRuntime()
     )
     first = TestClient(
         web.create_app(
@@ -262,7 +263,7 @@ def test_transport_replay_stops_at_approval(settings, monkeypatch) -> None:
 
     transport = MemoryEventTransport()
     monkeypatch.setattr(
-        web.app, "AgentRuntime", lambda *a, **k: ApprovalRuntime()
+        local_runtime, "AgentRuntime", lambda *a, **k: ApprovalRuntime()
     )
     first = TestClient(
         web.create_app(

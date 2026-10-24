@@ -198,22 +198,24 @@ def test_control_does_not_import_agent_core() -> None:
 
 
 def test_web_runtime_import_is_limited_to_same_process_fallback() -> None:
-    """P1 例外：只有 web/app.py 的同进程回退可以持有 runtime。"""
+    """P1.2：只有 web/local_runtime.py 的同进程适配器可以持有 runtime。"""
     for path in _modules("web"):
-        if path.name == "app.py":
+        if path.name == "local_runtime.py":
             continue
         assert "coding_agent.runtime" not in _imported_modules(path), path
-    assert "coding_agent.runtime" in _imported_modules(SRC / "web" / "app.py")
+    assert "coding_agent.runtime" in _imported_modules(
+        SRC / "web" / "local_runtime.py"
+    )
 
 
-def test_cli_sandbox_import_is_explicit_debt() -> None:
-    """P1 例外：cli/app.py 的 doctor/sandbox-init 路径，计划收窄为平台适配器。"""
+def test_cli_sandbox_import_is_limited_to_platform_adapter() -> None:
+    """P1.2：只有 cli/platform.py 的探测适配器可以 import sandbox。"""
     for path in _modules("cli"):
-        if path.name == "app.py":
+        if path.name == "platform.py":
             continue
         assert not _violations(_imported_modules(path)), path
-    assert _violations(_imported_modules(SRC / "cli" / "app.py")), (
-        "cli 的 sandbox 例外已消失，请删除这条 allowlist"
+    assert _violations(_imported_modules(SRC / "cli" / "platform.py")), (
+        "CLI 的平台适配器不再触达 sandbox，请删除这条 allowlist"
     )
 
 

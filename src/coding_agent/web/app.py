@@ -50,10 +50,10 @@ from coding_agent.provider_profiles import (
     merge_provider_items,
     profile_from_payload,
 )
-from coding_agent.runtime import AgentRuntime
 from coding_agent.secrets_store import SecretStore, SecretStoreUnavailable
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.web.auth import AuthConfig, AuthUser
+from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
 from coding_agent.web.middleware import (
     BodySizeLimitMiddleware,
     FixedWindowRateLimiter,
@@ -173,18 +173,12 @@ class SessionConfig:
 
 
 @dataclass
-class RuntimeEntry:
-    runtime: AgentRuntime
-    last_active: float = field(default_factory=time.monotonic)
-
-
-@dataclass
 class StreamEntry:
     """一次运行的事件缓冲；HTTP 连接只是订阅者，不再拥有运行本身。"""
 
     key: tuple[str, str]
     public_thread: str
-    runtime: AgentRuntime
+    runtime: Any
     events: list[tuple[int, Event]] = field(default_factory=list)
     chars: int = 0
     seq: int = 0
@@ -332,7 +326,16 @@ def create_app(
             settings.agent_internal_token,
         )
 
-    runtimes: dict[tuple[str, str], RuntimeEntry] = {}
+    runtimes = LocalRuntimeRegistry(
+        allow_write=allow_write,
+        governor=governor,
+        default_access=default_access,
+        approval_mode=WEB_APPROVAL_MODE,
+        max_runtimes=settings.web_max_runtimes or 1,
+        max_per_user=settings.web_max_runtimes_per_user or 1,
+        runtime_ttl=settings.web_runtime_ttl_s or 0,
+        secret_store_for=lambda tenant: _tenant_store(tenant),
+    )
     streams: dict[tuple[str, str], StreamEntry] = {}
     session_configs: dict[tuple[str, str], SessionConfig] = {}
     # 删除是 tombstone：不再出现在列表里，但审计/checkpoint 保留供追责。
@@ -341,9 +344,6 @@ def create_app(
     registry_lock = threading.Lock()
     session_file_lock = threading.Lock()
     limiter = FixedWindowRateLimiter(per_minute=settings.web_rate_limit_per_min)
-    max_runtimes = max(1, int(settings.web_max_runtimes or 1))
-    max_per_user = max(1, int(settings.web_max_runtimes_per_user or 1))
-    runtime_ttl = max(0, int(settings.web_runtime_ttl_s or 0))
 
     def _tenant(user: AuthUser) -> WebTenant:
         try:
@@ -415,91 +415,23 @@ def create_app(
             for key, stream_entry in list(streams.items()):
                 if stream_entry.done and now - stream_entry.updated > stream_ttl:
                     streams.pop(key, None)
-        if runtime_ttl <= 0:
-            return
-        expired: list[AgentRuntime] = []
-        with registry_lock:
-            for key, entry in list(runtimes.items()):
-                # 正在流式执行的 runtime 不能关：它还在 yield 事件。
-                if getattr(entry.runtime, "_stream_active", False):
-                    continue
-                if now - entry.last_active > runtime_ttl:
-                    runtimes.pop(key, None)
-                    expired.append(entry.runtime)
-        for runtime in expired:
-            try:
-                await runtime.aclose()
-            except Exception:  # noqa: BLE001 - 清理失败不影响新请求
-                pass
+        await runtimes.sweep(now=now)
 
-    def _count_user(user: str) -> int:
-        return sum(1 for key in runtimes if key[0] == user)
-
-    def _effective_access(config: SessionConfig | None) -> str:
-        """服务端 allow_write 是硬上限；持久化配置不能反向提权。"""
-        access = config.access_mode if config is not None else default_access
-        if access and access != ACCESS_READ_ONLY and not allow_write:
-            return ACCESS_READ_ONLY
-        return access
+    def _effective_access(config: SessionConfig | None) -> str | None:
+        return runtimes.effective_access(config)
 
     def _new_runtime(
         tenant: WebTenant, config: SessionConfig | None = None
-    ) -> AgentRuntime:
-        with registry_lock:
-            total = len(runtimes)
-            per_user = _count_user(tenant.user)
-        if total >= max_runtimes or per_user >= max_per_user:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"运行中的会话数已达上限"
-                    f"（用户 {per_user}/{max_per_user}，全局 {total}/{max_runtimes}）"
-                ),
-            )
-        # Web 默认逐条确认；但 production/deny 档不能被这里的 ask 覆盖。
-        mode = (
-            "deny"
-            if str(tenant.settings.approval_mode).lower() == "deny"
-            else WEB_APPROVAL_MODE
-        )
-        access_mode = _effective_access(config)
-        return AgentRuntime(
-            tenant.settings,
-            workspace=(config.workspace or None) if config else None,
-            allow_write=allow_write,
-            governor=governor,
-            approval_mode=mode,
-            access_mode=access_mode or None,
-            model_override=(config.model if config else ""),
-            provider_name=(config.provider if config else ""),
-            secret_store=_tenant_store(tenant),
-        )
+    ) -> Any:
+        return runtimes.new(tenant, config)
 
     def _ops_runtime(
         tenant: WebTenant, config: SessionConfig | None
-    ) -> AgentRuntime:
-        """给快照/记忆/审计等宿主操作临时建一个 runtime，不占运行配额。"""
-        return AgentRuntime(
-            tenant.settings,
-            workspace=(config.workspace or None) if config else None,
-            allow_write=allow_write,
-            governor=governor,
-            approval_mode=WEB_APPROVAL_MODE,
-            access_mode=(_effective_access(config) or None) if config else None,
-            model_override=(config.model if config else ""),
-            provider_name=(config.provider if config else ""),
-            secret_store=_tenant_store(tenant),
-        )
+    ) -> Any:
+        return runtimes.ops(tenant, config)
 
-    async def _drop_runtime(key: tuple[str, str], runtime: AgentRuntime) -> None:
-        with registry_lock:
-            entry = runtimes.get(key)
-            if entry is not None and entry.runtime is runtime:
-                runtimes.pop(key, None)
-        try:
-            await runtime.aclose()
-        except Exception:  # noqa: BLE001 - 关闭失败不覆盖原始事件
-            pass
+    async def _drop_runtime(key: tuple[str, str], runtime: Any) -> None:
+        await runtimes.drop(key, runtime)
 
     def _append_stream_event(entry: StreamEntry, event: Event) -> None:
         entry.seq += 1
@@ -574,7 +506,7 @@ def create_app(
     def _start_stream(
         key: tuple[str, str],
         public_thread: str,
-        runtime: AgentRuntime,
+        runtime: Any,
         events: AsyncIterator[Event],
     ) -> StreamEntry:
         old = streams.pop(key, None)
@@ -1173,7 +1105,7 @@ def create_app(
 
     async def _runtime_for_resume(
         user: AuthUser, public_thread: str
-    ) -> tuple[tuple[str, str], AgentRuntime]:
+    ) -> tuple[tuple[str, str], Any]:
         key = (user.name, public_thread)
         entry = _get_entry(*key)
         if entry is not None:
@@ -1183,13 +1115,13 @@ def create_app(
         config = _config_for(user, tenant, public_thread)
         runtime = _new_runtime(tenant, config)
         with registry_lock:
-            runtimes[key] = RuntimeEntry(runtime)
+            runtimes.put(key, runtime)
         return key, runtime
 
     def _sse_response(
         key: tuple[str, str],
         public_thread: str,
-        runtime: AgentRuntime,
+        runtime: Any,
         events: AsyncIterator[Event],
     ) -> StreamingResponse:
         async def stream() -> AsyncIterator[str]:
@@ -1673,7 +1605,7 @@ def create_app(
         public_thread = _check_thread_id(request.thread_id)
         key = (user.name, public_thread)
         with registry_lock:
-            if key in runtimes:
+            if runtimes.contains(key):
                 raise HTTPException(
                     status_code=409,
                     detail="该会话正在运行或已挂起；请先结束/恢复",
@@ -2511,7 +2443,7 @@ def create_app(
             return await _proxy_agent(stream, public_thread=public_thread)
         key = (user.name, public_thread)
         with registry_lock:
-            if key in runtimes:
+            if runtimes.contains(key):
                 raise HTTPException(
                     status_code=409,
                     detail="该会话已挂起或正在运行；请先 resume",
@@ -2521,7 +2453,7 @@ def create_app(
         config = _config_for(user, tenant, public_thread)
         runtime = _new_runtime(tenant, config)
         with registry_lock:
-            runtimes[key] = RuntimeEntry(runtime)
+            runtimes.put(key, runtime)
         events = runtime.run(
             request.prompt,
             thread_id=tenant.thread_id(public_thread),

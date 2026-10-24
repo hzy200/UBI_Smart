@@ -17,6 +17,7 @@ from coding_agent.provider_profiles import (
     merge_provider_items,
     profile_from_payload,
 )
+from coding_agent.web import local_runtime
 
 
 class FakeRuntime:
@@ -51,7 +52,7 @@ def settings(tmp_path) -> Settings:
 
 
 def test_session_rename_search_export_and_delete(settings, monkeypatch) -> None:
-    monkeypatch.setattr(web.app, "AgentRuntime", FakeRuntime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", FakeRuntime)
     client = TestClient(web.create_app(settings))
     created = client.post(
         "/api/sessions", json={"workspace": "/tmp/ws"}
@@ -84,7 +85,7 @@ def test_session_rename_search_export_and_delete(settings, monkeypatch) -> None:
 
 
 def test_interrupted_session_appears_in_recovery(settings, monkeypatch) -> None:
-    monkeypatch.setattr(web.app, "AgentRuntime", FakeRuntime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", FakeRuntime)
     AuditLogger(settings.resolved_audit_dir).write(
         AuditRecord(
             ts="2026-01-01T00:00:00+00:00",

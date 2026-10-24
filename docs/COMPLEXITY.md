@@ -21,23 +21,23 @@ note: |
 
 | 项 | 值 |
 | --- | --- |
-| 源文件 | **153** |
-| 源码行数 | **42,178** |
-| 函数/方法 | **1,533** |
-| 测试文件 / 行数 | **163 / 41,438** |
+| 源文件 | **155** |
+| 源码行数 | **42,309** |
+| 函数/方法 | **1,549** |
+| 测试文件 / 行数 | **163 / 41,445** |
 | 测试:源码 | **0.98 : 1** |
 | 快反馈用例 | **1,806**（`pytest -m "not wsl and not llm"`；223 deselected） |
-| 覆盖率 | **77.70%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
+| 覆盖率 | **77.39%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
 
 测试体量已接近源码；但覆盖率只覆盖 CI 子集，真实 WSL/bwrap 与桌面入口
 不在其中，不能把全局数字当成所有子系统的健康度。
 
-## 2. 复杂度分布（1,533 个函数）
+## 2. 复杂度分布（1,549 个函数）
 
 | 指标 | 中位 | 均值 | 超阈值 |
 | --- | --- | --- | --- |
-| 函数长度 | **11 行** | 26.6 | >40 行：**12.6%** |
-| 圈复杂度 | **3** | 4.7 | >10：**8.9%**，最大 **164** |
+| 函数长度 | **11 行** | 26.4 | >40 行：**12.5%** |
+| 圈复杂度 | **3** | 4.7 | >10：**8.8%**，最大 **164** |
 
 **结论：复杂度依然高度集中。** 约 91% 的函数圈复杂度 ≤10；复杂度主要落在
 事件翻译、编排调度、工具执行与新增的 A2/A3 装配处。均值较上轮下降，但
@@ -72,7 +72,7 @@ note: |
 
 | 文件 | 行 | 函数 | 备注 |
 | --- | --- | --- | --- |
-| `web/app.py` | **3,204** | 112 | A2 路由 + 同进程回退 + 装配，`create_app` 2,959 行 |
+| `web/app.py` | **3,133** | 112 | A2 路由 + 装配，`create_app` 2,897 行；同进程回退已移出 |
 | `runtime.py` | **2,918** | 89 | 编排中枢 + 事件翻译 + worker 协调，复杂度天然集中 |
 | `cli/app.py` | **2,012** | 54 | 命令 + 渲染 |
 | `tui/app.py` | **1,552** | 72 | Textual 界面 + 事件映射 |
@@ -88,7 +88,8 @@ note: |
 ```
 runtime -> audit config events graph memory messages sandbox steering
            tools execution orchestrator            (中枢，合理)
-web/app -> control runtime                        (同进程回退；P1 待隔离)
+web/app -> control
+web/local_runtime -> runtime                      (唯一的同进程回退适配器)
 agent_server -> agent_protocol event_transport workspace runtime
 control -> agent_protocol event_transport
 graph   -> config llm messages sandbox steering tools orchestrator.graph
@@ -97,7 +98,8 @@ agents  -> config llm messages sandbox tools
 tools   -> config diffing sandbox
 execution -> sandbox
 sandbox -> config diffing
-cli     -> ... runtime sandbox tui web   (doctor/sandbox-init 的既定例外)
+cli/app -> ... runtime tui web
+cli/platform -> sandbox                  (doctor/sandbox-init 的唯一适配器)
 tui/web -> audit config events runtime
 ```
 
@@ -107,26 +109,28 @@ tui/web -> audit config events runtime
 - P1.1 已把 A2↔A3 DTO、事件传输、工作区浏览下沉到 `agent_protocol` /
   `event_transport` / `workspace`，`agent_server` 不再依赖 `web` 或
   `control.agent_client`；
-- 仍有两个显式例外：`web/app.py` 的同进程回退直接持有 `runtime`，
-  `cli/app.py` 直接 import `WslSandbox`；两者都有架构测试 allowlist；
-- 依赖无环；A2/A3 的反向边已消除，但同进程回退仍需在 P1.2 隔离。
+- P1.2 已把同进程回退隔离到 `web/local_runtime.py`；`web/app.py` 不再
+  直接持有 runtime；
+- CLI 的沙箱探测已收窄到 `cli/platform.py`（唯一适配器），`cli/app.py`
+  不再直接 import `WslSandbox`；
+- 依赖无环；A2/A3 的反向边与 web 的 runtime 直连均已消除。
 
 ## 6. 总体评价
 
 | 维度 | 评价 |
 | --- | --- |
-| 规模控制 | **需关注**：`web/app.py` 3,204 行、`runtime.py` 2,918 行、`agent_server.py` 1,163 行 |
-| 函数粒度 | **好**：中位 11 行 / CC 3；但 >40 行占 12.6% |
-| 复杂度集中度 | **可接受**：8.9% 函数 CC>10，位置可解释 |
+| 规模控制 | **需关注**：`web/app.py` 3,133 行（`create_app` 2,897）、`runtime.py` 2,918 行、`agent_server.py` 1,162 行 |
+| 函数粒度 | **好**：中位 11 行 / CC 3；但 >40 行占 12.5% |
+| 复杂度集中度 | **可接受**：8.8% 函数 CC>10，位置可解释 |
 | 真·复杂点 | `_stream`、`create_app`、`create_agent_app`、scheduler、`run_tools`、fan-in |
-| 耦合 | **需关注**：A3 反向依赖 web/control；`cli → sandbox` 例外仍在 |
-| 可测性 | **分层**：0.98:1 测试比；CI 子集 77.70%，但 `implement.py` 19%、`control_server.py` 42%、桌面入口 0% |
+| 耦合 | **改善**：A2/A3 反向边已消除；同进程回退隔离在 `web/local_runtime`，CLI 适配器在 `cli/platform` |
+| 可测性 | **分层**：0.98:1 测试比；CI 子集 77.39%，但 `implement.py` 19%、`control_server.py` 42%、桌面入口 0% |
 
 ## 7. 可选降复杂度动作（按性价比）
 
 | # | 动作 | 收益 | 风险 |
 | --- | --- | --- | --- |
-| 1 | `web/app.py::create_app` 按领域拆 APIRouter + `Deps` | **最高**：消掉 2,959 行装配；A2 可测试 | 中（路由/认证/回退语义须不变） |
+| 1 | `web/app.py::create_app` 按领域拆 APIRouter + `Deps` | **最高**：消掉 2,897 行装配；A2 可测试 | 中（路由/认证/回退语义须不变） |
 | 2 | `runtime._stream` 的 per-node 分支拆成 `_emit_*` 或 `{node: handler}` | **最高**：把最大函数降到若干小函数；已有事件流测试兜底 | 中（编排核心，须行为不变） |
 | 3 | `agent_server.create_agent_app` 拆 routes / RunState / SSE primitive | 高：A3 装配可维护，减少与同进程路径分叉 | 中 |
 | 4 | `orchestrator/scheduler.py::scheduler` 拆成并发派发 / 重试 / 合并三块 | 高：编排逻辑可单测、可组合 | 中 |

@@ -24,6 +24,7 @@ from coding_agent.events import (
     ToolCallStarted,
 )
 from coding_agent.runtime import HistoryMessage
+from coding_agent.web import local_runtime
 
 SCRIPT = [
     RunStarted(thread_id="t"),
@@ -111,7 +112,7 @@ def _client(monkeypatch, settings: Settings, runtime: object | None = None) -> T
     用 monkeypatch 而不是直接赋值模块全局 —— 后者会跨用例泄漏。
     """
     runtime = runtime or FakeRuntime()
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
     return TestClient(web.create_app(settings))
 
 
@@ -244,7 +245,7 @@ def test_run_assigns_a_thread_id_when_missing(monkeypatch, settings) -> None:
 
 def test_run_reuses_given_thread_id(monkeypatch, settings) -> None:
     runtime = FakeRuntime()
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
 
     TestClient(web.create_app(settings)).post(
         "/api/run", json={"prompt": "接着聊", "thread_id": "t-9"}
@@ -266,7 +267,7 @@ def test_run_errors_become_events_not_500(monkeypatch, settings) -> None:
 def test_run_closes_the_runtime(monkeypatch, settings) -> None:
     """每次请求用完就释放 sqlite 连接，否则跑久了会攒住句柄。"""
     runtime = FakeRuntime()
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
 
     TestClient(web.create_app(settings)).post("/api/run", json={"prompt": "hi"})
     assert runtime.closed is True
@@ -331,7 +332,7 @@ def test_run_uses_ask_mode_so_approvals_can_resume(monkeypatch, settings) -> Non
         seen.append(kwargs.get("approval_mode", ""))
         return FakeRuntime()
 
-    monkeypatch.setattr(web.app, "AgentRuntime", _capture)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", _capture)
     TestClient(web.create_app(settings)).post("/api/run", json={"prompt": "hi"})
 
     assert seen == [web.app.WEB_APPROVAL_MODE]
@@ -347,7 +348,7 @@ def test_steering_and_resume_share_the_suspended_runtime(
             SteeringApplied(action="pause", detail="paused"),
         ]
     )
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
     client = TestClient(web.create_app(settings))
 
     resp = client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -379,7 +380,7 @@ def test_resume_approval_rejects_a_steering_pause(
             SteeringApplied(action="pause", detail="paused"),
         ]
     )
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
     client = TestClient(web.create_app(settings))
     client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
 
@@ -398,7 +399,7 @@ def test_resume_steering_rejects_a_non_paused_session(
             RunFinished(thread_id="t", answer="done"),
         ]
     )
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
     client = TestClient(web.create_app(settings))
 
     client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -417,7 +418,7 @@ def test_approval_resume_endpoint(monkeypatch, settings) -> None:
             ),
         ]
     )
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
     client = TestClient(web.create_app(settings))
 
     client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -438,7 +439,7 @@ def test_thread_history(monkeypatch, settings) -> None:
         HistoryMessage("user", "之前问的"),
         HistoryMessage("assistant", "之前的回答"),
     ])
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: runtime)
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: runtime)
 
     data = TestClient(web.create_app(settings)).get("/api/thread/abc").json()
     assert data["messages"] == [
@@ -465,7 +466,7 @@ def test_thread_history_reports_unavailable(monkeypatch, settings) -> None:
         ):
             raise RuntimeError("checkpoint 打不开")
 
-    monkeypatch.setattr(web.app, "AgentRuntime", lambda *a, **k: _Broken())
+    monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: _Broken())
 
     resp = TestClient(web.create_app(settings)).get("/api/thread/abc")
     assert resp.status_code == 503

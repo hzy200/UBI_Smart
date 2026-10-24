@@ -93,10 +93,10 @@ runtime -> execution -> sandbox；tools -> sandbox
 
 已知例外（P1 收敛，不要在别处扩散）：
 
-- `web/app.py` 的同进程回退仍直接持有 `runtime`（standalone/旧部署路径），
-  计划移到 `web/local_runtime.py`；
-- `cli/app.py` 直接 import `WslSandbox`（doctor/sandbox-init 历史路径），
-  计划用 `cli/platform.py` 收窄成只读探测接口。
+- 同进程回退只在 `web/local_runtime.py` 中持有 `runtime`；`web/app.py`
+  不再直接 import，拆分模式只走 HTTP 客户端；
+- CLI 的沙箱探测已收窄到 `cli/platform.py`（doctor/sandbox-init 只读路径）；
+  `cli/app.py` 不再直接 import `WslSandbox`。
 
 A3 已不再依赖 `web/` 或 `control.agent_client`：`agent_server.py` 使用
 `agent_protocol`、`event_transport` 与 `workspace.browse`。
