@@ -11,6 +11,27 @@ from pydantic import BaseModel, Field
 from coding_agent.access import ACCESS_READ_ONLY
 
 
+class RunRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=200_000)
+    thread_id: str = Field(default="", max_length=64)
+    # Web 刻意不提供写会话：所有写操作都要求本机 CLI/TUI 的显式 --write。
+    # 旧版这里有一个 allow_write 字段，但从未传给 AgentRuntime，属于误导性 API。
+
+
+class SteerRequest(BaseModel):
+    action: Literal["pause", "cancel", "add", "replan"]
+    text: str = Field(default="", max_length=4_000)
+    role: str = "explore"
+
+
+class ResumeRequest(BaseModel):
+    decisions: dict[str, bool] = Field(default_factory=dict)
+
+
+class CompactRequest(BaseModel):
+    keep_recent: int = Field(default=6, ge=1, le=50)
+
+
 class SessionRequest(BaseModel):
     """新建/绑定一个会话。
 

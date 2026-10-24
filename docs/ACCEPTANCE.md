@@ -134,7 +134,7 @@ python scripts/demo.py --only 1
 | 项 | 结果 |
 |---|---|
 | 快反馈 | `pytest -m "not wsl and not llm"` 收集 **1,806**，deselect **223**；MySQL 集成用例在无 `AGENT_TEST_MYSQL_URL` 时 skip |
-| 覆盖率 | **77.69%**（CI 子集，门槛 76）；子系统缺口见 [COVERAGE.md](COVERAGE.md) |
+| 覆盖率 | **77.77%**（CI 子集，门槛 76）；子系统缺口见 [COVERAGE.md](COVERAGE.md) |
 | lint | 干净（`ruff check src tests`） |
 | 全量含 WSL | 本轮未重跑；旧 1561 passed / 87.5% 不再作为当前结论 |
 | 能力评测 | （历史基线，2026-10-18，未在本轮重跑）`default` 29 个短任务两轮 29/29（已饱和）；`long` 5 个长程任务 2/5。详见 [tests/eval/README](../tests/eval/README.md) |
@@ -153,7 +153,7 @@ python scripts/demo.py --only 1
 > 真的调用模型 —— 本机 `.env` 配了 key 就计费，而它们本意是"需要时手动跑"。
 >
 > **CI 与本地不是一回事**：CI 是 Linux runner、没有 WSL2，只跑快反馈那 1,806 个用例
-> （其中 1 个 mysql 用例 skip），覆盖率 77.69%。沙箱层与能力层的覆盖仍依赖
+> （其中 1 个 mysql 用例 skip），覆盖率 77.77%。沙箱层与能力层的覆盖仍依赖
 > `-m wsl`，本轮未重跑；CI 会以 `::warning::` 显式提示这个缺口。
 > 缺陷与待办集中在 [tech-debt.yaml](tech-debt.yaml)。
 >

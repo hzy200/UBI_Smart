@@ -19,15 +19,14 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
 
 from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
-from coding_agent.agent_protocol import AgentContext, AgentRunRequest
+from coding_agent.agent_protocol import AgentContext
 from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import Settings, apply_security_profile, get_settings
 from coding_agent.control.agent_client import AgentClientError
@@ -45,7 +44,6 @@ from coding_agent.provider_profiles import (
 from coding_agent.secrets_store import SecretStore
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.web.auth import AuthConfig, AuthUser
-from coding_agent.web.dependencies import UserDep
 from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
 from coding_agent.web.middleware import (
     BodySizeLimitMiddleware,
@@ -55,8 +53,14 @@ from coding_agent.web.middleware import (
 from coding_agent.web.models import (
     SessionConfig,
 )
+from coding_agent.web.routes.compact import CompactDeps, register_compact_routes
+from coding_agent.web.routes.desktop import (
+    DesktopDeps,
+    register_desktop_routes,
+)
 from coding_agent.web.routes.ops import OpsDeps, register_ops_routes
 from coding_agent.web.routes.providers import ProviderDeps, register_provider_routes
+from coding_agent.web.routes.runs import RunDeps, register_run_routes
 from coding_agent.web.routes.sessions import (
     SessionDeps,
     register_session_routes,
@@ -74,7 +78,6 @@ from coding_agent.web.routes.workspace import (
     WorkspaceDeps,
     register_workspace_routes,
 )
-from coding_agent.web.validation import check_thread_id as _check_thread_id
 
 STATIC_DIR = Path(__file__).parent / "static"
 _LOG = logging.getLogger(__name__)
@@ -84,27 +87,6 @@ WEB_APPROVAL_MODE = "ask"
 _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
 # A2 周期探测 A3；A3 重启后状态自动从 unavailable 回到 ok。
 AGENT_PROBE_INTERVAL_S = 5.0
-
-
-class RunRequest(BaseModel):
-    prompt: str = Field(min_length=1, max_length=200_000)
-    thread_id: str = Field(default="", max_length=64)
-    # Web 刻意不提供写会话：所有写操作都要求本机 CLI/TUI 的显式 --write。
-    # 旧版这里有一个 allow_write 字段，但从未传给 AgentRuntime，属于误导性 API。
-
-
-class SteerRequest(BaseModel):
-    action: Literal["pause", "cancel", "add", "replan"]
-    text: str = Field(default="", max_length=4_000)
-    role: str = "explore"
-
-
-class ResumeRequest(BaseModel):
-    decisions: dict[str, bool] = Field(default_factory=dict)
-
-
-class CompactRequest(BaseModel):
-    keep_recent: int = Field(default=6, ge=1, le=50)
 
 
 @dataclass
@@ -1145,510 +1127,11 @@ def create_app(
     if agent_client is not None:
         app.router.on_shutdown.append(agent_client.aclose)
 
-    @app.post("/api/desktop/shutdown")
-    async def desktop_shutdown(user: UserDep) -> dict:
-        """桌面 server 的优雅退出入口；仅 desktop_mode 暴露。"""
-        if not desktop_mode:
-            raise HTTPException(status_code=404, detail="not found")
-        callback = getattr(app.state, "shutdown", None)
-        if callable(callback):
-            asyncio.get_running_loop().call_soon(callback)
-        return {"ok": True}
-
-    @app.post("/api/desktop/cancel_all")
-    async def desktop_cancel_all(user: UserDep) -> dict:
-        """桌面窗口关闭前协作式取消所有运行；仅桌面模式暴露。"""
-        if not desktop_mode:
-            raise HTTPException(status_code=404, detail="not found")
-        with registry_lock:
-            entries = list(runtimes.items())
-        cancelled = 0
-        for (owner, public_thread), entry in entries:
-            try:
-                tenant = tenants.for_user(owner)
-                entry.runtime.steer(
-                    tenant.thread_id(public_thread),
-                    "cancel",
-                    source="desktop-close",
-                )
-                cancelled += 1
-            except Exception:  # noqa: BLE001 - 单个会话取消失败不阻断关窗
-                continue
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            with registry_lock:
-                active = any(
-                    getattr(item.runtime, "_stream_active", False)
-                    for item in runtimes.values()
-                )
-            if not active:
-                break
-            await asyncio.sleep(0.1)
-        return {"cancelled": cancelled, "waited": not active}
-
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-    @app.post("/api/context/{thread_id}/compact")
-    async def compact_context(
-        thread_id: str,
-        request: CompactRequest,
-        user: UserDep,
-    ) -> dict:
-        """压缩并分叉；原 thread 保留，不原地删消息。"""
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_active(user, public_thread)
-        tenant, config = _config_and_tenant(user, public_thread)
-        if agent_client is not None:
-            result = await _agent_json(
-                user, tenant, config, "POST",
-                f"/v1/compact/{public_thread}",
-                json_body={"keep_recent": request.keep_recent},
-            )
-            target_public = str(result.get("thread_id") or "")
-            if target_public:
-                _set_session_config(
-                    user,
-                    tenant,
-                    SessionConfig(
-                        thread_id=target_public,
-                        workspace=(
-                            config.workspace
-                            if config
-                            else tenant.workspace
-                        ),
-                        access_mode=_effective_access(config),
-                        model=config.model if config else "",
-                        provider=config.provider if config else "",
-                    ),
-                )
-            return {
-                "thread_id": target_public,
-                "source_thread_id": public_thread,
-            }
-        runtime = _ops_runtime(tenant, config)
-        try:
-            target_internal = await runtime.compact_thread(
-                tenant.thread_id(public_thread),
-                keep_recent=request.keep_recent,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=409,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            await runtime.aclose()
-        target_public = tenant.public_thread(target_internal)
-        _set_session_config(
-            user,
-            tenant,
-            SessionConfig(
-                thread_id=target_public,
-                workspace=config.workspace if config else tenant.workspace,
-                access_mode=_effective_access(config),
-                model=config.model if config else "",
-                provider=config.provider if config else "",
-            ),
-        )
-        return {"thread_id": target_public, "source_thread_id": public_thread}
-
-    @app.get("/api/approvals/{thread_id}")
-    async def pending_approvals(
-        thread_id: str,
-        user: UserDep,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        tenant = _tenant(user)
-        if agent_client is not None:
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-            try:
-                return await agent_client.approvals(
-                    _agent_context(
-                        user, tenant, config, include_keys=True
-                    ),
-                    public_thread,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-        entry = _get_entry(user.name, public_thread)
-        temporary = None
-        runtime = entry.runtime if entry is not None else None
-        if runtime is None:
-            config = _config_for(user, tenant, public_thread)
-            temporary = _new_runtime(tenant, config)
-            runtime = temporary
-        try:
-            method = getattr(runtime, "pending_approvals", None)
-            if not callable(method):
-                return {"approvals": []}
-            found = await method(tenant.thread_id(public_thread))
-            return {
-                "approvals": [
-                    item.model_dump() if hasattr(item, "model_dump") else item
-                    for item in found
-                ]
-            }
-        except Exception as exc:  # noqa: BLE001 - 跨进程恢复失败要可读报出
-            raise HTTPException(
-                status_code=503,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            if temporary is not None:
-                await temporary.aclose()
-
-    @app.post("/api/run")
-    async def run(
-        request: RunRequest,
-        user: UserDep,
-    ) -> StreamingResponse:
-        _rate_limit(user)
-        await _sweep_expired()
-        if len(request.prompt) > settings.web_max_prompt_chars:
-            raise HTTPException(
-                status_code=413,
-                detail=f"prompt 超过上限 {settings.web_max_prompt_chars} 字符",
-            )
-        public_thread = _check_thread_id(request.thread_id)
-        _reject_if_deleted(user, public_thread)
-        if agent_client is not None:
-            tenant = _tenant(user)
-            config = _config_for(user, tenant, public_thread)
-            if not config.title:
-                config.title = " ".join(request.prompt.split())[:120]
-                _set_session_config(user, tenant, config)
-            try:
-                stream = await agent_client.open_run(
-                    AgentRunRequest(
-                        context=_agent_context(
-                            user, tenant, config, include_keys=True
-                        ),
-                        thread_id=public_thread,
-                        prompt=request.prompt,
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-            return await _proxy_agent(stream, public_thread=public_thread)
-        key = (user.name, public_thread)
-        with registry_lock:
-            if runtimes.contains(key):
-                raise HTTPException(
-                    status_code=409,
-                    detail="该会话已挂起或正在运行；请先 resume",
-                )
-        _stream_guard(key)
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread)
-        runtime = _new_runtime(tenant, config)
-        with registry_lock:
-            runtimes.put(key, runtime)
-        events = runtime.run(
-            request.prompt,
-            thread_id=tenant.thread_id(public_thread),
-        )
-        if stream_buffer:
-            return _buffered_sse(
-                _start_stream(key, public_thread, runtime, events)
-            )
-        return _sse_response(
-            key,
-            public_thread,
-            runtime,
-            events,
-        )
-
-    @app.post("/api/steer/{thread_id}")
-    async def steer(
-        thread_id: str,
-        request: SteerRequest,
-        user: UserDep,
-    ) -> dict:
-        _rate_limit(user)
-        public_thread = _check_thread_id(thread_id)
-        if agent_client is not None:
-            tenant = _tenant(user)
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-            try:
-                return await agent_client.steer(
-                    _agent_context(user, tenant, config),
-                    public_thread,
-                    action=request.action,
-                    text=request.text,
-                    role=request.role,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-        entry = _get_entry(user.name, public_thread)
-        if entry is None:
-            raise HTTPException(
-                status_code=404, detail="该会话没有运行中的 agent"
-            )
-        tenant = _tenant(user)
-        try:
-            entry.runtime.steer(
-                tenant.thread_id(public_thread),
-                request.action,
-                text=request.text,
-                role=request.role,
-                source=client_source,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {"ok": True, "action": request.action}
-
-    @app.post("/api/resume/{thread_id}")
-    async def resume(
-        thread_id: str,
-        request: ResumeRequest,
-        user: UserDep,
-    ) -> StreamingResponse:
-        _rate_limit(user)
-        await _sweep_expired()
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        if agent_client is not None:
-            tenant = _tenant(user)
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-            try:
-                stream = await agent_client.open_resume(
-                    _agent_context(
-                        user, tenant, config, include_keys=True
-                    ),
-                    public_thread,
-                    request.decisions,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-            return await _proxy_agent(stream, public_thread=public_thread)
-        key = (user.name, public_thread)
-        existing = _get_entry(user.name, public_thread)
-        if existing is not None and getattr(
-            existing.runtime, "_stream_active", False
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="该会话正在运行；不能同时 resume",
-            )
-        _stream_guard(key, require_suspended=True)
-        key, runtime = await _runtime_for_resume(user, public_thread)
-        # 等待 runtime 期间可能有并发请求；再检查一次，避免覆盖 active 流。
-        _stream_guard(key, require_suspended=True)
-        tenant = _tenant(user)
-        internal = tenant.thread_id(public_thread)
-        if runtime.is_paused(internal):
-            raise HTTPException(
-                status_code=409,
-                detail="该会话是 steering 暂停；请用 /api/resume_steering",
-            )
-        events = runtime.resume(internal, request.decisions)
-        if stream_buffer:
-            return _buffered_sse(
-                _start_stream(key, public_thread, runtime, events)
-            )
-        return _sse_response(key, public_thread, runtime, events)
-
-    @app.post("/api/resume_steering/{thread_id}")
-    async def resume_steering(
-        thread_id: str,
-        user: UserDep,
-    ) -> StreamingResponse:
-        _rate_limit(user)
-        await _sweep_expired()
-        public_thread = _check_thread_id(thread_id)
-        _reject_if_deleted(user, public_thread)
-        if agent_client is not None:
-            tenant = _tenant(user)
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-            try:
-                stream = await agent_client.open_resume_steering(
-                    _agent_context(
-                        user, tenant, config, include_keys=True
-                    ),
-                    public_thread,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-            return await _proxy_agent(stream, public_thread=public_thread)
-        key = (user.name, public_thread)
-        _stream_guard(key)
-        key, runtime = await _runtime_for_resume(user, public_thread)
-        _stream_guard(key)
-        tenant = _tenant(user)
-        internal = tenant.thread_id(public_thread)
-        # 只有 steering 暂停才能走这个入口。审批挂起的 resume payload 形状
-        # 不同；误用它会让 approval_gate 把所有待批调用按 fail-closed 拒绝。
-        if not runtime.is_paused(internal):
-            raise HTTPException(
-                status_code=409,
-                detail="该会话未处于 steering 暂停状态；审批恢复请用 /api/resume",
-            )
-        events = runtime.resume_steering(internal)
-        if stream_buffer:
-            return _buffered_sse(
-                _start_stream(key, public_thread, runtime, events)
-            )
-        return _sse_response(key, public_thread, runtime, events)
-
-    @app.get("/api/status/{thread_id}")
-    async def status(
-        thread_id: str,
-        user: UserDep,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        if agent_client is not None:
-            tenant = _tenant(user)
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-            try:
-                return await agent_client.status(
-                    _agent_context(user, tenant, config), public_thread
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-        entry = _get_entry(user.name, public_thread)
-        stream_entry = streams.get((user.name, public_thread))
-        extra = (
-            {
-                "streaming": bool(stream_entry and not stream_entry.done),
-                "last_seq": stream_entry.seq if stream_entry else 0,
-            }
-            if stream_entry is not None
-            else {}
-        )
-        if entry is None:
-            return {
-                "exists": False,
-                "thread_id": public_thread,
-                "paused": False,
-                **extra,
-            }
-        tenant = _tenant(user)
-        return {
-            "exists": True,
-            "thread_id": public_thread,
-            "paused": bool(
-                entry.runtime.is_paused(tenant.thread_id(public_thread))
-            ),
-            **extra,
-        }
-
-    @app.get("/api/stream/{thread_id}")
-    async def stream_events(
-        thread_id: str,
-        request: Request,
-        user: UserDep,
-        after: int = 0,
-    ) -> Response:
-        """重连到事件流；`Last-Event-ID` 或 `after` 指定起点。"""
-        if agent_client is None and (not stream_buffer or transport is None):
-            raise HTTPException(status_code=404, detail="事件重放未启用")
-        public_thread = _check_thread_id(thread_id)
-        header = request.headers.get("last-event-id", "")
-        try:
-            header_seq = int(header)
-        except (TypeError, ValueError):
-            header_seq = 0
-        start = max(0, int(after), header_seq)
-        if agent_client is not None:
-            tenant = _tenant(user)
-            config = _config_for(
-                user, tenant, public_thread, create=False
-            )
-            try:
-                stream = await agent_client.open_stream(
-                    _agent_context(user, tenant, config),
-                    public_thread,
-                    after=start,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-            if stream.status_code == 204:
-                await stream.aclose()
-                return Response(status_code=204)
-            return await _proxy_agent(
-                stream, public_thread=public_thread
-            )
-        event_key = _event_key(user.name, public_thread)
-        entry = streams.get((user.name, public_thread))
-        if entry is not None:
-            try:
-                latest = transport.latest_seq(event_key)
-            except Exception:  # noqa: BLE001 - 传输不可用时退回本地缓冲
-                latest = entry.seq
-            if latest > entry.seq:
-                return _transport_sse(
-                    event_key, public_thread, after=start
-                )
-            return _buffered_sse(entry, after=start)
-        try:
-            latest = transport.latest_seq(event_key)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=503, detail="事件传输不可用"
-            ) from exc
-        if latest <= start:
-            return Response(status_code=204)
-        return _transport_sse(event_key, public_thread, after=start)
-
-    @app.get("/api/thread/{thread_id}")
-    async def thread_history(
-        thread_id: str,
-        user: UserDep,
-        limit: int | None = None,
-        offset: int = 0,
-    ) -> dict:
-        public_thread = _check_thread_id(thread_id)
-        tenant = _tenant(user)
-        config = _config_for(user, tenant, public_thread, create=False)
-        if agent_client is not None:
-            try:
-                return await agent_client.history(
-                    _agent_context(user, tenant, config),
-                    public_thread,
-                    limit=limit,
-                    offset=offset,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise _agent_failure(exc) from exc
-        runtime = _ops_runtime(tenant, config)
-        try:
-            history = await runtime.history(
-                tenant.thread_id(public_thread),
-                limit=limit,
-                offset=offset,
-            )
-        except Exception as exc:  # noqa: BLE001 - 拿不到历史不该让页面报错
-            raise HTTPException(
-                status_code=503,
-                detail=f"{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            await runtime.aclose()
-        return {
-            "messages": [
-                {"role": message.role, "text": message.text}
-                for message in history
-            ]
-        }
-
-    # ------------------------------------------------------------------
-    # 快照 / 回滚 / checkpoint
-    # ------------------------------------------------------------------
 
     def _reject_if_active(user: AuthUser, public_thread: str) -> None:
         if _get_entry(user.name, public_thread) is not None:
@@ -1801,6 +1284,63 @@ def create_app(
             ops_runtime=_ops_runtime,
             set_config=_set_session_config,
             effective_access=_effective_access,
+        ),
+    )
+
+    register_run_routes(
+        app,
+        RunDeps(
+            settings=settings,
+            client_source=client_source,
+            stream_buffer=stream_buffer,
+            transport=transport,
+            streams=streams,
+            registry_lock=registry_lock,
+            runtimes=runtimes,
+            rate_limit=_rate_limit,
+            sweep_expired=_sweep_expired,
+            tenant=_tenant,
+            config_for=_config_for,
+            set_config=_set_session_config,
+            reject_deleted=_reject_if_deleted,
+            agent_client=agent_client,
+            agent_context=_agent_context,
+            agent_failure=_agent_failure,
+            proxy_agent=_proxy_agent,
+            stream_guard=_stream_guard,
+            start_stream=_start_stream,
+            buffered_sse=_buffered_sse,
+            sse_response=_sse_response,
+            get_entry=_get_entry,
+            runtime_for_resume=_runtime_for_resume,
+            new_runtime=_new_runtime,
+            event_key=_event_key,
+            transport_sse=_transport_sse,
+            ops_runtime=_ops_runtime,
+        ),
+    )
+
+    register_desktop_routes(
+        app,
+        DesktopDeps(
+            app=app,
+            desktop_mode=desktop_mode,
+            registry_lock=registry_lock,
+            runtimes=runtimes,
+            tenants=tenants,
+        ),
+    )
+
+    register_compact_routes(
+        app,
+        CompactDeps(
+            config_and_tenant=_config_and_tenant,
+            reject_active=_reject_if_active,
+            agent_client=agent_client,
+            agent_json=_agent_json,
+            set_config=_set_session_config,
+            effective_access=_effective_access,
+            ops_runtime=_ops_runtime,
         ),
     )
 
