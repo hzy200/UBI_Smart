@@ -68,7 +68,7 @@ src/coding_agent/
   agent_server_support.py A3 RunState / SSE 原语
   agent_context.py  A3 租户目录与 runtime 构造
   control_server.py A2 独立进程入口：认证 / 会话目录 / 代理 / 降级
-  web/routes/       A2 领域路由（system 已拆出）
+  web/routes/       A2 领域路由（system / providers 已拆出）
   web/dependencies.py 认证依赖；web/validation.py thread_id 校验
   agents/           explore / review 子智能体循环
   llm/              DeepSeek 客户端 · 提示词 · 上下文裁剪 · provider 路由

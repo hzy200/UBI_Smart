@@ -14,7 +14,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import subprocess
 import threading
 import time
@@ -23,7 +22,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-import httpx
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -46,9 +44,8 @@ from coding_agent.project_env import probe_project
 from coding_agent.provider_profiles import (
     ProviderProfileStore,
     merge_provider_items,
-    profile_from_payload,
 )
-from coding_agent.secrets_store import SecretStore, SecretStoreUnavailable
+from coding_agent.secrets_store import SecretStore
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.web.auth import AuthConfig, AuthUser
 from coding_agent.web.dependencies import UserDep
@@ -58,6 +55,7 @@ from coding_agent.web.middleware import (
     FixedWindowRateLimiter,
     SecurityHeadersMiddleware,
 )
+from coding_agent.web.routes.providers import ProviderDeps, register_provider_routes
 from coding_agent.web.routes.system import SystemDeps, register_system_routes
 from coding_agent.web.validation import check_thread_id as _check_thread_id
 from coding_agent.workspace.browse import (
@@ -130,14 +128,6 @@ class RenameRequest(BaseModel):
 
 class UploadDeleteRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
-
-
-class ProviderKeyRequest(BaseModel):
-    api_key: str = Field(min_length=1, max_length=8_000)
-
-
-class ProviderTestRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
 
 
 class MemoryRequest(BaseModel):
@@ -2110,147 +2100,6 @@ def create_app(
             )
         return {"items": rows}
 
-    @app.get("/api/providers")
-    async def providers(user: UserDep) -> dict:
-        _apply_provider_profiles()
-        return {
-            "providers": _provider_rows(settings, _user_store(user)),
-            "default_model": settings.deepseek_model,
-            "server_write_enabled": allow_write,
-            "profiles_enabled": not is_multi_user,
-        }
-
-    def _reject_profile_write() -> None:
-        if is_multi_user:
-            raise HTTPException(
-                status_code=403,
-                detail="多用户模式请用 AGENT_LLM_PROVIDERS 配置 provider",
-            )
-
-    @app.get("/api/provider-profiles")
-    async def list_provider_profiles(user: UserDep) -> dict:
-        profiles = _apply_provider_profiles()
-        return {
-            "profiles": [profile.to_item() for profile in profiles],
-            "base_configured": bool(base_llm_providers),
-            "profiles_enabled": not is_multi_user,
-        }
-
-    @app.post("/api/provider-profiles")
-    async def upsert_provider_profile(
-        payload: dict[str, Any], user: UserDep
-    ) -> dict:
-        _reject_profile_write()
-        _rate_limit(user)
-        try:
-            profile = profile_from_payload(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        store = ProviderProfileStore(_profiles_path())
-        profiles = store.upsert(profile)
-        _apply_provider_profiles()
-        return {
-            "ok": True,
-            "profiles": [item.to_item() for item in profiles],
-        }
-
-    @app.delete("/api/provider-profiles/{name}")
-    async def delete_provider_profile(
-        name: str, user: UserDep
-    ) -> dict:
-        _reject_profile_write()
-        store = ProviderProfileStore(_profiles_path())
-        profiles = store.delete(name)
-        _apply_provider_profiles()
-        return {
-            "ok": True,
-            "profiles": [item.to_item() for item in profiles],
-        }
-
-    @app.post("/api/providers/{name}/key")
-    async def set_provider_key(
-        name: str,
-        request: ProviderKeyRequest,
-        user: UserDep,
-    ) -> dict:
-        clean = re.sub(r"[^A-Za-z0-9_.-]", "", name)[:64]
-        if not clean:
-            raise HTTPException(status_code=422, detail="非法 provider 名")
-        try:
-            _user_store(user).set(clean, request.api_key)
-        except SecretStoreUnavailable as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return {"ok": True, "name": clean, "has_key": True}
-
-    @app.delete("/api/providers/{name}/key")
-    async def delete_provider_key(name: str, user: UserDep) -> dict:
-        clean = re.sub(r"[^A-Za-z0-9_.-]", "", name)[:64]
-        _user_store(user).delete(clean)
-        return {"ok": True, "name": clean, "has_key": False}
-
-    @app.post("/api/providers/test")
-    async def test_provider(
-        request: ProviderTestRequest,
-        user: UserDep,
-    ) -> dict:
-        """轻量连通性探测：只请求 `/models`，不发送用户内容、不记录 key。"""
-        _apply_provider_profiles()
-        spec = _resolve_provider(
-            settings, _user_store(user), request.name
-        )
-        if spec is None:
-            raise HTTPException(status_code=404, detail="provider 不存在")
-        if not spec["api_key"]:
-            raise HTTPException(status_code=422, detail="provider 还没有配置密钥")
-        base_url = spec["base_url"].rstrip("/")
-        try:
-            parsed = httpx.URL(base_url)
-        except (httpx.InvalidURL, ValueError, TypeError) as exc:
-            raise HTTPException(
-                status_code=422, detail="provider base_url 非法"
-            ) from exc
-        if parsed.scheme not in {"http", "https"} or not parsed.host:
-            raise HTTPException(status_code=422, detail="provider base_url 非法")
-        try:
-            # 不走环境代理：避免把 Authorization 发给 HTTP_PROXY。
-            async with httpx.AsyncClient(
-                timeout=5.0, trust_env=False
-            ) as client:
-                response = await client.get(
-                    f"{base_url}/models",
-                    headers={
-                        "Authorization": f"Bearer {spec['api_key']}",
-                    },
-                )
-        except httpx.HTTPError as exc:
-            return {
-                "ok": False,
-                "reachable": False,
-                "error": f"{type(exc).__name__}: {exc}",
-            }
-        ok = 200 <= response.status_code < 300
-        models: list[str] = []
-        if ok:
-            try:
-                parse = getattr(response, "json", None)
-                payload = parse() if callable(parse) else {}
-                rows = payload.get("data") if isinstance(payload, dict) else []
-                models = [
-                    str(row.get("id"))
-                    for row in (rows or [])
-                    if isinstance(row, dict) and row.get("id")
-                ][:100]
-            except Exception:  # noqa: BLE001 - /models 格式不标准不影响连通性
-                models = []
-        return {
-            "ok": ok,
-            "reachable": True,
-            "status_code": response.status_code,
-            "model": spec["model"],
-            "models": models,
-            "error": "" if ok else f"provider 返回 HTTP {response.status_code}",
-        }
-
     @app.get("/api/approvals/{thread_id}")
     async def pending_approvals(
         thread_id: str,
@@ -3033,6 +2882,22 @@ def create_app(
             capabilities=_capabilities,
             default_access=default_access,
             desktop_mode=desktop_mode,
+        ),
+    )
+
+    register_provider_routes(
+        app,
+        ProviderDeps(
+            settings=settings,
+            allow_write=allow_write,
+            is_multi_user=is_multi_user,
+            base_llm_providers=base_llm_providers,
+            profiles_path=_profiles_path,
+            apply_profiles=_apply_provider_profiles,
+            resolve_provider=_resolve_provider,
+            user_store=_user_store,
+            rate_limit=_rate_limit,
+            provider_rows=_provider_rows,
         ),
     )
 

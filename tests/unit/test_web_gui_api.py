@@ -14,6 +14,7 @@ from coding_agent.runtime import HistoryMessage
 from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
 from coding_agent.web import local_runtime
 from coding_agent.web.auth import AuthConfig
+from coding_agent.web.routes import providers as provider_routes
 
 
 class FakeRuntime:
@@ -444,7 +445,7 @@ def test_provider_connection_probe(settings, runtime, monkeypatch) -> None:
             seen["auth"] = (headers or {}).get("Authorization", "")
             return FakeResponse()
 
-    monkeypatch.setattr(web.app.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(provider_routes.httpx, "AsyncClient", FakeClient)
     client = TestClient(web.create_app(settings))
     response = client.post(
         "/api/providers/test", json={"name": "deepseek"}
