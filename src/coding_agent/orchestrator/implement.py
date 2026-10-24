@@ -34,6 +34,7 @@ from coding_agent.codeintel.python_index import (
 )
 from coding_agent.config import Settings
 from coding_agent.execution.context import tool_execution_context
+from coding_agent.execution.host_ops import HOST_ORIGIN, host_run
 from coding_agent.llm.prompts import (
     IMPLEMENT_WORKER_PROMPT,
     format_verification_feedback,
@@ -151,7 +152,13 @@ if git rev-parse HEAD >/dev/null 2>&1; then echo "HEAD=1"; else echo "HEAD=0"; f
 dirty=$(git status --porcelain -- . {stage_args()} 2>/dev/null)
 if [ -z "$dirty" ]; then echo "CLEAN=1"; else echo "CLEAN=0"; fi
 """
-    result = sandbox.run(script, cwd=root)
+    result = host_run(
+        sandbox,
+        script,
+        origin=HOST_ORIGIN,
+        kind="git_probe",
+        cwd=root,
+    )
     if not result.ok:
         return False, "无法确认 git 仓库状态"
     flags: dict[str, str] = {}
@@ -181,7 +188,13 @@ def _changed_files(sandbox: WslSandbox, worktree: str) -> list[str]:
     合并前按这个列表留底会漏掉被删除的旧路径，回滚就不完整。
     """
     excludes = stage_args()
-    add = sandbox.run(f"git add -A -- . {excludes}", cwd=worktree)
+    add = host_run(
+        sandbox,
+        f"git add -A -- . {excludes}",
+        origin=HOST_ORIGIN,
+        kind="git_patch_prepare",
+        cwd=worktree,
+    )
     # 快照写在 worktree 内的 `.agent/`，它被 .gitignore 忽略。Git 会对这个
     # 被忽略目录返回 exit=1（但已经成功暂存真实改动）。这不是失败，继续看 diff。
     ignored_warning = "ignored by one of your .gitignore" in (
@@ -189,8 +202,11 @@ def _changed_files(sandbox: WslSandbox, worktree: str) -> list[str]:
     ).lower()
     if not add.ok and not ignored_warning:
         return []
-    names = sandbox.run(
+    names = host_run(
+        sandbox,
         f"git diff --cached --name-status -M -z HEAD -- . {excludes}",
+        origin=HOST_ORIGIN,
+        kind="git_patch_prepare",
         cwd=worktree,
     )
     if not names.ok:
@@ -268,8 +284,12 @@ def _make_patch(
     sandbox: WslSandbox, worktree: str, root: str, task_id: str
 ) -> str:
     excludes = stage_args()
-    diff = sandbox.run(
-        f"git diff --cached --binary HEAD -- . {excludes}", cwd=worktree
+    diff = host_run(
+        sandbox,
+        f"git diff --cached --binary HEAD -- . {excludes}",
+        origin=HOST_ORIGIN,
+        kind="git_patch_prepare",
+        cwd=worktree,
     )
     if not diff.ok or not diff.stdout.strip():
         return ""
@@ -385,10 +405,15 @@ def make_implement_runner(
             0,
         )
 
-        async def shell(command: str, *, cwd: str | None = None):
+        async def shell(command: str, *, kind: str, cwd: str | None = None):
             """把同步沙箱调用挪出事件循环，避免阻塞同批其它 worker。"""
             return await asyncio.to_thread(
-                sandbox.run, command, cwd=cwd or root
+                host_run,
+                sandbox,
+                command,
+                origin=HOST_ORIGIN,
+                kind=kind,
+                cwd=cwd or root,
             )
 
         def failed(summary: str, *, error: str = "") -> WorkerResult:
@@ -414,22 +439,41 @@ def make_implement_runner(
 
         def remove_worktree() -> None:
             try:
-                sandbox.run(
+                host_run(
+                    sandbox,
                     f"git worktree remove --force {shlex.quote(worktree)}",
+                    origin=HOST_ORIGIN,
+                    kind="git_worktree",
                     cwd=root,
                 )
-                sandbox.run("git worktree prune", cwd=root)
+                host_run(
+                    sandbox,
+                    "git worktree prune",
+                    origin=HOST_ORIGIN,
+                    kind="git_worktree",
+                    cwd=root,
+                )
             except Exception:  # noqa: BLE001 - 清理失败不覆盖原始结果
                 pass
 
         # 清理守卫从**创建之前**就生效：取消可能正好落在下面某个 await
         # 上，此时 worktree 目录可能已经部分创建。
         try:
-            await shell(f"mkdir -p {shlex.quote(worktree_parent)}")
-            await shell(f"git worktree remove --force {shlex.quote(worktree)}")
-            await shell(f"rm -rf {shlex.quote(worktree)}")
+            await shell(
+                f"mkdir -p {shlex.quote(worktree_parent)}",
+                kind="worktree_prepare",
+            )
+            await shell(
+                f"git worktree remove --force {shlex.quote(worktree)}",
+                kind="git_worktree",
+            )
+            await shell(
+                f"rm -rf {shlex.quote(worktree)}",
+                kind="worktree_cleanup",
+            )
             created = await shell(
-                f"git worktree add --detach {shlex.quote(worktree)} HEAD"
+                f"git worktree add --detach {shlex.quote(worktree)} HEAD",
+                kind="git_worktree",
             )
         except asyncio.CancelledError:
             remove_worktree()

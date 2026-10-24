@@ -103,7 +103,10 @@ runtime -> execution -> sandbox；tools -> sandbox
 - 同进程回退只在 `web/local_runtime.py` 中持有 `runtime`；`web/app.py`
   不再直接 import，拆分模式只走 HTTP 客户端；
 - CLI 的沙箱探测已收窄到 `cli/platform.py`（doctor/sandbox-init 只读路径）；
-  `cli/app.py` 不再直接 import `WslSandbox`。
+  `cli/app.py` 不再直接 import `WslSandbox`，有 AST 测试锁定。
+- 宿主内部执行（合并 / worktree / 补丁生成 / 仓库画像）只允许经
+  `execution/host_ops.py::host_run` 的 kind 白名单，见 `docs/adr/0011-host-side-execution.md`；
+  `orchestrator/` 不许直接 `sandbox.run`，有 AST 测试锁定。
 
 A3 已不再依赖 `web/` 或 `control.agent_client`：`agent_server.py` 使用
 `agent_protocol`、`event_transport` 与 `workspace.browse`。

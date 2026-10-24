@@ -1222,3 +1222,15 @@ criteria:
     status: implemented
     tests: [tests/unit/test_phase_f_drill.py::test_bench_help]
     see: docs/PHASE_F.md
+
+  - id: REQ-141
+    title: 宿主侧执行只能走 kind 白名单
+    given: 合并 / worktree / 补丁生成等绕过工具层的内部命令
+    when: 调用 execution/host_ops.py::host_run
+    then: |
+      origin 必须是 host；kind 必须在 HOST_KINDS 里；命令前缀必须与 kind
+      匹配；未知 origin/kind 或不匹配命令一律 HostExecutionDenied。
+      orchestrator/ 内不得直接调用 sandbox.run（AST 测试锁定）。
+    status: implemented
+    tests: [tests/unit/test_host_ops.py::test_unknown_origin_is_rejected, tests/unit/test_host_ops.py::test_unknown_kind_is_rejected, tests/unit/test_host_ops.py::test_kind_must_match_the_command, tests/unit/test_host_ops.py::test_orchestrator_has_no_unmarked_sandbox_execution]
+    see: docs/adr/0011-host-side-execution.md

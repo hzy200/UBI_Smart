@@ -12,6 +12,7 @@ from coding_agent.codeintel.python_index import (
     build_repo_map,
     collect_python_sources,
 )
+from coding_agent.execution.host_ops import HOST_ORIGIN, host_run
 from coding_agent.graph.state import AgentState
 from coding_agent.orchestrator.implement import stage_args
 from coding_agent.sandbox.wsl_exec import WslSandbox
@@ -47,7 +48,13 @@ else
 fi
 """
         try:
-            result = sandbox.run(script, cwd=root)
+            result = host_run(
+                sandbox,
+                script,
+                origin=HOST_ORIGIN,
+                kind="repo_survey",
+                cwd=root,
+            )
             section = ""
             flags: dict[str, str] = {}
             for line in result.stdout.splitlines():

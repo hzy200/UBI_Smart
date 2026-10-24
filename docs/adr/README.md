@@ -37,6 +37,7 @@ review_cadence: 每次新增决策时
 | [0008](0008-memory-no-auto-distillation.md) | 长期记忆只做显式增删，不做 LLM 自动提炼 | accepted | 记忆 · 可审计性 |
 | [0009](0009-desktop-gui-access-modes.md) | 桌面 GUI 复用本地 FastAPI，并引入三档会话访问模式 | accepted | GUI · 安全 · 权限 |
 | [0010](0010-four-layer-phase-b-decisions.md) | 四层拆分的 Phase B 落地决策 | accepted | 架构 · 控制面 · 事件 · 前端 |
+| [0011](0011-host-side-execution.md) | 宿主侧执行白名单（绕开工具层的确定性路径） | accepted | 安全 · 编排 · 合并 · worktree |
 
 ## 待补录候选
 

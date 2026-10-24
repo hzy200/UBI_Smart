@@ -15,6 +15,7 @@ from typing import Any
 from uuid import uuid4
 
 from coding_agent.execution.contracts import ExecutionRequest
+from coding_agent.execution.host_ops import HOST_ORIGIN, host_run
 from coding_agent.sandbox.fs import SandboxFs, SandboxFsError, SandboxPathError
 from coding_agent.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
 from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
@@ -32,7 +33,11 @@ def _git(
                 kind="git",
                 run_id="merge",
                 workspace_id=root,
-                payload={"args": args, "cwd": root},
+                payload={
+                    "args": args,
+                    "cwd": root,
+                    "origin": HOST_ORIGIN,
+                },
             )
         )
         exit_code = (
@@ -47,8 +52,11 @@ def _git(
             stderr=result.stderr or result.error,
             duration_ms=result.duration_ms,
         )
-    return sandbox.run(
+    return host_run(
+        sandbox,
         "git " + " ".join(shlex.quote(arg) for arg in args),
+        origin=HOST_ORIGIN,
+        kind="git_apply",
         cwd=root,
     )
 
@@ -149,7 +157,13 @@ for rel in paths:
 print("AGENT_SNAPSHOT_JSON:" + json.dumps(out))
 __AGENT_SNAPSHOT__
 """
-    result = sandbox.run(script, cwd=root)
+    result = host_run(
+        sandbox,
+        script,
+        origin=HOST_ORIGIN,
+        kind="snapshot_read",
+        cwd=root,
+    )
     payload: dict[str, dict[str, Any]] | None = None
     if result.ok:
         for line in reversed(result.stdout.splitlines()):
@@ -268,16 +282,24 @@ async def _validate_three_way(
     env = f"GIT_INDEX_FILE={shlex.quote(index_path)} "
     try:
         read = await asyncio.to_thread(
-            sandbox.run, f"{env}git read-tree HEAD", cwd=root
+            host_run,
+            sandbox,
+            f"{env}git read-tree HEAD",
+            origin=HOST_ORIGIN,
+            kind="git_read_tree",
+            cwd=root,
         )
         if not read.ok:
             return False, read.render(400)
         for record in records:
             patch_path = str(record.get("patch_path") or "")
             result = await asyncio.to_thread(
-                sandbox.run,
+                host_run,
+                sandbox,
                 f"{env}git apply --3way --cached "
                 f"{shlex.quote(patch_path)}",
+                origin=HOST_ORIGIN,
+                kind="git_apply",
                 cwd=root,
             )
             if not result.ok:
@@ -285,7 +307,12 @@ async def _validate_three_way(
         return True, ""
     finally:
         await asyncio.to_thread(
-            sandbox.run, f"rm -f {shlex.quote(index_path)}", cwd=root
+            host_run,
+            sandbox,
+            f"rm -f {shlex.quote(index_path)}",
+            origin=HOST_ORIGIN,
+            kind="merge_temp_cleanup",
+            cwd=root,
         )
 
 
@@ -430,8 +457,11 @@ async def _merge_component(
         patch_path = str(record.get("patch_path") or "")
         apply_cmd = "git apply --3way" if use_three_way else "git apply"
         result = await asyncio.to_thread(
-            sandbox.run,
+            host_run,
+            sandbox,
             f"{apply_cmd} {shlex.quote(patch_path)}",
+            origin=HOST_ORIGIN,
+            kind="git_apply",
             cwd=root,
         )
         if result.ok:
@@ -469,7 +499,14 @@ async def _merge_component(
     if use_three_way:
         # git apply --3way 会顺带更新 index；恢复成“工作区有改动、
         # 未暂存”的旧语义，避免主 agent/用户看到意外的 staged 状态。
-        await asyncio.to_thread(sandbox.run, "git reset -q", cwd=root)
+        await asyncio.to_thread(
+            host_run,
+            sandbox,
+            "git reset -q",
+            origin=HOST_ORIGIN,
+            kind="git_reset",
+            cwd=root,
+        )
 
 
 async def merge_implement_patches_atomic(
@@ -515,8 +552,11 @@ async def merge_implement_patches_atomic(
         task_id = str(record.get("task_id", ""))
         patch_path = str(record.get("patch_path") or "")
         check = await asyncio.to_thread(
-            sandbox.run,
+            host_run,
+            sandbox,
             f"git apply --check {shlex.quote(patch_path)}",
+            origin=HOST_ORIGIN,
+            kind="git_apply",
             cwd=root,
         )
         if not check.ok:
@@ -559,8 +599,12 @@ def _rollback_merged(
     reverse_failed = False
     for record in reversed(applied):
         patch_path = str(record.get("patch_path") or "")
-        result = sandbox.run(
-            f"git apply -R {shlex.quote(patch_path)}", cwd=root
+        result = host_run(
+            sandbox,
+            f"git apply -R {shlex.quote(patch_path)}",
+            origin=HOST_ORIGIN,
+            kind="git_apply",
+            cwd=root,
         )
         if not result.ok:
             reverse_failed = True
