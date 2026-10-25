@@ -399,6 +399,16 @@ python tests/eval/runner.py --suite real_advanced --repeat 3
 测试），一次在判定前恢复。这不是冗余，是判定可信性的来源：智能体改测试
 文件没有任何收益，必须真的改源码。
 
+### 审批在评测里由 harness 代答
+
+评测没有真人。`approval_mode="approve"` 只自动放行 L2；L3 仍会挂起并发出
+`ApprovalRequested`。`run_task` 现在会**代为批准并 resume**，命令仍进审计；
+baseline 记录 `approvals` / `approvals_approved`。
+
+没有这一步时，一次 benign 的 `cat`/`git log` 被判定为 L3 就会让运行停在
+挂起状态，从外部看起来像“1 步就停了、没有写文件”——这是 harness 的误判，
+不是模型提前收手。
+
 ## 历史基线（已归档）
 
 早期数字保留在 `baseline.json` / `ab_*.json` 中，只用于说明口径，**不再作为
@@ -429,6 +439,7 @@ python tests/eval/runner.py --suite real_advanced --repeat 3
 | `tasks_reporting_worker_tokens` | 有多少任务真的回报了 worker 用量 |
 | `context_profile` | repo_map / worker 摘要 / 上下文裁剪报告；采样分析见 [docs/CONTEXT_PROFILE.md](../../docs/CONTEXT_PROFILE.md) |
 | `cache_hit_tokens` / `cache_miss_tokens` | provider 前缀缓存命中/未命中；未回报时 `None` |
+| `approvals` / `approvals_approved` | harness 代为批准的 L3 审批次数 |
 | `cache_hit_rate` | `hit / (hit + miss)`；没有回报时为 `None` |
 
 `--repeat k` 时这些字段按轮求和；`worker_parallelism` 由合并后的秒数重算，

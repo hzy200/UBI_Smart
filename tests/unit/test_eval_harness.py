@@ -438,6 +438,17 @@ def test_aggregate_runs_keeps_the_worst_context_profile() -> None:
     assert merged["tasks"][0]["context_profile"]["repo_map_chars"] == 99
 
 
+def test_harness_approvals_are_reported() -> None:
+    """L3 审批由 harness 代为批准；次数必须可见。"""
+    summary = mechanism_summary([
+        _result("a", approvals=2, approvals_approved=2),
+        _result("b"),
+    ])
+    assert summary["approvals"] == 2
+    assert summary["approvals_approved"] == 2
+    assert summary["tasks_with_approvals"] == 1
+
+
 def test_cache_hit_rate_is_reported() -> None:
     summary = mechanism_summary([
         _result("a", cache_hit_tokens=100, cache_miss_tokens=300),

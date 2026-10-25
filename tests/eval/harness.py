@@ -36,6 +36,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from coding_agent.audit import AuditLogger
 from coding_agent.config import Settings
 from coding_agent.events import (
+    ApprovalRequested,
     AssistantToken,
     CostReport,
     PlanRevised,
@@ -213,6 +214,10 @@ class TaskResult:
     # 不发事件，所以"每步都过 verify"不等于这里计数 ≥ 步数。
     verifications: dict[str, int] = field(default_factory=dict)
     repairs: int = 0
+    # 评测里没有真人，L3 审批由 harness 代为批准；这个数记录发生过多少次。
+    # 不记录的话，一次审批挂起会让运行看起来像“1 步就停了”。
+    approvals: int = 0
+    approvals_approved: int = 0
     # 改动了工作区的工具调用次数（file_write / file_edit / file_restore）。
     #
     # 为什么要单列这一个数：实测里出现了一种**与"做了但没做对"完全不同**的失败 ——
@@ -467,6 +472,7 @@ async def run_task(
     )
 
     context_profile: dict[str, Any] = {}
+    approval_state = {"requests": 0, "approved": 0}
     thread_id = f"eval-{task.id}"
     tool_calls = 0
     writes = 0
@@ -509,8 +515,36 @@ async def run_task(
         # 墙钟上限是**护栏**不是判定：超时同样要往下走去判定（"做没做完"
         # 由判定回答），只是把原因记进 detail。没有它，一个卡住的长程任务
         # 会把串行的整轮评测钉死。
+        async def stream_with_approvals():
+            """运行并消费审批挂起。
+
+            `approval_mode="approve"` 只自动放行 L2；L3 仍会挂起。评测里没有
+            真人，原先的 harness 不会 resume，于是一次 benign 的 `cat` 也会让
+            运行停在 `ApprovalRequested`，看起来像“1 步就停了”。
+            这里由 harness 代为批准，并记录次数；命令本身仍进审计。
+            """
+            stream = runtime.run(task.prompt, thread_id=thread_id)
+            while True:
+                requests: list[ApprovalRequested] = []
+                async for event in stream:
+                    yield event
+                    if isinstance(event, ApprovalRequested):
+                        requests.append(event)
+                if not requests:
+                    return
+                decisions = {
+                    request.request_id: True
+                    for request in requests
+                    if request.request_id
+                }
+                approval_state["requests"] += len(requests)
+                approval_state["approved"] += len(decisions)
+                if not decisions:
+                    return
+                stream = runtime.resume(thread_id, decisions)
+
         async with asyncio.timeout(task.agent_timeout):
-            async for event in runtime.run(task.prompt, thread_id=thread_id):
+            async for event in stream_with_approvals():
                 if isinstance(event, ToolCallStarted):
                     tool_calls += 1
                     if event.name in _WRITE_TOOLS:
@@ -606,6 +640,8 @@ async def run_task(
             replans=replans,
             verifications=dict(verifications),
             repairs=repairs,
+            approvals=approval_state["requests"],
+            approvals_approved=approval_state["approved"],
             writes=writes,
             subagents=subagents,
             subagent_statuses=dict(subagent_statuses),
@@ -651,6 +687,8 @@ async def run_task(
         answer=answer,
         verifications=dict(verifications),
         repairs=repairs,
+        approvals=approval_state["requests"],
+        approvals_approved=approval_state["approved"],
         writes=writes,
         subagents=subagents,
         subagent_statuses=dict(subagent_statuses),
@@ -790,6 +828,9 @@ def mechanism_summary(results: list[TaskResult]) -> dict:
         "tasks_with_verification": sum(1 for r in results if r.verifications),
         "repairs": sum(r.repairs for r in results),
         "tasks_with_repair": sum(1 for r in results if r.repairs),
+        "approvals": sum(r.approvals for r in results),
+        "approvals_approved": sum(r.approvals_approved for r in results),
+        "tasks_with_approvals": sum(1 for r in results if r.approvals),
         "replans": sum(r.replans for r in results),
         "subagents": sum(r.subagents for r in results),
         "tasks_with_subagents": sum(1 for r in results if r.subagents),
@@ -870,6 +911,9 @@ def merge_mechanisms(runs: list[dict]) -> dict:
         "tasks_with_verification": 0,
         "repairs": 0,
         "tasks_with_repair": 0,
+        "approvals": 0,
+        "approvals_approved": 0,
+        "tasks_with_approvals": 0,
         "replans": 0,
         "tasks_reporting_tokens": 0,
         "subagents": 0,
@@ -1049,6 +1093,8 @@ def summarize(results: list[TaskResult]) -> dict:
                 "replans": r.replans,
                 "verifications": r.verifications,
                 "repairs": r.repairs,
+                "approvals": r.approvals,
+                "approvals_approved": r.approvals_approved,
                 "writes": r.writes,
                 "subagents": r.subagents,
                 "subagent_statuses": r.subagent_statuses,

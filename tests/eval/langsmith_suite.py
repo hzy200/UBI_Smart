@@ -703,6 +703,8 @@ def _result_metrics(result: Any) -> dict[str, Any]:
         "replans": result.replans,
         "verifications": result.verifications,
         "repairs": result.repairs,
+        "approvals": result.approvals,
+        "approvals_approved": result.approvals_approved,
         "workflow": result.workflow,
         "tasks_planned": result.tasks_planned,
         "workers": result.workers,
