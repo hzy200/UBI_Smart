@@ -141,6 +141,23 @@ def test_skip_names_can_be_relaxed_for_restore(tmp_path) -> None:
     assert (dest / "keep.txt").read_bytes() == b"ok"
 
 
+def test_safe_extract_reports_progress(tmp_path) -> None:
+    path = tmp_path / "a.zip"
+    _zip(path, {"a.txt": b"hello", "b.txt": b"world!"})
+    seen: list[tuple[int, int, int]] = []
+    safe_extract(
+        str(path),
+        str(tmp_path / "out"),
+        name="a.zip",
+        on_progress=lambda done, total, files: seen.append(
+            (done, total, files)
+        ),
+    )
+    assert seen
+    assert seen[-1] == (11, 11, 2)
+    assert all(total == 11 for _done, total, _files in seen)
+
+
 def test_valid_tar_extracts(tmp_path) -> None:
     path = tmp_path / "a.tar.gz"
     _tar(path, {"pkg/x.txt": b"1234"})

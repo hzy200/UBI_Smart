@@ -304,6 +304,42 @@ def _update(
         _persist_job(deps, job)
 
 
+def _progress_reporter(
+    deps: ImportDeps,
+    job: dict[str, Any],
+    *,
+    status: str,
+    phase: str,
+) -> Callable[[int, int, int], None]:
+    """节流后的字节进度回调；每 0.25s 或每 1% 最多落盘一次。"""
+    state = {"at": 0.0, "pct": -1}
+
+    def report(
+        done_bytes: int, total_bytes: int, files_done: int
+    ) -> None:
+        total = max(0, int(total_bytes or 0))
+        done = max(0, int(done_bytes or 0))
+        pct = int(done * 100 / total) if total else 0
+        pct = max(0, min(100, pct))
+        now = time.monotonic()
+        if pct == state["pct"] and now - state["at"] < 0.25:
+            return
+        state["pct"] = pct
+        state["at"] = now
+        _update(
+            deps,
+            job,
+            status=status,
+            progress=pct,
+            progress_phase=phase,
+            processed_bytes=done,
+            total_bytes=total,
+            processed_files=max(0, int(files_done or 0)),
+        )
+
+    return report
+
+
 def _public(job: dict[str, Any]) -> dict[str, Any]:
     # staging 是 A3 内部路径，不暴露给 A2/前端。
     hidden = {"staging", "workdir"}
@@ -369,8 +405,33 @@ def _sha256(path: str) -> str:
     return digest.hexdigest()
 
 
-def _write_archive(root: str, archive_path: str) -> None:
+def _archive_stats(root: str) -> tuple[int, int]:
+    total = 0
+    files = 0
+    for base, dirs, names in os.walk(root, followlinks=False):
+        dirs[:] = [item for item in dirs if item != ".agent"]
+        for name in names:
+            full = os.path.join(base, name)
+            if os.path.islink(full) or not os.path.isfile(full):
+                continue
+            try:
+                total += os.stat(full).st_size
+            except OSError:
+                continue
+            files += 1
+    return total, files
+
+
+def _write_archive(
+    root: str,
+    archive_path: str,
+    *,
+    on_progress: Callable[[int, int, int], None] | None = None,
+) -> None:
     """把工作区打成 tar.gz；排除 `.agent`，保留 `.git` 以便恢复历史。"""
+    total_all, files_all = _archive_stats(root)
+    processed = 0
+    done = 0
     os.makedirs(os.path.dirname(archive_path), exist_ok=True)
     with tarfile.open(archive_path, "w:gz") as archive:
         for base, dirs, names in os.walk(root, followlinks=False):
@@ -393,6 +454,17 @@ def _write_archive(root: str, archive_path: str) -> None:
                     arcname=os.path.relpath(full, root),
                     recursive=False,
                 )
+                done += 1
+                try:
+                    processed += os.stat(full).st_size
+                except OSError:
+                    pass
+                if on_progress is not None:
+                    on_progress(
+                        min(processed, total_all), total_all, done
+                    )
+    if on_progress is not None:
+        on_progress(total_all, total_all, files_all)
 
 
 def _create_revision(
@@ -403,6 +475,7 @@ def _create_revision(
     actor: str,
     archive_root: str,
     label: str,
+    on_progress: Callable[[int, int, int], None] | None = None,
 ) -> dict[str, Any]:
     """在工作区里提交一个本地 git revision，并按需归档。"""
     if not os.path.isdir(os.path.join(target, ".git")):
@@ -434,7 +507,9 @@ def _create_revision(
     if archive_root:
         directory = os.path.join(archive_root, workspace_id)
         archive_path = os.path.join(directory, f"{revision_id}.tar.gz")
-        _write_archive(target, archive_path)
+        _write_archive(
+            target, archive_path, on_progress=on_progress
+        )
         digest = _sha256(archive_path)
     total, files = _tree_size(target)
     return {
@@ -474,7 +549,13 @@ async def _run_import(
     staging = ""
     revision: dict[str, Any] | None = None
     try:
-        _update(deps, job, status="preparing")
+        _update(
+            deps,
+            job,
+            status="preparing",
+            progress=0,
+            progress_phase="preparing",
+        )
         runtime = deps.new_runtime(context)
         execution = getattr(runtime, "execution", None)
         if execution is None:
@@ -497,7 +578,13 @@ async def _run_import(
         if job["_cancel"].is_set():
             raise _Cancelled
 
-        _update(deps, job, status="copying")
+        _update(
+            deps,
+            job,
+            status="copying",
+            progress=None,
+            progress_phase="copying",
+        )
         raw = await asyncio.to_thread(
             execution.host_run,
             tar_command(job["source"], staging),
@@ -509,7 +596,13 @@ async def _run_import(
         if job["_cancel"].is_set():
             raise _Cancelled
 
-        _update(deps, job, status="verifying")
+        _update(
+            deps,
+            job,
+            status="verifying",
+            progress=None,
+            progress_phase="verifying",
+        )
         total, files = await asyncio.to_thread(_tree_size, staging)
         if body.quota_bytes and total > body.quota_bytes:
             raise RuntimeError(
@@ -523,11 +616,27 @@ async def _run_import(
             raise RuntimeError(
                 f"导入文件数 {files} 超过上限 {body.max_files}"
             )
-        _update(deps, job, bytes=total, files=files)
+        _update(
+            deps,
+            job,
+            bytes=total,
+            files=files,
+            progress=100,
+            progress_phase="verifying",
+            processed_bytes=total,
+            total_bytes=total,
+            processed_files=files,
+        )
         if job["_cancel"].is_set():
             raise _Cancelled
 
-        _update(deps, job, status="revisioning")
+        _update(
+            deps,
+            job,
+            status="revisioning",
+            progress=0,
+            progress_phase="revisioning",
+        )
         await asyncio.to_thread(_attach_git_history, target, staging)
         revision = await asyncio.to_thread(
             _create_revision,
@@ -537,16 +646,27 @@ async def _run_import(
             actor=context.user,
             archive_root=_archive_root(deps.settings),
             label="import",
+            on_progress=_progress_reporter(
+                deps, job, status="revisioning", phase="revisioning"
+            ),
         )
         if job["_cancel"].is_set():
             raise _Cancelled
 
-        _update(deps, job, status="activating")
+        _update(
+            deps,
+            job,
+            status="activating",
+            progress=99,
+            progress_phase="activating",
+        )
         await asyncio.to_thread(_activate_replace, staging, target)
         _update(
             deps,
             job,
             status="active",
+            progress=100,
+            progress_phase="active",
             revision=revision,
             staging="",
         )
@@ -555,7 +675,14 @@ async def _run_import(
         _remove_file(
             str((revision or {}).get("archive_path") or "")
         )
-        _update(deps, job, status="cancelled", staging="")
+        _update(
+            deps,
+            job,
+            status="cancelled",
+            progress=None,
+            progress_phase="cancelled",
+            staging="",
+        )
     except Exception as exc:  # noqa: BLE001 - 任务失败要回给调用方
         _cleanup(deps, execution, staging)
         _remove_file(
@@ -565,6 +692,8 @@ async def _run_import(
             deps,
             job,
             status="failed",
+            progress=None,
+            progress_phase="failed",
             error=f"{type(exc).__name__}: {exc}",
             staging="",
         )
@@ -593,7 +722,13 @@ async def _run_upload(
     extract_dir = os.path.join(workdir, "root")
     revision: dict[str, Any] | None = None
     try:
-        _update(deps, job, status="extracting")
+        _update(
+            deps,
+            job,
+            status="extracting",
+            progress=0,
+            progress_phase="extracting",
+        )
         limits = ExtractLimits(
             max_files=max_files,
             max_total_bytes=(
@@ -607,6 +742,9 @@ async def _run_upload(
             extract_dir,
             name=filename,
             limits=limits,
+            on_progress=_progress_reporter(
+                deps, job, status="extracting", phase="extracting"
+            ),
         )
         if job["_cancel"].is_set():
             raise _Cancelled
@@ -615,8 +753,13 @@ async def _run_upload(
             deps,
             job,
             status="scanning",
+            progress=None,
+            progress_phase="scanning",
             bytes=stats["bytes"],
             files=stats["files"],
+            processed_bytes=stats["bytes"],
+            total_bytes=stats["bytes"],
+            processed_files=stats["files"],
         )
         scanner = build_scanner(deps.settings)
         report = await asyncio.to_thread(scanner.scan, extract_dir)
@@ -633,7 +776,13 @@ async def _run_upload(
         if job["_cancel"].is_set():
             raise _Cancelled
 
-        _update(deps, job, status="revisioning")
+        _update(
+            deps,
+            job,
+            status="revisioning",
+            progress=0,
+            progress_phase="revisioning",
+        )
         runtime = deps.new_runtime(context)
         execution = getattr(runtime, "execution", None)
         if execution is None:
@@ -649,11 +798,20 @@ async def _run_upload(
             actor=context.user,
             archive_root=_archive_root(deps.settings),
             label="upload",
+            on_progress=_progress_reporter(
+                deps, job, status="revisioning", phase="revisioning"
+            ),
         )
         if job["_cancel"].is_set():
             raise _Cancelled
 
-        _update(deps, job, status="activating")
+        _update(
+            deps,
+            job,
+            status="activating",
+            progress=99,
+            progress_phase="activating",
+        )
         await asyncio.to_thread(
             _activate_replace, extract_dir, context.workspace
         )
@@ -662,9 +820,14 @@ async def _run_upload(
             deps,
             job,
             status="active",
+            progress=100,
+            progress_phase="active",
             revision=revision,
             bytes=stats["bytes"],
             files=stats["files"],
+            processed_bytes=stats["bytes"],
+            total_bytes=stats["bytes"],
+            processed_files=stats["files"],
             staging="",
         )
     except _Cancelled:
@@ -672,7 +835,14 @@ async def _run_upload(
         _remove_file(
             str((revision or {}).get("archive_path") or "")
         )
-        _update(deps, job, status="cancelled", staging="")
+        _update(
+            deps,
+            job,
+            status="cancelled",
+            progress=None,
+            progress_phase="cancelled",
+            staging="",
+        )
     except ScanUnavailable as exc:
         _remove_tree(workdir)
         _remove_file(
@@ -682,6 +852,8 @@ async def _run_upload(
             deps,
             job,
             status="failed",
+            progress=None,
+            progress_phase="failed",
             error=f"扫描不可用：{exc}",
             staging="",
         )
@@ -694,6 +866,8 @@ async def _run_upload(
             deps,
             job,
             status="failed",
+            progress=None,
+            progress_phase="failed",
             error=f"{type(exc).__name__}: {exc}",
             staging="",
         )
@@ -741,6 +915,11 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                 "target": context.workspace,
                 "bytes": 0,
                 "files": 0,
+                "progress": 0,
+                "progress_phase": "queued",
+                "processed_bytes": 0,
+                "total_bytes": 0,
+                "processed_files": 0,
                 "error": "",
                 "staging": "",
                 "created_at": _now_iso(),
@@ -819,6 +998,11 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                 "workdir": workdir,
                 "bytes": 0,
                 "files": 0,
+                "progress": 0,
+                "progress_phase": "receiving",
+                "processed_bytes": 0,
+                "total_bytes": 0,
+                "processed_files": 0,
                 "scan_status": "",
                 "scan_detail": "",
                 "revision": None,

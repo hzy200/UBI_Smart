@@ -20,10 +20,14 @@ import shutil
 import stat
 import tarfile
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _CHUNK = 1024 * 1024
+
+# (processed_bytes, total_bytes, processed_files)
+Progress = Callable[[int, int, int], None]
 
 
 class ArchiveError(ValueError):
@@ -110,6 +114,7 @@ def _extract_zip(
     limits: ExtractLimits,
     archive_size: int,
     skip_names: frozenset[str],
+    on_progress: Progress | None = None,
 ) -> tuple[int, int]:
     total = 0
     files = 0
@@ -117,7 +122,14 @@ def _extract_zip(
     seen: set[str] = set()
     try:
         with zipfile.ZipFile(path) as archive:
-            for info in archive.infolist():
+            infos = archive.infolist()
+            total_all = sum(
+                int(item.file_size)
+                for item in infos
+                if not item.is_dir()
+                and _safe_rel(item.filename, skip_names)
+            )
+            for info in infos:
                 rel = _safe_rel(info.filename, skip_names)
                 if not rel:
                     continue
@@ -175,6 +187,10 @@ def _extract_zip(
                         ):
                             raise ArchiveError("解压比超过上限")
                         output.write(chunk)
+                        if on_progress is not None:
+                            on_progress(
+                                written_total, total_all, files
+                            )
     except (zipfile.BadZipFile, OSError) as exc:
         raise ArchiveError(f"zip 解包失败：{exc}") from exc
     return total, files
@@ -186,6 +202,7 @@ def _extract_tar(
     limits: ExtractLimits,
     archive_size: int,
     skip_names: frozenset[str],
+    on_progress: Progress | None = None,
 ) -> tuple[int, int]:
     total = 0
     files = 0
@@ -193,7 +210,14 @@ def _extract_tar(
     seen: set[str] = set()
     try:
         with tarfile.open(path, "r:*") as archive:
-            for member in archive:
+            members = archive.getmembers()
+            total_all = sum(
+                int(item.size)
+                for item in members
+                if item.isreg()
+                and _safe_rel(item.name, skip_names)
+            )
+            for member in members:
                 rel = _safe_rel(member.name, skip_names)
                 if not rel:
                     continue
@@ -248,6 +272,10 @@ def _extract_tar(
                         ):
                             raise ArchiveError("解压比超过上限")
                         output.write(chunk)
+                        if on_progress is not None:
+                            on_progress(
+                                written_total, total_all, files
+                            )
     except (tarfile.TarError, OSError) as exc:
         raise ArchiveError(f"tar 解包失败：{exc}") from exc
     return total, files
@@ -274,6 +302,7 @@ def safe_extract(
     name: str = "",
     limits: ExtractLimits | None = None,
     skip_names: frozenset[str] = frozenset({".git", ".agent"}),
+    on_progress: Progress | None = None,
 ) -> dict[str, int]:
     """解包到 dest；失败时清理 dest 并抛 ArchiveError。"""
     limits = limits or ExtractLimits()
@@ -288,6 +317,7 @@ def safe_extract(
                 limits,
                 archive_size,
                 skip_names,
+                on_progress,
             )
         else:
             total, files = _extract_tar(
@@ -296,6 +326,7 @@ def safe_extract(
                 limits,
                 archive_size,
                 skip_names,
+                on_progress,
             )
         actual_total, actual_files = actual_size(dest)
         _check_size(
@@ -305,6 +336,8 @@ def safe_extract(
             files=actual_files,
             archive_size=archive_size,
         )
+        if on_progress is not None:
+            on_progress(actual_total, actual_total, actual_files)
         return {"bytes": actual_total, "files": actual_files}
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)

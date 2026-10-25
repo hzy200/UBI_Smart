@@ -144,6 +144,11 @@ def test_upload_success_activates_and_cleans(tmp_path, monkeypatch) -> None:
     assert job["status"] == "active"
     assert (target / "hello.txt").read_bytes() == b"hello"
     assert job["revision"]["revision_id"]
+    assert job["progress"] == 100
+    assert job["progress_phase"] == "active"
+    assert job["total_bytes"] > 0
+    assert job["processed_bytes"] == job["total_bytes"]
+    assert job["processed_files"] >= 1
     assert not workdir.exists()
 
 
