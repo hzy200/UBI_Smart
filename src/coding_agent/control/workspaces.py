@@ -66,7 +66,10 @@ WORKSPACE_SOURCES = frozenset(
 )
 MOUNT_SOURCES = frozenset({"local_mount", "legacy"})
 # revision 的来源比工作区多一个 rollback（回滚前自动留底）。
-REVISION_SOURCES = (WORKSPACE_SOURCES - {"legacy"}) | {"rollback"}
+REVISION_SOURCES = (WORKSPACE_SOURCES - {"legacy"}) | {
+    "rollback",
+    "restore",
+}
 IMPORT_MODES = frozenset({"copy", "mount"})
 SCAN_PROVIDERS = frozenset({"none", "clamav"})
 

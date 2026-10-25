@@ -57,15 +57,18 @@ def detect_format(name: str, path: str) -> str:
     raise ArchiveError("只支持 zip / tar / tar.gz 归档")
 
 
-def _safe_rel(name: str) -> str:
+def _safe_rel(
+    name: str, skip_names: frozenset[str] = frozenset({".git", ".agent"})
+) -> str:
     text = str(name or "").replace("\\", "/")
     if "\x00" in text or _DRIVE_RE.match(text) or text.startswith("/"):
         raise ArchiveError(f"归档包含非法绝对路径：{name!r}")
     parts = [part for part in text.split("/") if part not in ("", ".")]
     if any(part == ".." for part in parts):
         raise ArchiveError(f"归档包含路径穿越：{name!r}")
-    # 不信任上传包里的 .git（hooks/config 可执行）与 .agent（审计/快照）。
-    if any(part in {".git", ".agent"} for part in parts):
+    # 默认不信任上传包里的 .git（hooks/config 可执行）与 .agent（审计/快照）；
+    # 从自家 revision 归档恢复时由调用方显式放宽。
+    if any(part in skip_names for part in parts):
         return ""
     return "/".join(parts)
 
@@ -102,7 +105,11 @@ def _check_size(
 
 
 def _extract_zip(
-    path: str, dest: str, limits: ExtractLimits, archive_size: int
+    path: str,
+    dest: str,
+    limits: ExtractLimits,
+    archive_size: int,
+    skip_names: frozenset[str],
 ) -> tuple[int, int]:
     total = 0
     files = 0
@@ -111,7 +118,7 @@ def _extract_zip(
     try:
         with zipfile.ZipFile(path) as archive:
             for info in archive.infolist():
-                rel = _safe_rel(info.filename)
+                rel = _safe_rel(info.filename, skip_names)
                 if not rel:
                     continue
                 if info.flag_bits & 0x1:
@@ -174,7 +181,11 @@ def _extract_zip(
 
 
 def _extract_tar(
-    path: str, dest: str, limits: ExtractLimits, archive_size: int
+    path: str,
+    dest: str,
+    limits: ExtractLimits,
+    archive_size: int,
+    skip_names: frozenset[str],
 ) -> tuple[int, int]:
     total = 0
     files = 0
@@ -183,7 +194,7 @@ def _extract_tar(
     try:
         with tarfile.open(path, "r:*") as archive:
             for member in archive:
-                rel = _safe_rel(member.name)
+                rel = _safe_rel(member.name, skip_names)
                 if not rel:
                     continue
                 if member.isdir():
@@ -262,6 +273,7 @@ def safe_extract(
     *,
     name: str = "",
     limits: ExtractLimits | None = None,
+    skip_names: frozenset[str] = frozenset({".git", ".agent"}),
 ) -> dict[str, int]:
     """解包到 dest；失败时清理 dest 并抛 ArchiveError。"""
     limits = limits or ExtractLimits()
@@ -271,11 +283,19 @@ def safe_extract(
         fmt = detect_format(name or archive_path, archive_path)
         if fmt == "zip":
             total, files = _extract_zip(
-                archive_path, dest, limits, archive_size
+                archive_path,
+                dest,
+                limits,
+                archive_size,
+                skip_names,
             )
         else:
             total, files = _extract_tar(
-                archive_path, dest, limits, archive_size
+                archive_path,
+                dest,
+                limits,
+                archive_size,
+                skip_names,
             )
         actual_total, actual_files = actual_size(dest)
         _check_size(

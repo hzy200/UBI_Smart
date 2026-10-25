@@ -46,6 +46,7 @@ from coding_agent.agent_protocol import AgentContext
 from coding_agent.agent_server_models import (
     WorkspaceArchiveDeleteBody,
     WorkspaceImportBody,
+    WorkspaceRestoreBody,
     WorkspaceRollbackBody,
 )
 from coding_agent.config import Settings
@@ -291,6 +292,8 @@ def _write_archive(root: str, archive_path: str) -> None:
             dirs[:] = [item for item in dirs if item != ".agent"]
             for name in dirs:
                 full = os.path.join(base, name)
+                if os.path.islink(full):
+                    continue
                 archive.add(
                     full,
                     arcname=os.path.relpath(full, root),
@@ -298,6 +301,8 @@ def _write_archive(root: str, archive_path: str) -> None:
                 )
             for name in names:
                 full = os.path.join(base, name)
+                if os.path.islink(full) or not os.path.isfile(full):
+                    continue
                 archive.add(
                     full,
                     arcname=os.path.relpath(full, root),
@@ -869,6 +874,129 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
             }
         finally:
             await deps.close_runtime(runtime)
+
+    @app.post("/v1/workspaces/restore")
+    async def restore(
+        body: WorkspaceRestoreBody, request: Request
+    ) -> dict:
+        if not deps.settings.workspace_registry:
+            raise HTTPException(
+                status_code=404, detail="工作区注册表未启用"
+            )
+        context = deps.context(request)
+        root = _archive_root(deps.settings)
+        if not root:
+            raise HTTPException(
+                status_code=400, detail="未配置归档根"
+            )
+        try:
+            path = ensure_inside(
+                normalize_root(body.archive_path), root
+            )
+        except PathGuardError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"归档路径非法：{exc}"
+            ) from exc
+        if not os.path.isfile(path):
+            raise HTTPException(
+                status_code=400, detail="归档文件不存在"
+            )
+        digest = _sha256(path)
+        if body.archive_sha256 and digest != body.archive_sha256:
+            raise HTTPException(
+                status_code=400, detail="归档 sha256 不匹配"
+            )
+        if body.git_commit and not re.fullmatch(
+            r"[0-9a-fA-F]{7,64}", body.git_commit
+        ):
+            raise HTTPException(
+                status_code=400, detail="git_commit 非法"
+            )
+
+        target = context.workspace
+        _recover_swap(target)
+        staging = f"{target}.restore-{uuid.uuid4().hex[:10]}"
+        runtime: Any = None
+        pre: dict[str, Any] | None = None
+        try:
+            runtime = deps.new_runtime(context)
+            execution = getattr(runtime, "execution", None)
+            if execution is None:
+                raise HTTPException(
+                    status_code=503, detail="执行面不可用"
+                )
+            if os.path.isdir(target):
+                pre = await asyncio.to_thread(
+                    _create_revision,
+                    execution,
+                    target,
+                    workspace_id=context.workspace_id,
+                    actor=context.user,
+                    archive_root=root,
+                    label="pre-restore",
+                )
+            await asyncio.to_thread(
+                safe_extract,
+                path,
+                staging,
+                name=path,
+                limits=ExtractLimits(
+                    max_files=500_000,
+                    max_total_bytes=0,
+                    max_single_bytes=0,
+                    max_ratio=0,
+                ),
+                skip_names=frozenset(),
+            )
+            if body.git_commit:
+                raw = await asyncio.to_thread(
+                    execution.host_run,
+                    (
+                        "git rev-parse --verify "
+                        f"{shlex.quote(body.git_commit)}^{{commit}}"
+                    ),
+                    kind="workspace_revision_probe",
+                    cwd=staging,
+                )
+                if not raw.ok:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="归档中找不到该 git commit",
+                    )
+            total, files = await asyncio.to_thread(
+                _tree_size, staging
+            )
+            await asyncio.to_thread(
+                _activate_replace, staging, target
+            )
+            return {
+                "status": "active",
+                "pre_restore": pre,
+                "bytes": total,
+                "files": files,
+                "archive_sha256": digest,
+            }
+        except HTTPException:
+            _remove_file(
+                str((pre or {}).get("archive_path") or "")
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _remove_file(
+                str((pre or {}).get("archive_path") or "")
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"归档恢复失败：{type(exc).__name__}: {exc}",
+            ) from exc
+        finally:
+            if os.path.isdir(staging):
+                shutil.rmtree(staging, ignore_errors=True)
+            if runtime is not None:
+                try:
+                    await deps.close_runtime(runtime)
+                except Exception:  # noqa: BLE001
+                    pass
 
     @app.delete("/v1/workspaces/revisions/archive")
     async def delete_archive(

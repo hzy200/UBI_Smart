@@ -154,6 +154,15 @@ class AgentClient(Protocol):
         revision_id: str,
         git_commit: str,
     ) -> dict: ...
+    async def workspace_restore(
+        self,
+        context: AgentContext,
+        *,
+        revision_id: str,
+        archive_path: str,
+        archive_sha256: str = "",
+        git_commit: str = "",
+    ) -> dict: ...
     async def workspace_archive_delete(
         self, context: AgentContext, archive_path: str
     ) -> dict: ...
@@ -499,6 +508,27 @@ class HttpAgentClient:
             context,
             json={
                 "revision_id": str(revision_id),
+                "git_commit": str(git_commit),
+            },
+        )
+
+    async def workspace_restore(
+        self,
+        context: AgentContext,
+        *,
+        revision_id: str,
+        archive_path: str,
+        archive_sha256: str = "",
+        git_commit: str = "",
+    ) -> dict:
+        return await self._json(
+            "POST",
+            "/v1/workspaces/restore",
+            context,
+            json={
+                "revision_id": str(revision_id),
+                "archive_path": str(archive_path),
+                "archive_sha256": str(archive_sha256),
                 "git_commit": str(git_commit),
             },
         )

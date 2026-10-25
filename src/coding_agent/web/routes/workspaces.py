@@ -751,6 +751,89 @@ def register_workspace_registry_routes(
         _idem_finish(deps, idempotency_key, result)
         return result
 
+    @app.post(
+        "/api/workspaces/{workspace_id}/revisions/{revision_id}/restore"
+    )
+    async def restore_revision(
+        workspace_id: str,
+        revision_id: str,
+        user: UserDep,
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key")
+        ] = "",
+    ) -> dict:
+        deps.rate_limit(user)
+        store = _require_store(deps)
+        row = _owned(deps, user, workspace_id)
+        if deps.agent_client is None:
+            raise HTTPException(
+                status_code=503, detail="恢复需要独立的 Agent Server"
+            )
+        revision = store.get_revision(revision_id)
+        if (
+            revision is None
+            or revision["workspace_id"] != workspace_id
+        ):
+            raise HTTPException(status_code=404, detail="revision 不存在")
+        if revision["status"] == "pruned":
+            raise HTTPException(
+                status_code=409, detail="归档已清理，无法恢复"
+            )
+        if not revision["archive_path"]:
+            raise HTTPException(
+                status_code=409, detail="该 revision 没有归档文件"
+            )
+        cached = _idem_begin(
+            deps, idempotency_key, "workspace.restore"
+        )
+        if cached is not None:
+            return cached
+        context = _workspace_context(user, row)
+        try:
+            result = await deps.agent_client.workspace_restore(
+                context,
+                revision_id=revision_id,
+                archive_path=revision["archive_path"],
+                archive_sha256=revision["archive_sha256"],
+                git_commit=revision["git_commit"],
+            )
+        except HTTPException:
+            _idem_abort(deps, idempotency_key)
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _idem_abort(deps, idempotency_key)
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Agent Server 恢复失败："
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            ) from exc
+        pre = result.get("pre_restore") or {}
+        pre_id = str(pre.get("revision_id") or "")
+        if pre_id and store.get_revision(pre_id) is None:
+            store.add_revision(
+                workspace_id,
+                revision_id=pre_id,
+                source="restore",
+                actor=user.name,
+                git_commit=str(pre.get("git_commit") or ""),
+                archive_path=str(pre.get("archive_path") or ""),
+                archive_sha256=str(pre.get("archive_sha256") or ""),
+                bytes=int(pre.get("bytes") or 0),
+                file_count=int(pre.get("files") or 0),
+                scan_status="skipped",
+                status="superseded",
+            )
+        store.activate_revision(workspace_id, revision_id)
+        store.set_usage(
+            workspace_id,
+            used_bytes=int(result.get("bytes") or 0),
+            file_count=int(result.get("files") or 0),
+        )
+        _idem_finish(deps, idempotency_key, result)
+        return result
+
     @app.post("/api/workspaces/{workspace_id}/revisions/prune")
     async def prune_revisions(workspace_id: str, user: UserDep) -> dict:
         deps.rate_limit(user)

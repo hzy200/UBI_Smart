@@ -65,3 +65,10 @@ class WorkspaceRollbackBody(BaseModel):
 
 class WorkspaceArchiveDeleteBody(BaseModel):
     archive_path: str = Field(min_length=1, max_length=4096)
+
+
+class WorkspaceRestoreBody(BaseModel):
+    revision_id: str = Field(min_length=1, max_length=36)
+    archive_path: str = Field(min_length=1, max_length=4096)
+    archive_sha256: str = ""
+    git_commit: str = ""
