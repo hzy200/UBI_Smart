@@ -41,6 +41,7 @@ def _settings(tmp_path) -> Settings:
         workspace_registry=True,
         workspace_archive_root=str(tmp_path / "archive"),
         workspace_scan_provider="none",
+        agent_data_root=str(tmp_path / "agent"),
     )
 
 

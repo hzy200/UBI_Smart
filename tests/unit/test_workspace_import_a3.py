@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,7 @@ def _settings(**kwargs) -> Settings:
         "_env_file": None,
         "workspace_registry": True,
         "workspace_mount_roots": "/mnt/d,/mnt/e",
+        "agent_data_root": tempfile.mkdtemp(prefix="a3-jobs-"),
     }
     data.update(kwargs)
     return Settings(**data)
