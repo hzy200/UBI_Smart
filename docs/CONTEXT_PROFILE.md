@@ -97,6 +97,10 @@ long 任务的命中率明显更高，说明重复上下文已经在被 provider
 
 ## 下一步 A/B 建议
 
+> 已经做过一轮组合 A/B，结论是**不采纳**：token −6%，但
+> `long/discount_spec` 从 2/2 变成 0/2，墙钟 +14.6%。详见
+> [CONTEXT_AB_REPORT.md](CONTEXT_AB_REPORT.md)。
+
 固定 6 个 long + 6 个 hard 任务，两臂各 2 次：
 
 - 通过率必须不下降；

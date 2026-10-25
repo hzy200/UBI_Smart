@@ -144,7 +144,7 @@ python scripts/demo.py --only 1
 | 真实代码进阶（real_advanced） | **14/14 ×2（100%，spread 0，comparable=true，commit `8c47527`）**：11 个隐藏需求（症状式提示）+ 3 个多回归；上一版翻转已确认是 L3 审批未 resume 的 harness 假象。详见 [REAL_ADVANCED_REPORT.md](REAL_ADVANCED_REPORT.md) |
 | 盲测套件（blind） | **5/5 ×3（100%，spread 0，comparable=true，commit `e1a2610`）**：无可见测试，只给症状；通过率饱和，但单任务工具/失败验证约为 spec 的 2–3 倍。详见 [BLIND_SUITE_REPORT.md](BLIND_SUITE_REPORT.md) |
 | 上下文画像 | 已接入 baseline/LangSmith：repo_map、worker 摘要、裁剪报告；采样见 [CONTEXT_PROFILE.md](CONTEXT_PROFILE.md) |
-| P2 运维 | 审计修复工具与 token 软护栏已落地；本机控制面已切换到 `coding_agent_app`（仅 DML）；root 密码待人工轮换 |
+| P2 运维 | 审计修复工具与 token 软护栏已落地；上下文/worker 组合 A/B 已完成但**未采纳**（token −6%，spec 通过率 2/2→0/2）；本机控制面已切换到 `coding_agent_app`（仅 DML）；root 密码待人工轮换 |
 | System E2E（本地） | **通过（2026-10-25）**：导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照；`make system-e2e`，不进 CI |
 | CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型 → `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |
 
