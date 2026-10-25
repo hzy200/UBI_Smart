@@ -71,6 +71,14 @@ function renderMarkdown(text) {
 
 class AuthError extends Error {}
 
+function newIdempotencyKey() {
+  const cryptoApi = window.crypto as Crypto & { randomUUID?: () => string };
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+    return cryptoApi.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 async function authFetch(url: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers || {});
   const token = getToken();
@@ -105,12 +113,26 @@ const agentApp = () => ({
     server_write_enabled: false,
     multi_user: false,
     desktop_mode: false,
+    workspace_registry: false,
+    workspace_upload_max_bytes: 0,
   },
   project: null,
   projectReport: '正在探测工作区…',
   projectWarnings: '',
   projectHasWarnings: false,
   projectLoading: false,
+  projects: [],
+  projectId: '',
+  projectFile: null,
+  projectFileName: '',
+  projectBusy: false,
+  projectMessage: '',
+  projectJobKind: '',
+  projectJobId: '',
+  projectJobWorkspaceId: '',
+  projectDropActive: false,
+  revisions: [],
+  revisionBusy: false,
   desktopAvailable: false,
   canCopyWorkspace: false,
   copyBusy: false,
@@ -402,6 +424,364 @@ const agentApp = () => ({
     }
   },
 
+  projectLabel(project) {
+    const name = project.display_name || project.workspace_id;
+    const degraded = project.degraded_fs ? ' · 挂载' : '';
+    return `${name} · ${project.status}${degraded}`;
+  },
+
+  revisionLabel(revision) {
+    const when = revision.created_at || '';
+    const commit = revision.git_commit
+      ? ` · ${String(revision.git_commit).slice(0, 8)}`
+      : '';
+    const pin = revision.pinned ? ' · pinned' : '';
+    return `${when}${commit} · ${revision.status}${pin} · ${revision.scan_status || ''}`;
+  },
+
+  pinLabel(revision) {
+    return revision.pinned ? '取消 pin' : 'pin';
+  },
+
+  selectedProject() {
+    return this.projects.find(
+      (item) => item.workspace_id === this.projectId,
+    ) || null;
+  },
+
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  },
+
+  async loadProjects() {
+    if (!this.capabilities.workspace_registry) return;
+    try {
+      const response = await authFetch('/api/workspaces');
+      const data = await readJson(response, '读取项目失败');
+      this.projects = data.workspaces || [];
+      if (
+        this.projectId &&
+        !this.projects.some((p) => p.workspace_id === this.projectId)
+      ) {
+        this.projectId = '';
+      }
+    } catch (err) {
+      this.projectMessage = `项目列表失败：${err}`;
+    }
+  },
+
+  async refreshProjects() {
+    await this.loadProjects();
+  },
+
+  async loadRevisions() {
+    if (!this.projectId) {
+      this.revisions = [];
+      return;
+    }
+    try {
+      const response = await authFetch(
+        `/api/workspaces/${encodeURIComponent(this.projectId)}/revisions`,
+      );
+      const data = await readJson(response, '读取 revision 失败');
+      this.revisions = data.revisions || [];
+    } catch (err) {
+      this.projectMessage = `revision 读取失败：${err}`;
+    }
+  },
+
+  async selectProject(workspaceId) {
+    this.projectId = workspaceId || '';
+    const project = this.selectedProject();
+    if (project) {
+      this.workspace = project.root_path;
+      this.workspaceInput = project.root_path;
+      this.rememberWorkspace();
+    }
+    await this.loadRevisions();
+  },
+
+  async pollProjectJob(kind, workspaceId, jobId) {
+    const label = kind === 'uploads' ? '上传' : '导入';
+    for (let index = 0; index < 900; index += 1) {
+      const response = await authFetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/` +
+        `${kind}/${encodeURIComponent(jobId)}`,
+      );
+      const data = await readJson(response, '读取任务状态失败');
+      const scan = data.scan_status ? ` · 扫描 ${data.scan_status}` : '';
+      this.projectMessage = `${label}：${data.status}${scan}`;
+      if (['active', 'failed', 'cancelled'].includes(data.status)) {
+        this.projectJobId = '';
+        this.projectJobKind = '';
+        this.projectJobWorkspaceId = '';
+        if (data.status === 'active') {
+          this.projectMessage =
+            `项目已就绪 · ${data.files || 0} 个文件 · ` +
+            `${this.formatBytes(data.bytes || 0)}`;
+          await this.loadProjects();
+          await this.selectProject(workspaceId);
+          this.toastMessage('项目已就绪');
+        } else {
+          this.projectMessage =
+            `${label}${data.status}：${data.error || ''}`;
+          await this.loadProjects();
+          this.toastMessage(this.projectMessage);
+        }
+        return data;
+      }
+      await this.sleep(1000);
+    }
+    throw new Error(`${label}任务超时`);
+  },
+
+  async importLocalProject() {
+    const bridge = window.pywebview && window.pywebview.api;
+    if (!bridge) {
+      this.toastMessage('浏览器模式不支持选择本地文件夹；请上传归档');
+      return;
+    }
+    try {
+      const path = await bridge.pick_folder();
+      if (!path) return;
+      const name = path.split('/').filter(Boolean).pop() || 'project';
+      this.projectBusy = true;
+      this.projectMessage = `正在导入 ${path} …`;
+      const created = await readJson(
+        await authFetch('/api/workspaces', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': newIdempotencyKey(),
+          },
+          body: JSON.stringify({
+            display_name: name,
+            source: 'local_import',
+          }),
+        }),
+        '创建项目失败',
+      );
+      const job = await readJson(
+        await authFetch(
+          `/api/workspaces/${encodeURIComponent(created.workspace_id)}/imports`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Idempotency-Key': newIdempotencyKey(),
+            },
+            body: JSON.stringify({ source_path: path }),
+          },
+        ),
+        '启动导入失败',
+      );
+      this.projectJobKind = 'imports';
+      this.projectJobWorkspaceId = created.workspace_id;
+      this.projectJobId = job.job_id;
+      await this.pollProjectJob(
+        'imports', created.workspace_id, job.job_id,
+      );
+    } catch (err) {
+      this.projectMessage = `导入失败：${err}`;
+      this.toastMessage(this.projectMessage);
+    } finally {
+      this.projectBusy = false;
+    }
+  },
+
+  onProjectFile(event) {
+    const file = event.target.files && event.target.files[0];
+    this.projectFile = file || null;
+    this.projectFileName = file ? file.name : '';
+  },
+
+  onProjectDrop(event) {
+    this.projectDropActive = false;
+    const files = event.dataTransfer && event.dataTransfer.files;
+    const file = files && files[0];
+    if (!file) return;
+    this.projectFile = file;
+    this.projectFileName = file.name;
+    this.toastMessage(`已选择归档：${file.name}`);
+  },
+
+  async cancelProjectJob() {
+    if (!this.projectJobId || !this.projectJobWorkspaceId) return;
+    if (!window.confirm('取消当前导入/上传任务？已复制的内容会被清理。')) {
+      return;
+    }
+    try {
+      await authFetch(
+        `/api/workspaces/${encodeURIComponent(this.projectJobWorkspaceId)}` +
+        `/${this.projectJobKind}/${encodeURIComponent(this.projectJobId)}`,
+        { method: 'DELETE' },
+      );
+      this.projectMessage = '已请求取消，等待任务收尾…';
+      this.toastMessage('已请求取消');
+    } catch (err) {
+      this.toastMessage(`取消失败：${err}`);
+    }
+  },
+
+  async uploadProject() {
+    if (!this.projectFile) {
+      this.toastMessage('请选择 zip / tar / tar.gz 归档');
+      return;
+    }
+    const file = this.projectFile;
+    const name = file.name.replace(
+      /\.(zip|tar|tar\.gz|tgz)$/i, '',
+    ) || 'project';
+    try {
+      this.projectBusy = true;
+      this.projectMessage = `正在上传 ${file.name} …`;
+      const created = await readJson(
+        await authFetch('/api/workspaces', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': newIdempotencyKey(),
+          },
+          body: JSON.stringify({ display_name: name, source: 'upload' }),
+        }),
+        '创建项目失败',
+      );
+      const form = new FormData();
+      form.append('archive', file, file.name);
+      const job = await readJson(
+        await authFetch(
+          `/api/workspaces/${encodeURIComponent(created.workspace_id)}/uploads`,
+          {
+            method: 'POST',
+            headers: { 'Idempotency-Key': newIdempotencyKey() },
+            body: form,
+          },
+        ),
+        '启动上传失败',
+      );
+      this.projectJobKind = 'uploads';
+      this.projectJobWorkspaceId = created.workspace_id;
+      this.projectJobId = job.job_id;
+      await this.pollProjectJob(
+        'uploads', created.workspace_id, job.job_id,
+      );
+    } catch (err) {
+      this.projectMessage = `上传失败：${err}`;
+      this.toastMessage(this.projectMessage);
+    } finally {
+      this.projectBusy = false;
+      this.projectFile = null;
+      this.projectFileName = '';
+    }
+  },
+
+  async rollbackRevision(revision) {
+    if (!this.projectId || this.revisionBusy) return;
+    if (!window.confirm(
+      `回滚到 ${revision.revision_id}？当前状态会先自动留底。`,
+    )) return;
+    try {
+      this.revisionBusy = true;
+      await readJson(
+        await authFetch(
+          `/api/workspaces/${encodeURIComponent(this.projectId)}/rollback`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Idempotency-Key': newIdempotencyKey(),
+            },
+            body: JSON.stringify({ revision_id: revision.revision_id }),
+          },
+        ),
+        '回滚失败',
+      );
+      this.projectMessage = `已回滚到 ${revision.revision_id.slice(0, 8)}`;
+      await this.loadProjects();
+      await this.loadRevisions();
+    } catch (err) {
+      this.toastMessage(`回滚失败：${err}`);
+    } finally {
+      this.revisionBusy = false;
+    }
+  },
+
+  async pinRevision(revision) {
+    if (!this.projectId || this.revisionBusy) return;
+    try {
+      this.revisionBusy = true;
+      await readJson(
+        await authFetch(
+          `/api/workspaces/${encodeURIComponent(this.projectId)}` +
+          `/revisions/${encodeURIComponent(revision.revision_id)}/pin`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pinned: !revision.pinned }),
+          },
+        ),
+        'pin 失败',
+      );
+      await this.loadRevisions();
+    } catch (err) {
+      this.toastMessage(`pin 失败：${err}`);
+    } finally {
+      this.revisionBusy = false;
+    }
+  },
+
+  async releaseLease() {
+    if (!this.threadId) return;
+    try {
+      const data = await readJson(
+        await authFetch(
+          `/api/ops/leases/${encodeURIComponent(this.threadId)}/release`,
+          { method: 'POST' },
+        ),
+        '释放租约失败',
+      );
+      this.toastMessage(
+        data.released ? '当前会话租约已释放' : '当前会话没有活跃租约',
+      );
+    } catch (err) {
+      this.toastMessage(`释放租约失败：${err}`);
+    }
+  },
+
+  async purgeMaintenance() {
+    try {
+      const data = await readJson(
+        await authFetch('/api/ops/maintenance/purge', { method: 'POST' }),
+        '清理失败',
+      );
+      this.toastMessage(
+        `已清理过期租约 ${data.leases || 0} 个、幂等键 ${data.idempotency || 0} 个`,
+      );
+    } catch (err) {
+      this.toastMessage(`清理失败：${err}`);
+    }
+  },
+
+  async pruneRevisions() {
+    if (!this.projectId || this.revisionBusy) return;
+    try {
+      this.revisionBusy = true;
+      const data = await readJson(
+        await authFetch(
+          `/api/workspaces/${encodeURIComponent(this.projectId)}/revisions/prune`,
+          { method: 'POST' },
+        ),
+        '清理失败',
+      );
+      this.projectMessage = `已清理 ${data.pruned ? data.pruned.length : 0} 个旧归档`;
+      await this.loadRevisions();
+    } catch (err) {
+      this.toastMessage(`清理失败：${err}`);
+    } finally {
+      this.revisionBusy = false;
+    }
+  },
+
   applyBodyClasses() {
     this.bodyClasses = `theme-${this.theme} density-${this.density} font-${this.fontSize} family-${this.fontFamily}`;
   },
@@ -563,6 +943,10 @@ const agentApp = () => ({
       `单次运行成本预算：${budget > 0 ? '$' + budget.toFixed(2) : '未设置'} · ` +
       `单文件上传上限：${this.formatBytes(maxUpload)}`;
     this.refreshBadgeClass();
+    if (this.capabilities.workspace_registry) {
+      await this.loadProjects();
+      await this.loadRevisions();
+    }
   },
 
   async loadProviders() {
@@ -668,9 +1052,15 @@ const agentApp = () => ({
   },
 
   async createSession() {
+    const registry = Boolean(this.capabilities.workspace_registry);
+    if (registry && !this.projectId) {
+      this.toastMessage('请先选择或创建一个项目');
+      return undefined;
+    }
     const body = {
       thread_id: '',
-      workspace: this.workspaceInput.trim(),
+      workspace_id: registry ? this.projectId : '',
+      workspace: registry ? '' : this.workspaceInput.trim(),
       access_mode: this.accessMode,
       model: this.model,
       provider: this.provider,
@@ -684,6 +1074,7 @@ const agentApp = () => ({
     this.threadId = data.thread_id;
     this.workspace = data.workspace;
     this.workspaceInput = data.workspace;
+    if (data.workspace_id) this.projectId = data.workspace_id;
     this.accessMode = data.access_mode;
     this.provider = data.provider || '';
     this.capabilities = data.capabilities || this.capabilities;
@@ -827,6 +1218,7 @@ const agentApp = () => ({
     this.threadId = id;
     const row = this.sessions.find((item) => item.thread_id === id);
     if (row) {
+      if (row.workspace_id) this.projectId = row.workspace_id;
       if (row.workspace) {
         this.workspace = row.workspace;
         this.workspaceInput = row.workspace;

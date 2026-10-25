@@ -104,6 +104,13 @@
   }
   var AuthError = class extends Error {
   };
+  function newIdempotencyKey() {
+    const cryptoApi = window.crypto;
+    if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+      return cryptoApi.randomUUID();
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
   async function authFetch(url, options = {}) {
     const headers = new Headers(options.headers || {});
     const token = getToken();
@@ -138,13 +145,27 @@
       read_only: true,
       server_write_enabled: false,
       multi_user: false,
-      desktop_mode: false
+      desktop_mode: false,
+      workspace_registry: false,
+      workspace_upload_max_bytes: 0
     },
     project: null,
     projectReport: "\u6B63\u5728\u63A2\u6D4B\u5DE5\u4F5C\u533A\u2026",
     projectWarnings: "",
     projectHasWarnings: false,
     projectLoading: false,
+    projects: [],
+    projectId: "",
+    projectFile: null,
+    projectFileName: "",
+    projectBusy: false,
+    projectMessage: "",
+    projectJobKind: "",
+    projectJobId: "",
+    projectJobWorkspaceId: "",
+    projectDropActive: false,
+    revisions: [],
+    revisionBusy: false,
     desktopAvailable: false,
     canCopyWorkspace: false,
     copyBusy: false,
@@ -422,6 +443,338 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         }
       }
     },
+    projectLabel(project) {
+      const name = project.display_name || project.workspace_id;
+      const degraded = project.degraded_fs ? " \xB7 \u6302\u8F7D" : "";
+      return `${name} \xB7 ${project.status}${degraded}`;
+    },
+    revisionLabel(revision) {
+      const when = revision.created_at || "";
+      const commit = revision.git_commit ? ` \xB7 ${String(revision.git_commit).slice(0, 8)}` : "";
+      const pin = revision.pinned ? " \xB7 pinned" : "";
+      return `${when}${commit} \xB7 ${revision.status}${pin} \xB7 ${revision.scan_status || ""}`;
+    },
+    pinLabel(revision) {
+      return revision.pinned ? "\u53D6\u6D88 pin" : "pin";
+    },
+    selectedProject() {
+      return this.projects.find(
+        (item) => item.workspace_id === this.projectId
+      ) || null;
+    },
+    sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    },
+    async loadProjects() {
+      if (!this.capabilities.workspace_registry) return;
+      try {
+        const response = await authFetch("/api/workspaces");
+        const data = await readJson(response, "\u8BFB\u53D6\u9879\u76EE\u5931\u8D25");
+        this.projects = data.workspaces || [];
+        if (this.projectId && !this.projects.some((p) => p.workspace_id === this.projectId)) {
+          this.projectId = "";
+        }
+      } catch (err) {
+        this.projectMessage = `\u9879\u76EE\u5217\u8868\u5931\u8D25\uFF1A${err}`;
+      }
+    },
+    async refreshProjects() {
+      await this.loadProjects();
+    },
+    async loadRevisions() {
+      if (!this.projectId) {
+        this.revisions = [];
+        return;
+      }
+      try {
+        const response = await authFetch(
+          `/api/workspaces/${encodeURIComponent(this.projectId)}/revisions`
+        );
+        const data = await readJson(response, "\u8BFB\u53D6 revision \u5931\u8D25");
+        this.revisions = data.revisions || [];
+      } catch (err) {
+        this.projectMessage = `revision \u8BFB\u53D6\u5931\u8D25\uFF1A${err}`;
+      }
+    },
+    async selectProject(workspaceId) {
+      this.projectId = workspaceId || "";
+      const project = this.selectedProject();
+      if (project) {
+        this.workspace = project.root_path;
+        this.workspaceInput = project.root_path;
+        this.rememberWorkspace();
+      }
+      await this.loadRevisions();
+    },
+    async pollProjectJob(kind, workspaceId, jobId) {
+      const label = kind === "uploads" ? "\u4E0A\u4F20" : "\u5BFC\u5165";
+      for (let index = 0; index < 900; index += 1) {
+        const response = await authFetch(
+          `/api/workspaces/${encodeURIComponent(workspaceId)}/${kind}/${encodeURIComponent(jobId)}`
+        );
+        const data = await readJson(response, "\u8BFB\u53D6\u4EFB\u52A1\u72B6\u6001\u5931\u8D25");
+        const scan = data.scan_status ? ` \xB7 \u626B\u63CF ${data.scan_status}` : "";
+        this.projectMessage = `${label}\uFF1A${data.status}${scan}`;
+        if (["active", "failed", "cancelled"].includes(data.status)) {
+          this.projectJobId = "";
+          this.projectJobKind = "";
+          this.projectJobWorkspaceId = "";
+          if (data.status === "active") {
+            this.projectMessage = `\u9879\u76EE\u5DF2\u5C31\u7EEA \xB7 ${data.files || 0} \u4E2A\u6587\u4EF6 \xB7 ${this.formatBytes(data.bytes || 0)}`;
+            await this.loadProjects();
+            await this.selectProject(workspaceId);
+            this.toastMessage("\u9879\u76EE\u5DF2\u5C31\u7EEA");
+          } else {
+            this.projectMessage = `${label}${data.status}\uFF1A${data.error || ""}`;
+            await this.loadProjects();
+            this.toastMessage(this.projectMessage);
+          }
+          return data;
+        }
+        await this.sleep(1e3);
+      }
+      throw new Error(`${label}\u4EFB\u52A1\u8D85\u65F6`);
+    },
+    async importLocalProject() {
+      const bridge = window.pywebview && window.pywebview.api;
+      if (!bridge) {
+        this.toastMessage("\u6D4F\u89C8\u5668\u6A21\u5F0F\u4E0D\u652F\u6301\u9009\u62E9\u672C\u5730\u6587\u4EF6\u5939\uFF1B\u8BF7\u4E0A\u4F20\u5F52\u6863");
+        return;
+      }
+      try {
+        const path = await bridge.pick_folder();
+        if (!path) return;
+        const name = path.split("/").filter(Boolean).pop() || "project";
+        this.projectBusy = true;
+        this.projectMessage = `\u6B63\u5728\u5BFC\u5165 ${path} \u2026`;
+        const created = await readJson(
+          await authFetch("/api/workspaces", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": newIdempotencyKey()
+            },
+            body: JSON.stringify({
+              display_name: name,
+              source: "local_import"
+            })
+          }),
+          "\u521B\u5EFA\u9879\u76EE\u5931\u8D25"
+        );
+        const job = await readJson(
+          await authFetch(
+            `/api/workspaces/${encodeURIComponent(created.workspace_id)}/imports`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Idempotency-Key": newIdempotencyKey()
+              },
+              body: JSON.stringify({ source_path: path })
+            }
+          ),
+          "\u542F\u52A8\u5BFC\u5165\u5931\u8D25"
+        );
+        this.projectJobKind = "imports";
+        this.projectJobWorkspaceId = created.workspace_id;
+        this.projectJobId = job.job_id;
+        await this.pollProjectJob(
+          "imports",
+          created.workspace_id,
+          job.job_id
+        );
+      } catch (err) {
+        this.projectMessage = `\u5BFC\u5165\u5931\u8D25\uFF1A${err}`;
+        this.toastMessage(this.projectMessage);
+      } finally {
+        this.projectBusy = false;
+      }
+    },
+    onProjectFile(event) {
+      const file = event.target.files && event.target.files[0];
+      this.projectFile = file || null;
+      this.projectFileName = file ? file.name : "";
+    },
+    onProjectDrop(event) {
+      this.projectDropActive = false;
+      const files = event.dataTransfer && event.dataTransfer.files;
+      const file = files && files[0];
+      if (!file) return;
+      this.projectFile = file;
+      this.projectFileName = file.name;
+      this.toastMessage(`\u5DF2\u9009\u62E9\u5F52\u6863\uFF1A${file.name}`);
+    },
+    async cancelProjectJob() {
+      if (!this.projectJobId || !this.projectJobWorkspaceId) return;
+      if (!window.confirm("\u53D6\u6D88\u5F53\u524D\u5BFC\u5165/\u4E0A\u4F20\u4EFB\u52A1\uFF1F\u5DF2\u590D\u5236\u7684\u5185\u5BB9\u4F1A\u88AB\u6E05\u7406\u3002")) {
+        return;
+      }
+      try {
+        await authFetch(
+          `/api/workspaces/${encodeURIComponent(this.projectJobWorkspaceId)}/${this.projectJobKind}/${encodeURIComponent(this.projectJobId)}`,
+          { method: "DELETE" }
+        );
+        this.projectMessage = "\u5DF2\u8BF7\u6C42\u53D6\u6D88\uFF0C\u7B49\u5F85\u4EFB\u52A1\u6536\u5C3E\u2026";
+        this.toastMessage("\u5DF2\u8BF7\u6C42\u53D6\u6D88");
+      } catch (err) {
+        this.toastMessage(`\u53D6\u6D88\u5931\u8D25\uFF1A${err}`);
+      }
+    },
+    async uploadProject() {
+      if (!this.projectFile) {
+        this.toastMessage("\u8BF7\u9009\u62E9 zip / tar / tar.gz \u5F52\u6863");
+        return;
+      }
+      const file = this.projectFile;
+      const name = file.name.replace(
+        /\.(zip|tar|tar\.gz|tgz)$/i,
+        ""
+      ) || "project";
+      try {
+        this.projectBusy = true;
+        this.projectMessage = `\u6B63\u5728\u4E0A\u4F20 ${file.name} \u2026`;
+        const created = await readJson(
+          await authFetch("/api/workspaces", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": newIdempotencyKey()
+            },
+            body: JSON.stringify({ display_name: name, source: "upload" })
+          }),
+          "\u521B\u5EFA\u9879\u76EE\u5931\u8D25"
+        );
+        const form = new FormData();
+        form.append("archive", file, file.name);
+        const job = await readJson(
+          await authFetch(
+            `/api/workspaces/${encodeURIComponent(created.workspace_id)}/uploads`,
+            {
+              method: "POST",
+              headers: { "Idempotency-Key": newIdempotencyKey() },
+              body: form
+            }
+          ),
+          "\u542F\u52A8\u4E0A\u4F20\u5931\u8D25"
+        );
+        this.projectJobKind = "uploads";
+        this.projectJobWorkspaceId = created.workspace_id;
+        this.projectJobId = job.job_id;
+        await this.pollProjectJob(
+          "uploads",
+          created.workspace_id,
+          job.job_id
+        );
+      } catch (err) {
+        this.projectMessage = `\u4E0A\u4F20\u5931\u8D25\uFF1A${err}`;
+        this.toastMessage(this.projectMessage);
+      } finally {
+        this.projectBusy = false;
+        this.projectFile = null;
+        this.projectFileName = "";
+      }
+    },
+    async rollbackRevision(revision) {
+      if (!this.projectId || this.revisionBusy) return;
+      if (!window.confirm(
+        `\u56DE\u6EDA\u5230 ${revision.revision_id}\uFF1F\u5F53\u524D\u72B6\u6001\u4F1A\u5148\u81EA\u52A8\u7559\u5E95\u3002`
+      )) return;
+      try {
+        this.revisionBusy = true;
+        await readJson(
+          await authFetch(
+            `/api/workspaces/${encodeURIComponent(this.projectId)}/rollback`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Idempotency-Key": newIdempotencyKey()
+              },
+              body: JSON.stringify({ revision_id: revision.revision_id })
+            }
+          ),
+          "\u56DE\u6EDA\u5931\u8D25"
+        );
+        this.projectMessage = `\u5DF2\u56DE\u6EDA\u5230 ${revision.revision_id.slice(0, 8)}`;
+        await this.loadProjects();
+        await this.loadRevisions();
+      } catch (err) {
+        this.toastMessage(`\u56DE\u6EDA\u5931\u8D25\uFF1A${err}`);
+      } finally {
+        this.revisionBusy = false;
+      }
+    },
+    async pinRevision(revision) {
+      if (!this.projectId || this.revisionBusy) return;
+      try {
+        this.revisionBusy = true;
+        await readJson(
+          await authFetch(
+            `/api/workspaces/${encodeURIComponent(this.projectId)}/revisions/${encodeURIComponent(revision.revision_id)}/pin`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pinned: !revision.pinned })
+            }
+          ),
+          "pin \u5931\u8D25"
+        );
+        await this.loadRevisions();
+      } catch (err) {
+        this.toastMessage(`pin \u5931\u8D25\uFF1A${err}`);
+      } finally {
+        this.revisionBusy = false;
+      }
+    },
+    async releaseLease() {
+      if (!this.threadId) return;
+      try {
+        const data = await readJson(
+          await authFetch(
+            `/api/ops/leases/${encodeURIComponent(this.threadId)}/release`,
+            { method: "POST" }
+          ),
+          "\u91CA\u653E\u79DF\u7EA6\u5931\u8D25"
+        );
+        this.toastMessage(
+          data.released ? "\u5F53\u524D\u4F1A\u8BDD\u79DF\u7EA6\u5DF2\u91CA\u653E" : "\u5F53\u524D\u4F1A\u8BDD\u6CA1\u6709\u6D3B\u8DC3\u79DF\u7EA6"
+        );
+      } catch (err) {
+        this.toastMessage(`\u91CA\u653E\u79DF\u7EA6\u5931\u8D25\uFF1A${err}`);
+      }
+    },
+    async purgeMaintenance() {
+      try {
+        const data = await readJson(
+          await authFetch("/api/ops/maintenance/purge", { method: "POST" }),
+          "\u6E05\u7406\u5931\u8D25"
+        );
+        this.toastMessage(
+          `\u5DF2\u6E05\u7406\u8FC7\u671F\u79DF\u7EA6 ${data.leases || 0} \u4E2A\u3001\u5E42\u7B49\u952E ${data.idempotency || 0} \u4E2A`
+        );
+      } catch (err) {
+        this.toastMessage(`\u6E05\u7406\u5931\u8D25\uFF1A${err}`);
+      }
+    },
+    async pruneRevisions() {
+      if (!this.projectId || this.revisionBusy) return;
+      try {
+        this.revisionBusy = true;
+        const data = await readJson(
+          await authFetch(
+            `/api/workspaces/${encodeURIComponent(this.projectId)}/revisions/prune`,
+            { method: "POST" }
+          ),
+          "\u6E05\u7406\u5931\u8D25"
+        );
+        this.projectMessage = `\u5DF2\u6E05\u7406 ${data.pruned ? data.pruned.length : 0} \u4E2A\u65E7\u5F52\u6863`;
+        await this.loadRevisions();
+      } catch (err) {
+        this.toastMessage(`\u6E05\u7406\u5931\u8D25\uFF1A${err}`);
+      } finally {
+        this.revisionBusy = false;
+      }
+    },
     applyBodyClasses() {
       this.bodyClasses = `theme-${this.theme} density-${this.density} font-${this.fontSize} family-${this.fontFamily}`;
     },
@@ -626,6 +979,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       const maxUpload = Number(this.capabilities.max_upload_bytes || 0);
       this.limitsText = `\u5355\u6B21\u8FD0\u884C\u6210\u672C\u9884\u7B97\uFF1A${budget > 0 ? "$" + budget.toFixed(2) : "\u672A\u8BBE\u7F6E"} \xB7 \u5355\u6587\u4EF6\u4E0A\u4F20\u4E0A\u9650\uFF1A${this.formatBytes(maxUpload)}`;
       this.refreshBadgeClass();
+      if (this.capabilities.workspace_registry) {
+        await this.loadProjects();
+        await this.loadRevisions();
+      }
     },
     async loadProviders() {
       try {
@@ -719,9 +1076,15 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return `${(size / 1024 / 1024).toFixed(1)} MB`;
     },
     async createSession() {
+      const registry = Boolean(this.capabilities.workspace_registry);
+      if (registry && !this.projectId) {
+        this.toastMessage("\u8BF7\u5148\u9009\u62E9\u6216\u521B\u5EFA\u4E00\u4E2A\u9879\u76EE");
+        return void 0;
+      }
       const body = {
         thread_id: "",
-        workspace: this.workspaceInput.trim(),
+        workspace_id: registry ? this.projectId : "",
+        workspace: registry ? "" : this.workspaceInput.trim(),
         access_mode: this.accessMode,
         model: this.model,
         provider: this.provider
@@ -735,6 +1098,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.threadId = data.thread_id;
       this.workspace = data.workspace;
       this.workspaceInput = data.workspace;
+      if (data.workspace_id) this.projectId = data.workspace_id;
       this.accessMode = data.access_mode;
       this.provider = data.provider || "";
       this.capabilities = data.capabilities || this.capabilities;
@@ -870,6 +1234,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.threadId = id;
       const row = this.sessions.find((item) => item.thread_id === id);
       if (row) {
+        if (row.workspace_id) this.projectId = row.workspace_id;
         if (row.workspace) {
           this.workspace = row.workspace;
           this.workspaceInput = row.workspace;

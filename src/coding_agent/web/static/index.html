@@ -37,10 +37,26 @@
       <button @click="newSession()">新会话</button>
     </div>
     <div class="session-form">
-      <label>工作区</label>
-      <div class="row">
-        <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
-        <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace()">选择…</button>
+      <div x-show="capabilities.workspace_registry">
+        <label>项目</label>
+        <select x-model="projectId" @change="selectProject(projectId)">
+          <option value="">选择项目…</option>
+          <template x-for="p in projects" :key="p.workspace_id">
+            <option :value="p.workspace_id" x-text="projectLabel(p)"></option>
+          </template>
+        </select>
+        <div class="note" x-show="projects.length === 0">
+          还没有项目；在设置里导入文件夹或上传归档。
+        </div>
+        <input x-model="workspaceInput" readonly
+               placeholder="选择项目后自动填入工作区">
+      </div>
+      <div x-show="!capabilities.workspace_registry">
+        <label>工作区</label>
+        <div class="row">
+          <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
+          <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace()">选择…</button>
+        </div>
       </div>
       <label>文件权限</label>
       <select x-model="accessMode" :disabled="accessDisabled()">
@@ -417,6 +433,59 @@
     </div>
     <div class="note note-bad" x-show="projectHasWarnings" x-text="projectWarnings"></div>
     <div class="note" x-show="copyMessage" x-text="copyMessage"></div>
+    <h3>项目（工作区注册表）</h3>
+    <div x-show="capabilities.workspace_registry"
+         @dragover.prevent="projectDropActive = true"
+         @dragleave="projectDropActive = false"
+         @drop.prevent="onProjectDrop($event)">
+      <div class="panel-actions">
+        <button x-show="desktopAvailable" @click="importLocalProject()"
+                :disabled="projectBusy">导入本地文件夹</button>
+        <button @click="refreshProjects()" :disabled="projectBusy">刷新项目</button>
+        <button class="danger" x-show="projectBusy && projectJobId"
+                @click="cancelProjectJob()">取消任务</button>
+      </div>
+      <label>上传项目归档（zip / tar / tar.gz）；可直接拖拽到此处</label>
+      <input type="file" accept=".zip,.tar,.tar.gz,.tgz"
+             @change="onProjectFile($event)">
+      <div class="panel-actions">
+        <button class="primary" @click="uploadProject()"
+                :disabled="projectBusy || !projectFile">上传并创建项目</button>
+        <span class="note" x-text="projectFileName"></span>
+      </div>
+      <div class="note" x-show="projectDropActive">松开以选择该归档</div>
+      <div class="note" x-show="projectMessage" x-text="projectMessage"></div>
+      <template x-for="p in projects" :key="p.workspace_id">
+        <div class="file-head">
+          <span x-text="projectLabel(p)"></span>
+          <span class="note" x-text="p.root_path"></span>
+          <button @click="selectProject(p.workspace_id)">打开</button>
+        </div>
+      </template>
+      <div class="empty" x-show="projects.length === 0">还没有项目</div>
+      <h4>Revisions</h4>
+      <div class="note" x-show="!revisions.length">还没有 revision</div>
+      <template x-for="r in revisions" :key="r.revision_id">
+        <div class="file-head">
+          <span x-text="revisionLabel(r)"></span>
+          <button @click="rollbackRevision(r)"
+                  :disabled="revisionBusy || r.status === 'pruned'">回滚</button>
+          <button @click="pinRevision(r)" :disabled="revisionBusy"
+                  x-text="pinLabel(r)"></button>
+        </div>
+      </template>
+      <div class="panel-actions">
+        <button @click="pruneRevisions()" :disabled="revisionBusy">清理旧归档</button>
+      </div>
+    </div>
+    <p class="note" x-show="!capabilities.workspace_registry">
+      工作区注册表未启用；使用上面的工作区路径直接创建会话。
+    </p>
+    <h3>运维维护</h3>
+    <div class="panel-actions">
+      <button @click="releaseLease()" :disabled="!threadId">释放当前会话租约</button>
+      <button @click="purgeMaintenance()">清理过期租约/幂等键</button>
+    </div>
     <h3>模型密钥</h3>
     <p class="note">密钥只写入操作系统密钥环，不会回传或写入 .env。</p>
     <label>Provider</label>
