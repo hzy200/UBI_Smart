@@ -99,7 +99,7 @@ python scripts/setup_control_mysql.py \
 离线检查 MySQL 方言（不需要真实数据库）：
 
 ```bash
-pytest tests/unit/test_mysql_ddl.py -q
+pytest -m "not llm" tests/unit/test_mysql_ddl.py -q
 ```
 
 ## 4. 多实例事件传输
