@@ -140,6 +140,7 @@ python scripts/demo.py --only 1
 | 能力评测 | （历史基线，2026-10-18，未在本轮重跑）`default` 29 个短任务两轮 29/29（已饱和）；`long` 5 个长程任务 2/5。详见 [tests/eval/README](../tests/eval/README.md) |
 | LangSmith | **157/157（2026-10-25）**：当时 `coding-agent-full-v2` 为 157 条；随后去重并新增子智能体覆盖，当前 `coding-agent-full-v3` 为 158 条（139 capability + 2 agent + 17 mechanism）。详见 [LANGSMITH_REPORT_V2.md](LANGSMITH_REPORT_V2.md) |
 | 难度套件（hard） | **14/14 ×2（100%，spread 0，comparable=true，commit `f062a78`）**：14 个并发/spec/多层/排障/性能任务；修正任务定义后已饱和，需继续加难度。详见 [HARD_SUITE_REPORT.md](HARD_SUITE_REPORT.md) |
+| 真实代码套件（real） | **5/5 ×2（100%，spread 0，comparable=true，commit `3f34a2b`）**：5 个完整标准库模块回归；可见失败测试使定位空间过窄，已饱和。详见 [REAL_SUITE_REPORT.md](REAL_SUITE_REPORT.md) |
 | 上下文画像 | 已接入 baseline/LangSmith：repo_map、worker 摘要、裁剪报告；采样见 [CONTEXT_PROFILE.md](CONTEXT_PROFILE.md) |
 | System E2E（本地） | **通过（2026-10-25）**：导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照；`make system-e2e`，不进 CI |
 | CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型 → `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |
