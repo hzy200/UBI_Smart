@@ -136,9 +136,12 @@ python tests/eval/runner.py --suite real --verify-seeds
 python tests/eval/runner.py --suite real --repeat 2
 ```
 
-`real_advanced` 进一步改变信息条件：6 个隐藏需求任务（可见测试全绿）与
-3 个多回归任务（修好可见的一处仍会失败）。命令相同，套件名改为
-`real_advanced`。
+`real_advanced` 进一步改变信息条件：11 个隐藏需求任务（可见测试全绿，
+提示词只给症状）与 3 个多回归任务（修好可见的一处仍会失败）。命令相同，
+套件名改为 `real_advanced`。
+
+多语言（Node/Java）任务需要先在专用 WSL 发行版安装运行时，方案与风险见
+[POLYGLOT_PLAN.md](POLYGLOT_PLAN.md)；当前**未启用**，不影响现有套件。
 
 ## 6. 放置规则
 

@@ -53,7 +53,7 @@ def _judge(root: Path) -> subprocess.CompletedProcess:
 
 
 def test_real_ids_are_unique_and_prefixed() -> None:
-    assert len(ALL_TASKS) >= 11
+    assert len(ALL_TASKS) >= 14
     assert len(set(IDS)) == len(IDS)
     assert all(task_id.startswith("real/") for task_id in IDS)
 

@@ -376,8 +376,8 @@ TASKS_REAL_ADVANCED: list[EvalTask] = [
         module="statistics",
         category=REAL_SPEC,
         prompt=(
-            "`statistics.py` 是 Python 标准库的完整副本。`median` 对偶数个数据点"
-            "应返回中间两个数的平均值，对奇数个返回中间值。请确保两种长度都正确。"
+            "项目里的统计模块最近出现回归：对偶数个样本求中位数时，返回的是"
+            "偏大的那个中间值，而不是两个中间值的平均。请定位并修复。"
         ),
         old="        return (data[i - 1] + data[i]) / 2",
         new="        return data[i]",
@@ -411,9 +411,8 @@ class StatisticsHiddenTest(unittest.TestCase):
         module="fractions",
         category=REAL_SPEC,
         prompt=(
-            "`fractions.py` 是 Python 标准库的完整副本。`Fraction` 应始终把负号"
-            "放在分子上：`Fraction(1, -2)` 等价于 `Fraction(-1, 2)`，字符串为 "
-            "`-1/2`。请修复。"
+            "项目里的分数模块最近出现回归：负分数的负号跑到了分母上，"
+            "例如 `1/-2` 而不是 `-1/2`。请定位并修复。"
         ),
         old="            if denominator < 0:",
         new="            if False:",
@@ -457,8 +456,8 @@ class FractionsHiddenTest(unittest.TestCase):
         module="heapq",
         category=REAL_SPEC,
         prompt=(
-            "`heapq.py` 是 Python 标准库的完整副本。`heapq.merge(..., "
-            "reverse=True)` 应在输入本身降序时返回降序合并结果。请修复。"
+            "项目里的堆模块最近出现回归：按降序合并两个已经降序的序列时，"
+            "结果没有保持降序。请定位并修复。"
         ),
         old="    if reverse:",
         new="    if False:",
@@ -634,8 +633,8 @@ class CsvHiddenTest(unittest.TestCase):
         module="textwrap",
         category=REAL_SPEC,
         prompt=(
-            "`textwrap.py` 是 Python 标准库的完整副本。`replace_whitespace=True` "
-            "时应把换行、制表等空白替换成空格。请修复。"
+            "项目里的文本排版模块最近出现回归：对包含换行的文本排版时，"
+            "换行被原样保留，没有被当作空白处理。请定位并修复。"
         ),
         old="        if self.replace_whitespace:",
         new="        if False:",
@@ -670,8 +669,8 @@ class TextwrapHiddenTest(unittest.TestCase):
         module="argparse",
         category=REAL_SPEC,
         prompt=(
-            "`argparse.py` 是 Python 标准库的完整副本。`ArgumentParser` 默认"
-            "允许长选项缩写，例如 `--cou` 应匹配 `--count`。请修复。"
+            "项目里的命令行解析模块最近出现回归：用户输入长选项的缩写"
+            "（例如 `--cou` 对应 `--count`）时被当成未知选项。请定位并修复。"
         ),
         old="            if self.allow_abbrev:",
         new="            if False:",
@@ -707,8 +706,8 @@ class ArgparseHiddenTest(unittest.TestCase):
         module="heapq",
         category=REAL_SPEC,
         prompt=(
-            "`heapq.py` 是 Python 标准库的完整副本。`nlargest(n, iterable, "
-            "key=...)` 应按 `key` 取最大的 n 个元素。请修复。"
+            "项目里的堆模块最近出现回归：按对象的某个字段取最大的 N 个时，"
+            "结果不是该字段最大的 N 个。请定位并修复。"
         ),
         old="        if top < k:",
         new="        if False:",
@@ -736,6 +735,201 @@ class HeapqHiddenTest(unittest.TestCase):
             heapq.nlargest(2, items, key=lambda item: item[1]),
             [("b", 3), ("c", 2)],
         )
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/statistics/variance_xbar",
+        module="statistics",
+        category=REAL_SPEC,
+        prompt=(
+            "项目里的统计模块最近出现回归：调用方已经算好均值并传入时，"
+            "样本方差会明显偏大；不传均值时正常。请定位并修复。"
+        ),
+        old="        T, ssd, count = _sum((d := x - c) * d for x in data)",
+        new="        T, ssd, count = _sum((d := x + c) * d for x in data)",
+        tests={
+            "test_statistics.py": '''\
+import statistics
+import unittest
+
+
+class StatisticsTest(unittest.TestCase):
+    def test_variance_without_xbar(self):
+        self.assertEqual(statistics.variance([1, 2, 3]), 1)
+'''
+        },
+        hidden_tests={
+            "test_statistics_hidden.py": '''\
+import statistics
+import unittest
+
+
+class StatisticsHiddenTest(unittest.TestCase):
+    def test_variance_with_xbar(self):
+        self.assertEqual(statistics.variance([1, 2, 3], xbar=2), 1)
+        self.assertEqual(statistics.variance([2, 4, 6], xbar=4), 4)
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/fractions/limit_denominator",
+        module="fractions",
+        category=REAL_SPEC,
+        prompt=(
+            "项目里的分数模块最近出现回归：把分数近似到最大分母时，结果"
+            "不是最接近的那个。例如圆周率近似到最大分母 10 得到 3，"
+            "而不是 22/7。请定位并修复。"
+        ),
+        old="        if abs(bound2 - self) <= abs(bound1-self):",
+        new="        if abs(bound2 - self) > abs(bound1-self):",
+        tests={
+            "test_fractions.py": '''\
+import unittest
+
+from fractions import Fraction
+
+
+class FractionsTest(unittest.TestCase):
+    def test_exact_fraction_is_unchanged(self):
+        self.assertEqual(Fraction(1, 2).limit_denominator(10), Fraction(1, 2))
+'''
+        },
+        hidden_tests={
+            "test_fractions_hidden.py": '''\
+import unittest
+
+from fractions import Fraction
+
+
+class FractionsHiddenTest(unittest.TestCase):
+    def test_best_approximation(self):
+        self.assertEqual(
+            Fraction("3.141592653589793").limit_denominator(10),
+            Fraction(22, 7),
+        )
+        self.assertEqual(
+            Fraction(4321, 8765).limit_denominator(10000),
+            Fraction(4321, 8765),
+        )
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/argparse/dest_hyphen",
+        module="argparse",
+        category=REAL_SPEC,
+        prompt=(
+            "项目里的命令行解析模块最近出现回归：带连字符的长选项"
+            "（如 `--foo-bar`）解析后，调用方取不到下划线形式的参数名。"
+            "请定位并修复。"
+        ),
+        old="            dest = dest.replace('-', '_')",
+        new="            dest = dest",
+        tests={
+            "test_argparse.py": '''\
+import argparse
+import unittest
+
+
+class ArgparseTest(unittest.TestCase):
+    def test_plain_option(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--count", type=int)
+        self.assertEqual(parser.parse_args(["--count", "3"]).count, 3)
+'''
+        },
+        hidden_tests={
+            "test_argparse_hidden.py": '''\
+import argparse
+import unittest
+
+
+class ArgparseHiddenTest(unittest.TestCase):
+    def test_hyphenated_option(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--foo-bar")
+        args = parser.parse_args(["--foo-bar", "x"])
+        self.assertEqual(getattr(args, "foo_bar"), "x")
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/shlex/escaped_space",
+        module="shlex",
+        category=REAL_SPEC,
+        prompt=(
+            "项目里的命令行拆分模块最近出现回归：反斜杠转义的空格没有被"
+            "当成普通字符，`\\ a` 被拆成了两个词。请定位并修复。"
+        ),
+        old="""                elif self.posix and nextchar in self.escape:
+                    escapedstate = 'a'
+                    self.state = nextchar
+                elif nextchar in self.wordchars:""",
+        new="""                elif False:
+                    escapedstate = 'a'
+                    self.state = nextchar
+                elif nextchar in self.wordchars:""",
+        tests={
+            "test_shlex.py": '''\
+import shlex
+import unittest
+
+
+class ShlexTest(unittest.TestCase):
+    def test_plain_words(self):
+        self.assertEqual(shlex.split("a b"), ["a", "b"])
+'''
+        },
+        hidden_tests={
+            "test_shlex_hidden.py": '''\
+import shlex
+import unittest
+
+
+class ShlexHiddenTest(unittest.TestCase):
+    def test_escaped_space(self):
+        self.assertEqual(shlex.split(r"\\ a"), [" a"])
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/csv/extrasaction",
+        module="csv",
+        category=REAL_SPEC,
+        prompt=(
+            "项目里的 CSV 写入模块最近出现回归：字典里有列定义之外的字段时，"
+            "默认应该报错；现在它静默丢掉了多余字段。请定位并修复。"
+        ),
+        old='        if self.extrasaction == "raise":',
+        new="        if False:",
+        tests={
+            "test_csv.py": '''\
+import csv
+import io
+import unittest
+
+
+class CsvTest(unittest.TestCase):
+    def test_matching_fields_are_written(self):
+        stream = io.StringIO()
+        writer = csv.DictWriter(stream, fieldnames=["a"])
+        writer.writerow({"a": 1})
+        self.assertEqual(stream.getvalue().strip(), "1")
+'''
+        },
+        hidden_tests={
+            "test_csv_hidden.py": '''\
+import csv
+import io
+import unittest
+
+
+class CsvHiddenTest(unittest.TestCase):
+    def test_extra_fields_raise(self):
+        writer = csv.DictWriter(io.StringIO(), fieldnames=["a"])
+        with self.assertRaises(ValueError):
+            writer.writerow({"a": 1, "b": 2})
 '''
         },
     ),
