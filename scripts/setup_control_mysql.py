@@ -90,7 +90,8 @@ def target_url(
 
 
 def _redacted(url: URL) -> str:
-    return str(url.set(password="***"))
+    # SQLAlchemy 2.x 的 str(URL) 默认隐藏密码；显式渲染，避免依赖版本。
+    return url.render_as_string(hide_password=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -188,7 +189,9 @@ def main(argv: list[str] | None = None) -> int:
                 "database": args.database,
                 "user": args.user,
                 "url": (
-                    str(url) if args.show_url else _redacted(url)
+                    url.render_as_string(hide_password=False)
+                    if args.show_url
+                    else _redacted(url)
                 ),
                 "note": (
                     "先运行 control_server --migrate（使用管理员账号），"

@@ -62,9 +62,18 @@ def test_target_url_redaction() -> None:
     url = target_url(
         "127.0.0.1", 3306, "coding_agent", "agent", "a" * 24
     )
-    redacted = str(url.set(password="***"))
+    redacted = url.render_as_string(hide_password=True)
     assert "***" in redacted
     assert "a" * 24 not in redacted
+
+
+def test_show_url_reveals_password() -> None:
+    url = target_url(
+        "127.0.0.1", 3306, "coding_agent", "agent", "a" * 24
+    )
+    shown = url.render_as_string(hide_password=False)
+    assert "a" * 24 in shown
+    assert "***" not in shown
 
 
 def test_dry_run(capsys) -> None:

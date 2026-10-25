@@ -99,6 +99,14 @@ python scripts/setup_control_mysql.py \
 `AGENT_CONTROL_DB_URL` 交给 A2，迁移使用管理员账号
 `control_server --migrate`。
 
+`--show-url` 使用 `URL.render_as_string(hide_password=False)`；SQLAlchemy 2.x
+的 `str(URL)` 默认把密码显示成 `***`，旧实现会输出一个不可用的 URL。
+
+2026-10-25 本机已把 `.env` 的 `AGENT_CONTROL_DB_URL` 切换到
+`coding_agent_app`（仅 DML，库 `coding_agent_test`），并用
+`SHOW GRANTS FOR CURRENT_USER()` 确认没有 DDL 权限。root 密码仍建议人工轮换；
+生产迁移继续使用管理员账号。
+
 离线检查 MySQL 方言（不需要真实数据库）：
 
 ```bash
