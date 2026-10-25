@@ -1530,3 +1530,21 @@ criteria:
     status: implemented
     tests: [tests/unit/test_workspace_upload_a3.py::test_activate_replace_swaps_existing_workspace, tests/unit/test_workspace_upload_a3.py::test_attach_git_history_preserves_config, tests/unit/test_workspace_upload_a3.py::test_recover_swap_restores_backup, tests/unit/test_workspace_import_proxy.py::test_active_workspace_can_import_again, tests/unit/test_workspace_import_proxy.py::test_active_import_failure_keeps_old_version, tests/unit/test_workspace_upload_proxy.py::test_active_workspace_can_upload_again]
     see: docs/PHASE_G.md
+
+  - id: REQ-172
+    title: steer 支持幂等键
+    given: 请求方携带 Idempotency-Key
+    when: 重复提交同一个 steer
+    then: 完成后重放同一响应；执行中返回 409；无键不去重
+    status: implemented
+    tests: [tests/unit/test_steer_idempotency.py::test_same_key_replays, tests/unit/test_steer_idempotency.py::test_in_flight_key_is_409, tests/unit/test_steer_idempotency.py::test_no_key_does_not_dedupe]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-173
+    title: 上传从磁盘流式转发
+    given: 浏览器上传项目归档
+    when: A2 转发到 A3
+    then: A2 先写入临时文件并按块限额，再以文件句柄转发；请求结束清理临时目录
+    status: implemented
+    tests: [tests/unit/test_workspace_upload_proxy.py::test_upload_forwards_file, tests/unit/test_workspace_upload_proxy.py::test_upload_size_limit_is_413]
+    see: docs/PHASE_G.md
