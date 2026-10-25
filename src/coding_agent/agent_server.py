@@ -33,7 +33,15 @@ from fastapi.responses import StreamingResponse
 
 from coding_agent import AGENT_API_VERSION, __version__
 from coding_agent.agent_context import AgentRuntimeFactory
-from coding_agent.agent_protocol import AGENT_CAPABILITIES, AgentContext
+from coding_agent.agent_protocol import (
+    AGENT_CAPABILITIES,
+    AgentContext,
+    verify_context,
+)
+from coding_agent.agent_server_routes.imports import (
+    ImportDeps,
+    register_import_routes,
+)
 from coding_agent.agent_server_routes.lifecycle import (
     LifecycleDeps,
     register_lifecycle_routes,
@@ -59,6 +67,7 @@ from coding_agent.events import (
     Event,
     RunFailed,
 )
+from coding_agent.paths import PathGuardError, ensure_inside
 from coding_agent.runtime import AgentRuntime
 
 _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
@@ -94,6 +103,13 @@ def create_agent_app(
     def _context(request: Request) -> AgentContext:
         _require_token(request)
         raw = request.headers.get("x-agent-context", "")
+        signature = request.headers.get("x-agent-signature", "")
+        if not verify_context(
+            raw, signature, settings.agent_internal_hmac_key
+        ):
+            raise HTTPException(
+                status_code=401, detail="Agent context 签名无效"
+            )
         try:
             context = AgentContext.from_header(raw)
         except Exception as exc:  # noqa: BLE001
@@ -104,6 +120,23 @@ def create_agent_app(
             raise HTTPException(
                 status_code=400, detail="workspace 必须是绝对路径"
             )
+        if settings.workspace_registry:
+            allowed = str(settings.workspace_root or "").strip()
+            if not allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "已启用工作区注册表，但 A3 未配置 "
+                        "AGENT_WORKSPACE_ROOT"
+                    ),
+                )
+            try:
+                ensure_inside(context.workspace, allowed)
+            except PathGuardError as exc:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"workspace 不在允许的工作区根内：{exc}",
+                ) from exc
         return context
 
     def _key(context: AgentContext, thread_id: str) -> tuple[str, str]:
@@ -369,6 +402,16 @@ def create_agent_app(
             new_runtime=agent_factory.new,
             close_runtime=_close_runtime,
             reject_active=_reject_active,
+            settings=settings,
+        ),
+    )
+
+    register_import_routes(
+        app,
+        ImportDeps(
+            context=_context,
+            new_runtime=agent_factory.new,
+            close_runtime=_close_runtime,
             settings=settings,
         ),
     )

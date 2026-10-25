@@ -46,3 +46,22 @@ class DeleteUploadBody(BaseModel):
 
 class CompactBody(BaseModel):
     keep_recent: int = 6
+
+
+class WorkspaceImportBody(BaseModel):
+    """把宿主目录导入到 context.workspace（RFC-0001）。"""
+
+    source_path: str = Field(min_length=1, max_length=4096)
+    mode: Literal["copy"] = "copy"
+    quota_bytes: int = Field(default=0, ge=0)
+    max_files: int = Field(default=200_000, ge=1)
+    max_bytes: int = Field(default=0, ge=0)
+
+
+class WorkspaceRollbackBody(BaseModel):
+    revision_id: str = Field(min_length=1, max_length=36)
+    git_commit: str = Field(min_length=7, max_length=64)
+
+
+class WorkspaceArchiveDeleteBody(BaseModel):
+    archive_path: str = Field(min_length=1, max_length=4096)

@@ -207,10 +207,10 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
                 (_safe_tenant(context.tenant), info.thread_id)
             )
             status = ""
-            if state is not None and not state.done:
-                status = "running"
-            elif state is not None and state.suspended:
+            if state is not None and state.suspended:
                 status = "paused"
+            elif state is not None and not state.done:
+                status = "running"
             elif info.interrupted:
                 status = "interrupted"
             if not status:
@@ -222,6 +222,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
                     "workspace": info.workspace,
                     "last_active": info.last_seen,
                     "status": status,
+                    "recoverable": status in {"paused", "interrupted"},
                     "approvals": 0,
                 }
             )

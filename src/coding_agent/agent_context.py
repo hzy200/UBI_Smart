@@ -47,13 +47,18 @@ class AgentRuntimeFactory:
 
     def new(self, context: AgentContext) -> AgentRuntime:
         access = normalize_access_mode(context.access_mode) or "read_only"
-        try:
-            Path(context.workspace).mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"无法创建 workspace：{type(exc).__name__}: {exc}",
-            ) from exc
+        if not self.settings.workspace_registry:
+            # 旧语义：A3 负责创建目录，保证单机/同进程部署可用。
+            try:
+                Path(context.workspace).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"无法创建 workspace：{type(exc).__name__}: {exc}"
+                    ),
+                ) from exc
+        # 注册表开启时不再创建目录：工作区由 A2 注册，A3 只校验路径。
         return self.runtime_factory(
             self.tenant_settings(context),
             workspace=context.workspace,

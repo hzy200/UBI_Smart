@@ -11,11 +11,33 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from coding_agent import AGENT_API_VERSION, __version__
+
+
+def sign_context(header: str, key: str) -> str:
+    """对 base64 context 做 HMAC-SHA256；空 key 返回空串。"""
+    if not key:
+        return ""
+    return hmac.new(
+        key.encode("utf-8"), header.encode("ascii"), hashlib.sha256
+    ).hexdigest()
+
+
+def verify_context(header: str, signature: str, key: str) -> bool:
+    """key 为空时保持旧行为；非空时必须签名匹配。"""
+    if not key:
+        return True
+    if not signature:
+        return False
+    return hmac.compare_digest(
+        sign_context(header, key), str(signature)
+    )
 
 AGENT_CAPABILITIES: dict[str, tuple[str, ...]] = {
     "run_lifecycle": (
@@ -70,6 +92,8 @@ class AgentContext:
     tenant: str = "local"
     user: str = "local"
     workspace: str = ""
+    # RFC-0001：注册表开启时由 A2 绑定；A3 只用于审计与兼容，不据此放行路径。
+    workspace_id: str = ""
     access_mode: str = "read_only"
     model: str = ""
     provider: str = ""
@@ -97,6 +121,7 @@ class AgentContext:
             tenant=str(data.get("tenant") or "local"),
             user=str(data.get("user") or "local"),
             workspace=str(data.get("workspace") or ""),
+            workspace_id=str(data.get("workspace_id") or ""),
             access_mode=str(data.get("access_mode") or "read_only"),
             model=str(data.get("model") or ""),
             provider=str(data.get("provider") or ""),
