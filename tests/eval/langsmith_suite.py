@@ -48,6 +48,7 @@ from tasks import TASKS  # noqa: E402
 from tasks_full import TASKS_FULL  # noqa: E402
 from tasks_hard import TASKS_HARD  # noqa: E402
 from tasks_long import LONG_TASKS  # noqa: E402
+from tasks_real import TASKS_REAL  # noqa: E402
 
 from coding_agent.codeintel.python_index import (  # noqa: E402
     build_index,
@@ -78,6 +79,9 @@ CAPABILITY_IDS: tuple[str, ...] = tuple(
 
 # hard 套件单独成数据集：它的单任务成本更高，不能默认混进全量。
 HARD_IDS: tuple[str, ...] = tuple(task.id for task in TASKS_HARD)
+
+# real 套件同样独立：完整标准库模块会让上下文和成本显著上升。
+REAL_IDS: tuple[str, ...] = tuple(task.id for task in TASKS_REAL)
 
 # 一次覆盖主要回路的抽样：direct、跨文件、排障、隐藏测试、并发读、并发写/合并。
 SMOKE_IDS: tuple[str, ...] = (
@@ -597,7 +601,13 @@ MECHANISMS: dict[str, Any] = {
 def _tasks_by_id() -> dict[str, EvalTask]:
     return {
         task.id: task
-        for task in (*TASKS, *LONG_TASKS, *TASKS_FULL, *TASKS_HARD)
+        for task in (
+            *TASKS,
+            *LONG_TASKS,
+            *TASKS_FULL,
+            *TASKS_HARD,
+            *TASKS_REAL,
+        )
     }
 
 
@@ -610,6 +620,8 @@ def _case_ids(kind: str) -> list[str]:
         return list(AGENT_CASES)
     if kind == "hard":
         return list(HARD_IDS)
+    if kind == "real":
+        return list(REAL_IDS)
     return [*MECHANISMS, *AGENT_CASES, *CAPABILITY_IDS]
 
 
@@ -829,7 +841,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--kinds",
         default="all",
-        choices=["all", "mechanism", "capability", "agent", "hard"],
+        choices=["all", "mechanism", "capability", "agent", "hard", "real"],
     )
     parser.add_argument("--only", default="", help="只跑某个 case_id")
     parser.add_argument(
@@ -875,7 +887,13 @@ def main(argv: list[str] | None = None) -> int:
         case_ids = _case_ids(args.kinds)
     if args.only:
         case_ids = [case_id for case_id in case_ids if case_id == args.only]
-    if args.run and args.kinds in {"capability", "agent", "hard", "all"}:
+    if args.run and args.kinds in {
+        "capability",
+        "agent",
+        "hard",
+        "real",
+        "all",
+    }:
         # capability / agent 需要 WSL；机制用例不依赖它。
         try:
             sandbox, fs, base = _prepare_env(settings)

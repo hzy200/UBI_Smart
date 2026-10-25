@@ -129,6 +129,13 @@ python tests/eval/runner.py --suite hard --repeat 2
 
 `--repeat 2` 会报告 `spread` 与 `flipped`；单次通过率不能作为能力变化的证据。
 
+`real` 套件（5 个完整标准库模块回归）用于测试“在几万行真实代码里定位回归”：
+
+```bash
+python tests/eval/runner.py --suite real --verify-seeds
+python tests/eval/runner.py --suite real --repeat 2
+```
+
 ## 6. 放置规则
 
 | 测试内容 | 目录 |

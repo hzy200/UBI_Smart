@@ -99,6 +99,9 @@ SPEC = "spec"
 # 单列是为了让报告能直接看出“模型在并发/性能上是否掉分”。
 CONCURRENCY = "concurrency"
 PERFORMANCE = "performance"
+# 真实代码：标准库/真实仓库的大文件回归。与 synthetic 的 small task 不同，
+# 考的是在几万行代码里定位一处回归。
+REAL_CODE = "real_code"
 CATEGORIES = (
     SINGLE_FILE,
     CROSS_FILE,
@@ -106,6 +109,7 @@ CATEGORIES = (
     SPEC,
     CONCURRENCY,
     PERFORMANCE,
+    REAL_CODE,
 )
 
 CATEGORY_LABELS = {
@@ -115,6 +119,7 @@ CATEGORY_LABELS = {
     SPEC: "需求未覆盖",
     CONCURRENCY: "并发/竞态",
     PERFORMANCE: "性能/批量",
+    REAL_CODE: "真实代码",
 }
 
 

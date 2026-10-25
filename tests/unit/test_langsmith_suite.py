@@ -39,6 +39,15 @@ def test_hard_suite_is_separate_from_the_full_dataset() -> None:
     assert all(task_id in tasks for task_id in hard_ids)
 
 
+def test_real_suite_is_separate_from_the_full_dataset() -> None:
+    real_ids = suite._case_ids("real")
+    assert len(real_ids) >= 5
+    assert real_ids == list(suite.REAL_IDS)
+    assert set(real_ids).isdisjoint(suite._case_ids("all"))
+    tasks = suite._tasks_by_id()
+    assert all(task_id in tasks for task_id in real_ids)
+
+
 def test_agent_cases_point_to_existing_tasks() -> None:
     tasks = suite._tasks_by_id()
     for case_id, spec in suite.AGENT_CASES.items():

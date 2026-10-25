@@ -244,6 +244,7 @@ python tests/eval/steering_bench.py --repeat 3 --delay-ms 50
 | `long` | 6 个（5 个 38 文件长程任务 + 1 个多写 worker 演示） | `baseline_long.json` | `python tests/eval/runner.py --suite long` |
 | `full` | 104 个全功能 capability 任务 | `baseline_full.json` | `python tests/eval/runner.py --suite full` |
 | `hard` | 14 个并发/spec/多层/排障/性能硬任务 | `baseline_hard.json` | `python tests/eval/runner.py --suite hard` |
+| `real` | 5 个完整标准库模块中的回归定位 | `baseline_real.json` | `python tests/eval/runner.py --suite real` |
 
 分套件不是分类癖：长程档的单任务成本是前两档的若干倍，混进全量会让整轮变得
 不可承受；它的波动量级也不同（任务更少、每个更长），混着报会掩盖差异。
@@ -265,6 +266,15 @@ python tests/eval/steering_bench.py --repeat 3 --delay-ms 50
 ```bash
 python tests/eval/runner.py --suite hard --verify-seeds
 python tests/eval/runner.py --suite hard --repeat 2
+```
+
+`real` 套件把**完整标准库模块**（`configparser` 56KB、`argparse` 100KB 等）
+放进工作区，只注入一处回归；参考解就是未修改的标准库原文。它不 vendor
+标准库源码，任务在导入时从宿主 Python 读取；锚点必须唯一，版本变化会显式报错。
+
+```bash
+python tests/eval/runner.py --suite real --verify-seeds
+python tests/eval/runner.py --suite real --repeat 2
 ```
 
 最近一次干净工作区 `--repeat 2`（commit `f062a78`）：
