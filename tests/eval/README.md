@@ -248,6 +248,7 @@ python tests/eval/steering_bench.py --repeat 3 --delay-ms 50
 | `hard` | 14 个并发/spec/多层/排障/性能硬任务 | `baseline_hard.json` | `python tests/eval/runner.py --suite hard` |
 | `real` | 5 个完整标准库模块中的回归定位 | `baseline_real.json` | `python tests/eval/runner.py --suite real` |
 | `real_advanced` | 14 个隐藏需求/多回归真实代码任务（11 spec + 3 multi） | `baseline_real_advanced.json` | `python tests/eval/runner.py --suite real_advanced` |
+| `blind` | 5 个无可见测试、只给症状的盲测任务 | `baseline_blind.json` | `python tests/eval/runner.py --suite blind` |
 
 分套件不是分类癖：长程档的单任务成本是前两档的若干倍，混进全量会让整轮变得
 不可承受；它的波动量级也不同（任务更少、每个更长），混着报会掩盖差异。
@@ -294,6 +295,14 @@ real 套件**也已饱和**：可见测试直接指出了失败行为，文件�
 ```bash
 python tests/eval/runner.py --suite real_advanced --verify-seeds
 python tests/eval/runner.py --suite real_advanced --repeat 3
+```
+
+`blind` 把信息门槛再降一级：**完全没有可见测试**，只给症状和示例；
+模型必须自己定位、自己验证。隐藏测试在判定时才写入，参考解仍是标准库原文。
+
+```bash
+python tests/eval/runner.py --suite blind --verify-seeds
+python tests/eval/runner.py --suite blind --repeat 3
 ```
 
 最近一次干净工作区 `--repeat 2`（commit `5c971d5`）：

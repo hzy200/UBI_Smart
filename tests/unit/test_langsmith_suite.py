@@ -57,6 +57,15 @@ def test_real_advanced_suite_is_separate() -> None:
     assert all(task_id in tasks for task_id in ids)
 
 
+def test_blind_suite_is_separate() -> None:
+    ids = suite._case_ids("blind")
+    assert len(ids) >= 5
+    assert ids == list(suite.BLIND_IDS)
+    assert set(ids).isdisjoint(suite._case_ids("all"))
+    tasks = suite._tasks_by_id()
+    assert all(task_id in tasks for task_id in ids)
+
+
 def test_agent_cases_point_to_existing_tasks() -> None:
     tasks = suite._tasks_by_id()
     for case_id, spec in suite.AGENT_CASES.items():

@@ -140,6 +140,9 @@ python tests/eval/runner.py --suite real --repeat 2
 提示词只给症状）与 3 个多回归任务（修好可见的一处仍会失败）。命令相同，
 套件名改为 `real_advanced`。
 
+`blind` 完全没有可见测试：只给症状，隐藏测试判定。命令相同，套件名为
+`blind`；它用于观察 agent 是否能自行定位与验证，而不是顺着失败测试找答案。
+
 多语言（Node/Java）任务需要先在专用 WSL 发行版安装运行时，方案与风险见
 [POLYGLOT_PLAN.md](POLYGLOT_PLAN.md)；当前**未启用**，不影响现有套件。
 

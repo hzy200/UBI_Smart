@@ -48,7 +48,11 @@ from tasks import TASKS  # noqa: E402
 from tasks_full import TASKS_FULL  # noqa: E402
 from tasks_hard import TASKS_HARD  # noqa: E402
 from tasks_long import LONG_TASKS  # noqa: E402
-from tasks_real import TASKS_REAL, TASKS_REAL_ADVANCED  # noqa: E402
+from tasks_real import (  # noqa: E402
+    TASKS_BLIND,
+    TASKS_REAL,
+    TASKS_REAL_ADVANCED,
+)
 
 from coding_agent.codeintel.python_index import (  # noqa: E402
     build_index,
@@ -85,6 +89,7 @@ REAL_IDS: tuple[str, ...] = tuple(task.id for task in TASKS_REAL)
 REAL_ADVANCED_IDS: tuple[str, ...] = tuple(
     task.id for task in TASKS_REAL_ADVANCED
 )
+BLIND_IDS: tuple[str, ...] = tuple(task.id for task in TASKS_BLIND)
 
 # 一次覆盖主要回路的抽样：direct、跨文件、排障、隐藏测试、并发读、并发写/合并。
 SMOKE_IDS: tuple[str, ...] = (
@@ -611,6 +616,7 @@ def _tasks_by_id() -> dict[str, EvalTask]:
             *TASKS_HARD,
             *TASKS_REAL,
             *TASKS_REAL_ADVANCED,
+            *TASKS_BLIND,
         )
     }
 
@@ -628,6 +634,8 @@ def _case_ids(kind: str) -> list[str]:
         return list(REAL_IDS)
     if kind == "real_advanced":
         return list(REAL_ADVANCED_IDS)
+    if kind == "blind":
+        return list(BLIND_IDS)
     return [*MECHANISMS, *AGENT_CASES, *CAPABILITY_IDS]
 
 
@@ -857,6 +865,7 @@ def main(argv: list[str] | None = None) -> int:
             "hard",
             "real",
             "real_advanced",
+            "blind",
         ],
     )
     parser.add_argument("--only", default="", help="只跑某个 case_id")
@@ -909,6 +918,7 @@ def main(argv: list[str] | None = None) -> int:
         "hard",
         "real",
         "real_advanced",
+        "blind",
         "all",
     }:
         # capability / agent 需要 WSL；机制用例不依赖它。

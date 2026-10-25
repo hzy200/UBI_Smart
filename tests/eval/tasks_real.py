@@ -20,6 +20,7 @@ from pathlib import Path
 
 from harness import (
     DEEP,
+    REAL_BLIND,
     REAL_CODE,
     REAL_MULTI,
     REAL_SPEC,
@@ -77,6 +78,44 @@ def _regression_task(
         prompt=_prompt(prompt),
         sources={f"{module}.py": original.replace(old, new, 1)},
         tests=tests,
+        hidden_tests=hidden_tests,
+        reference={f"{module}.py": original},
+        timeout=300,
+        agent_timeout=300,
+    )
+
+
+def _blind_prompt(text: str) -> str:
+    return (
+        f"项目就在当前工作目录。{text}\n"
+        "项目里没有现成测试；请根据症状定位并修复，改动落在源码上。"
+    )
+
+
+def _blind_task(
+    *,
+    task_id: str,
+    module: str,
+    prompt: str,
+    old: str,
+    new: str,
+    hidden_tests: dict[str, str],
+) -> EvalTask:
+    original = _source(module)
+    count = original.count(old)
+    if count != 1:
+        raise RuntimeError(
+            f"{task_id} 的注入锚点在 {module}.py 出现 {count} 次，"
+            "标准库版本可能已变化"
+        )
+    return EvalTask(
+        id=task_id,
+        category=REAL_BLIND,
+        tier=DEEP,
+        prompt=_blind_prompt(prompt),
+        sources={f"{module}.py": original.replace(old, new, 1)},
+        # 盲测：不给任何可见测试，模型只能从症状出发。
+        tests={},
         hidden_tests=hidden_tests,
         reference={f"{module}.py": original},
         timeout=300,
@@ -930,6 +969,140 @@ class CsvHiddenTest(unittest.TestCase):
         writer = csv.DictWriter(io.StringIO(), fieldnames=["a"])
         with self.assertRaises(ValueError):
             writer.writerow({"a": 1, "b": 2})
+'''
+        },
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# 盲测：没有可见测试，只给症状；隐藏测试判定。
+# ---------------------------------------------------------------------------
+TASKS_BLIND: list[EvalTask] = [
+    _blind_task(
+        task_id="blind/configparser/duplicate_section",
+        module="configparser",
+        prompt=(
+            "同一个 section 名在配置文件里出现两次时，后一个会静默覆盖前一个；"
+            "严格模式下这应该报错。请定位并修复。"
+        ),
+        old="                            if self._strict and sectname in elements_added:",
+        new="                            if False:",
+        hidden_tests={
+            "test_configparser_hidden.py": '''\
+import configparser
+import unittest
+
+
+class ConfigParserHiddenTest(unittest.TestCase):
+    def test_duplicate_section_raises(self):
+        cfg = configparser.ConfigParser()
+        with self.assertRaises(configparser.DuplicateSectionError):
+            cfg.read_string("[s]\\na = 1\\n[s]\\nb = 2\\n")
+'''
+        },
+    ),
+    _blind_task(
+        task_id="blind/statistics/mode_first",
+        module="statistics",
+        prompt=(
+            "有多个并列众数时，返回了最后一个而不是最先出现的那个。"
+            "例如 `['red', 'red', 'green', 'blue', 'blue']` 应返回 `red`。"
+        ),
+        old="""    pairs = Counter(iter(data)).most_common(1)
+    try:
+        return pairs[0][0]""",
+        new="""    pairs = Counter(iter(data)).most_common()
+    try:
+        return pairs[-1][0]""",
+        hidden_tests={
+            "test_statistics_hidden.py": '''\
+import statistics
+import unittest
+
+
+class StatisticsHiddenTest(unittest.TestCase):
+    def test_first_mode_wins(self):
+        self.assertEqual(
+            statistics.mode(["red", "red", "green", "blue", "blue"]),
+            "red",
+        )
+        self.assertEqual(statistics.mode([1, 1, 2, 2]), 1)
+'''
+        },
+    ),
+    _blind_task(
+        task_id="blind/fractions/round_half_even",
+        module="fractions",
+        prompt=(
+            "把分数四舍五入到整数时，恰好一半的值没有按银行家舍入："
+            "`5/2` 得到 3 而不是 2。请定位并修复。"
+        ),
+        old="            elif remainder * 2 > self.denominator:",
+        new="            elif remainder * 2 >= self.denominator:",
+        hidden_tests={
+            "test_fractions_hidden.py": '''\
+import unittest
+
+from fractions import Fraction
+
+
+class FractionsHiddenTest(unittest.TestCase):
+    def test_half_to_even(self):
+        self.assertEqual(round(Fraction(5, 2)), 2)
+        self.assertEqual(round(Fraction(7, 2)), 4)
+'''
+        },
+    ),
+    _blind_task(
+        task_id="blind/csv/restval_missing",
+        module="csv",
+        prompt=(
+            "把字典写成 CSV 时，缺少的列没有用默认值补全，而是直接报错。"
+            "请定位并修复。"
+        ),
+        old="        return (rowdict.get(key, self.restval) for key in self.fieldnames)",
+        new="        return (rowdict[key] for key in self.fieldnames)",
+        hidden_tests={
+            "test_csv_hidden.py": '''\
+import csv
+import io
+import unittest
+
+
+class CsvHiddenTest(unittest.TestCase):
+    def test_missing_field_uses_restval(self):
+        stream = io.StringIO()
+        writer = csv.DictWriter(
+            stream, fieldnames=["a", "b"], restval="x"
+        )
+        writer.writerow({"a": 1})
+        self.assertEqual(stream.getvalue().strip(), "1,x")
+'''
+        },
+    ),
+    _blind_task(
+        task_id="blind/heapq/nsmallest_key",
+        module="heapq",
+        prompt=(
+            "按对象的某个字段取最小的 N 个时，结果不是该字段最小的 N 个。"
+            "请定位并修复。"
+        ),
+        old="        if k < top:",
+        new="        if False:",
+        hidden_tests={
+            "test_heapq_hidden.py": '''\
+import heapq
+import unittest
+
+
+class HeapqHiddenTest(unittest.TestCase):
+    def test_nsmallest_with_key(self):
+        items = [("a", 3), ("b", 1), ("c", 2)]
+        self.assertEqual(
+            heapq.nsmallest(2, items, key=lambda item: item[1]),
+            [("b", 1), ("c", 2)],
+        )
 '''
         },
     ),

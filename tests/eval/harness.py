@@ -106,6 +106,8 @@ REAL_CODE = "real_code"
 # real 进阶：可见测试全绿、隐藏测试才暴露；以及同一模块的多处回归。
 REAL_SPEC = "real_spec"
 REAL_MULTI = "real_multi"
+# 盲测：完全没有可见测试，只给症状；隐藏测试判定。
+REAL_BLIND = "real_blind"
 CATEGORIES = (
     SINGLE_FILE,
     CROSS_FILE,
@@ -116,6 +118,7 @@ CATEGORIES = (
     REAL_CODE,
     REAL_SPEC,
     REAL_MULTI,
+    REAL_BLIND,
 )
 
 CATEGORY_LABELS = {
@@ -128,6 +131,7 @@ CATEGORY_LABELS = {
     REAL_CODE: "真实代码",
     REAL_SPEC: "真实代码·隐藏需求",
     REAL_MULTI: "真实代码·多回归",
+    REAL_BLIND: "真实代码·盲测",
 }
 
 
