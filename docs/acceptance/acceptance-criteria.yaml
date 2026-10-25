@@ -1617,3 +1617,14 @@ criteria:
     status: implemented
     tests: [tests/unit/test_run_leases.py::test_lease_conflict_detail_points_to_stream]
     see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-181
+    title: 浏览器式项目上传端到端
+    given: 新建 upload 工作区
+    when: 通过 multipart 上传 zip
+    then: |
+      A2 分块写临时文件并转发；A3 安全解包、扫描、revision、原子激活；
+      上传任务 active 且文件在工作区可见。
+    status: implemented
+    tests: [tests/unit/test_workspace_upload_a3.py::test_upload_success_activates_and_cleans, tests/unit/test_workspace_upload_proxy.py::test_upload_forwards_file, tests/unit/test_phase_g_e2e.py::test_help]
+    see: docs/PHASE_G.md

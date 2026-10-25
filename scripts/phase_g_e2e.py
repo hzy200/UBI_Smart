@@ -22,6 +22,7 @@ import os
 import shlex
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -380,6 +381,61 @@ def main(argv: list[str] | None = None) -> int:
                 headers=headers,
             ).json()["revisions"]
             steps["revisions_after_restore"] = len(after_restore)
+
+            # 浏览器式上传：创建 upload 工作区，multipart 归档经 A2 流式转发。
+            upload_zip = work / "upload.zip"
+            with zipfile.ZipFile(
+                upload_zip, "w", zipfile.ZIP_DEFLATED
+            ) as archive:
+                archive.write(source / "README.md", "README.md")
+                archive.writestr(
+                    "UPLOADED.txt", "uploaded through the web API\n"
+                )
+            upload_ws = http.post(
+                "/api/workspaces",
+                json={
+                    "display_name": "E2E Upload",
+                    "source": "upload",
+                },
+                headers=headers,
+            )
+            if upload_ws.status_code >= 400:
+                raise RuntimeError(upload_ws.text)
+            upload_row = upload_ws.json()
+            with upload_zip.open("rb") as handle:
+                upload_started = http.post(
+                    f"/api/workspaces/{upload_row['workspace_id']}/uploads",
+                    files={
+                        "archive": (
+                            "upload.zip",
+                            handle,
+                            "application/zip",
+                        )
+                    },
+                    headers=headers,
+                )
+            if upload_started.status_code >= 400:
+                raise RuntimeError(upload_started.text)
+            upload_job = upload_started.json()
+            upload_final = _wait(
+                http,
+                f"/api/workspaces/{upload_row['workspace_id']}/uploads/"
+                f"{upload_job['job_id']}",
+                headers,
+            )
+            if upload_final.get("status") != "active":
+                raise RuntimeError(f"上传失败：{upload_final}")
+            check_upload = run(
+                args.distro,
+                "test -f "
+                f"{shlex.quote(upload_row['root_path'])}/UPLOADED.txt",
+            )
+            if check_upload.returncode != 0:
+                raise RuntimeError("上传内容未落到工作区")
+            steps["upload"] = {
+                "workspace": upload_row,
+                "final": upload_final,
+            }
 
             if args.real_approval:
                 if not args.real_model:

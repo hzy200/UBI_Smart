@@ -59,6 +59,7 @@ revision：git commit + tar.gz + sha256
           assistant_token → cost_report → run_finished
 真实审批：file_write 触发 1 次审批，resume 后创建 approval.txt；
           snapshots=1，restore 删除该文件并完成回滚
+浏览器上传：zip → active，2 个文件，scan=skipped，revision 1
 ```
 
 第二次导入复用当前 `.git` 历史（硬链接对象），staging 完成后原子替换；
@@ -104,7 +105,7 @@ Redis Streams，并按 `seq` 重放。这里**刻意不使用 consumer group**�
 
 - 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
   清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。
-- 上传仍是单包，无分片/断点续传。
+- 上传仍是单包，无分片/断点续传；浏览器式 multipart 上传已通过真实 E2E。
 - active 更新使用“staging + 原子替换”；极小概率在两次 rename 之间崩溃时，
   下次任务会从 `.old-*` 备份恢复，但恢复是 best-effort。
 - `.git` 历史通过硬链接复制；不支持跨文件系统硬链接时自动退化为复制。
