@@ -128,3 +128,20 @@ def test_redis_stream_transport_publishes_and_replays() -> None:
     assert transport.latest_seq("t1") == 2
     assert redis.expires
     transport.close()
+
+
+def test_redis_transport_two_instances_share_stream() -> None:
+    """模拟两个 A2 实例：各自按 seq 重放完整事件流。"""
+    shared = FakeRedis()
+    first = RedisStreamEventTransport(
+        client=shared, prefix="test:events", ttl_s=60
+    )
+    second = RedisStreamEventTransport(
+        client=shared, prefix="test:events", ttl_s=60
+    )
+    first.publish("t1", 1, "e1")
+    first.publish("t1", 2, "e2")
+    assert second.replay("t1", after=1) == [(2, "e2")]
+    assert second.latest_seq("t1") == 2
+    second.publish("t1", 3, "e3")
+    assert first.replay("t1", after=2) == [(3, "e3")]

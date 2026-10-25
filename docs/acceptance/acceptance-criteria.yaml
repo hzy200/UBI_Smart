@@ -1637,3 +1637,12 @@ criteria:
     status: implemented
     tests: [tests/unit/test_internal_hmac.py::test_agent_accepts_valid_signature, tests/unit/test_internal_hmac.py::test_agent_rejects_missing_signature, tests/unit/test_desktop_supervisor.py::test_agent_env_passes_explicit_values]
     see: docs/PHASE_G.md
+
+  - id: REQ-183
+    title: 多 A2 实例共享 Redis Streams 重放
+    given: 两个 A2 实例共享同一 Redis Streams
+    when: 实例 A 发布事件、实例 B 按 seq 重放
+    then: B 能读取 A 的完整事件流，且各自可按 after 增量重放
+    status: implemented
+    tests: [tests/unit/test_control_services.py::test_redis_transport_two_instances_share_stream]
+    see: docs/adr/0014-event-fanout-not-consumer-group.md
