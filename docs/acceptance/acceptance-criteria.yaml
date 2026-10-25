@@ -1588,3 +1588,12 @@ criteria:
     status: implemented
     tests: [tests/unit/test_phase_g_e2e.py::test_help]
     see: docs/PHASE_G.md
+
+  - id: REQ-178
+    title: 真实审批暂停/恢复与快照回滚
+    given: 写权限会话与真实模型
+    when: 模型调用 file_write；人工批准；随后从快照恢复
+    then: 运行挂起为 approval_requested，resume 后完成；快照恢复删除写入文件
+    status: implemented
+    tests: [tests/unit/test_phase_g_e2e.py::test_help]
+    see: docs/PHASE_G.md

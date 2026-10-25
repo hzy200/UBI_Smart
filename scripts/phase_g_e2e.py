@@ -75,6 +75,40 @@ def _wait(
     raise RuntimeError(f"任务超时：{last}")
 
 
+def _stream(
+    http: TestClient,
+    method: str,
+    path: str,
+    payload: dict,
+    headers: dict[str, str],
+) -> tuple[list[str], dict]:
+    seen: list[str] = []
+    last: dict = {}
+    with http.stream(
+        method, path, json=payload, headers=headers
+    ) as response:
+        if response.status_code >= 400:
+            raise RuntimeError(response.text)
+        for line in response.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            try:
+                event = json.loads(line[5:].strip())
+            except ValueError:
+                continue
+            kind = str(event.get("type") or "")
+            if kind:
+                seen.append(kind)
+            last = event
+            if kind in {
+                "run_finished",
+                "run_failed",
+                "approval_requested",
+            }:
+                break
+    return seen, last
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="工作区端到端验收（无模型）")
     parser.add_argument("--distro", default="CodingAgent")
@@ -102,6 +136,11 @@ def main(argv: list[str] | None = None) -> int:
         "--real-model",
         action="store_true",
         help="使用 .env 中的 DeepSeek key 跑一次极简真实运行",
+    )
+    parser.add_argument(
+        "--real-approval",
+        action="store_true",
+        help="真实运行并触发一次写工具审批，随后验证快照回滚",
     )
     args = parser.parse_args(argv)
 
@@ -171,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
             settings,
             auth=AuthConfig(tokens={TOKEN: USER}),
             agent_client=client,
+            allow_write=bool(args.real_approval),
         )
         headers = {"Authorization": f"Bearer {TOKEN}"}
         with TestClient(app) as http:
@@ -341,7 +381,95 @@ def main(argv: list[str] | None = None) -> int:
             ).json()["revisions"]
             steps["revisions_after_restore"] = len(after_restore)
 
-            if args.real_model:
+            if args.real_approval:
+                if not args.real_model:
+                    raise RuntimeError("--real-approval 需要 --real-model")
+                thread = "e2e-approval"
+                created = http.post(
+                    "/api/sessions",
+                    json={
+                        "thread_id": thread,
+                        "workspace_id": workspace_id,
+                        "access_mode": "write_ask",
+                    },
+                    headers=headers,
+                )
+                if created.status_code >= 400:
+                    raise RuntimeError(created.text)
+                prompt = (
+                    "请必须调用 file_write 工具（不是 shell_exec）"
+                    "在当前工作区创建 approval.txt，内容为 ok。"
+                    "不要只回复文字。"
+                )
+                seen, last = _stream(
+                    http,
+                    "POST",
+                    "/api/run",
+                    {"thread_id": thread, "prompt": prompt},
+                    headers,
+                )
+                events = list(seen)
+                approvals = 0
+                for _ in range(3):
+                    if last.get("type") == "run_finished":
+                        break
+                    if last.get("type") != "approval_requested":
+                        raise RuntimeError(
+                            f"预期审批，实际收到：{last}"
+                        )
+                    request_id = str(last.get("request_id") or "")
+                    if not request_id:
+                        payload = http.get(
+                            f"/api/approvals/{thread}", headers=headers
+                        ).json()
+                        items = payload.get("approvals") or []
+                        request_id = str(
+                            items[0].get("request_id") or ""
+                        ) if items else ""
+                    if not request_id:
+                        raise RuntimeError("审批事件没有 request_id")
+                    approvals += 1
+                    seen, last = _stream(
+                        http,
+                        "POST",
+                        f"/api/resume/{thread}",
+                        {"decisions": {request_id: True}},
+                        headers,
+                    )
+                    events.extend(seen)
+                if last.get("type") != "run_finished":
+                    raise RuntimeError(f"审批恢复未完成：{last}")
+                check_file = run(
+                    args.distro,
+                    f"test -f {shlex.quote(root)}/approval.txt",
+                )
+                if check_file.returncode != 0:
+                    raise RuntimeError("审批后 approval.txt 未创建")
+                snapshots = http.get(
+                    f"/api/snapshots?thread_id={thread}",
+                    headers=headers,
+                ).json().get("snapshots", [])
+                restore = http.post(
+                    "/api/restore",
+                    json={"thread_id": thread, "path": "approval.txt"},
+                    headers=headers,
+                )
+                if restore.status_code >= 400:
+                    raise RuntimeError(restore.text)
+                check_gone = run(
+                    args.distro,
+                    f"test ! -f {shlex.quote(root)}/approval.txt",
+                )
+                if check_gone.returncode != 0:
+                    raise RuntimeError("快照恢复后 approval.txt 仍存在")
+                steps["real_approval"] = {
+                    "approvals": approvals,
+                    "snapshots": len(snapshots),
+                    "restore": restore.json(),
+                    "events": events[-12:],
+                    "ok": True,
+                }
+            elif args.real_model:
                 run_session = http.post(
                     "/api/sessions",
                     json={

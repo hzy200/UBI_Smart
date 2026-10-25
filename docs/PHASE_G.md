@@ -57,6 +57,8 @@ revision：git commit + tar.gz + sha256
 灾难恢复：删除 README 后从 v1 归档恢复；README 回来，revision 数 4
 真实模型：1 次极简运行，事件 run_started → plan_created →
           assistant_token → cost_report → run_finished
+真实审批：file_write 触发 1 次审批，resume 后创建 approval.txt；
+          snapshots=1，restore 删除该文件并完成回滚
 ```
 
 第二次导入复用当前 `.git` 历史（硬链接对象），staging 完成后原子替换；
@@ -85,6 +87,6 @@ AGENT_WSL_REQUIRE_HARDENING=true
 - 归档恢复会校验路径与 sha256，恢复前自动生成 pre-restore revision。
 - 恢复中心会为最多 10 个暂停/中断会话加载真实 pending approvals；
   单个会话加载失败按 0 处理，不阻塞列表。
-- 真实模型**基础运行**已验证（key 由 A2 短期注入 A3）；真实审批暂停/恢复
-  与快照链路仍需人工验收。
+- 真实模型**基础运行**、一次 `file_write` 审批暂停/恢复、快照回滚已验证
+  （key 由 A2 短期注入 A3）。更高风险命令（L2/L3）的审批仍需按需演练。
 - 现有 Ubuntu 发行版未加固；不要直接用它承载托管工作区。
