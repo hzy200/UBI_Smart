@@ -704,6 +704,38 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.revisionBusy = false;
       }
     },
+    async restoreRevision(revision) {
+      if (!this.projectId || this.revisionBusy) return;
+      if (!revision.archive_path) {
+        this.toastMessage("\u8BE5 revision \u6CA1\u6709\u5F52\u6863\u6587\u4EF6");
+        return;
+      }
+      if (!window.confirm(
+        `\u4ECE\u5F52\u6863\u6062\u590D ${revision.revision_id.slice(0, 8)}\uFF1F\u5F53\u524D\u72B6\u6001\u4F1A\u5148\u81EA\u52A8\u7559\u5E95\u3002`
+      )) return;
+      try {
+        this.revisionBusy = true;
+        await readJson(
+          await authFetch(
+            `/api/workspaces/${encodeURIComponent(this.projectId)}/revisions/${encodeURIComponent(revision.revision_id)}/restore`,
+            {
+              method: "POST",
+              headers: {
+                "Idempotency-Key": newIdempotencyKey()
+              }
+            }
+          ),
+          "\u4ECE\u5F52\u6863\u6062\u590D\u5931\u8D25"
+        );
+        this.projectMessage = `\u5DF2\u4ECE\u5F52\u6863\u6062\u590D ${revision.revision_id.slice(0, 8)}`;
+        await this.loadProjects();
+        await this.loadRevisions();
+      } catch (err) {
+        this.toastMessage(`\u6062\u590D\u5931\u8D25\uFF1A${err}`);
+      } finally {
+        this.revisionBusy = false;
+      }
+    },
     async pinRevision(revision) {
       if (!this.projectId || this.revisionBusy) return;
       try {

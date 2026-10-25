@@ -706,6 +706,42 @@ const agentApp = () => ({
     }
   },
 
+  async restoreRevision(revision) {
+    if (!this.projectId || this.revisionBusy) return;
+    if (!revision.archive_path) {
+      this.toastMessage('该 revision 没有归档文件');
+      return;
+    }
+    if (!window.confirm(
+      `从归档恢复 ${revision.revision_id.slice(0, 8)}？` +
+      '当前状态会先自动留底。',
+    )) return;
+    try {
+      this.revisionBusy = true;
+      await readJson(
+        await authFetch(
+          `/api/workspaces/${encodeURIComponent(this.projectId)}` +
+          `/revisions/${encodeURIComponent(revision.revision_id)}/restore`,
+          {
+            method: 'POST',
+            headers: {
+              'Idempotency-Key': newIdempotencyKey(),
+            },
+          },
+        ),
+        '从归档恢复失败',
+      );
+      this.projectMessage =
+        `已从归档恢复 ${revision.revision_id.slice(0, 8)}`;
+      await this.loadProjects();
+      await this.loadRevisions();
+    } catch (err) {
+      this.toastMessage(`恢复失败：${err}`);
+    } finally {
+      this.revisionBusy = false;
+    }
+  },
+
   async pinRevision(revision) {
     if (!this.projectId || this.revisionBusy) return;
     try {

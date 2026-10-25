@@ -470,6 +470,8 @@
           <span x-text="revisionLabel(r)"></span>
           <button @click="rollbackRevision(r)"
                   :disabled="revisionBusy || r.status === 'pruned'">回滚</button>
+          <button @click="restoreRevision(r)"
+                  :disabled="revisionBusy || r.status === 'pruned' || !r.archive_path">恢复归档</button>
           <button @click="pinRevision(r)" :disabled="revisionBusy"
                   x-text="pinLabel(r)"></button>
         </div>
