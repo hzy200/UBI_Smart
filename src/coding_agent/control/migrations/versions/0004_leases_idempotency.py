@@ -51,7 +51,9 @@ def upgrade() -> None:
         ),
     )
     meta = sa.table(
-        "control_meta", sa.column("key"), sa.column("value")
+        "control_meta",
+        sa.column("key", sa.String(64)),
+        sa.column("value", sa.String(255)),
     )
     op.execute(
         meta.update()
@@ -64,7 +66,9 @@ def downgrade() -> None:
     op.drop_table("idempotency_keys")
     op.drop_table("run_leases")
     meta = sa.table(
-        "control_meta", sa.column("key"), sa.column("value")
+        "control_meta",
+        sa.column("key", sa.String(64)),
+        sa.column("value", sa.String(255)),
     )
     op.execute(
         meta.update()

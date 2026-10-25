@@ -30,7 +30,9 @@ def upgrade() -> None:
         ),
     )
     meta = sa.table(
-        "control_meta", sa.column("key"), sa.column("value")
+        "control_meta",
+        sa.column("key", sa.String(64)),
+        sa.column("value", sa.String(255)),
     )
     op.execute(
         meta.update()
@@ -42,7 +44,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_column("workspace_revisions", "pinned")
     meta = sa.table(
-        "control_meta", sa.column("key"), sa.column("value")
+        "control_meta",
+        sa.column("key", sa.String(64)),
+        sa.column("value", sa.String(255)),
     )
     op.execute(
         meta.update()

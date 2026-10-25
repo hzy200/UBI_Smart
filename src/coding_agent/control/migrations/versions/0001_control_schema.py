@@ -174,7 +174,9 @@ def upgrade() -> None:
 
     # MySQL 里 key 是保留字；用 table 构造让方言负责引用标识符。
     meta = sa.table(
-        "control_meta", sa.column("key"), sa.column("value")
+        "control_meta",
+        sa.column("key", sa.String(64)),
+        sa.column("value", sa.String(255)),
     )
     op.bulk_insert(meta, [{"key": "schema_version", "value": "1"}])
 
