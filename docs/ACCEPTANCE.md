@@ -141,7 +141,7 @@ python scripts/demo.py --only 1
 | LangSmith | **157/157（2026-10-25）**：当时 `coding-agent-full-v2` 为 157 条；随后去重并新增子智能体覆盖，当前 `coding-agent-full-v3` 为 158 条（139 capability + 2 agent + 17 mechanism）。详见 [LANGSMITH_REPORT_V2.md](LANGSMITH_REPORT_V2.md) |
 | 难度套件（hard） | **14/14 ×2（100%，spread 0，comparable=true，commit `f062a78`）**：14 个并发/spec/多层/排障/性能任务；修正任务定义后已饱和，需继续加难度。详见 [HARD_SUITE_REPORT.md](HARD_SUITE_REPORT.md) |
 | 真实代码套件（real） | **5/5 ×2（100%，spread 0，comparable=true，commit `3f34a2b`）**：5 个完整标准库模块回归；可见失败测试使定位空间过窄，已饱和。详见 [REAL_SUITE_REPORT.md](REAL_SUITE_REPORT.md) |
-| 真实代码进阶（real_advanced） | **13/14、13/14（92.9%，comparable=true，commit `61cda1d`）**：11 个隐藏需求（症状式提示）+ 3 个多回归；两轮失败成员不同，翻转任务 repeat 5 分别为 3/5、4/5。详见 [REAL_ADVANCED_REPORT.md](REAL_ADVANCED_REPORT.md) |
+| 真实代码进阶（real_advanced） | **14/14 ×2（100%，spread 0，comparable=true，commit `8c47527`）**：11 个隐藏需求（症状式提示）+ 3 个多回归；上一版翻转已确认是 L3 审批未 resume 的 harness 假象。详见 [REAL_ADVANCED_REPORT.md](REAL_ADVANCED_REPORT.md) |
 | 上下文画像 | 已接入 baseline/LangSmith：repo_map、worker 摘要、裁剪报告；采样见 [CONTEXT_PROFILE.md](CONTEXT_PROFILE.md) |
 | System E2E（本地） | **通过（2026-10-25）**：导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照；`make system-e2e`，不进 CI |
 | CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型 → `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |

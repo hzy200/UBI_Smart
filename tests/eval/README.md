@@ -295,11 +295,11 @@ python tests/eval/runner.py --suite real_advanced --repeat 3
 ```
 
 最近一次干净工作区 `--repeat 2`（commit `5c971d5`）：
-**13/14、13/14（92.9%）**，两轮总数相同，但失败成员不同：
-`fractions/limit_denominator` 与 `shlex/escaped_space` 各翻转一次。
-对这两个任务做 `--repeat 5`：分别 **3/5（60%）**、**4/5（80%）**；
-失败形态都是“1 步、未验证、没有写文件”，属于提前收手。
-明细见 [docs/REAL_ADVANCED_REPORT.md](../../docs/REAL_ADVANCED_REPORT.md)。
+**14/14、14/14（100%）**，`spread=0`，L3 审批 10 次全部由 harness 代为批准。
+上一版报告的 13/14 与 3/5、4/5 翻转已确认是 harness 未处理
+`ApprovalRequested` 的假象：benign 的 `cat`/`git log` 被判为 L3 后运行静默挂起，
+从外部看起来像“提前收手”。修复后同一套任务两轮全过。
+明细与根因见 [docs/REAL_ADVANCED_REPORT.md](../../docs/REAL_ADVANCED_REPORT.md)。
 
 最近一次干净工作区 `--repeat 2`（commit `f062a78`）：
 **14/14、14/14（100%），spread 0**，两轮 token 约 238 万，缓存命中率 18.9%。
