@@ -135,6 +135,8 @@ def _start(
     env: dict[str, str],
     log_path: Path,
     token: str,
+    *,
+    cwd: Path | None = None,
 ) -> subprocess.Popen:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     handle = log_path.open("a", encoding="utf-8")
@@ -151,6 +153,7 @@ def _start(
         errors="replace",
         bufsize=1,
         env=env,
+        cwd=str(cwd) if cwd is not None else None,
         creationflags=flags,
     )
     assert proc.stdin is not None
@@ -286,6 +289,7 @@ class Smoke:
             self._a3_env(),
             self.tmp / "a3.log",
             self.a3_token,
+            cwd=self.tmp,
         )
         self.procs.append(proc)
         return proc
@@ -324,6 +328,7 @@ class Smoke:
             ),
             self.tmp / log_name,
             self.a2_token,
+            cwd=self.tmp,
         )
         self.procs.append(proc)
         return proc, base
@@ -527,6 +532,7 @@ class Smoke:
                 "--migrate-only",
             ],
             env=env,
+            cwd=str(self.tmp),
             capture_output=True,
             text=True,
             encoding="utf-8",
