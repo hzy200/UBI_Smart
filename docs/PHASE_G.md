@@ -72,7 +72,8 @@ AGENT_WSL_REQUIRE_HARDENING=true
 
 ## 3. 已知限制
 
-- 导入/上传任务状态在 A3 内存，A3 重启后未完成任务丢失。
+- 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
+  清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。
 - 上传仍是单包，无分片/断点续传。
 - active 更新使用“staging + 原子替换”；极小概率在两次 rename 之间崩溃时，
   下次任务会从 `.old-*` 备份恢复，但恢复是 best-effort。

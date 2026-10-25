@@ -9,7 +9,7 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 193,
+  "count": 194,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
@@ -180,6 +180,7 @@
     "AGENT_WORKSPACE_ARCHIVE_ROOT",
     "AGENT_WORKSPACE_EXTRACT_MAX_RATIO",
     "AGENT_WORKSPACE_IMPORT_MODE",
+    "AGENT_WORKSPACE_JOB_RETENTION_DAYS",
     "AGENT_WORKSPACE_LOCK",
     "AGENT_WORKSPACE_MOUNT_ROOTS",
     "AGENT_WORKSPACE_REGISTRY",
@@ -1557,6 +1558,14 @@
       "default": "copy",
       "section": "通用",
       "doc": "copy = 桌面默认复制到 ext4；mount = 显式降级，需二次确认。"
+    },
+    {
+      "name": "workspace_job_retention_days",
+      "env": "AGENT_WORKSPACE_JOB_RETENTION_DAYS",
+      "type": "int",
+      "default": 7,
+      "section": "通用",
+      "doc": "A3 导入/上传任务状态保留天数；超期的终态文件在下次启动时清理。"
     },
     {
       "name": "workspace_lock_enabled",

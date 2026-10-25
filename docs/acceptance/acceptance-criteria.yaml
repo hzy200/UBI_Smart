@@ -1559,3 +1559,14 @@ criteria:
     status: implemented
     tests: [tests/unit/test_workspace_restore.py::test_restore_replaces_broken_workspace, tests/unit/test_workspace_restore.py::test_restore_rejects_sha_mismatch, tests/unit/test_workspace_restore.py::test_restore_rejects_outside_archive, tests/unit/test_workspace_restore.py::test_restore_rejects_missing_archive, tests/unit/test_workspace_upload_proxy.py::test_restore_from_archive_records_pre_and_activates, tests/unit/test_workspace_upload_proxy.py::test_restore_requires_archive, tests/unit/test_workspace_archive.py::test_skip_names_can_be_relaxed_for_restore]
     see: docs/PHASE_G.md
+
+  - id: REQ-175
+    title: A3 任务状态持久化与重启恢复
+    given: A3 进程在导入/上传期间重启
+    when: 下次启动加载任务目录
+    then: |
+      未完成任务标记 failed 并清理 staging/workdir；中断的 swap 从备份恢复；
+      终态任务可继续查询，超过保留期的文件被清理。
+    status: implemented
+    tests: [tests/unit/test_workspace_jobs_persistence.py::test_persist_excludes_runtime_event, tests/unit/test_workspace_jobs_persistence.py::test_update_persists_status, tests/unit/test_workspace_jobs_persistence.py::test_load_terminal_job, tests/unit/test_workspace_jobs_persistence.py::test_incomplete_job_is_failed_and_cleaned, tests/unit/test_workspace_jobs_persistence.py::test_stale_terminal_job_is_removed, tests/unit/test_workspace_jobs_persistence.py::test_load_recovers_interrupted_swap]
+    see: docs/PHASE_G.md

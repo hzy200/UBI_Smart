@@ -9,7 +9,7 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **193** 个配置项。
+共 **194** 个配置项。
 
 ## 通用
 
@@ -184,6 +184,7 @@
 | `AGENT_WORKSPACE_ARCHIVE_ROOT` | `workspace_archive_root` | `str` | `""` | revision 归档根；空 = 关闭归档（仍可运行，但不能灾难恢复）。 |
 | `AGENT_WORKSPACE_EXTRACT_MAX_RATIO` | `workspace_extract_max_ratio` | `int` | `200` | 解压比上限：解压后总字节 / 归档字节，防止 zip bomb。 |
 | `AGENT_WORKSPACE_IMPORT_MODE` | `workspace_import_mode` | `str` | `"copy"` | copy = 桌面默认复制到 ext4；mount = 显式降级，需二次确认。 |
+| `AGENT_WORKSPACE_JOB_RETENTION_DAYS` | `workspace_job_retention_days` | `int` | `7` | A3 导入/上传任务状态保留天数；超期的终态文件在下次启动时清理。 |
 | `AGENT_WORKSPACE_LOCK` | `workspace_lock_enabled` | `bool` | `true` | 同一工作区只允许一个 runtime 运行；锁文件在审计目录下。 |
 | `AGENT_WORKSPACE_MOUNT_ROOTS` | `workspace_mount_roots` | `str` | `""` | 允许的 /mnt 挂载根，逗号分隔；空 = 禁止任何挂载工作区。 |
 | `AGENT_WORKSPACE_REGISTRY` | `workspace_registry` | `bool` | `false` | ---------- 工作区注册表（RFC-0001，默认关闭） ---------- false = 继续使用 control_sessions.workspace 裸路径，行为与旧部署一致。 |
