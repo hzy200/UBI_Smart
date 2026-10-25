@@ -13,6 +13,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from coding_agent.agent_protocol import AgentRunRequest
 from coding_agent.config import Settings
+from coding_agent.control.idempotency import IdempotencyInFlight
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
@@ -54,6 +55,7 @@ class RunDeps:
     lease_owner: str = ""
     lease_ttl_s: int = 900
     audit_flush: Callable[..., Awaitable[None]] | None = None
+    idempotency: Any | None = None
 
 
 def _lease_key(user: AuthUser, public_thread: str) -> str:
@@ -75,6 +77,32 @@ def _is_terminal_chunk(chunk: bytes) -> bool:
 
 
 def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
+    def _idem_begin(key: str, scope: str) -> dict | None:
+        if deps.idempotency is None or not str(key or "").strip():
+            return None
+        try:
+            return deps.idempotency.begin(
+                key,
+                scope,
+                ttl_s=int(deps.settings.idempotency_ttl_s or 600),
+            )
+        except IdempotencyInFlight as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def _idem_finish(key: str, result: dict) -> None:
+        if deps.idempotency is not None and str(key or "").strip():
+            deps.idempotency.finish(
+                key,
+                result,
+                ttl_s=int(deps.settings.idempotency_ttl_s or 600),
+            )
+
+    def _idem_abort(key: str) -> None:
+        if deps.idempotency is not None and str(key or "").strip():
+            deps.idempotency.abort(key)
+
     def _acquire_lease(
         user: AuthUser, public_thread: str, idempotency_key: str
     ) -> str:
@@ -275,41 +303,57 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         thread_id: str,
         request: SteerRequest,
         user: UserDep,
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key")
+        ] = "",
     ) -> dict:
         deps.rate_limit(user)
         public_thread = check_thread_id(thread_id)
-        if deps.agent_client is not None:
-            tenant = deps.tenant(user)
-            config = deps.config_for(
-                user, tenant, public_thread, create=False
-            )
-            try:
-                return await deps.agent_client.steer(
+        cached = _idem_begin(idempotency_key, "run.steer")
+        if cached is not None:
+            return cached
+        try:
+            if deps.agent_client is not None:
+                tenant = deps.tenant(user)
+                config = deps.config_for(
+                    user, tenant, public_thread, create=False
+                )
+                result = await deps.agent_client.steer(
                     deps.agent_context(user, tenant, config),
                     public_thread,
                     action=request.action,
                     text=request.text,
                     role=request.role,
                 )
-            except Exception as exc:  # noqa: BLE001
-                raise deps.agent_failure(exc) from exc
-        entry = deps.get_entry(user.name, public_thread)
-        if entry is None:
-            raise HTTPException(
-                status_code=404, detail="该会话没有运行中的 agent"
-            )
-        tenant = deps.tenant(user)
-        try:
-            entry.runtime.steer(
-                tenant.thread_id(public_thread),
-                request.action,
-                text=request.text,
-                role=request.role,
-                source=deps.client_source,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {"ok": True, "action": request.action}
+            else:
+                entry = deps.get_entry(user.name, public_thread)
+                if entry is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="该会话没有运行中的 agent",
+                    )
+                tenant = deps.tenant(user)
+                try:
+                    entry.runtime.steer(
+                        tenant.thread_id(public_thread),
+                        request.action,
+                        text=request.text,
+                        role=request.role,
+                        source=deps.client_source,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=422, detail=str(exc)
+                    ) from exc
+                result = {"ok": True, "action": request.action}
+        except HTTPException:
+            _idem_abort(idempotency_key)
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _idem_abort(idempotency_key)
+            raise deps.agent_failure(exc) from exc
+        _idem_finish(idempotency_key, result)
+        return result
 
     @app.post("/api/resume/{thread_id}")
     async def resume(

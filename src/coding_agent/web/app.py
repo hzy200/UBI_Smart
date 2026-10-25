@@ -997,6 +997,7 @@ def create_app(
             lease_owner=app_instance_id,
             lease_ttl_s=int(settings.run_lease_ttl_s or 900),
             audit_flush=_flush_audit,
+            idempotency=idempotency,
         ),
     )
 
