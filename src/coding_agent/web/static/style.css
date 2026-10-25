@@ -283,6 +283,24 @@ header .spacer { flex: 1; }
   .inspector { display: none; }
 }
 
+@media (max-width: 760px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .sidebar {
+    max-height: 45vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .inspector { display: none; }
+  .modal-box {
+    width: 94vw;
+    max-height: 90vh;
+  }
+  button { min-height: 36px; }
+}
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,

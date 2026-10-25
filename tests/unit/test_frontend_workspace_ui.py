@@ -42,3 +42,12 @@ def test_index_contains_registry_section() -> None:
     assert "释放当前会话租约" in text
     assert "清理过期租约/幂等键" in text
     assert "恢复归档" in text
+    assert 'aria-label="选择项目"' in text
+    assert 'aria-label="项目归档文件"' in text
+
+
+def test_style_has_narrow_layout_and_focus() -> None:
+    text = (STATIC / "style.css").read_text(encoding="utf-8")
+    assert "@media (max-width: 760px)" in text
+    assert "focus-visible" in text
+    assert "prefers-reduced-motion" in text

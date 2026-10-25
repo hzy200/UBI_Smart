@@ -39,7 +39,8 @@
     <div class="session-form">
       <div x-show="capabilities.workspace_registry">
         <label>项目</label>
-        <select x-model="projectId" @change="selectProject(projectId)">
+        <select x-model="projectId" @change="selectProject(projectId)"
+                aria-label="选择项目">
           <option value="">选择项目…</option>
           <template x-for="p in projects" :key="p.workspace_id">
             <option :value="p.workspace_id" x-text="projectLabel(p)"></option>
@@ -447,7 +448,7 @@
       </div>
       <label>上传项目归档（zip / tar / tar.gz）；可直接拖拽到此处</label>
       <input type="file" accept=".zip,.tar,.tar.gz,.tgz"
-             @change="onProjectFile($event)">
+             aria-label="项目归档文件" @change="onProjectFile($event)">
       <div class="panel-actions">
         <button class="primary" @click="uploadProject()"
                 :disabled="projectBusy || !projectFile">上传并创建项目</button>
