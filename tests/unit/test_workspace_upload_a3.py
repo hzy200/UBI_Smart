@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 from coding_agent.agent_protocol import AgentContext
@@ -48,6 +49,7 @@ def _settings(tmp_path, **kwargs) -> Settings:
         workspace_scan_provider="none",
         workspace_archive_root=str(tmp_path / "archive"),
         workspace_extract_max_ratio=200,
+        agent_data_root=str(tmp_path / "agent"),
         **kwargs,
     )
 
@@ -120,7 +122,8 @@ def test_upload_success_activates_and_cleans(tmp_path, monkeypatch) -> None:
     _zip(source, {"hello.txt": b"hello"})
     target = tmp_path / "ws" / "demo"
     target.parent.mkdir(parents=True, exist_ok=True)
-    workdir = tmp_path / "work"
+    # 使用真实路由的命名，防止清理逻辑误删当前任务的 staging。
+    workdir = Path(f"{target}.upload-job1")
     job = _job(str(target))
     context = AgentContext(
         workspace=str(target), workspace_id="wid", user="alice"

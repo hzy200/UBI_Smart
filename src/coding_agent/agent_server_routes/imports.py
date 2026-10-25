@@ -594,7 +594,6 @@ async def _run_upload(
     revision: dict[str, Any] | None = None
     try:
         _update(deps, job, status="extracting")
-        _recover_swap(context.workspace)
         limits = ExtractLimits(
             max_files=max_files,
             max_total_bytes=(
@@ -806,6 +805,8 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                     status_code=409,
                     detail="该工作区已有进行中的导入/上传任务",
                 )
+            # 先恢复上次中断的 swap、清理遗留 staging；此时还没有本任务目录。
+            _recover_swap(target)
             job_id = uuid.uuid4().hex[:16]
             workdir = f"{target}.upload-{job_id}"
             job = {
