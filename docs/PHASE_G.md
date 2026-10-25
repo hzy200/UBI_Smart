@@ -111,7 +111,24 @@ Redis Streams，并按 `seq` 重放。这里**刻意不使用 consumer group**�
 阻塞读或专用索引优化扫描量。决策见
 [ADR-0014](adr/0014-event-fanout-not-consumer-group.md)。
 
-## 5. 已知限制
+## 5. MySQL 8.0 实跑结果
+
+在独立测试库 `coding_agent_test`（MySQL 8.0.27）上执行：
+
+```text
+pytest -m mysql：通过（迁移 0004 + store + 备份恢复）
+phase_f_drill --mysql-url：
+  upgrade → 0004_leases_idempotency
+  downgrade → base
+  re-upgrade → 0004
+  备份 15,323 B，恢复后标题回到 before
+setup_control_mysql.py 实跑：
+  应用账号可登录；CREATE TABLE 被拒绝（最小权限生效）
+```
+
+测试结束后已删除临时初始化库/账号与临时凭据文件。
+
+## 6. 已知限制
 
 - 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
   清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。

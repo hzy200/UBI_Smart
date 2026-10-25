@@ -14,11 +14,16 @@ import os
 from pathlib import Path
 
 import pytest
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from coding_agent.control.backup import backup, restore
-from coding_agent.control.migrate import current_revision, upgrade
+from coding_agent.control.migrate import (
+    alembic_config,
+    current_revision,
+    upgrade,
+)
 from coding_agent.control.store import ControlStore
 
 pytestmark = pytest.mark.mysql
@@ -45,13 +50,20 @@ def _reset(url: str) -> None:
         engine.dispose()
 
 
+def _head(url: str) -> str:
+    head = ScriptDirectory.from_config(alembic_config(url)).get_current_head()
+    assert head
+    return str(head)
+
+
 def test_mysql_upgrade_store_backup_restore(tmp_path: Path) -> None:
     url = _url()
     _reset(url)
+    head = _head(url)
     try:
         assert upgrade(url) == {
             "action": "upgrade",
-            "revision": "0001_control_schema",
+            "revision": head,
         }
         store = ControlStore(url, auto_create=False)
         assert store.ping()
@@ -75,6 +87,6 @@ def test_mysql_upgrade_store_backup_restore(tmp_path: Path) -> None:
         rows, _ = store.load_sessions("local")
         assert rows[0]["title"] == "before"
         store.close()
-        assert current_revision(url) == "0001_control_schema"
+        assert current_revision(url) == head
     finally:
         _reset(url)

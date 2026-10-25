@@ -1664,3 +1664,12 @@ criteria:
     status: implemented
     tests: [tests/unit/test_mysql_ddl.py::test_mysql_ddl_contains_all_tables, tests/unit/test_mysql_ddl.py::test_mysql_ddl_has_incremental_columns]
     see: docs/PHASE_G.md
+
+  - id: REQ-186
+    title: MySQL 8.0 迁移/回滚/备份恢复实跑
+    given: 独立 MySQL 测试库（库名含 test）
+    when: 运行 pytest -m mysql 与 phase_f_drill --mysql-url
+    then: 迁移到 head、downgrade、re-upgrade、备份恢复全部成功
+    status: implemented
+    tests: [tests/integration/test_control_mysql.py::test_mysql_upgrade_store_backup_restore, tests/unit/test_phase_f_drill.py::test_sqlite_drill_upgrade_downgrade_backup_restore]
+    see: docs/PHASE_G.md
