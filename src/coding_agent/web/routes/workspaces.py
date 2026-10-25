@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -483,6 +486,7 @@ def register_workspace_registry_routes(
         ] = "",
     ) -> dict:
         deps.rate_limit(user)
+        tmp_dir = ""
         try:
             store = _require_store(deps)
             row = _owned(deps, user, workspace_id)
@@ -503,22 +507,34 @@ def register_workspace_registry_routes(
                     status_code=409,
                     detail=f"当前状态不可上传：{row.get('status')}",
                 )
-            data = await archive.read()
+            tmp_dir = tempfile.mkdtemp(prefix="workspace-upload-")
+            filename = os.path.basename(
+                archive.filename or "upload.bin"
+            )
+            tmp_path = os.path.join(tmp_dir, filename)
             limit = int(
                 deps.settings.workspace_upload_max_bytes or 0
             )
-            if limit and len(data) > limit:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"上传超过上限 {limit} 字节",
-                )
+            total = 0
+            with open(tmp_path, "wb") as output:
+                while True:
+                    chunk = await archive.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if limit and total > limit:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"上传超过上限 {limit} 字节",
+                        )
+                    output.write(chunk)
             if row.get("status") == "failed":
                 store.set_status(workspace_id, "provisioning")
             context = _workspace_context(user, row)
             result = await deps.agent_client.workspace_upload_start(
                 context,
-                filename=archive.filename or "upload.bin",
-                data=data,
+                file_path=tmp_path,
+                filename=filename,
                 content_type=(
                     archive.content_type
                     or "application/octet-stream"
@@ -540,6 +556,9 @@ def register_workspace_registry_routes(
                     f"{type(exc).__name__}: {exc}"
                 ),
             ) from exc
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
         _idem_finish(deps, idempotency_key, result)
         return result
 

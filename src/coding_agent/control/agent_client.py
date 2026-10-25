@@ -134,8 +134,8 @@ class AgentClient(Protocol):
         self,
         context: AgentContext,
         *,
+        file_path: str,
         filename: str,
-        data: bytes,
         content_type: str = "application/octet-stream",
         quota_bytes: int = 0,
         max_files: int = 200_000,
@@ -435,33 +435,38 @@ class HttpAgentClient:
         self,
         context: AgentContext,
         *,
+        file_path: str,
         filename: str,
-        data: bytes,
         content_type: str = "application/octet-stream",
         quota_bytes: int = 0,
         max_files: int = 200_000,
         max_bytes: int = 0,
     ) -> dict:
-        return await self._json(
-            "POST",
-            "/v1/workspaces/uploads",
-            context,
-            data={
-                "quota_bytes": str(max(0, int(quota_bytes))),
-                "max_files": str(max(1, int(max_files))),
-                "max_bytes": str(max(0, int(max_bytes))),
-            },
-            files=[
-                (
-                    "archive",
+        # 从磁盘流式发送，避免 A2 把整包读进内存。
+        with open(file_path, "rb") as handle:
+            return await self._json(
+                "POST",
+                "/v1/workspaces/uploads",
+                context,
+                data={
+                    "quota_bytes": str(max(0, int(quota_bytes))),
+                    "max_files": str(max(1, int(max_files))),
+                    "max_bytes": str(max(0, int(max_bytes))),
+                },
+                files=[
                     (
-                        str(filename or "upload.bin"),
-                        data,
-                        str(content_type or "application/octet-stream"),
-                    ),
-                )
-            ],
-        )
+                        "archive",
+                        (
+                            str(filename or "upload.bin"),
+                            handle,
+                            str(
+                                content_type
+                                or "application/octet-stream"
+                            ),
+                        ),
+                    )
+                ],
+            )
 
     async def workspace_upload_status(
         self, context: AgentContext, job_id: str

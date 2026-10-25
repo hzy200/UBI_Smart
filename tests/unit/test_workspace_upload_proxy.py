@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -25,8 +27,19 @@ class _Agent:
         self.deleted: list[str] = []
         self.cancelled: list[str] = []
 
-    async def workspace_upload_start(self, context, **kwargs):
-        self.upload_started = (context, kwargs)
+    async def workspace_upload_start(
+        self, context, *, file_path, filename, **kwargs
+    ):
+        data = Path(file_path).read_bytes()
+        self.upload_started = (
+            context,
+            {
+                "filename": filename,
+                "file_path": file_path,
+                "data": data,
+                **kwargs,
+            },
+        )
         return {
             "job_id": "u1",
             "workspace_id": context.workspace_id,
@@ -139,6 +152,9 @@ def test_upload_forwards_file(tmp_path) -> None:
     _context, kwargs = agent.upload_started
     assert kwargs["filename"] == "proj.zip"
     assert kwargs["data"] == b"PK\x03\x04data"
+    # 传给 A3 的是临时文件路径；请求结束后已清理。
+    assert kwargs["file_path"]
+    assert not Path(kwargs["file_path"]).exists()
 
 
 def test_upload_size_limit_is_413(tmp_path) -> None:
