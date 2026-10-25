@@ -98,6 +98,11 @@ def main(argv: list[str] | None = None) -> int:
         help="可选：第二次导入的源目录，用于验证 active 工作区追加 revision",
     )
     parser.add_argument("--agent-port", type=int, default=8890)
+    parser.add_argument(
+        "--real-model",
+        action="store_true",
+        help="使用 .env 中的 DeepSeek key 跑一次极简真实运行",
+    )
     args = parser.parse_args(argv)
 
     source = Path(args.source)
@@ -134,11 +139,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     steps: dict = {"source": wsl_source, "agent_port": server.port}
     try:
+        env_settings = Settings()
+        api_key = (
+            env_settings.deepseek_api_key
+            if args.real_model
+            else "sk-e2e-not-real"
+        )
+        if args.real_model and not api_key:
+            raise RuntimeError(".env 中没有 DEEPSEEK_API_KEY")
         settings = Settings(
             _env_file=None,
             audit_dir=str(work / "audit"),
             checkpoint_path=str(work / "checkpoints.sqlite"),
-            deepseek_api_key="sk-e2e-not-real",
+            deepseek_api_key=api_key,
             wsl_distro=args.distro,
             wsl_workspace=args.wsl_workspace,
             web_data_root=str(work / "web"),
@@ -327,6 +340,63 @@ def main(argv: list[str] | None = None) -> int:
                 headers=headers,
             ).json()["revisions"]
             steps["revisions_after_restore"] = len(after_restore)
+
+            if args.real_model:
+                run_session = http.post(
+                    "/api/sessions",
+                    json={
+                        "thread_id": "e2e-run",
+                        "workspace_id": workspace_id,
+                        "access_mode": "read_only",
+                    },
+                    headers=headers,
+                )
+                if run_session.status_code >= 400:
+                    raise RuntimeError(run_session.text)
+                seen: list[str] = []
+                failed = ""
+                with http.stream(
+                    "POST",
+                    "/api/run",
+                    json={
+                        "thread_id": "e2e-run",
+                        "prompt": (
+                            "只回复 OK，不要调用任何工具，"
+                            "也不要读取任何文件。"
+                        ),
+                    },
+                    headers=headers,
+                ) as response:
+                    if response.status_code >= 400:
+                        raise RuntimeError(response.text)
+                    for line in response.iter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            payload = json.loads(line[5:].strip())
+                        except ValueError:
+                            continue
+                        kind = str(payload.get("type") or "")
+                        if kind:
+                            seen.append(kind)
+                        if kind == "run_failed":
+                            failed = str(payload)
+                        if kind == "approval_requested":
+                            failed = "unexpected approval_requested"
+                        if kind in {
+                            "run_finished",
+                            "run_failed",
+                            "approval_requested",
+                        }:
+                            break
+                steps["real_model"] = {
+                    "events": seen[-12:],
+                    "ok": bool(seen and seen[-1] == "run_finished"),
+                }
+                if failed or not steps["real_model"]["ok"]:
+                    raise RuntimeError(
+                        f"真实模型运行失败：{failed or seen[-5:]}"
+                    )
 
         steps["ok"] = True
     except Exception as exc:  # noqa: BLE001 - 脚本边界

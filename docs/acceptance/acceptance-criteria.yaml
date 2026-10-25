@@ -1579,3 +1579,12 @@ criteria:
     status: implemented
     tests: [tests/unit/test_agent_server_recovery.py::test_recovery_counts_pending_approvals]
     see: docs/PHASE_G.md
+
+  - id: REQ-177
+    title: 真实模型基础运行验收
+    given: .env 中存在 DeepSeek key
+    when: 运行 phase_g_e2e.py --real-model
+    then: A2 将 key 短期注入 A3，完成一次真实运行并收到 run_finished
+    status: implemented
+    tests: [tests/unit/test_phase_g_e2e.py::test_help]
+    see: docs/PHASE_G.md
