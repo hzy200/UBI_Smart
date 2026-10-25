@@ -738,6 +738,8 @@ def _result_metrics(result: Any) -> dict[str, Any]:
         "cache_hit_tokens": result.cache_hit_tokens,
         "cache_miss_tokens": result.cache_miss_tokens,
         "budget": result.budget,
+        "token_budget": result.token_budget,
+        "budget_exceeded": result.budget_exceeded,
         "context_profile": result.context_profile,
     }
 

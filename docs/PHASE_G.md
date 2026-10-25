@@ -230,7 +230,24 @@ AGENT_SYSTEM_E2E=1 AGENT_WSL_DISTRO=CodingAgent make system-e2e
 测试会从子进程环境剔除 localhost 代理变量（WSL NAT 模式不支持），
 否则 A3 无法在 WSL 内启动。
 
-## 9. 已知限制
+## 9. 审计日志修复
+
+历史审计文件里可能留有被中断写入的片段（例如 `_ms":362,...`）。它们会让
+`verify_audit_files` 在解析阶段失败。修复工具默认 dry-run，`--write` 时把
+坏行原样追加到 `<file>.corrupt`，再原子重写原文件；合法记录不动：
+
+```bash
+# 看坏行，不修改
+python scripts/repair_audit.py --dir <审计目录>
+
+# 隔离坏行并重写；修复后会重新跑 verify_audit_files
+python scripts/repair_audit.py --dir <审计目录> --write
+```
+
+2026-10-25 在评测审计目录上实跑：2026-10-20 / 2026-10-21 共 4 行坏片段
+被隔离，修复后哈希链完整（10,490 条带 hash 的记录）。
+
+## 10. 已知限制
 
 - 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
   清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。

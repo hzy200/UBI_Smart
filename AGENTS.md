@@ -29,6 +29,7 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 | 只跑沙箱层 | `pytest -m wsl` |
 | 冒烟 / 回归 / 增量 | `make smoke` · `make regression` · `python scripts/select_tests.py --exec` |
 | 智能体级 E2E（真实 WSL + 模型，消耗额度） | `make agent-e2e` |
+| 审计坏行修复（默认 dry-run） | `python scripts/repair_audit.py --dir <审计目录>` |
 | 系统级 E2E（A2/A3/A4 全链路，需专用发行版与密钥） | `make system-e2e` |
 | 执行后端契约 | `pytest -m execution -q` |
 | MySQL 控制面契约（独立 test 库） | `AGENT_TEST_MYSQL_URL=... pytest -m mysql` |

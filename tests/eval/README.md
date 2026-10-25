@@ -462,6 +462,17 @@ baseline 记录 `approvals` / `approvals_approved`。
 `--repeat k` 时这些字段按轮求和；`worker_parallelism` 由合并后的秒数重算，
 不是把每轮的比率再平均。
 
+### 预算护栏
+
+- **时间硬护栏**：`EvalTask.agent_timeout`，超时后中止运行但仍照常判定；
+- **token 软护栏**：`EvalTask.token_budget`（默认按档位：
+  basic 250k、deep 400k、long 1.8M）。运行结束后比较
+  `主 agent input + worker input`，超限把该 case 判失败，并在
+  `detail` 写明超限值；
+- 软护栏**不能中途停止消耗**；硬中止仍然只有 `agent_timeout`；
+- baseline 逐任务记录 `token_budget` / `budget_exceeded`，汇总里有
+  `tasks_budget_exceeded`。
+
 `RunFinished` / `RunFailed` 也直接携带 `worker_input_tokens` /
 `worker_output_tokens`（主 agent token 仍单独记），TUI 会显示这一行。
 

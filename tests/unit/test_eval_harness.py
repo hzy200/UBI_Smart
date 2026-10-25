@@ -35,6 +35,8 @@ from harness import (  # noqa: E402
     SINGLE_FILE,
     SPEC,
     TIERS,
+    TOKEN_BUDGET_BY_TIER,
+    EvalTask,
     TaskResult,
     aggregate_runs,
     clean_workspace,
@@ -46,6 +48,7 @@ from harness import (  # noqa: E402
     merge_mechanisms,
     noise_summary,
     summarize,
+    token_budget_for,
 )
 from repogen import (  # noqa: E402
     RepoSpec,
@@ -436,6 +439,33 @@ def test_aggregate_runs_keeps_the_worst_context_profile() -> None:
     merged = aggregate_runs([small, large])
 
     assert merged["tasks"][0]["context_profile"]["repo_map_chars"] == 99
+
+
+def _budget_task(tier: str = BASIC, **kwargs) -> EvalTask:
+    return EvalTask(
+        id=f"budget-{tier}",
+        category=DEBUG,
+        tier=tier,
+        prompt="p",
+        sources={"a.py": "x = 1\n"},
+        tests={"test_a.py": "import unittest\n"},
+        **kwargs,
+    )
+
+
+def test_token_budget_defaults_and_override() -> None:
+    assert token_budget_for(_budget_task(BASIC)) == TOKEN_BUDGET_BY_TIER[BASIC]
+    assert token_budget_for(_budget_task(DEEP)) == TOKEN_BUDGET_BY_TIER[DEEP]
+    assert token_budget_for(_budget_task(LONG)) == TOKEN_BUDGET_BY_TIER[LONG]
+    assert token_budget_for(_budget_task(BASIC, token_budget=123)) == 123
+
+
+def test_budget_exceeded_is_reported() -> None:
+    summary = mechanism_summary([
+        _result("a", budget_exceeded=True),
+        _result("b"),
+    ])
+    assert summary["tasks_budget_exceeded"] == 1
 
 
 def test_harness_approvals_are_reported() -> None:

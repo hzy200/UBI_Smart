@@ -129,6 +129,10 @@ python tests/eval/runner.py --suite hard --repeat 2
 
 `--repeat 2` 会报告 `spread` 与 `flipped`；单次通过率不能作为能力变化的证据。
 
+每个 case 有 token 软护栏：`EvalTask.token_budget` 默认按档位
+（basic 250k / deep 400k / long 1.8M），超过后该 case 判失败；
+`agent_timeout` 仍是硬墙钟。软护栏不会中途停止消耗。
+
 `real` 套件（5 个完整标准库模块回归）用于测试“在几万行真实代码里定位回归”：
 
 ```bash

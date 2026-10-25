@@ -149,6 +149,15 @@ TIER_LABELS = {
     LONG: "长程",
 }
 
+# 每个 case 的默认 token 上限（主 agent + worker 的 input 之和）。
+# 取值依据：现存任务里 BASIC/DEEP 通常 <200k，long 最大约 1.4M；
+# 留出约 2x 余量，只拦“失控”而不是正常的长任务。可用 EvalTask.token_budget 覆盖。
+TOKEN_BUDGET_BY_TIER = {
+    BASIC: 250_000,
+    DEEP: 400_000,
+    LONG: 1_800_000,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class EvalTask:
@@ -175,6 +184,10 @@ class EvalTask:
     # `runner` 是**串行**跑任务的 —— 一个挂死的任务会把整轮评测钉住。
     # 超时后仍然照常判定（那正是"有没有做完"的答案），只是把原因写进 detail。
     agent_timeout: int = 600
+    # 本任务的 token 预算（主 agent + worker 的 input 之和）；0 = 用档位默认。
+    # 这是**软护栏**：运行结束后检查，超限把该 case 判失败；硬中止仍是
+    # `agent_timeout`。tier 默认见 `TOKEN_BUDGET_BY_TIER`。
+    token_budget: int = 0
     # 本任务覆盖的 agent 预算。**只给长程任务用**：改全局默认会让现有 29 个
     # 任务的基线作废（行为会变），而它们的可比性正是 per-task 覆盖要保的东西。
     # 键名与 `Settings` 字段一致（max_plan_steps / max_tool_rounds …）。
@@ -187,6 +200,11 @@ class EvalTask:
     @property
     def judge_files(self) -> dict[str, str]:
         return {**self.tests, **self.hidden_tests}
+
+
+def token_budget_for(task: EvalTask) -> int:
+    """本任务的 token 预算；显式值优先，否则按档位默认。"""
+    return task.token_budget or TOKEN_BUDGET_BY_TIER.get(task.tier, 0)
 
 
 @dataclass(slots=True)
@@ -275,6 +293,9 @@ class TaskResult:
     # 必须进 baseline：不然"这个任务为什么用了 40 次工具调用"无从解释，
     # 也无法判断它到底是被预算卡住还是自己停下的。
     budget: dict[str, int] | None = None
+    # token 软护栏：超限的 case 判失败，并在这里留下预算与超限标记。
+    token_budget: int = 0
+    budget_exceeded: bool = False
 
     @property
     def solved(self) -> bool:
@@ -477,6 +498,7 @@ async def run_task(
 
     context_profile: dict[str, Any] = {}
     approval_state = {"requests": 0, "approved": 0}
+    token_budget = token_budget_for(task)
     thread_id = f"eval-{task.id}"
     tool_calls = 0
     writes = 0
@@ -628,6 +650,12 @@ async def run_task(
             context_profile = {}
         await runtime.aclose()
     agent_seconds = time.perf_counter() - started
+    total_input_tokens = (input_tokens or 0) + (worker_input_tokens or 0)
+    budget_exceeded = bool(
+        token_budget
+        and input_tokens is not None
+        and total_input_tokens > token_budget
+    )
 
     try:
         passed, detail, judge_seconds = judge(task, sandbox, fs, root)
@@ -672,9 +700,17 @@ async def run_task(
             cache_hit_tokens=cache_hit_tokens,
             cache_miss_tokens=cache_miss_tokens,
             budget=task.budget,
+            token_budget=token_budget,
+            budget_exceeded=budget_exceeded,
             context_profile=context_profile,
         )
 
+    if budget_exceeded:
+        passed = False
+        detail = (
+            f"超出 token 预算：{total_input_tokens} > {token_budget}"
+            f"（主 {input_tokens} + worker {worker_input_tokens}）\n{detail}"
+        )
     if agent_error:
         detail = f"智能体运行失败：{agent_error}\n{detail}"
     return TaskResult(
@@ -719,6 +755,8 @@ async def run_task(
         cache_hit_tokens=cache_hit_tokens,
         cache_miss_tokens=cache_miss_tokens,
         budget=task.budget,
+        token_budget=token_budget,
+        budget_exceeded=budget_exceeded,
         context_profile=context_profile,
     )
 
@@ -835,6 +873,9 @@ def mechanism_summary(results: list[TaskResult]) -> dict:
         "approvals": sum(r.approvals for r in results),
         "approvals_approved": sum(r.approvals_approved for r in results),
         "tasks_with_approvals": sum(1 for r in results if r.approvals),
+        "tasks_budget_exceeded": sum(
+            1 for r in results if r.budget_exceeded
+        ),
         "replans": sum(r.replans for r in results),
         "subagents": sum(r.subagents for r in results),
         "tasks_with_subagents": sum(1 for r in results if r.subagents),
@@ -918,6 +959,7 @@ def merge_mechanisms(runs: list[dict]) -> dict:
         "approvals": 0,
         "approvals_approved": 0,
         "tasks_with_approvals": 0,
+        "tasks_budget_exceeded": 0,
         "replans": 0,
         "tasks_reporting_tokens": 0,
         "subagents": 0,
@@ -1126,6 +1168,8 @@ def summarize(results: list[TaskResult]) -> dict:
                     else None
                 ),
                 "budget": r.budget,
+                "token_budget": r.token_budget,
+                "budget_exceeded": r.budget_exceeded,
                 "context_profile": r.context_profile,
                 "input_tokens": r.input_tokens,
                 "output_tokens": r.output_tokens,
