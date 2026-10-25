@@ -21,6 +21,7 @@ from coding_agent.agent_protocol import (
     AgentContext,
     AgentMeta,
     AgentRunRequest,
+    sign_context,
 )
 
 
@@ -113,6 +114,49 @@ class AgentClient(Protocol):
         thread_id: str,
         files: list[tuple[str, bytes, str]],
     ) -> dict: ...
+    async def workspace_import_start(
+        self,
+        context: AgentContext,
+        *,
+        source_path: str,
+        mode: str = "copy",
+        quota_bytes: int = 0,
+        max_files: int = 200_000,
+        max_bytes: int = 0,
+    ) -> dict: ...
+    async def workspace_import_status(
+        self, context: AgentContext, job_id: str
+    ) -> dict: ...
+    async def workspace_import_cancel(
+        self, context: AgentContext, job_id: str
+    ) -> dict: ...
+    async def workspace_upload_start(
+        self,
+        context: AgentContext,
+        *,
+        filename: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        quota_bytes: int = 0,
+        max_files: int = 200_000,
+        max_bytes: int = 0,
+    ) -> dict: ...
+    async def workspace_upload_status(
+        self, context: AgentContext, job_id: str
+    ) -> dict: ...
+    async def workspace_upload_cancel(
+        self, context: AgentContext, job_id: str
+    ) -> dict: ...
+    async def workspace_rollback(
+        self,
+        context: AgentContext,
+        *,
+        revision_id: str,
+        git_commit: str,
+    ) -> dict: ...
+    async def workspace_archive_delete(
+        self, context: AgentContext, archive_path: str
+    ) -> dict: ...
     async def aclose(self) -> None: ...
 
 
@@ -124,6 +168,7 @@ class HttpAgentClient:
         *,
         timeout: float = 30.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        hmac_key: str = "",
     ) -> None:
         self.base_url = str(base_url or "").rstrip("/")
         self.token = str(token or "")
@@ -133,12 +178,18 @@ class HttpAgentClient:
             raise ValueError("Agent Server 内部 token 为空")
         self.timeout = timeout
         self.transport = transport
+        self.hmac_key = str(hmac_key or "")
 
     def _headers(self, context: AgentContext) -> dict[str, str]:
-        return {
+        header = context.to_header()
+        headers = {
             "Authorization": f"Bearer {self.token}",
-            "X-Agent-Context": context.to_header(),
+            "X-Agent-Context": header,
         }
+        signature = sign_context(header, self.hmac_key)
+        if signature:
+            headers["X-Agent-Signature"] = signature
+        return headers
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -337,6 +388,124 @@ class HttpAgentClient:
             f"/v1/uploads/{quote(thread_id, safe='')}",
             context,
             files=multipart,
+        )
+
+    async def workspace_import_start(
+        self,
+        context: AgentContext,
+        *,
+        source_path: str,
+        mode: str = "copy",
+        quota_bytes: int = 0,
+        max_files: int = 200_000,
+        max_bytes: int = 0,
+    ) -> dict:
+        return await self._json(
+            "POST",
+            "/v1/workspaces/import",
+            context,
+            json={
+                "source_path": str(source_path),
+                "mode": str(mode or "copy"),
+                "quota_bytes": max(0, int(quota_bytes)),
+                "max_files": max(1, int(max_files)),
+                "max_bytes": max(0, int(max_bytes)),
+            },
+        )
+
+    async def workspace_import_status(
+        self, context: AgentContext, job_id: str
+    ) -> dict:
+        return await self._json(
+            "GET",
+            f"/v1/workspaces/import/{quote(str(job_id), safe='')}",
+            context,
+        )
+
+    async def workspace_import_cancel(
+        self, context: AgentContext, job_id: str
+    ) -> dict:
+        return await self._json(
+            "DELETE",
+            f"/v1/workspaces/import/{quote(str(job_id), safe='')}",
+            context,
+        )
+
+    async def workspace_upload_start(
+        self,
+        context: AgentContext,
+        *,
+        filename: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        quota_bytes: int = 0,
+        max_files: int = 200_000,
+        max_bytes: int = 0,
+    ) -> dict:
+        return await self._json(
+            "POST",
+            "/v1/workspaces/uploads",
+            context,
+            data={
+                "quota_bytes": str(max(0, int(quota_bytes))),
+                "max_files": str(max(1, int(max_files))),
+                "max_bytes": str(max(0, int(max_bytes))),
+            },
+            files=[
+                (
+                    "archive",
+                    (
+                        str(filename or "upload.bin"),
+                        data,
+                        str(content_type or "application/octet-stream"),
+                    ),
+                )
+            ],
+        )
+
+    async def workspace_upload_status(
+        self, context: AgentContext, job_id: str
+    ) -> dict:
+        return await self._json(
+            "GET",
+            f"/v1/workspaces/uploads/{quote(str(job_id), safe='')}",
+            context,
+        )
+
+    async def workspace_upload_cancel(
+        self, context: AgentContext, job_id: str
+    ) -> dict:
+        return await self._json(
+            "DELETE",
+            f"/v1/workspaces/uploads/{quote(str(job_id), safe='')}",
+            context,
+        )
+
+    async def workspace_rollback(
+        self,
+        context: AgentContext,
+        *,
+        revision_id: str,
+        git_commit: str,
+    ) -> dict:
+        return await self._json(
+            "POST",
+            "/v1/workspaces/rollback",
+            context,
+            json={
+                "revision_id": str(revision_id),
+                "git_commit": str(git_commit),
+            },
+        )
+
+    async def workspace_archive_delete(
+        self, context: AgentContext, archive_path: str
+    ) -> dict:
+        return await self._json(
+            "DELETE",
+            "/v1/workspaces/revisions/archive",
+            context,
+            json={"archive_path": str(archive_path)},
         )
 
     async def aclose(self) -> None:

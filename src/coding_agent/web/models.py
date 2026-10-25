@@ -39,6 +39,8 @@ class SessionRequest(BaseModel):
     """
 
     thread_id: str = Field(default="", max_length=64)
+    # RFC-0001：注册表开启时必须用 workspace_id；关闭时仍接受裸路径。
+    workspace_id: str = Field(default="", max_length=36)
     workspace: str = Field(default="", max_length=4096)
     access_mode: Literal["read_only", "write_ask", "write_auto"] = "read_only"
     model: str = Field(default="", max_length=200)
@@ -58,6 +60,8 @@ class RenameRequest(BaseModel):
 class SessionConfig:
     thread_id: str
     workspace: str
+    # 注册表开启时绑定；关闭时为空，保持旧语义。
+    workspace_id: str = ""
     access_mode: str = ACCESS_READ_ONLY
     model: str = ""
     provider: str = ""

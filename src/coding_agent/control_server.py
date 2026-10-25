@@ -29,6 +29,7 @@ def _handshake(settings: Any) -> tuple[Any | None, dict[str, Any]]:
         settings.agent_internal_url,
         settings.agent_internal_token,
         timeout=5.0,
+        hmac_key=getattr(settings, "agent_internal_hmac_key", ""),
     )
     try:
         meta = asyncio.run(client.probe())

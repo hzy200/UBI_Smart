@@ -55,6 +55,7 @@ def register_compact_routes(app: FastAPI, deps: CompactDeps) -> None:
                             if config
                             else tenant.workspace
                         ),
+                        workspace_id=config.workspace_id if config else "",
                         access_mode=deps.effective_access(config),
                         model=config.model if config else "",
                         provider=config.provider if config else "",
@@ -84,6 +85,7 @@ def register_compact_routes(app: FastAPI, deps: CompactDeps) -> None:
             SessionConfig(
                 thread_id=target_public,
                 workspace=config.workspace if config else tenant.workspace,
+                workspace_id=config.workspace_id if config else "",
                 access_mode=deps.effective_access(config),
                 model=config.model if config else "",
                 provider=config.provider if config else "",

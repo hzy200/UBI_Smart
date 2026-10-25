@@ -186,6 +186,24 @@ class ProviderService:
         }
 
 
+_TERMINAL_MARKERS = (
+    b'"type": "run_finished"',
+    b'"type": "run_failed"',
+    b'"type": "approval_requested"',
+    b'"type":"run_finished"',
+    b'"type":"run_failed"',
+    b'"type":"approval_requested"',
+)
+
+
+def _terminal_marker(buffer: bytes) -> bool:
+    if any(marker in buffer for marker in _TERMINAL_MARKERS):
+        return True
+    if b"steering_applied" in buffer and b'"pause"' in buffer:
+        return True
+    return False
+
+
 class AgentGateway:
     def __init__(
         self,
@@ -239,6 +257,7 @@ class AgentGateway:
             workspace=(
                 config.workspace if config else tenant.workspace
             ),
+            workspace_id=config.workspace_id if config else "",
             access_mode=self.effective_access(config),
             model=config.model if config else "",
             provider=config.provider if config else "",
@@ -257,11 +276,26 @@ class AgentGateway:
         )
 
     async def proxy(
-        self, stream: Any, *, public_thread: str = ""
+        self,
+        stream: Any,
+        *,
+        public_thread: str = "",
+        on_progress: Any | None = None,
+        on_terminal: Any | None = None,
     ) -> StreamingResponse:
         async def body() -> AsyncIterator[bytes]:
+            buffer = b""
+            fired = False
             async for chunk in stream.aiter_bytes():
+                if on_progress is not None:
+                    on_progress()
                 yield chunk
+                if on_terminal is not None and not fired:
+                    buffer = (buffer + chunk)[-4096:]
+                    marker = _terminal_marker(buffer)
+                    if marker:
+                        fired = True
+                        on_terminal()
 
         headers = {
             "Cache-Control": "no-cache",
@@ -391,6 +425,7 @@ class SessionCatalog:
                         workspace=str(
                             row.get("workspace") or tenant.workspace
                         ),
+                        workspace_id=str(row.get("workspace_id") or ""),
                         access_mode=normalize_access_mode(
                             row.get("access_mode")
                         ),
@@ -442,6 +477,7 @@ class SessionCatalog:
                 {
                     "thread_id": config.thread_id,
                     "workspace": config.workspace,
+                    "workspace_id": config.workspace_id,
                     "access_mode": config.access_mode,
                     "model": config.model,
                     "provider": config.provider,

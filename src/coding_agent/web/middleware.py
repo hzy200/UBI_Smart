@@ -67,6 +67,7 @@ class BodySizeLimitMiddleware:
         max_bytes: int,
         upload_max_bytes: int | None = None,
         upload_suffix: str = "/uploads",
+        workspace_upload_max_bytes: int | None = None,
     ) -> None:
         self.app = app
         self.max_bytes = max(1, int(max_bytes or 1))
@@ -74,6 +75,11 @@ class BodySizeLimitMiddleware:
             max(1, int(upload_max_bytes)) if upload_max_bytes else None
         )
         self.upload_suffix = upload_suffix
+        self.workspace_upload_max_bytes = (
+            max(1, int(workspace_upload_max_bytes))
+            if workspace_upload_max_bytes
+            else None
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -85,7 +91,14 @@ class BodySizeLimitMiddleware:
         }
         limit = self.max_bytes
         path = str(scope.get("path") or "")
-        if self.upload_max_bytes and path.endswith(self.upload_suffix):
+        if (
+            self.workspace_upload_max_bytes
+            and "/workspaces/" in path
+            and path.endswith(self.upload_suffix)
+        ):
+            # 项目归档上传走单独的、更大的上限；普通附件仍用 upload_max_bytes。
+            limit = self.workspace_upload_max_bytes
+        elif self.upload_max_bytes and path.endswith(self.upload_suffix):
             limit = self.upload_max_bytes
         raw = headers.get("content-length")
         method = str(scope.get("method") or "").upper()

@@ -43,6 +43,8 @@ class OpsDeps:
     rate_limit: Callable[[AuthUser], None]
     get_entry: Callable[[str, str], Any]
     control_store: Any
+    run_leases: Any | None = None
+    idempotency: Any | None = None
 
 
 def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
@@ -221,6 +223,36 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
         finally:
             await runtime.aclose()
         return {"facts": facts}
+
+    @app.post("/api/ops/leases/{thread_id}/release")
+    async def release_lease(thread_id: str, user: UserDep) -> dict:
+        """强制释放当前用户某个会话的运行租约（崩溃恢复用）。"""
+        deps.rate_limit(user)
+        if deps.run_leases is None:
+            raise HTTPException(
+                status_code=404, detail="运行租约未启用"
+            )
+        public_thread = check_thread_id(thread_id)
+        released = deps.run_leases.force_release(
+            f"{user.name}:{public_thread}"
+        )
+        return {"released": bool(released)}
+
+    @app.post("/api/ops/maintenance/purge")
+    async def purge_maintenance(user: UserDep) -> dict:
+        """清理过期租约与幂等键。"""
+        deps.rate_limit(user)
+        leases = (
+            deps.run_leases.purge_expired()
+            if deps.run_leases is not None
+            else 0
+        )
+        keys = (
+            deps.idempotency.purge_expired()
+            if deps.idempotency is not None
+            else 0
+        )
+        return {"leases": int(leases), "idempotency": int(keys)}
 
     @app.get("/api/audit")
     async def audit(

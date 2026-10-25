@@ -37,6 +37,9 @@ class SessionDeps:
     reject_db_degraded: Callable[[], None]
     rate_limit: Callable[[AuthUser], None]
     resolve_workspace: Callable[[str, str], str]
+    # RFC-0001：注册表开启时按 workspace_id 绑定；关闭时保留裸路径语义。
+    bind_workspace: Callable[[AuthUser, str], dict[str, Any]]
+    registry_enabled: bool
     validate_provider: Callable[[WebTenant, AuthUser, str], None]
     agent_json: Callable[..., Awaitable[dict[str, Any]]]
     ops_runtime: Callable[[WebTenant, Any], Any]
@@ -53,6 +56,7 @@ def _row(config: Any, tenant: WebTenant, deps: SessionDeps, **extra: Any) -> dic
         "thread_id": config.thread_id,
         "title": config.title or "（未运行）",
         "workspace": config.workspace,
+        "workspace_id": config.workspace_id,
         "access_mode": deps.effective_access(config),
         "model": config.model,
         "provider": config.provider,
@@ -101,6 +105,9 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                             if config
                             else item.get("workspace", "")
                         ),
+                        "workspace_id": (
+                            config.workspace_id if config else ""
+                        ),
                         "access_mode": deps.effective_access(config),
                         "model": config.model if config else "",
                         "provider": config.provider if config else "",
@@ -127,6 +134,9 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                         "title": (config.title if config else "") or info.title,
                         "workspace": (
                             config.workspace if config else info.workspace
+                        ),
+                        "workspace_id": (
+                            config.workspace_id if config else ""
                         ),
                         "access_mode": deps.effective_access(config),
                         "model": config.model if config else "",
@@ -191,9 +201,20 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             user, deps.tenant(user), public_thread, create=False
         )
         if existing is not None:
+            if (
+                deps.registry_enabled
+                and request.workspace_id
+                and existing.workspace_id
+                and request.workspace_id != existing.workspace_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="会话已绑定其他工作区，不能改绑",
+                )
             return {
                 "thread_id": public_thread,
                 "workspace": existing.workspace,
+                "workspace_id": existing.workspace_id,
                 "access_mode": deps.effective_access(existing),
                 "model": existing.model,
                 "provider": existing.provider,
@@ -201,10 +222,25 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             }
 
         tenant = deps.tenant(user)
-        try:
-            workspace = deps.resolve_workspace(user.name, request.workspace)
-        except (TenantError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        workspace_id = ""
+        if request.workspace_id and deps.registry_enabled:
+            row = deps.bind_workspace(user, request.workspace_id)
+            workspace = str(row["root_path"])
+            workspace_id = str(row["workspace_id"])
+        elif deps.registry_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="已启用工作区注册表，请使用 workspace_id 创建会话",
+            )
+        else:
+            try:
+                workspace = deps.resolve_workspace(
+                    user.name, request.workspace
+                )
+            except (TenantError, ValueError, OSError) as exc:
+                raise HTTPException(
+                    status_code=400, detail=str(exc)
+                ) from exc
         access_mode = (
             normalize_access_mode(request.access_mode) or ACCESS_READ_ONLY
         )
@@ -217,14 +253,17 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         config = SessionConfig(
             thread_id=public_thread,
             workspace=workspace,
+            workspace_id=workspace_id,
             access_mode=access_mode,
             model=request.model,
             provider=request.provider,
         )
         deps.set_config(user, tenant, config)
+        deps.persist_configs(user, tenant)
         return {
             "thread_id": public_thread,
             "workspace": workspace,
+            "workspace_id": workspace_id,
             "access_mode": access_mode,
             "model": config.model,
             "provider": config.provider,

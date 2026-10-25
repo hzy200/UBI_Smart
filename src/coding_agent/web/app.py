@@ -15,8 +15,9 @@ import json
 import logging
 import threading
 import time
+import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,10 @@ from coding_agent.web.routes.uploads import (
 from coding_agent.web.routes.workspace import (
     WorkspaceDeps,
     register_workspace_routes,
+)
+from coding_agent.web.routes.workspaces import (
+    WorkspaceRegistryDeps,
+    register_workspace_registry_routes,
 )
 from coding_agent.web.services import (
     AgentGateway,
@@ -150,6 +155,15 @@ def create_app(
     agent_client: Any | None = None,
 ) -> FastAPI:
     settings = apply_security_profile(settings or get_settings())
+    if (
+        desktop_mode
+        and settings.workspace_registry
+        and not str(settings.workspace_mount_roots or "").strip()
+    ):
+        # 桌面默认只允许从 Windows 盘（/mnt）导入；企业必须显式配置根。
+        settings = settings.model_copy(
+            update={"workspace_mount_roots": "/mnt/"}
+        )
     # provider 档案是叠加在环境配置之上的；保留环境基线用于删除档案后回退。
     base_llm_providers = str(settings.llm_providers or "")
     auth = auth or AuthConfig.from_settings(settings)
@@ -189,6 +203,47 @@ def create_app(
                 "控制面数据库不可用，进入只读降级：%s", exc
             )
 
+    # M4：运行租约与幂等键只在控制面数据库可用时装配。
+    run_leases = None
+    idempotency = None
+    app_instance_id = uuid.uuid4().hex[:12]
+    if control_store is not None:
+        from coding_agent.control.idempotency import IdempotencyStore
+        from coding_agent.control.leases import RunLeaseStore
+
+        run_leases = RunLeaseStore(control_store.engine)
+        idempotency = IdempotencyStore(control_store.engine)
+
+    # RFC-0001：注册表只在启用且数据库可用时装配；否则路由返回 404/503。
+    workspace_store = None
+    if settings.workspace_registry:
+        if control_store is None:
+            _LOG.warning(
+                "工作区注册表已启用，但控制面数据库不可用；注册表不可用"
+            )
+        else:
+            from coding_agent.control.workspaces import (
+                WorkspacePolicy,
+                WorkspaceStore,
+            )
+
+            policy = WorkspacePolicy.from_settings(settings)
+            if not policy.root:
+                try:
+                    policy = replace(
+                        policy, root=tenants.workspaces_root
+                    )
+                except Exception as exc:  # noqa: BLE001 - 无 WSL 时降级
+                    _LOG.warning("无法解析默认工作区根：%s", exc)
+            if policy.root:
+                workspace_store = WorkspaceStore(
+                    control_store.engine, policy
+                )
+            else:
+                _LOG.warning(
+                    "工作区注册表已启用，但 AGENT_WORKSPACE_ROOT 为空"
+                )
+
     def _mark_db_degraded(exc: Exception) -> None:
         app.state.control_db_status = {
             "state": "degraded",
@@ -225,6 +280,7 @@ def create_app(
         agent_client = HttpAgentClient(
             settings.agent_internal_url,
             settings.agent_internal_token,
+            hmac_key=settings.agent_internal_hmac_key,
         )
 
     providers = ProviderService(
@@ -544,6 +600,14 @@ def create_app(
             "can_steer": True,
             "multi_user": is_multi_user,
             "server_write_enabled": allow_write,
+            "workspace_registry": bool(
+                settings.workspace_registry
+                and workspace_store is not None
+            ),
+            "workspace_upload_max_bytes": int(
+                settings.workspace_upload_max_bytes
+            ),
+            "desktop_mode": desktop_mode,
             "security_profile": settings.security_profile,
             "workspace": config.workspace if config is not None else "",
             "run_cost_budget_usd": float(
@@ -610,6 +674,7 @@ def create_app(
         BodySizeLimitMiddleware,
         max_bytes=settings.web_max_body_bytes,
         upload_max_bytes=settings.web_max_upload_bytes,
+        workspace_upload_max_bytes=settings.workspace_upload_max_bytes,
     )
     app.add_middleware(SecurityHeadersMiddleware, hsts=hsts)
     app.state.auth = auth
@@ -734,6 +799,65 @@ def create_app(
         ),
     )
 
+    async def _flush_audit(
+        user: AuthUser, tenant: WebTenant, config: Any
+    ) -> None:
+        """运行终态后把 A3 审计幂等写入控制面索引。"""
+        if agent_client is None or control_store is None:
+            return
+        try:
+            data = await agent_client.json_request(
+                gateway.context(
+                    user, tenant, config, include_keys=False
+                ),
+                "GET",
+                "/v1/audit",
+                params={"limit": 500},
+            )
+            control_store.index_audit(
+                user.name, list(data.get("records", []))
+            )
+        except Exception:  # noqa: BLE001 - 索引失败不影响运行
+            _LOG.warning("终态审计索引回写失败", exc_info=True)
+
+    def _bind_workspace(
+        user: AuthUser, workspace_id: str
+    ) -> dict[str, Any]:
+        if not settings.workspace_registry:
+            raise HTTPException(
+                status_code=400, detail="工作区注册表未启用"
+            )
+        if workspace_store is None:
+            raise HTTPException(
+                status_code=503,
+                detail="工作区注册表需要可用的控制面数据库",
+            )
+        row = workspace_store.get(workspace_id)
+        if (
+            row is None
+            or row.get("tenant") != user.name
+            or row.get("owner") != user.name
+        ):
+            raise HTTPException(status_code=404, detail="工作区不存在")
+        if row.get("status") != "active":
+            raise HTTPException(
+                status_code=409,
+                detail=f"工作区尚未就绪：{row.get('status')}",
+            )
+        return row
+
+    register_workspace_registry_routes(
+        app,
+        WorkspaceRegistryDeps(
+            rate_limit=_rate_limit,
+            store=workspace_store,
+            enabled=bool(settings.workspace_registry),
+            settings=settings,
+            agent_client=agent_client,
+            idempotency=idempotency,
+        ),
+    )
+
     register_session_routes(
         app,
         SessionDeps(
@@ -752,6 +876,8 @@ def create_app(
             resolve_workspace=lambda name, ws: tenants.resolve_workspace(
                 name, ws
             ),
+            bind_workspace=_bind_workspace,
+            registry_enabled=bool(settings.workspace_registry),
             validate_provider=lambda tenant, user, provider: (
                 providers.validate(
                     tenant.settings, providers.user_store(user), provider
@@ -819,6 +945,8 @@ def create_app(
             rate_limit=_rate_limit,
             get_entry=_get_entry,
             control_store=control_store,
+            run_leases=run_leases,
+            idempotency=idempotency,
         ),
     )
 
@@ -865,6 +993,10 @@ def create_app(
             event_key=_event_key,
             transport_sse=_transport_sse,
             ops_runtime=_ops_runtime,
+            run_leases=run_leases,
+            lease_owner=app_instance_id,
+            lease_ttl_s=int(settings.run_lease_ttl_s or 900),
+            audit_flush=_flush_audit,
         ),
     )
 

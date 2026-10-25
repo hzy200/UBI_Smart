@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
 from coding_agent.agent_protocol import AgentRunRequest
@@ -47,9 +49,100 @@ class RunDeps:
     event_key: Callable[[str, str], str]
     transport_sse: Callable[..., Any]
     ops_runtime: Callable[[WebTenant, Any], Any]
+    # M4：跨 A2/A3 重启的运行租约；None = 未配置控制面数据库。
+    run_leases: Any | None = None
+    lease_owner: str = ""
+    lease_ttl_s: int = 900
+    audit_flush: Callable[..., Awaitable[None]] | None = None
+
+
+def _lease_key(user: AuthUser, public_thread: str) -> str:
+    return f"{user.name}:{public_thread}"
+
+
+def _is_terminal_chunk(chunk: bytes) -> bool:
+    text = chunk.decode("utf-8", errors="replace")
+    return (
+        '"type": "run_finished"' in text
+        or '"type": "run_failed"' in text
+        or '"type": "approval_requested"' in text
+        or '"type":"run_finished"' in text
+        or '"type":"run_failed"' in text
+        or '"type":"approval_requested"' in text
+        or ('"type": "steering_applied"' in text and '"pause"' in text)
+        or ('"type":"steering_applied"' in text and '"pause"' in text)
+    )
 
 
 def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
+    def _acquire_lease(
+        user: AuthUser, public_thread: str, idempotency_key: str
+    ) -> str:
+        if deps.run_leases is None:
+            return ""
+        from coding_agent.control.leases import LeaseHeld
+
+        try:
+            return deps.run_leases.acquire(
+                _lease_key(user, public_thread),
+                deps.lease_owner,
+                ttl_s=deps.lease_ttl_s,
+                lease_id=idempotency_key,
+            )
+        except LeaseHeld as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    def _release_lease(
+        user: AuthUser, public_thread: str, lease_id: str
+    ) -> None:
+        if deps.run_leases is None or not lease_id:
+            return
+        try:
+            deps.run_leases.release(
+                _lease_key(user, public_thread), lease_id
+            )
+        except Exception:  # noqa: BLE001 - 释放失败交给 TTL
+            pass
+
+    def _lease_callbacks(
+        user: AuthUser,
+        public_thread: str,
+        lease_id: str,
+        tenant: WebTenant | None = None,
+        config: Any | None = None,
+    ) -> tuple[Callable[[], None], Callable[[], None]]:
+        last = {"at": 0.0}
+
+        def progress() -> None:
+            if deps.run_leases is None or not lease_id:
+                return
+            now = time.monotonic()
+            if now - last["at"] < 30:
+                return
+            last["at"] = now
+            try:
+                deps.run_leases.renew(
+                    _lease_key(user, public_thread),
+                    lease_id,
+                    ttl_s=deps.lease_ttl_s,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        def terminal() -> None:
+            _release_lease(user, public_thread, lease_id)
+            if (
+                deps.audit_flush is not None
+                and tenant is not None
+            ):
+                try:
+                    asyncio.create_task(
+                        deps.audit_flush(user, tenant, config)
+                    )
+                except RuntimeError:
+                    pass
+
+        return progress, terminal
     @app.get("/api/approvals/{thread_id}")
     async def pending_approvals(
         thread_id: str,
@@ -102,6 +195,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
     async def run(
         request: RunRequest,
         user: UserDep,
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key")
+        ] = "",
     ) -> StreamingResponse:
         deps.rate_limit(user)
         await deps.sweep_expired()
@@ -121,6 +217,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             if not config.title:
                 config.title = " ".join(request.prompt.split())[:120]
                 deps.set_config(user, tenant, config)
+            lease_id = _acquire_lease(
+                user, public_thread, idempotency_key
+            )
             try:
                 stream = await deps.agent_client.open_run(
                     AgentRunRequest(
@@ -132,9 +231,16 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                     )
                 )
             except Exception as exc:  # noqa: BLE001
+                _release_lease(user, public_thread, lease_id)
                 raise deps.agent_failure(exc) from exc
+            progress, terminal = _lease_callbacks(
+                user, public_thread, lease_id, tenant, config
+            )
             return await deps.proxy_agent(
-                stream, public_thread=public_thread
+                stream,
+                public_thread=public_thread,
+                on_progress=progress,
+                on_terminal=terminal,
             )
         key = (user.name, public_thread)
         with deps.registry_lock:
@@ -210,6 +316,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         thread_id: str,
         request: ResumeRequest,
         user: UserDep,
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key")
+        ] = "",
     ) -> StreamingResponse:
         deps.rate_limit(user)
         await deps.sweep_expired()
@@ -220,6 +329,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             config = deps.config_for(
                 user, tenant, public_thread, create=False
             )
+            lease_id = _acquire_lease(
+                user, public_thread, idempotency_key
+            )
             try:
                 stream = await deps.agent_client.open_resume(
                     deps.agent_context(
@@ -229,9 +341,16 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                     request.decisions,
                 )
             except Exception as exc:  # noqa: BLE001
+                _release_lease(user, public_thread, lease_id)
                 raise deps.agent_failure(exc) from exc
+            progress, terminal = _lease_callbacks(
+                user, public_thread, lease_id, tenant, config
+            )
             return await deps.proxy_agent(
-                stream, public_thread=public_thread
+                stream,
+                public_thread=public_thread,
+                on_progress=progress,
+                on_terminal=terminal,
             )
         key = (user.name, public_thread)
         existing = deps.get_entry(user.name, public_thread)
@@ -263,6 +382,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
     async def resume_steering(
         thread_id: str,
         user: UserDep,
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key")
+        ] = "",
     ) -> StreamingResponse:
         deps.rate_limit(user)
         await deps.sweep_expired()
@@ -273,6 +395,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             config = deps.config_for(
                 user, tenant, public_thread, create=False
             )
+            lease_id = _acquire_lease(
+                user, public_thread, idempotency_key
+            )
             try:
                 stream = await deps.agent_client.open_resume_steering(
                     deps.agent_context(
@@ -281,9 +406,16 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                     public_thread,
                 )
             except Exception as exc:  # noqa: BLE001
+                _release_lease(user, public_thread, lease_id)
                 raise deps.agent_failure(exc) from exc
+            progress, terminal = _lease_callbacks(
+                user, public_thread, lease_id, tenant, config
+            )
             return await deps.proxy_agent(
-                stream, public_thread=public_thread
+                stream,
+                public_thread=public_thread,
+                on_progress=progress,
+                on_terminal=terminal,
             )
         key = (user.name, public_thread)
         deps.stream_guard(key)
