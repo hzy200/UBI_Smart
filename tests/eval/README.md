@@ -293,6 +293,12 @@ python tests/eval/runner.py --suite real_advanced --verify-seeds
 python tests/eval/runner.py --suite real_advanced --repeat 2
 ```
 
+最近一次干净工作区 `--repeat 2`（commit `5c971d5`）：
+**5/6（83.3%）、6/6（100%）**，平均 91.7%，**spread 16.7pp**，
+`real/spec/fractions/negative_denominator` 翻转。这是首次出现非零区分度；
+6 个任务样本仍小，确认结论需要 `--repeat 3` 并扩充 spec 任务。
+明细见 [docs/REAL_ADVANCED_REPORT.md](../../docs/REAL_ADVANCED_REPORT.md)。
+
 最近一次干净工作区 `--repeat 2`（commit `f062a78`）：
 **14/14、14/14（100%），spread 0**，两轮 token 约 238 万，缓存命中率 18.9%。
 修正任务定义缺陷后，hard 套件**也已饱和**；上一版 13/14 主要来自
