@@ -295,9 +295,10 @@ python tests/eval/runner.py --suite real_advanced --repeat 3
 ```
 
 最近一次干净工作区 `--repeat 2`（commit `5c971d5`）：
-**9/9、9/9、8/9（平均 96.3%）**，**spread 11.1pp**，
-`real/spec/argparse/allow_abbrev` 在第三轮翻转。这是当前唯一稳定出现
-区分度的轴；9 个任务样本仍小，1 个翻转就是 11.1pp。
+**13/14、13/14（92.9%）**，两轮总数相同，但失败成员不同：
+`fractions/limit_denominator` 与 `shlex/escaped_space` 各翻转一次。
+对这两个任务做 `--repeat 5`：分别 **3/5（60%）**、**4/5（80%）**；
+失败形态都是“1 步、未验证、没有写文件”，属于提前收手。
 明细见 [docs/REAL_ADVANCED_REPORT.md](../../docs/REAL_ADVANCED_REPORT.md)。
 
 最近一次干净工作区 `--repeat 2`（commit `f062a78`）：
