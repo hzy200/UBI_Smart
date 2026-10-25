@@ -9,13 +9,14 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **178** 个配置项。
+共 **193** 个配置项。
 
 ## 通用
 
 | 环境变量 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|---|
 | `AGENT_AGENT_DATA_ROOT` | `agent_data_root` | `str` | `""` | Agent Server 的租户数据根；空 = 审计目录旁的 agent/。 |
+| `AGENT_ALLOW_GIT_CLONE` | `allow_git_clone` | `bool` | `false` | 本期不实现 git clone；保留开关，未来接入内部 Git 服务时打开。 |
 | `AGENT_ALLOW_RULES` | `allow_rules` | `str` | `""` | 持久放行规则，逗号分隔的 `tool:glob`，例如 `shell_exec:git status*,run_tests:*`。只覆盖原本会 ASK 的 L2。 |
 | `AGENT_APPROVAL_MODE` | `approval_mode` | `str` | `"ask"` | ask（逐条询问）\| approve（自动放行 L2；L3 仍需确认）\| deny（一律拒绝） |
 | `AGENT_AUDIT_DIR` | `audit_dir` | `str` | `""` | 留空表示自动用 <当前目录>/.agent/audit |
@@ -62,7 +63,9 @@
 | `AGENT_EXPLORE_MAX_REPORT_CHARS` | `explore_max_report_chars` | `int` | `4000` | 返回给主模型的摘要上限（字符） |
 | `AGENT_EXPLORE_MAX_ROUNDS` | `explore_max_rounds` | `int` | `8` | 子智能体最多几轮「模型 → 工具」；到顶后强制生成报告，状态记 partial。 定位一个跨文件功能通常需要 6–10 轮只读检索；6 轮实测会频繁 partial。 |
 | `AGENT_EXPLORE_TIMEOUT` | `explore_timeout` | `int` | `120` | 整个子智能体的墙钟上限（秒） |
+| `AGENT_IDEMPOTENCY_TTL_S` | `idempotency_ttl_s` | `int` | `600` | 幂等键保留时间。 |
 | `AGENT_INSTRUCTIONS_ENABLED` | `instructions_enabled` | `bool` | `true` | 是否发现并注入仓库内的 AGENTS.md / CLAUDE.md（分层项目指令）。 |
+| `AGENT_INTERNAL_HMAC_KEY` | `agent_internal_hmac_key` | `str` | `""` | 空 = 只依赖内部 Bearer token（兼容旧部署）； 非空 = A2 对 X-Agent-Context 做 HMAC，A3 验签。 |
 | `AGENT_INTERNAL_TOKEN` | `agent_internal_token` | `str` | `""` |  |
 | `AGENT_INTERNAL_URL` | `agent_internal_url` | `str` | `""` | ---------- A2 → A3 内部连接（Phase B4） ---------- 空 = A2 与 Agent 同进程（默认，兼容旧部署）。 |
 | `AGENT_LLM_AIMD_MAX` | `llm_aimd_max` | `int` | `8` |  |
@@ -141,6 +144,7 @@
 | `AGENT_REVIEW_LINT_BLOCKING` | `review_lint_blocking` | `bool` | `true` | 探测到的 linter/formatter 对**本次改动文件**的发现是否阻断。 只把改动文件提升为 blocking：仓库里已有的历史问题不该每一步都卡死。 |
 | `AGENT_RUN_COST_BUDGET_USD` | `run_cost_budget_usd` | `float` | `0.0` | 单次 run 的成本预算（USD）；0 = 不告警 |
 | `AGENT_RUN_DEADLINE_S` | `run_deadline_s` | `int` | `1800` | 一次完整运行（含审批/暂停后的 resume）的总墙钟上限，0 表示不限制。 与 recursion_limit 互补：后者管步数，这里管时间（例如模型长时间卡住）。 |
+| `AGENT_RUN_LEASE_TTL_S` | `run_lease_ttl_s` | `int` | `120` | ---------- 一致性与内部签名（M4） ---------- 会话级运行租约 TTL；A2 崩溃后到期自动释放。 |
 | `AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS` | `sandbox_max_concurrent_commands` | `int` | `8` | 同时启动的 wsl.exe 进程上限。并发 worker 会各自调用沙箱，没有这层 背压时 4 个 worker 的一次工具轮次就能同时拉起十几个 WSL 进程。 |
 | `AGENT_SECRET_PROVIDER` | `secret_provider` | `str` | `"auto"` | auto \| keyring \| systemd；服务器部署用 systemd-creds，Vault/KMS 走同一 Protocol。 |
 | `AGENT_SECURITY_PROFILE` | `security_profile` | `str` | `"local"` | ---------- 安全 profile 与不可信仓库 ---------- local（默认，面向可信仓库）\| untrusted（bwrap + 禁网 + 强制 ask + 不信任仓库指令/记忆）。 |
@@ -177,7 +181,18 @@
 | `AGENT_WEB_RATE_LIMIT_PER_MIN` | `web_rate_limit_per_min` | `int` | `60` |  |
 | `AGENT_WEB_RUNTIME_TTL_S` | `web_runtime_ttl_s` | `int` | `1800` | 挂起 runtime 的空闲保留时间；超时后释放，resume 时从 checkpoint 重建。 |
 | `AGENT_WEB_WORKSPACES_ROOT` | `web_workspaces_root` | `str` | `""` | per-user 工作区根目录；空 = 沙箱 $HOME/agent-ws/users。 |
+| `AGENT_WORKSPACE_ARCHIVE_ROOT` | `workspace_archive_root` | `str` | `""` | revision 归档根；空 = 关闭归档（仍可运行，但不能灾难恢复）。 |
+| `AGENT_WORKSPACE_EXTRACT_MAX_RATIO` | `workspace_extract_max_ratio` | `int` | `200` | 解压比上限：解压后总字节 / 归档字节，防止 zip bomb。 |
+| `AGENT_WORKSPACE_IMPORT_MODE` | `workspace_import_mode` | `str` | `"copy"` | copy = 桌面默认复制到 ext4；mount = 显式降级，需二次确认。 |
 | `AGENT_WORKSPACE_LOCK` | `workspace_lock_enabled` | `bool` | `true` | 同一工作区只允许一个 runtime 运行；锁文件在审计目录下。 |
+| `AGENT_WORKSPACE_MOUNT_ROOTS` | `workspace_mount_roots` | `str` | `""` | 允许的 /mnt 挂载根，逗号分隔；空 = 禁止任何挂载工作区。 |
+| `AGENT_WORKSPACE_REGISTRY` | `workspace_registry` | `bool` | `false` | ---------- 工作区注册表（RFC-0001，默认关闭） ---------- false = 继续使用 control_sessions.workspace 裸路径，行为与旧部署一致。 |
+| `AGENT_WORKSPACE_REVISIONS_KEEP` | `workspace_revisions_keep` | `int` | `10` | 每个工作区保留的 revision 数；超出后清理最旧的非 pinned 归档。 |
+| `AGENT_WORKSPACE_ROOT` | `workspace_root` | `str` | `""` | 工作区根；空 = 沿用租户 workspaces_root（TenantManager）。 必须是 A3/A4 视角的绝对 POSIX 路径。 |
+| `AGENT_WORKSPACE_SCAN_PROVIDER` | `workspace_scan_provider` | `str` | `"none"` | none \| clamav；企业部署应在 M3 设为 clamav 并配合 fail-closed。 |
+| `AGENT_WORKSPACE_SCAN_TIMEOUT_S` | `workspace_scan_timeout_s` | `int` | `300` | ClamAV 单次扫描超时。 |
+| `AGENT_WORKSPACE_UPLOAD_MAX_BYTES` | `workspace_upload_max_bytes` | `int` | `209715200` | 项目归档上传上限（单包、需 Content-Length）；默认 200 MiB。 |
+| `AGENT_WORKSPACE_UPLOAD_MAX_FILES` | `workspace_upload_max_files` | `int` | `200000` | 解包后的文件数上限。 |
 | `AGENT_WRITE_DENY_GLOBS` | `write_deny_globs` | `str` | `""` | 追加的内容级写保护 glob（逗号分隔）；默认规则始终生效。 |
 | `AGENT_WSL_BREAKER_COOLDOWN_S` | `wsl_breaker_cooldown_s` | `float` | `15.0` |  |
 | `AGENT_WSL_BREAKER_FAILURES` | `wsl_breaker_failures` | `int` | `3` |  |

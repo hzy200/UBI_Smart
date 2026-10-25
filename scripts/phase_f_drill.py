@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from alembic import command  # noqa: E402
+from alembic.script import ScriptDirectory  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
 
@@ -35,7 +36,13 @@ from coding_agent.control.migrate import (  # noqa: E402
 from coding_agent.control.schema import Base  # noqa: E402
 from coding_agent.control.store import ControlStore  # noqa: E402
 
-REVISION = "0001_control_schema"
+
+def _head_revision(url: str) -> str:
+    """从迁移脚本读取 head，避免每加一版就改死常量。"""
+    head = ScriptDirectory.from_config(alembic_config(url)).get_current_head()
+    if not head:
+        raise RuntimeError("迁移脚本没有 head revision")
+    return str(head)
 
 
 def _reset_mysql(url: str) -> None:
@@ -51,9 +58,10 @@ def _reset_mysql(url: str) -> None:
 def _drill(url: str, workdir: Path, *, reset=None) -> dict:
     if reset is not None:
         reset(url)
+    expected = _head_revision(url)
     steps: dict = {}
     steps["upgrade"] = upgrade(url)
-    if steps["upgrade"].get("revision") != REVISION:
+    if steps["upgrade"].get("revision") != expected:
         raise RuntimeError(f"迁移 revision 不符：{steps['upgrade']}")
 
     store = ControlStore(url, auto_create=False)
@@ -88,7 +96,7 @@ def _drill(url: str, workdir: Path, *, reset=None) -> dict:
     if steps["restored_title"] != "before":
         raise RuntimeError("恢复后数据不一致")
     steps["revision"] = current_revision(url)
-    if steps["revision"] != REVISION:
+    if steps["revision"] != expected:
         raise RuntimeError(f"恢复后 revision 不符：{steps['revision']}")
     return steps
 

@@ -8,7 +8,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 review_cadence: 需求或测试变动时
 convention:
   id_prefix: REQ
@@ -1064,9 +1064,11 @@ criteria:
     title: 控制面数据库 Alembic 迁移
     given: 新库或 Phase B 用 create_all 建的旧库
     when: 执行 upgrade
-    then: 新库建表并写 revision；旧库只 stamp 基线，不重复建表
+    then: |
+      新库建表并写 revision；Phase B 旧库先 stamp 基线再增量升级；
+      新 create_all 库只补版本标记，不重复建表。
     status: implemented
-    tests: [tests/unit/test_control_migrations.py::test_upgrade_creates_schema_and_is_idempotent, tests/unit/test_control_migrations.py::test_legacy_create_all_is_stamped_without_rebuild]
+    tests: [tests/unit/test_control_migrations.py::test_upgrade_creates_schema_and_is_idempotent, tests/unit/test_control_migrations.py::test_phase_b_baseline_is_upgraded_incrementally, tests/unit/test_control_migrations.py::test_current_create_all_is_only_stamped]
 
   - id: REQ-123
     title: 控制面 MySQL 有界连接池
@@ -1234,3 +1236,297 @@ criteria:
     status: implemented
     tests: [tests/unit/test_host_ops.py::test_unknown_origin_is_rejected, tests/unit/test_host_ops.py::test_unknown_kind_is_rejected, tests/unit/test_host_ops.py::test_kind_must_match_the_command, tests/unit/test_host_ops.py::test_orchestrator_has_no_unmarked_sandbox_execution]
     see: docs/adr/0011-host-side-execution.md
+
+  # ---------------------------------------------------------------- 工作区注册表
+  - id: REQ-142
+    title: 工作区注册表默认关闭，配置名稳定
+    given: 未配置任何 AGENT_WORKSPACE_* 环境变量
+    when: 构造 Settings
+    then: registry 关闭、导入模式 copy、扫描 none、保留 10 个 revision、git clone 关闭
+    status: implemented
+    tests: [tests/unit/test_workspace_config.py::test_workspace_defaults_are_conservative, tests/unit/test_workspace_config.py::test_workspace_alias_names_are_stable]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-143
+    title: 工作区根路径只由 A2 生成且不能越界
+    given: 一个已配置的 workspace_root 与挂载白名单
+    when: 生成或校验工作区根
+    then: |
+      托管来源必须落在 workspace_root 内；挂载来源必须落在显式白名单内；
+      `..`、相对路径、非法 tenant/owner/slug 一律拒绝。
+    status: implemented
+    tests: [tests/unit/test_workspace_paths.py::test_workspace_root_for_builds_tenant_owner_slug, tests/unit/test_workspace_paths.py::test_validate_root_rejects_escape, tests/unit/test_workspace_paths.py::test_validate_root_rejects_mount_outside_allowlist]
+    see: docs/adr/0012-workspace-entity.md
+
+  - id: REQ-144
+    title: 工作区状态机与 revision 切换
+    given: 一个 provisioning 工作区
+    when: 依次激活、归档、删除，并写入两个 revision
+    then: |
+      合法迁移成功，非法迁移拒绝；deleted 是 tombstone；新 active revision
+      会 supersede 上一个；pinned 不参与自动清理。
+    status: implemented
+    tests: [tests/unit/test_workspace_registry.py::test_state_transitions_and_tombstone, tests/unit/test_workspace_registry.py::test_revision_supersedes_previous_active, tests/unit/test_workspace_registry.py::test_revisions_to_prune_keeps_newest_and_skips_pinned]
+    see: docs/adr/0013-workspace-storage.md
+
+  - id: REQ-145
+    title: 旧会话工作区回填幂等
+    given: 旧 control_sessions 行带有裸 workspace 路径
+    when: 重复执行回填扫描
+    then: 只产生一份 legacy 工作区记录，workspace_id 稳定；空路径与非法路径跳过
+    status: implemented
+    tests: [tests/unit/test_workspace_migration.py::test_migration_is_idempotent_after_reset, tests/unit/test_workspace_migration.py::test_dry_run_does_not_write]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-146
+    title: Phase B 旧库增量升级到工作区 schema
+    given: 只有 0001 基线、没有 alembic_version 的旧库
+    when: 执行 upgrade
+    then: 先 stamp 到基线再升级到 head，建出 workspaces 与 workspace_id；新 create_all 库只补版本标记
+    status: implemented
+    tests: [tests/unit/test_control_migrations.py::test_phase_b_baseline_is_upgraded_incrementally, tests/unit/test_control_migrations.py::test_current_create_all_is_only_stamped]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-147
+    title: 工作区注册表路由与租户隔离
+    given: 两个已认证用户
+    when: 一人创建、列出、修改、删除工作区
+    then: 另一人看不到也改不到；关闭注册表时返回 404；数据库缺失时返回 503
+    status: implemented
+    tests: [tests/unit/test_workspace_routes.py::test_create_managed_workspace_is_provisioning, tests/unit/test_workspace_routes.py::test_tenant_isolation, tests/unit/test_workspace_routes.py::test_registry_disabled_returns_404, tests/unit/test_workspace_routes.py::test_registry_without_store_returns_503]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-148
+    title: 会话绑定 workspace_id 且不可改绑
+    given: 注册表开或关两种部署
+    when: 创建会话
+    then: 开启时必须用 workspace_id 并记录 root_path；已有绑定不能改；关闭时保留裸路径语义
+    status: implemented
+    tests: [tests/unit/test_session_workspace_binding.py::test_bind_registered_workspace, tests/unit/test_session_workspace_binding.py::test_binding_is_immutable, tests/unit/test_session_workspace_binding.py::test_registry_requires_workspace_id, tests/unit/test_session_workspace_binding.py::test_registry_off_keeps_legacy_workspace_path]
+    see: docs/adr/0012-workspace-entity.md
+
+  - id: REQ-149
+    title: A3 拒绝允许根之外的工作区
+    given: A3 启用工作区注册表
+    when: A2 转发的工作区路径不在 AGENT_WORKSPACE_ROOT 内
+    then: 返回 403；未配置根返回 400；关闭注册表时保持旧行为
+    status: implemented
+    tests: [tests/unit/test_agent_server_workspace_registry.py::test_registry_accepts_path_inside_allowed_root, tests/unit/test_agent_server_workspace_registry.py::test_registry_rejects_path_outside_allowed_root, tests/unit/test_agent_server_workspace_registry.py::test_registry_requires_configured_root, tests/unit/test_agent_server_workspace_registry.py::test_registry_off_keeps_legacy_behavior]
+    see: docs/adr/0012-workspace-entity.md
+
+  - id: REQ-150
+    title: 旧数据回填脚本默认 dry-run
+    given: 已有旧会话与工作区表
+    when: 运行 migrate_workspaces.py
+    then: 默认只统计不写库；--apply 才回填 workspace_id；重复执行幂等
+    status: implemented
+    tests: [tests/unit/test_workspace_migrate_script.py::test_default_is_dry_run, tests/unit/test_workspace_migrate_script.py::test_apply_writes_workspace_id, tests/unit/test_workspace_migrate_script.py::test_apply_is_idempotent_after_reset]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-151
+    title: 导入源必须落在允许的本地根内
+    given: 配置了 AGENT_WORKSPACE_MOUNT_ROOTS
+    when: 请求导入一个本地目录
+    then: 根外路径 403；未配置根 400；源不能是目标自身或祖先；A2 与 A3 各自校验
+    status: implemented
+    tests: [tests/unit/test_workspace_import_a3.py::test_validate_source_accepts_allowed_root, tests/unit/test_workspace_import_a3.py::test_validate_source_rejects_outside_root, tests/unit/test_workspace_import_a3.py::test_validate_source_rejects_ancestor, tests/unit/test_workspace_import_proxy.py::test_source_outside_roots_is_403, tests/unit/test_workspace_import_proxy.py::test_missing_roots_is_400]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-152
+    title: 导入任务生命周期与状态回写
+    given: 一个 provisioning 工作区
+    when: 启动导入并轮询任务
+    then: |
+      active 时回写 used_bytes/file_count 并把工作区置 active；
+      failed/cancelled 置 failed；失败后允许重试回 provisioning；
+      取消转发到 A3；任务与工作区不匹配时 404。
+    status: implemented
+    tests: [tests/unit/test_workspace_import_proxy.py::test_start_import_forwards_context, tests/unit/test_workspace_import_proxy.py::test_active_status_updates_workspace, tests/unit/test_workspace_import_proxy.py::test_failed_status_marks_workspace_and_allows_retry, tests/unit/test_workspace_import_proxy.py::test_cancel_forwards, tests/unit/test_workspace_import_proxy.py::test_job_from_other_workspace_is_404]
+    see: docs/adr/0013-workspace-storage.md
+
+  - id: REQ-153
+    title: 桌面工作区配置与 env 透传
+    given: 旧 launcher.json 或显式 AGENT_WORKSPACE_* 配置
+    when: 加载配置并启动 WSL A3
+    then: 旧文件可读；新字段可往返；注册表开启时默认根指向 WSL home 的 agent-ws/users
+    status: implemented
+    tests: [tests/unit/test_desktop_supervisor.py::test_launcher_config_roundtrip_workspace_fields, tests/unit/test_desktop_supervisor.py::test_old_launcher_json_is_compatible, tests/unit/test_desktop_supervisor.py::test_agent_env_enables_workspace_defaults, tests/unit/test_desktop_supervisor.py::test_agent_env_passes_explicit_values]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-154
+    title: 项目归档安全解包
+    given: 一个 zip / tar / tar.gz 上传包
+    when: 解包到 staging
+    then: |
+      绝对路径、`..`、符号链接、硬链接、设备、加密 zip 全部拒绝；
+      文件数/单文件/总量/解压比超限拒绝；`.git` 与 `.agent` 不落盘；
+      失败清理 staging。
+    status: implemented
+    tests: [tests/unit/test_workspace_archive.py::test_zip_slip_is_rejected, tests/unit/test_workspace_archive.py::test_zip_symlink_is_rejected, tests/unit/test_workspace_archive.py::test_zip_bomb_ratio_is_rejected, tests/unit/test_workspace_archive.py::test_tar_symlink_is_rejected, tests/unit/test_workspace_archive.py::test_tar_hardlink_is_rejected, tests/unit/test_workspace_archive.py::test_git_and_agent_entries_are_skipped, tests/unit/test_workspace_archive.py::test_failure_cleans_destination]
+    see: docs/adr/0013-workspace-storage.md
+
+  - id: REQ-155
+    title: 扫描 provider 与 fail-closed
+    given: 桌面 none 或企业 clamav
+    when: 上传项目进入扫描阶段
+    then: none 返回 skipped；clamav clean/warn 映射正确；二进制缺失、超时或执行失败抛 ScanUnavailable，上传任务失败
+    status: implemented
+    tests: [tests/unit/test_workspace_scan.py::test_noop_returns_skipped, tests/unit/test_workspace_scan.py::test_clamav_status_mapping, tests/unit/test_workspace_scan.py::test_clamav_missing_binary_is_unavailable, tests/unit/test_workspace_scan.py::test_clamav_timeout_is_unavailable, tests/unit/test_workspace_upload_a3.py::test_upload_scan_unavailable_fails_closed]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-156
+    title: 工作区配额原子更新
+    given: 工作区配置了 quota_bytes
+    when: 上传/回滚写入用量
+    then: 未超限时原子累加；超限抛 WorkspaceQuotaExceeded；quota=0 表示不限；回滚用绝对值回写
+    status: implemented
+    tests: [tests/unit/test_workspace_quota_revision.py::test_add_usage_within_quota, tests/unit/test_workspace_quota_revision.py::test_add_usage_exceeds_quota, tests/unit/test_workspace_quota_revision.py::test_zero_quota_is_unlimited, tests/unit/test_workspace_quota_revision.py::test_set_usage_is_absolute]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-157
+    title: 上传生成 revision 且回滚可保护现场
+    given: 一个 provisioning 工作区与合法归档
+    when: 上传成功或执行回滚
+    then: |
+      提交本地 git revision、归档 tar.gz 并记录 sha256；
+      回滚前自动生成 pre-rollback revision；回滚后目标 revision 置 active；
+      任务失败时工作区不激活且清理 staging。
+    status: implemented
+    tests: [tests/unit/test_workspace_upload_a3.py::test_create_revision_commits_and_archives, tests/unit/test_workspace_upload_a3.py::test_upload_success_activates_and_cleans, tests/unit/test_workspace_upload_proxy.py::test_rollback_records_pre_and_activates_target, tests/unit/test_workspace_quota_revision.py::test_activate_revision_supersedes_others]
+    see: docs/adr/0013-workspace-storage.md
+
+  - id: REQ-158
+    title: revision 保留、pin 与清理
+    given: 工作区有超过保留数的 revision
+    when: 执行 prune 或 pin
+    then: 只清理非 pinned 的最旧归档；DB 行置 pruned；pinned 不参与清理；pruned 不能激活
+    status: implemented
+    tests: [tests/unit/test_workspace_quota_revision.py::test_pinned_revision_is_not_pruned, tests/unit/test_workspace_quota_revision.py::test_pruned_revision_cannot_be_activated, tests/unit/test_workspace_quota_revision.py::test_pin_toggle, tests/unit/test_workspace_upload_proxy.py::test_pin_and_prune]
+    see: docs/adr/0013-workspace-storage.md
+
+  - id: REQ-159
+    title: 工作区上传使用独立请求体上限
+    given: 普通端点、附件上传与项目上传
+    when: 发送超过基础上限的请求
+    then: 只有项目上传路径使用 workspace_upload_max_bytes，其余仍受原上限约束
+    status: implemented
+    tests: [tests/unit/test_web_middleware.py::test_workspace_upload_uses_large_limit, tests/unit/test_web_middleware.py::test_other_upload_uses_attachment_limit, tests/unit/test_web_middleware.py::test_normal_endpoint_uses_base_limit]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-160
+    title: 会话级运行租约
+    given: 已配置控制面数据库
+    when: 同一会话启动 run/resume
+    then: |
+      首个请求取得租约；第二个请求 409；A2 崩溃后租约按 TTL 过期；
+      同 lease_id 可重入；force_release/purge_expired 可用。
+    status: implemented
+    tests: [tests/unit/test_run_leases.py::test_acquire_and_release, tests/unit/test_run_leases.py::test_second_acquire_is_rejected, tests/unit/test_run_leases.py::test_expired_lease_can_be_taken, tests/unit/test_run_leases.py::test_renew_and_force_release]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-161
+    title: JSON 写操作的幂等键
+    given: 请求方携带 Idempotency-Key
+    when: 重复提交工作区创建或导入启动
+    then: 完成后返回同一响应；执行中返回 409；失败释放键；无键不去重
+    status: implemented
+    tests: [tests/unit/test_idempotency.py::test_begin_finish_replays, tests/unit/test_idempotency.py::test_in_flight_is_rejected, tests/unit/test_idempotency.py::test_abort_allows_retry, tests/unit/test_workspace_idempotency.py::test_create_replays_with_same_key, tests/unit/test_workspace_idempotency.py::test_in_flight_key_returns_409]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-162
+    title: A2→A3 context HMAC 签名
+    given: 配置了 AGENT_INTERNAL_HMAC_KEY
+    when: A2 发送 X-Agent-Context
+    then: 同时发送 X-Agent-Signature；A3 验签失败返回 401；未配置 key 时保持旧行为
+    status: implemented
+    tests: [tests/unit/test_internal_hmac.py::test_sign_and_verify, tests/unit/test_internal_hmac.py::test_client_adds_signature_header, tests/unit/test_internal_hmac.py::test_agent_rejects_missing_signature, tests/unit/test_internal_hmac.py::test_agent_rejects_bad_signature, tests/unit/test_internal_hmac.py::test_key_disabled_keeps_backward_compatibility]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-163
+    title: 终态事件触发租约释放
+    given: A2 正在代理 A3 的 SSE
+    when: 收到 run_finished / run_failed / approval_requested / steering pause
+    then: 解析出终态标记并释放租约；非终态 token 不触发
+    status: implemented
+    tests: [tests/unit/test_run_leases.py::test_terminal_marker_detection]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-164
+    title: 前端项目/导入/上传/回滚流程
+    given: 工作区注册表已启用
+    when: 打开设置或侧栏
+    then: |
+      可以列出并选择项目、导入本地文件夹、上传归档、查看扫描状态、
+      查看 revision、回滚、pin 与清理旧归档；未启用时保留旧路径输入。
+    status: implemented
+    tests: [tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow, tests/unit/test_frontend_workspace_ui.py::test_index_contains_registry_section]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-165
+    title: 桌面控制面数据库配置
+    given: launcher.json 配置了 control_db_url
+    when: 启动 A2
+    then: 注入 AGENT_CONTROL_DB_URL；启动命令带 --migrate；空值保持 JSON 回退
+    status: implemented
+    tests: [tests/unit/test_desktop_supervisor.py::test_build_control_command_uses_config_db, tests/unit/test_desktop_supervisor.py::test_start_control_injects_config_db, tests/unit/test_desktop_supervisor.py::test_launcher_config_roundtrip_workspace_fields]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-166
+    title: WSL 加固检查 fail-closed
+    given: 工作区注册表启用或显式要求加固
+    when: 启动 WSL A3
+    then: |
+      非 root、appendWindowsPath=false；不满足时拒绝启动；
+      未要求加固的开发环境只记录警告或跳过检查。
+    status: implemented
+    tests: [tests/unit/test_desktop_hardening.py::test_evaluate_good_configuration, tests/unit/test_desktop_hardening.py::test_evaluate_root_is_problem, tests/unit/test_desktop_hardening.py::test_evaluate_missing_append_path_is_problem, tests/unit/test_desktop_hardening.py::test_check_parses_probe, tests/unit/test_desktop_supervisor.py::test_start_agent_fails_closed_on_hardening]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-167
+    title: 租约运维端点
+    given: 控制面数据库可用
+    when: 调用强制释放或维护清理
+    then: 释放当前用户自己的会话租约；清理过期租约与幂等键并返回计数
+    status: implemented
+    tests: [tests/unit/test_ops_leases.py::test_force_release_uses_user_scoped_key, tests/unit/test_ops_leases.py::test_purge_reports_counts]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-168
+    title: 部署冒烟检查 WSL 环境
+    given: 目标 WSL 发行版
+    when: 运行 phase_g_smoke.py
+    then: 检查发行版、加固配置、python/git/tar/bwrap 与 ext4 工作区；不调用模型
+    status: implemented
+    tests: [tests/unit/test_phase_g_smoke.py::test_help]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-169
+    title: 本地导入也生成 revision
+    given: 本地目录导入成功
+    when: A2 轮询到 active
+    then: 记录 git commit、归档与 sha256；写入 revision 与用量
+    status: implemented
+    tests: [tests/unit/test_workspace_import_proxy.py::test_active_status_records_import_revision]
+    see: docs/adr/0013-workspace-storage.md
+
+  - id: REQ-170
+    title: 专用发行版工作区端到端验收
+    given: 已导入 CodingAgent 发行版并安装当前代码
+    when: 运行 phase_g_e2e.py
+    then: |
+      创建 ext4 工作区 → 从 /mnt 导入 → git revision + 归档
+      → 会话绑定 → 回滚并生成 pre-rollback revision；不调用模型
+    status: implemented
+    tests: [tests/unit/test_phase_g_e2e.py::test_help]
+    see: docs/rfc/0001-workspace-registry.md
+
+  - id: REQ-171
+    title: active 工作区追加 revision
+    given: 工作区已 active
+    when: 再次导入或上传新版本
+    then: |
+      保留现有 .git 历史，新内容在 staging 提交并归档，
+      原子替换目标；失败保留旧版本；新 revision 替代旧 active。
+    status: implemented
+    tests: [tests/unit/test_workspace_upload_a3.py::test_activate_replace_swaps_existing_workspace, tests/unit/test_workspace_upload_a3.py::test_attach_git_history_preserves_config, tests/unit/test_workspace_upload_a3.py::test_recover_swap_restores_backup, tests/unit/test_workspace_import_proxy.py::test_active_workspace_can_import_again, tests/unit/test_workspace_import_proxy.py::test_active_import_failure_keeps_old_version, tests/unit/test_workspace_upload_proxy.py::test_active_workspace_can_upload_again]
+    see: docs/PHASE_G.md

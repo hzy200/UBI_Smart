@@ -4,7 +4,7 @@ doc_id: threat-model
 title: 威胁模型
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-25
 review_cadence: 安全相关代码变动时（sandbox/ · approve.py · 审批语义 · 路径守卫）
 ---
 
@@ -21,6 +21,8 @@ review_cadence: 安全相关代码变动时（sandbox/ · approve.py · 审批�
 | 宿主 Windows 文件 | `/mnt/c`、`/mnt/d` | 整台机器的数据 |
 | 宿主进程环境 | 宿主的 `DEEPSEEK_API_KEY` 等 | 凭据泄漏、API 额度 |
 | 工作区里的项目 | WSL 工作区 | 被误改/删 |
+| 工作区元数据与根路径 | A2 MySQL | 路径被篡改会把执行引到错误目录 |
+| revision 归档 | 本地归档盘（含完整源码） | 泄漏源码；误删后无法灾难恢复 |
 | 审计与快照 | 宿主 `.agent/audit`；工作区 `.agent/backups` | 可追溯性与可回滚 |
 
 **已核实（2026-10-04）**：
@@ -102,6 +104,7 @@ Linux 用户空间（非 root）
 | 引号感知（字面量不误判，`$()`/`sh -c` 照扫） | `policy._mask_quoted` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | `.agent` 在 shell/git 路径的防护 | `policy`（整树 `git add`、`.agent` 引用 → L2） | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 路径双重校验（词法 + realpath，含悬空链接） | `pathguard` + `fs` | **接近 T2**（对文件工具路径是硬约束） | [`test_pathguard.py`](../tests/unit/test_pathguard.py)、[`test_fs_guard.py`](../tests/unit/test_fs_guard.py)、[`test_file_tools.py`](../tests/integration/test_file_tools.py) |
+| 工作区根路径由 A2 生成 + 白名单校验 | `control/workspaces.py` + `paths.py` | T1（A2 层；符号链接由 A4 的 realpath 补齐） | [`test_workspace_paths.py`](../tests/unit/test_workspace_paths.py)、[`test_workspace_registry.py`](../tests/unit/test_workspace_registry.py) |
 | 审批在节点、执行在 `tools` 唯一咽喉 | `graph/nodes/{approve,tools}.py` | **接近 T2**（前端绕不过） | [`test_approve.py`](../tests/unit/test_approve.py)、[`test_nodes.py`](../tests/unit/test_nodes.py) |
 | 资源上限（CPU/文件/进程，沙箱内 `ulimit`+`timeout`） | `sandbox/limits.py` | T1 | [`test_limits.py`](../tests/unit/test_limits.py)、[`test_sandbox_timeout_cleanup.py`](../tests/unit/test_sandbox_timeout_cleanup.py) |
 | 审计（宿主侧、追加写、失败显式报出） | `audit/` | **接近 T2**（沙箱改不到） | [`test_audit.py`](../tests/unit/test_audit.py)、[`test_audit_chain.py`](../tests/unit/test_audit_chain.py) |
@@ -209,6 +212,35 @@ Linux 用户空间（非 root）
   `base_url` 始终由管理员配置。
 - **达标**：T2 场景仍应禁用 `approve` 模式（L2 仍会被自动放行）；只读 GUI
   不应被当成“可以运行测试”的沙箱。
+
+### 5.11 工作区注册表与归档
+
+- **现状（新增）**：根路径只由 A2 的 `WorkspaceStore` 生成；托管来源必须落在
+  `AGENT_WORKSPACE_ROOT` 内，挂载来源必须落在 `AGENT_WORKSPACE_MOUNT_ROOTS`
+  显式白名单内。客户端提交的 `root_path` 不再被信任。
+- **现状（新增）**：A2 只做词法校验；Windows 上的 A2 无法解析 WSL 路径，
+  符号链接逃逸必须由 A3/A4 在沙箱内 `realpath` 补齐。
+- **现状（新增）**：项目上传只接受 zip / tar / tar.gz；拒绝绝对路径、`..`、
+  符号链接、硬链接、设备/FIFO、加密 zip；限制文件数、单文件、总量与解压比；
+  `.git` 与 `.agent` 不随上传包导入，避免 hooks/config 执行与审计污染。
+- **现状（新增）**：revision 先在 staging 完成 git 提交与归档，再原子激活；
+  任何一步失败都不会留下半成品工作区。
+- **现状（新增）**：企业 `clamav` 不可用时 fail-closed；桌面 `none` 必须在 UI
+  明示“未扫描”。
+- **缺口**：归档盘保存完整源码，当前依赖磁盘权限与运维备份；尚未做归档加密
+  与异地复制。无内部 Git remote，代码没有第二份远端。A3 导入/上传任务状态
+  在进程内存，重启后未完成任务丢失。
+- **现状（新增，M4）**：A2→A3 可启用 `AGENT_INTERNAL_HMAC_KEY`，对
+  `X-Agent-Context` 签名；A3 验签失败 401。`X-Agent-Context` 不进入
+  access log。未配置 key 时只依赖内部 Bearer token（兼容旧部署）。
+- **现状（新增，M4）**：桌面启动器在注册表启用时检查 WSL 发行版
+  （非 root、`appendWindowsPath=false`），不满足则拒绝启动；专用
+  `CodingAgent` 发行版已包含对应 `/etc/wsl.conf`。
+- **现状（新增，M4）**：会话级运行租约落在 A2 的 MySQL，TTL 自动过期；
+  幂等键覆盖工作区创建/导入/上传启动/回滚。SSE 客户端断开时租约不会立即
+  释放（由终态事件或 TTL 释放），避免断开即被重复启动。
+- **达标（部署要求）**：归档盘与工作盘分开挂载、`0700`、整盘加密，并至少具备
+  云盘快照/RAID/异地备份之一；恢复演练写入 `runbook.yaml`。
 
 ## 6. 结论
 

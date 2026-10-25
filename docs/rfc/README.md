@@ -54,7 +54,7 @@ draft ──批准──▶ accepted ──实现完成──▶ implemented
 
 | 编号 | 标题 | 状态 | Owner | 关联 ADR |
 |---|---|---|---|---|
-| —— | 暂无。新 RFC 复制 [`TEMPLATE.md`](TEMPLATE.md)，文件名用 `NNNN-短名.md` | — | — | — |
+| [0001](0001-workspace-registry.md) | 工作区注册表与托管存储 | accepted | 项目作者 | 0012、0013 |
 
 ## 模板
 

@@ -27,11 +27,14 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 | 快反馈测试（单元+TUI+Web，无 WSL/无 Key） | `pytest -m "not wsl and not llm"` |
 | 全量测试（**含真实 WSL**） | `pytest -m "not llm"` |
 | 只跑沙箱层 | `pytest -m wsl` |
+| 冒烟 / 回归 / 增量 | `make smoke` · `make regression` · `python scripts/select_tests.py --exec` |
 | 执行后端契约 | `pytest -m execution -q` |
 | MySQL 控制面契约（独立 test 库） | `AGENT_TEST_MYSQL_URL=... pytest -m mysql` |
 | 覆盖率（与 CI 同口径） | `pytest -m "not wsl and not llm" --cov --cov-report=term-missing` |
 | Phase D 故障演练 | `python scripts/phase_d_smoke.py` |
 | Phase F 迁移/回滚演练 | `python scripts/phase_f_drill.py` |
+| Phase G WSL 环境冒烟 | `python scripts/phase_g_smoke.py` |
+| Phase G 工作区 E2E（需专用发行版） | `python scripts/phase_g_e2e.py --source <项目目录>` |
 | 性能基线 | `python scripts/phase_f_bench.py` |
 | 前端构建 / 类型检查 | `python scripts/build_frontend.py` |
 | 提交前一把梭 | `make check`（= lint + 快反馈） |

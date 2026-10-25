@@ -9,9 +9,10 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 178,
+  "count": 193,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
+    "AGENT_ALLOW_GIT_CLONE",
     "AGENT_ALLOW_RULES",
     "AGENT_APPROVAL_MODE",
     "AGENT_AUDIT_DIR",
@@ -58,7 +59,9 @@
     "AGENT_EXPLORE_MAX_REPORT_CHARS",
     "AGENT_EXPLORE_MAX_ROUNDS",
     "AGENT_EXPLORE_TIMEOUT",
+    "AGENT_IDEMPOTENCY_TTL_S",
     "AGENT_INSTRUCTIONS_ENABLED",
+    "AGENT_INTERNAL_HMAC_KEY",
     "AGENT_INTERNAL_TOKEN",
     "AGENT_INTERNAL_URL",
     "AGENT_LLM_AIMD_MAX",
@@ -137,6 +140,7 @@
     "AGENT_REVIEW_LINT_BLOCKING",
     "AGENT_RUN_COST_BUDGET_USD",
     "AGENT_RUN_DEADLINE_S",
+    "AGENT_RUN_LEASE_TTL_S",
     "AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS",
     "AGENT_SECRET_PROVIDER",
     "AGENT_SECURITY_PROFILE",
@@ -173,7 +177,18 @@
     "AGENT_WEB_RATE_LIMIT_PER_MIN",
     "AGENT_WEB_RUNTIME_TTL_S",
     "AGENT_WEB_WORKSPACES_ROOT",
+    "AGENT_WORKSPACE_ARCHIVE_ROOT",
+    "AGENT_WORKSPACE_EXTRACT_MAX_RATIO",
+    "AGENT_WORKSPACE_IMPORT_MODE",
     "AGENT_WORKSPACE_LOCK",
+    "AGENT_WORKSPACE_MOUNT_ROOTS",
+    "AGENT_WORKSPACE_REGISTRY",
+    "AGENT_WORKSPACE_REVISIONS_KEEP",
+    "AGENT_WORKSPACE_ROOT",
+    "AGENT_WORKSPACE_SCAN_PROVIDER",
+    "AGENT_WORKSPACE_SCAN_TIMEOUT_S",
+    "AGENT_WORKSPACE_UPLOAD_MAX_BYTES",
+    "AGENT_WORKSPACE_UPLOAD_MAX_FILES",
     "AGENT_WRITE_DENY_GLOBS",
     "AGENT_WSL_BREAKER_COOLDOWN_S",
     "AGENT_WSL_BREAKER_FAILURES",
@@ -198,6 +213,14 @@
       "default": "",
       "section": "通用",
       "doc": "Agent Server 的租户数据根；空 = 审计目录旁的 agent/。"
+    },
+    {
+      "name": "allow_git_clone",
+      "env": "AGENT_ALLOW_GIT_CLONE",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "本期不实现 git clone；保留开关，未来接入内部 Git 服务时打开。"
     },
     {
       "name": "allow_rules",
@@ -568,12 +591,28 @@
       "doc": "整个子智能体的墙钟上限（秒）"
     },
     {
+      "name": "idempotency_ttl_s",
+      "env": "AGENT_IDEMPOTENCY_TTL_S",
+      "type": "int",
+      "default": 600,
+      "section": "通用",
+      "doc": "幂等键保留时间。"
+    },
+    {
       "name": "instructions_enabled",
       "env": "AGENT_INSTRUCTIONS_ENABLED",
       "type": "bool",
       "default": true,
       "section": "通用",
       "doc": "是否发现并注入仓库内的 AGENTS.md / CLAUDE.md（分层项目指令）。"
+    },
+    {
+      "name": "agent_internal_hmac_key",
+      "env": "AGENT_INTERNAL_HMAC_KEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "空 = 只依赖内部 Bearer token（兼容旧部署）； 非空 = A2 对 X-Agent-Context 做 HMAC，A3 验签。"
     },
     {
       "name": "agent_internal_token",
@@ -1200,6 +1239,14 @@
       "doc": "一次完整运行（含审批/暂停后的 resume）的总墙钟上限，0 表示不限制。 与 recursion_limit 互补：后者管步数，这里管时间（例如模型长时间卡住）。"
     },
     {
+      "name": "run_lease_ttl_s",
+      "env": "AGENT_RUN_LEASE_TTL_S",
+      "type": "int",
+      "default": 120,
+      "section": "通用",
+      "doc": "---------- 一致性与内部签名（M4） ---------- 会话级运行租约 TTL；A2 崩溃后到期自动释放。"
+    },
+    {
       "name": "sandbox_max_concurrent_commands",
       "env": "AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS",
       "type": "int",
@@ -1488,12 +1535,100 @@
       "doc": "per-user 工作区根目录；空 = 沙箱 $HOME/agent-ws/users。"
     },
     {
+      "name": "workspace_archive_root",
+      "env": "AGENT_WORKSPACE_ARCHIVE_ROOT",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "revision 归档根；空 = 关闭归档（仍可运行，但不能灾难恢复）。"
+    },
+    {
+      "name": "workspace_extract_max_ratio",
+      "env": "AGENT_WORKSPACE_EXTRACT_MAX_RATIO",
+      "type": "int",
+      "default": 200,
+      "section": "通用",
+      "doc": "解压比上限：解压后总字节 / 归档字节，防止 zip bomb。"
+    },
+    {
+      "name": "workspace_import_mode",
+      "env": "AGENT_WORKSPACE_IMPORT_MODE",
+      "type": "str",
+      "default": "copy",
+      "section": "通用",
+      "doc": "copy = 桌面默认复制到 ext4；mount = 显式降级，需二次确认。"
+    },
+    {
       "name": "workspace_lock_enabled",
       "env": "AGENT_WORKSPACE_LOCK",
       "type": "bool",
       "default": true,
       "section": "通用",
       "doc": "同一工作区只允许一个 runtime 运行；锁文件在审计目录下。"
+    },
+    {
+      "name": "workspace_mount_roots",
+      "env": "AGENT_WORKSPACE_MOUNT_ROOTS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "允许的 /mnt 挂载根，逗号分隔；空 = 禁止任何挂载工作区。"
+    },
+    {
+      "name": "workspace_registry",
+      "env": "AGENT_WORKSPACE_REGISTRY",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "---------- 工作区注册表（RFC-0001，默认关闭） ---------- false = 继续使用 control_sessions.workspace 裸路径，行为与旧部署一致。"
+    },
+    {
+      "name": "workspace_revisions_keep",
+      "env": "AGENT_WORKSPACE_REVISIONS_KEEP",
+      "type": "int",
+      "default": 10,
+      "section": "通用",
+      "doc": "每个工作区保留的 revision 数；超出后清理最旧的非 pinned 归档。"
+    },
+    {
+      "name": "workspace_root",
+      "env": "AGENT_WORKSPACE_ROOT",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "工作区根；空 = 沿用租户 workspaces_root（TenantManager）。 必须是 A3/A4 视角的绝对 POSIX 路径。"
+    },
+    {
+      "name": "workspace_scan_provider",
+      "env": "AGENT_WORKSPACE_SCAN_PROVIDER",
+      "type": "str",
+      "default": "none",
+      "section": "通用",
+      "doc": "none | clamav；企业部署应在 M3 设为 clamav 并配合 fail-closed。"
+    },
+    {
+      "name": "workspace_scan_timeout_s",
+      "env": "AGENT_WORKSPACE_SCAN_TIMEOUT_S",
+      "type": "int",
+      "default": 300,
+      "section": "通用",
+      "doc": "ClamAV 单次扫描超时。"
+    },
+    {
+      "name": "workspace_upload_max_bytes",
+      "env": "AGENT_WORKSPACE_UPLOAD_MAX_BYTES",
+      "type": "int",
+      "default": 209715200,
+      "section": "通用",
+      "doc": "项目归档上传上限（单包、需 Content-Length）；默认 200 MiB。"
+    },
+    {
+      "name": "workspace_upload_max_files",
+      "env": "AGENT_WORKSPACE_UPLOAD_MAX_FILES",
+      "type": "int",
+      "default": 200000,
+      "section": "通用",
+      "doc": "解包后的文件数上限。"
     },
     {
       "name": "write_deny_globs",
