@@ -1655,3 +1655,12 @@ criteria:
     status: implemented
     tests: [tests/unit/test_phase_g_e2e.py::test_help]
     see: docs/PHASE_G.md
+
+  - id: REQ-185
+    title: 控制面迁移的 MySQL 方言离线编译
+    given: 无真实 MySQL 连接
+    when: 用 Alembic offline 模式生成 0001–0004 SQL
+    then: 建表/加列语句可编译，control_meta 种子数据有明确列类型
+    status: implemented
+    tests: [tests/unit/test_mysql_ddl.py::test_mysql_ddl_contains_all_tables, tests/unit/test_mysql_ddl.py::test_mysql_ddl_has_incremental_columns]
+    see: docs/PHASE_G.md

@@ -96,6 +96,12 @@ python scripts/setup_control_mysql.py \
 `AGENT_CONTROL_DB_URL` 交给 A2，迁移使用管理员账号
 `control_server --migrate`。
 
+离线检查 MySQL 方言（不需要真实数据库）：
+
+```bash
+pytest tests/unit/test_mysql_ddl.py -q
+```
+
 ## 4. 多实例事件传输
 
 A2↔A3 默认使用内存事件缓冲；配置 `AGENT_EVENT_TRANSPORT=redis` 后写入
