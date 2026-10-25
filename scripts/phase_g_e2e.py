@@ -303,6 +303,31 @@ def main(argv: list[str] | None = None) -> int:
                 if check_rollback.returncode != 0:
                     raise RuntimeError("回滚后第二个版本仍然存在")
 
+            # 灾难恢复：破坏工作区后从 revision 归档恢复。
+            run(
+                args.distro,
+                f"rm -f {shlex.quote(root)}/README.md",
+            )
+            restore = http.post(
+                f"/api/workspaces/{workspace_id}/revisions/"
+                f"{target_revision['revision_id']}/restore",
+                headers=headers,
+            )
+            if restore.status_code >= 400:
+                raise RuntimeError(restore.text)
+            steps["restore"] = restore.json()
+            check_restore = run(
+                args.distro,
+                f"test -f {shlex.quote(root)}/README.md",
+            )
+            if check_restore.returncode != 0:
+                raise RuntimeError("归档恢复后 README 仍然缺失")
+            after_restore = http.get(
+                f"/api/workspaces/{workspace_id}/revisions",
+                headers=headers,
+            ).json()["revisions"]
+            steps["revisions_after_restore"] = len(after_restore)
+
         steps["ok"] = True
     except Exception as exc:  # noqa: BLE001 - 脚本边界
         steps["ok"] = False

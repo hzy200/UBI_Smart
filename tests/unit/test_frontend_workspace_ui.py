@@ -26,6 +26,7 @@ def test_app_js_contains_workspace_flow() -> None:
         "onProjectDrop",
         "releaseLease",
         "purgeMaintenance",
+        "restoreRevision",
     ):
         assert marker in text, marker
 
@@ -40,3 +41,4 @@ def test_index_contains_registry_section() -> None:
     assert "onProjectDrop" in text
     assert "释放当前会话租约" in text
     assert "清理过期租约/幂等键" in text
+    assert "恢复归档" in text

@@ -127,6 +127,20 @@ def test_git_and_agent_entries_are_skipped(tmp_path) -> None:
     assert (dest / "keep.txt").read_bytes() == b"ok"
 
 
+def test_skip_names_can_be_relaxed_for_restore(tmp_path) -> None:
+    path = tmp_path / "a.zip"
+    _zip(path, {".git/config": b"[core]", "keep.txt": b"ok"})
+    dest = tmp_path / "out"
+    safe_extract(
+        str(path),
+        str(dest),
+        name="a.zip",
+        skip_names=frozenset(),
+    )
+    assert (dest / ".git" / "config").read_bytes() == b"[core]"
+    assert (dest / "keep.txt").read_bytes() == b"ok"
+
+
 def test_valid_tar_extracts(tmp_path) -> None:
     path = tmp_path / "a.tar.gz"
     _tar(path, {"pkg/x.txt": b"1234"})

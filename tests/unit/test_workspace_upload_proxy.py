@@ -26,6 +26,7 @@ class _Agent:
         self.rollback_payload: dict | None = None
         self.deleted: list[str] = []
         self.cancelled: list[str] = []
+        self.restored: list[dict] = []
 
     async def workspace_upload_start(
         self, context, *, file_path, filename, **kwargs
@@ -91,6 +92,22 @@ class _Agent:
     async def workspace_archive_delete(self, context, archive_path):
         self.deleted.append(archive_path)
         return {"ok": True}
+
+    async def workspace_restore(self, context, **kwargs):
+        self.restored.append(kwargs)
+        return {
+            "status": "active",
+            "pre_restore": {
+                "revision_id": "pre-restore",
+                "git_commit": "def5678",
+                "archive_path": "/srv/archive/w/pre-restore.tar.gz",
+                "archive_sha256": "sha",
+                "bytes": 8,
+                "files": 2,
+            },
+            "bytes": 9,
+            "files": 2,
+        }
 
 
 def _store(tmp_path) -> WorkspaceStore:
@@ -258,6 +275,49 @@ def test_rollback_records_pre_and_activates_target(tmp_path) -> None:
         store.get_revision(target["revision_id"])["status"] == "active"
     )
     assert store.get(row["workspace_id"])["used_bytes"] == 7
+
+
+def test_restore_from_archive_records_pre_and_activates(tmp_path) -> None:
+    agent = _Agent()
+    store = _store(tmp_path)
+    client = _app(store, agent=agent)
+    row = _workspace(client)
+    store.set_status(row["workspace_id"], "active")
+    revision = store.add_revision(
+        row["workspace_id"],
+        actor="alice",
+        git_commit="abc1234",
+        archive_path="/srv/archive/w/r1.tar.gz",
+        archive_sha256="sha",
+    )
+    response = client.post(
+        f"/api/workspaces/{row['workspace_id']}/revisions/"
+        f"{revision['revision_id']}/restore"
+    )
+    assert response.status_code == 200, response.text
+    assert agent.restored[0]["revision_id"] == revision["revision_id"]
+    pre = store.get_revision("pre-restore")
+    assert pre is not None
+    assert pre["source"] == "restore"
+    assert pre["status"] == "superseded"
+    assert store.get_revision(revision["revision_id"])["status"] == "active"
+    assert store.get(row["workspace_id"])["used_bytes"] == 9
+
+
+def test_restore_requires_archive(tmp_path) -> None:
+    agent = _Agent()
+    store = _store(tmp_path)
+    client = _app(store, agent=agent)
+    row = _workspace(client)
+    revision = store.add_revision(
+        row["workspace_id"], actor="alice", git_commit="abc1234"
+    )
+    response = client.post(
+        f"/api/workspaces/{row['workspace_id']}/revisions/"
+        f"{revision['revision_id']}/restore"
+    )
+    assert response.status_code == 409
+    assert agent.restored == []
 
 
 def test_pin_and_prune(tmp_path) -> None:
