@@ -16,6 +16,7 @@ from coding_agent.execution.contracts import (
     ExecutionRequest,
     ExecutionResult,
 )
+from coding_agent.execution.host_ops import HOST_ORIGIN, host_run
 from coding_agent.sandbox.pathguard import ensure_inside
 
 DEFAULT_MAX_READ_BYTES = 1024 * 1024
@@ -172,6 +173,20 @@ class ExecutionService:
             cwd=cwd or self.workspace,
             timeout=timeout if timeout is not None else 60.0,
             capture_limit=capture_limit or 0,
+        )
+
+    def host_run(
+        self, command: str, *, kind: str, cwd: str
+    ) -> Any:
+        """宿主侧受控命令（RFC-0001 工作区导入）。
+
+        只允许白名单 kind；调用方必须是宿主代码，不接受模型自由文本。
+        """
+        sandbox = getattr(self.backend, "sandbox", None)
+        if sandbox is None:
+            raise ExecutionError("当前执行后端不支持宿主侧操作")
+        return host_run(
+            sandbox, command, origin=HOST_ORIGIN, kind=kind, cwd=cwd
         )
 
     def execute(self, request: ExecutionRequest) -> ExecutionResult:

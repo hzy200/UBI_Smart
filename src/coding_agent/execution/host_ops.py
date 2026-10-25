@@ -38,6 +38,17 @@ HOST_KINDS: dict[str, tuple[str, ...]] = {
     "snapshot_read": ("python3 - ",),
     # 编排前的只读仓库画像
     "repo_survey": ('echo "AGENT_DIRS"',),
+    # 工作区导入：准备 staging、tar 管道复制、失败清理（RFC-0001）
+    "workspace_import_prepare": ("mkdir -p ",),
+    "workspace_import": ("tar ",),
+    "workspace_import_cleanup": ("rm -rf ",),
+    # revision：本地 git 初始化/提交、回滚、归档删除
+    "workspace_git_init": ("git init",),
+    "workspace_revision_add": ("git add ",),
+    "workspace_revision_commit": ("git commit ",),
+    "workspace_revision_probe": ("git rev-parse ",),
+    "workspace_rollback": ("git reset --hard ",),
+    "workspace_archive_delete": ("rm -f ",),
 }
 
 
