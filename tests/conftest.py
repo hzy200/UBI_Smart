@@ -7,6 +7,20 @@ from coding_agent.sandbox.wsl_exec import WslSandbox
 
 
 @pytest.fixture(autouse=True)
+def _isolate_control_db(request, monkeypatch) -> None:
+    """普通用例不继承宿主/`.env` 里的控制面数据库。
+
+    `Settings(_env_file=None)` 仍会读进程环境；开发机可能为了测试把
+    `AGENT_CONTROL_DB_URL` 放进环境。若不隔离，普通用例会连到共享 MySQL，
+    造成会话/配额等跨文件污染。MySQL 用例显式放行，并从
+    `AGENT_TEST_MYSQL_URL` 或 `.env` 读取。
+    """
+    if request.node.get_closest_marker("mysql"):
+        return
+    monkeypatch.delenv("AGENT_CONTROL_DB_URL", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _forbid_real_wsl_unless_marked(request: pytest.FixtureRequest, monkeypatch) -> None:
     """非 WSL 用例不得真的执行沙箱命令。
 
