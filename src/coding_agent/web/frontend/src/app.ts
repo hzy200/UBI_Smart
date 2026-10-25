@@ -2319,6 +2319,9 @@ const agentApp = () => ({
         _key: item.thread_id,
         _text: `${item.title} · ${item.last_active || ''}`,
         _status: labels[item.status] || item.status,
+        _approvals: Number(item.approvals || 0)
+          ? `待审批 ${Number(item.approvals)}`
+          : '',
         _cls: item.status === 'interrupted' ? 'note-bad' : '',
       }));
     } catch (err) {
@@ -2334,9 +2337,11 @@ const agentApp = () => ({
   async recoveryResume(item) {
     this.showRecovery = false;
     await this.openSession(item.thread_id);
-    if (item.status === 'paused') {
+    if (item.status === 'paused' && !Number(item.approvals || 0)) {
       await this.resumeSteering();
-    } else if (item.status === 'approval') {
+    } else if (
+      item.status === 'approval' || Number(item.approvals || 0)
+    ) {
       await this.loadApprovals();
     }
   },

@@ -517,6 +517,7 @@
       <div class="file-card">
         <div class="file-head">
           <span x-text="item._text"></span>
+          <span class="note" x-show="item._approvals" x-text="item._approvals"></span>
           <span :class="item._cls" x-text="item._status"></span>
           <button @click="recoveryResume(item)">打开 / 恢复</button>
           <button class="danger" @click="deleteSession(item.thread_id)">删除会话</button>

@@ -2253,6 +2253,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           _key: item.thread_id,
           _text: `${item.title} \xB7 ${item.last_active || ""}`,
           _status: labels[item.status] || item.status,
+          _approvals: Number(item.approvals || 0) ? `\u5F85\u5BA1\u6279 ${Number(item.approvals)}` : "",
           _cls: item.status === "interrupted" ? "note-bad" : ""
         }));
       } catch (err) {
@@ -2266,9 +2267,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     async recoveryResume(item) {
       this.showRecovery = false;
       await this.openSession(item.thread_id);
-      if (item.status === "paused") {
+      if (item.status === "paused" && !Number(item.approvals || 0)) {
         await this.resumeSteering();
-      } else if (item.status === "approval") {
+      } else if (item.status === "approval" || Number(item.approvals || 0)) {
         await this.loadApprovals();
       }
     },
