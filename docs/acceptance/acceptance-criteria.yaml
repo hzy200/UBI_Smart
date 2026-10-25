@@ -1673,3 +1673,14 @@ criteria:
     status: implemented
     tests: [tests/integration/test_control_mysql.py::test_mysql_upgrade_store_backup_restore, tests/unit/test_phase_f_drill.py::test_sqlite_drill_upgrade_downgrade_backup_restore]
     see: docs/PHASE_G.md
+
+  - id: REQ-187
+    title: 上传逐字节进度
+    given: 浏览器上传项目归档
+    when: 传输、解包与归档进行中
+    then: |
+      浏览器显示 XHR 传输百分比；A3 任务上报 progress/processed_bytes/
+      total_bytes/processed_files；扫描阶段为不确定态；最终 100%。
+    status: implemented
+    tests: [tests/unit/test_workspace_archive.py::test_safe_extract_reports_progress, tests/unit/test_workspace_upload_a3.py::test_upload_success_activates_and_cleans, tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow, tests/unit/test_frontend_workspace_ui.py::test_index_contains_registry_section]
+    see: docs/PHASE_G.md

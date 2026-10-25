@@ -128,7 +128,23 @@ setup_control_mysql.py 实跑：
 
 测试结束后已删除临时初始化库/账号与临时凭据文件。
 
-## 6. 已知限制
+## 6. 上传进度
+
+A3 任务状态新增：
+
+```text
+progress         0–100；扫描阶段为 null（不确定）
+progress_phase   receiving / extracting / scanning / revisioning / activating / active
+processed_bytes  当前阶段已处理字节
+total_bytes      当前阶段总字节
+processed_files  当前阶段已处理文件数
+```
+
+浏览器 → A2 的传输用 `XMLHttpRequest.upload.onprogress` 显示百分比；
+A2 → A3 之后的解包/归档阶段由前端轮询上述字段显示。HTTP 一旦进入 A3，
+客户端无法直接读服务端进度，因此服务端阶段以轮询为准。
+
+## 7. 已知限制
 
 - 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
   清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。
