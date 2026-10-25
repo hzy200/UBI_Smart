@@ -233,6 +233,9 @@ Linux 用户空间（非 root）
 - **现状（新增，M4）**：A2→A3 可启用 `AGENT_INTERNAL_HMAC_KEY`，对
   `X-Agent-Context` 签名；A3 验签失败 401。`X-Agent-Context` 不进入
   access log。未配置 key 时只依赖内部 Bearer token（兼容旧部署）。
+- **现状（新增，M4）**：归档恢复只接受归档根内、sha256 匹配的文件；
+  解包允许 `.git` 但拒绝符号链接/硬链接/设备；恢复前生成 pre-restore
+  revision，替换采用“备份 + 原子 rename”。
 - **现状（新增，M4）**：桌面启动器在注册表启用时检查 WSL 发行版
   （非 root、`appendWindowsPath=false`），不满足则拒绝启动；专用
   `CodingAgent` 发行版已包含对应 `/etc/wsl.conf`。

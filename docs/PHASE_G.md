@@ -54,6 +54,7 @@ revision：git commit + tar.gz + sha256
 会话：绑定 workspace_id
 回滚到首次导入：生成 pre-rollback revision；VERSION2 消失
 回滚后 revision 数：3
+灾难恢复：删除 README 后从 v1 归档恢复；README 回来，revision 数 4
 ```
 
 第二次导入复用当前 `.git` 历史（硬链接对象），staging 完成后原子替换；
@@ -77,6 +78,7 @@ AGENT_WSL_REQUIRE_HARDENING=true
   下次任务会从 `.old-*` 备份恢复，但恢复是 best-effort。
 - `.git` 历史通过硬链接复制；不支持跨文件系统硬链接时自动退化为复制。
 - 归档未加密，依赖磁盘权限与运维备份。
-- 回滚走本地 git；归档只用于灾难恢复，尚无独立恢复端点。
+- 回滚走本地 git；归档恢复需要归档内包含 `.git`，并拒绝符号链接。
+- 归档恢复会校验路径与 sha256，恢复前自动生成 pre-restore revision。
 - 真实模型运行、审批、快照链路仍需配置 provider key 后人工验收。
 - 现有 Ubuntu 发行版未加固；不要直接用它承载托管工作区。

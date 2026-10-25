@@ -1548,3 +1548,14 @@ criteria:
     status: implemented
     tests: [tests/unit/test_workspace_upload_proxy.py::test_upload_forwards_file, tests/unit/test_workspace_upload_proxy.py::test_upload_size_limit_is_413]
     see: docs/PHASE_G.md
+
+  - id: REQ-174
+    title: 从 revision 归档灾难恢复
+    given: 工作区损坏且存在 revision 归档
+    when: 调用 restore
+    then: |
+      归档必须在归档根内且 sha256 匹配；安全解包（允许 .git，拒绝符号链接）；
+      恢复前生成 pre-restore revision；原子替换；失败不动旧工作区。
+    status: implemented
+    tests: [tests/unit/test_workspace_restore.py::test_restore_replaces_broken_workspace, tests/unit/test_workspace_restore.py::test_restore_rejects_sha_mismatch, tests/unit/test_workspace_restore.py::test_restore_rejects_outside_archive, tests/unit/test_workspace_restore.py::test_restore_rejects_missing_archive, tests/unit/test_workspace_upload_proxy.py::test_restore_from_archive_records_pre_and_activates, tests/unit/test_workspace_upload_proxy.py::test_restore_requires_archive, tests/unit/test_workspace_archive.py::test_skip_names_can_be_relaxed_for_restore]
+    see: docs/PHASE_G.md
