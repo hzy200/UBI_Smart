@@ -48,7 +48,7 @@ from tasks import TASKS  # noqa: E402
 from tasks_full import TASKS_FULL  # noqa: E402
 from tasks_hard import TASKS_HARD  # noqa: E402
 from tasks_long import LONG_TASKS  # noqa: E402
-from tasks_real import TASKS_REAL  # noqa: E402
+from tasks_real import TASKS_REAL, TASKS_REAL_ADVANCED  # noqa: E402
 
 from coding_agent.codeintel.python_index import (  # noqa: E402
     build_index,
@@ -82,6 +82,9 @@ HARD_IDS: tuple[str, ...] = tuple(task.id for task in TASKS_HARD)
 
 # real 套件同样独立：完整标准库模块会让上下文和成本显著上升。
 REAL_IDS: tuple[str, ...] = tuple(task.id for task in TASKS_REAL)
+REAL_ADVANCED_IDS: tuple[str, ...] = tuple(
+    task.id for task in TASKS_REAL_ADVANCED
+)
 
 # 一次覆盖主要回路的抽样：direct、跨文件、排障、隐藏测试、并发读、并发写/合并。
 SMOKE_IDS: tuple[str, ...] = (
@@ -607,6 +610,7 @@ def _tasks_by_id() -> dict[str, EvalTask]:
             *TASKS_FULL,
             *TASKS_HARD,
             *TASKS_REAL,
+            *TASKS_REAL_ADVANCED,
         )
     }
 
@@ -622,6 +626,8 @@ def _case_ids(kind: str) -> list[str]:
         return list(HARD_IDS)
     if kind == "real":
         return list(REAL_IDS)
+    if kind == "real_advanced":
+        return list(REAL_ADVANCED_IDS)
     return [*MECHANISMS, *AGENT_CASES, *CAPABILITY_IDS]
 
 
@@ -841,7 +847,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--kinds",
         default="all",
-        choices=["all", "mechanism", "capability", "agent", "hard", "real"],
+        choices=[
+            "all",
+            "mechanism",
+            "capability",
+            "agent",
+            "hard",
+            "real",
+            "real_advanced",
+        ],
     )
     parser.add_argument("--only", default="", help="只跑某个 case_id")
     parser.add_argument(
@@ -892,6 +906,7 @@ def main(argv: list[str] | None = None) -> int:
         "agent",
         "hard",
         "real",
+        "real_advanced",
         "all",
     }:
         # capability / agent 需要 WSL；机制用例不依赖它。

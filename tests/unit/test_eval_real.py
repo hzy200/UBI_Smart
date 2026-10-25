@@ -21,10 +21,11 @@ EVAL_DIR = Path(__file__).resolve().parents[1] / "eval"
 if str(EVAL_DIR) not in sys.path:
     sys.path.insert(0, str(EVAL_DIR))
 
-from harness import DEEP, REAL_CODE  # noqa: E402
-from tasks_real import TASKS_REAL  # noqa: E402
+from harness import DEEP, REAL_CODE, REAL_MULTI, REAL_SPEC  # noqa: E402
+from tasks_real import TASKS_REAL, TASKS_REAL_ADVANCED  # noqa: E402
 
-IDS = [task.id for task in TASKS_REAL]
+ALL_TASKS = [*TASKS_REAL, *TASKS_REAL_ADVANCED]
+IDS = [task.id for task in ALL_TASKS]
 
 
 def _write(root: Path, files: dict[str, str]) -> None:
@@ -52,14 +53,14 @@ def _judge(root: Path) -> subprocess.CompletedProcess:
 
 
 def test_real_ids_are_unique_and_prefixed() -> None:
-    assert len(TASKS_REAL) >= 5
+    assert len(ALL_TASKS) >= 11
     assert len(set(IDS)) == len(IDS)
     assert all(task_id.startswith("real/") for task_id in IDS)
 
 
 def test_real_tasks_use_real_code_and_small_regressions() -> None:
-    for task in TASKS_REAL:
-        assert task.category == REAL_CODE
+    for task in ALL_TASKS:
+        assert task.category in {REAL_CODE, REAL_SPEC, REAL_MULTI}
         assert task.tier == DEEP
         assert len(task.sources) == 1
         relpath, seed = next(iter(task.sources.items()))
@@ -78,12 +79,12 @@ def test_real_tasks_use_real_code_and_small_regressions() -> None:
             if line.startswith(("+", "-"))
             and not line.startswith(("+++", "---"))
         ]
-        assert 1 <= len(changed) <= 6, (
+        assert 1 <= len(changed) <= 8, (
             f"{task.id} 的注入回归改动过大：{len(changed)} 行"
         )
 
 
-@pytest.mark.parametrize("task", TASKS_REAL, ids=IDS)
+@pytest.mark.parametrize("task", ALL_TASKS, ids=IDS)
 def test_real_files_are_valid_python(task) -> None:
     for relpath, content in {
         **task.sources,
@@ -97,7 +98,7 @@ def test_real_files_are_valid_python(task) -> None:
             pytest.fail(f"{task.id} 的 {relpath} 有语法错误：{exc}")
 
 
-@pytest.mark.parametrize("task", TASKS_REAL, ids=IDS)
+@pytest.mark.parametrize("task", ALL_TASKS, ids=IDS)
 def test_real_seed_is_unsolved(task, tmp_path: Path) -> None:
     _write_seed(task, tmp_path)
     proc = _judge(tmp_path)
@@ -108,7 +109,7 @@ def test_real_seed_is_unsolved(task, tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("task", TASKS_REAL, ids=IDS)
+@pytest.mark.parametrize("task", ALL_TASKS, ids=IDS)
 def test_real_reference_passes(task, tmp_path: Path) -> None:
     _write_seed(task, tmp_path)
     _write(tmp_path, task.reference)
@@ -121,6 +122,6 @@ def test_real_reference_passes(task, tmp_path: Path) -> None:
 
 
 def test_real_tasks_have_hidden_tests() -> None:
-    for task in TASKS_REAL:
+    for task in ALL_TASKS:
         assert task.hidden_tests, f"{task.id} 没有隐藏测试"
         assert set(task.tests).isdisjoint(task.hidden_tests)

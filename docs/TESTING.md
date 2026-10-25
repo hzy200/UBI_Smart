@@ -136,6 +136,10 @@ python tests/eval/runner.py --suite real --verify-seeds
 python tests/eval/runner.py --suite real --repeat 2
 ```
 
+`real_advanced` 进一步改变信息条件：3 个隐藏需求任务（可见测试全绿）与
+3 个多回归任务（修好可见的一处仍会失败）。命令相同，套件名改为
+`real_advanced`。
+
 ## 6. 放置规则
 
 | 测试内容 | 目录 |

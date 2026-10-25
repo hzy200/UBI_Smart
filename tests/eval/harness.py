@@ -102,6 +102,9 @@ PERFORMANCE = "performance"
 # 真实代码：标准库/真实仓库的大文件回归。与 synthetic 的 small task 不同，
 # 考的是在几万行代码里定位一处回归。
 REAL_CODE = "real_code"
+# real 进阶：可见测试全绿、隐藏测试才暴露；以及同一模块的多处回归。
+REAL_SPEC = "real_spec"
+REAL_MULTI = "real_multi"
 CATEGORIES = (
     SINGLE_FILE,
     CROSS_FILE,
@@ -110,6 +113,8 @@ CATEGORIES = (
     CONCURRENCY,
     PERFORMANCE,
     REAL_CODE,
+    REAL_SPEC,
+    REAL_MULTI,
 )
 
 CATEGORY_LABELS = {
@@ -120,6 +125,8 @@ CATEGORY_LABELS = {
     CONCURRENCY: "并发/竞态",
     PERFORMANCE: "性能/批量",
     REAL_CODE: "真实代码",
+    REAL_SPEC: "真实代码·隐藏需求",
+    REAL_MULTI: "真实代码·多回归",
 }
 
 

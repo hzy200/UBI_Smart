@@ -18,7 +18,13 @@ import importlib
 import inspect
 from pathlib import Path
 
-from harness import DEEP, REAL_CODE, EvalTask
+from harness import (
+    DEEP,
+    REAL_CODE,
+    REAL_MULTI,
+    REAL_SPEC,
+    EvalTask,
+)
 
 _SOURCE_CACHE: dict[str, str] = {}
 
@@ -55,6 +61,7 @@ def _regression_task(
     new: str,
     tests: dict[str, str],
     hidden_tests: dict[str, str],
+    category: str = REAL_CODE,
 ) -> EvalTask:
     original = _source(module)
     count = original.count(old)
@@ -65,10 +72,43 @@ def _regression_task(
         )
     return EvalTask(
         id=task_id,
-        category=REAL_CODE,
+        category=category,
         tier=DEEP,
         prompt=_prompt(prompt),
         sources={f"{module}.py": original.replace(old, new, 1)},
+        tests=tests,
+        hidden_tests=hidden_tests,
+        reference={f"{module}.py": original},
+        timeout=300,
+        agent_timeout=300,
+    )
+
+
+def _multi_regression_task(
+    *,
+    task_id: str,
+    module: str,
+    prompt: str,
+    replacements: tuple[tuple[str, str], ...],
+    tests: dict[str, str],
+    hidden_tests: dict[str, str],
+) -> EvalTask:
+    original = _source(module)
+    seed = original
+    for old, new in replacements:
+        count = seed.count(old)
+        if count != 1:
+            raise RuntimeError(
+                f"{task_id} 的注入锚点在 {module}.py 出现 {count} 次，"
+                "标准库版本可能已变化"
+            )
+        seed = seed.replace(old, new, 1)
+    return EvalTask(
+        id=task_id,
+        category=REAL_MULTI,
+        tier=DEEP,
+        prompt=_prompt(prompt),
+        sources={f"{module}.py": seed},
         tests=tests,
         hidden_tests=hidden_tests,
         reference={f"{module}.py": original},
@@ -321,6 +361,271 @@ class ArgparseHiddenTest(unittest.TestCase):
         parser.add_argument("--mode", choices=["a", "b"])
         with self.assertRaises(SystemExit):
             parser.parse_args(["--mode", "c"])
+'''
+        },
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# real 进阶：隐藏需求（可见测试全绿）与同一模块的多处回归。
+# ---------------------------------------------------------------------------
+TASKS_REAL_ADVANCED: list[EvalTask] = [
+    _regression_task(
+        task_id="real/spec/statistics/median_even",
+        module="statistics",
+        category=REAL_SPEC,
+        prompt=(
+            "`statistics.py` 是 Python 标准库的完整副本。`median` 对偶数个数据点"
+            "应返回中间两个数的平均值，对奇数个返回中间值。请确保两种长度都正确。"
+        ),
+        old="        return (data[i - 1] + data[i]) / 2",
+        new="        return data[i]",
+        tests={
+            "test_statistics.py": '''\
+import statistics
+import unittest
+
+
+class StatisticsTest(unittest.TestCase):
+    def test_odd_length(self):
+        self.assertEqual(statistics.median([3, 1, 2]), 2)
+        self.assertEqual(statistics.median([10]), 10)
+'''
+        },
+        hidden_tests={
+            "test_statistics_hidden.py": '''\
+import statistics
+import unittest
+
+
+class StatisticsHiddenTest(unittest.TestCase):
+    def test_even_length(self):
+        self.assertEqual(statistics.median([1, 2, 3, 4]), 2.5)
+        self.assertEqual(statistics.median([1, 2]), 1.5)
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/fractions/negative_denominator",
+        module="fractions",
+        category=REAL_SPEC,
+        prompt=(
+            "`fractions.py` 是 Python 标准库的完整副本。`Fraction` 应始终把负号"
+            "放在分子上：`Fraction(1, -2)` 等价于 `Fraction(-1, 2)`，字符串为 "
+            "`-1/2`。请修复。"
+        ),
+        old="            if denominator < 0:",
+        new="            if False:",
+        tests={
+            "test_fractions.py": '''\
+import unittest
+
+from fractions import Fraction
+
+
+class FractionsTest(unittest.TestCase):
+    def test_positive_fraction(self):
+        value = Fraction(2, 4)
+        self.assertEqual(str(value), "1/2")
+        self.assertEqual((value.numerator, value.denominator), (1, 2))
+'''
+        },
+        hidden_tests={
+            "test_fractions_hidden.py": '''\
+import unittest
+
+from fractions import Fraction
+
+
+class FractionsHiddenTest(unittest.TestCase):
+    def test_negative_denominator_is_normalized(self):
+        value = Fraction(1, -2)
+        self.assertEqual(str(value), "-1/2")
+        self.assertEqual((value.numerator, value.denominator), (-1, 2))
+        self.assertEqual(value, Fraction(-1, 2))
+
+    def test_double_negative(self):
+        value = Fraction(-1, -2)
+        self.assertEqual(str(value), "1/2")
+        self.assertEqual((value.numerator, value.denominator), (1, 2))
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/heapq/reverse_merge",
+        module="heapq",
+        category=REAL_SPEC,
+        prompt=(
+            "`heapq.py` 是 Python 标准库的完整副本。`heapq.merge(..., "
+            "reverse=True)` 应在输入本身降序时返回降序合并结果。请修复。"
+        ),
+        old="    if reverse:",
+        new="    if False:",
+        tests={
+            "test_heapq.py": '''\
+import heapq
+import unittest
+
+
+class HeapqTest(unittest.TestCase):
+    def test_forward_merge(self):
+        self.assertEqual(
+            list(heapq.merge([1, 3], [2, 4])), [1, 2, 3, 4]
+        )
+'''
+        },
+        hidden_tests={
+            "test_heapq_hidden.py": '''\
+import heapq
+import unittest
+
+
+class HeapqHiddenTest(unittest.TestCase):
+    def test_reverse_merge(self):
+        self.assertEqual(
+            list(heapq.merge([3, 1], [4, 2], reverse=True)),
+            [4, 3, 2, 1],
+        )
+'''
+        },
+    ),
+    _multi_regression_task(
+        task_id="real/multi/configparser/escaped_and_recursive",
+        module="configparser",
+        prompt=(
+            "`configparser.py` 是 Python 标准库的完整副本。插值处理有两处回归："
+            "转义的 `%%` 没有被识别为字面量；嵌套插值里引用的值包含 `%` 时也"
+            "没有被继续解析。请修复源码。"
+        ),
+        replacements=(
+            ('            if c == "%":', '            if c == "!":'),
+            ('                if "%" in v:', "                if False:"),
+        ),
+        tests={
+            "test_configparser.py": '''\
+import configparser
+import unittest
+
+
+class ConfigParserTest(unittest.TestCase):
+    def test_escaped_percent(self):
+        cfg = configparser.ConfigParser()
+        cfg.read_string("[s]\\nvalue = 100%%\\n")
+        self.assertEqual(cfg["s"]["value"], "100%")
+
+    def test_basic_interpolation(self):
+        cfg = configparser.ConfigParser()
+        cfg.read_string(
+            "[DEFAULT]\\nwho = world\\n[s]\\ngreeting = hello %(who)s\\n"
+        )
+        self.assertEqual(cfg["s"]["greeting"], "hello world")
+'''
+        },
+        hidden_tests={
+            "test_configparser_hidden.py": '''\
+import configparser
+import unittest
+
+
+class ConfigParserHiddenTest(unittest.TestCase):
+    def test_recursive_interpolation(self):
+        cfg = configparser.ConfigParser()
+        cfg.read_string(
+            "[DEFAULT]\\na = %(b)s\\nb = ok\\n[s]\\nx = %(a)s\\n"
+        )
+        self.assertEqual(cfg["s"]["x"], "ok")
+'''
+        },
+    ),
+    _multi_regression_task(
+        task_id="real/multi/argparse/type_and_default",
+        module="argparse",
+        prompt=(
+            "`argparse.py` 是 Python 标准库的完整副本。`type=` 转换有两处回归："
+            "单参数没有转换；默认值（字符串）也没有转换。请修复源码。"
+        ),
+        replacements=(
+            (
+                "            value = self._get_value(action, arg_string)",
+                "            value = arg_string",
+            ),
+            (
+                "                value = self._get_value(action, value)",
+                "                value = value",
+            ),
+        ),
+        tests={
+            "test_argparse.py": '''\
+import argparse
+import unittest
+
+
+class ArgparseTest(unittest.TestCase):
+    def test_type_conversion(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--count", type=int)
+        self.assertEqual(parser.parse_args(["--count", "3"]).count, 3)
+'''
+        },
+        hidden_tests={
+            "test_argparse_hidden.py": '''\
+import argparse
+import unittest
+
+
+class ArgparseHiddenTest(unittest.TestCase):
+    def test_default_is_converted(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--count", type=int, default="4")
+        self.assertEqual(parser.parse_args([]).count, 4)
+
+    def test_nargs_conversion(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("nums", nargs="+", type=int)
+        self.assertEqual(parser.parse_args(["1", "2"]).nums, [1, 2])
+'''
+        },
+    ),
+    _multi_regression_task(
+        task_id="real/multi/csv/restkey_and_restval",
+        module="csv",
+        prompt=(
+            "`csv.py` 是 Python 标准库的完整副本。`DictReader` 有两处回归："
+            "多余列应放进 `restkey`；缺失列应填入 `restval`。请修复源码。"
+        ),
+        replacements=(
+            ("        if lf < lr:", "        if False:"),
+            ("                d[key] = self.restval", "                d[key] = None"),
+        ),
+        tests={
+            "test_csv.py": '''\
+import csv
+import io
+import unittest
+
+
+class CsvTest(unittest.TestCase):
+    def test_restkey_collects_extra_columns(self):
+        reader = csv.DictReader(
+            io.StringIO("a,b\\n1,2,3\\n"), restkey="extra"
+        )
+        self.assertEqual(
+            next(reader), {"a": "1", "b": "2", "extra": ["3"]}
+        )
+'''
+        },
+        hidden_tests={
+            "test_csv_hidden.py": '''\
+import csv
+import io
+import unittest
+
+
+class CsvHiddenTest(unittest.TestCase):
+    def test_restval_fills_missing_columns(self):
+        reader = csv.DictReader(io.StringIO("a,b\\n1\\n"), restval="")
+        self.assertEqual(next(reader), {"a": "1", "b": ""})
 '''
         },
     ),

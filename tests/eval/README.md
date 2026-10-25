@@ -245,6 +245,7 @@ python tests/eval/steering_bench.py --repeat 3 --delay-ms 50
 | `full` | 104 个全功能 capability 任务 | `baseline_full.json` | `python tests/eval/runner.py --suite full` |
 | `hard` | 14 个并发/spec/多层/排障/性能硬任务 | `baseline_hard.json` | `python tests/eval/runner.py --suite hard` |
 | `real` | 5 个完整标准库模块中的回归定位 | `baseline_real.json` | `python tests/eval/runner.py --suite real` |
+| `real_advanced` | 6 个隐藏需求/多回归真实代码任务 | `baseline_real_advanced.json` | `python tests/eval/runner.py --suite real_advanced` |
 
 分套件不是分类癖：长程档的单任务成本是前两档的若干倍，混进全量会让整轮变得
 不可承受；它的波动量级也不同（任务更少、每个更长），混着报会掩盖差异。
@@ -281,6 +282,16 @@ python tests/eval/runner.py --suite real --repeat 2
 **5/5、5/5（100%），spread 0**，两轮 token 约 103 万，缓存命中率 7.6%。
 real 套件**也已饱和**：可见测试直接指出了失败行为，文件大小没有构成难度。
 明细见 [docs/REAL_SUITE_REPORT.md](../../docs/REAL_SUITE_REPORT.md)。
+
+`real_advanced` 改变信息条件，而不是继续加大文件：
+
+- 3 个 `real_spec`：可见测试全绿，隐藏测试才暴露回归；
+- 3 个 `real_multi`：同一模块注入两处回归，修好可见的一处仍会在隐藏测试失败。
+
+```bash
+python tests/eval/runner.py --suite real_advanced --verify-seeds
+python tests/eval/runner.py --suite real_advanced --repeat 2
+```
 
 最近一次干净工作区 `--repeat 2`（commit `f062a78`）：
 **14/14、14/14（100%），spread 0**，两轮 token 约 238 万，缓存命中率 18.9%。

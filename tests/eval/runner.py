@@ -56,7 +56,7 @@ from tasks import TASKS  # noqa: E402
 from tasks_full import TASKS_FULL  # noqa: E402
 from tasks_hard import TASKS_HARD  # noqa: E402
 from tasks_long import LONG_TASKS  # noqa: E402
-from tasks_real import TASKS_REAL  # noqa: E402
+from tasks_real import TASKS_REAL, TASKS_REAL_ADVANCED  # noqa: E402
 
 from coding_agent.config import get_settings  # noqa: E402
 from coding_agent.sandbox.fs import SandboxFs  # noqa: E402
@@ -77,6 +77,8 @@ SUITES: dict[str, tuple[EvalTask, ...]] = {
     "hard": tuple(TASKS_HARD),
     # 真实代码：完整标准库模块中的回归定位。
     "real": tuple(TASKS_REAL),
+    # 真实代码进阶：隐藏需求与同一模块的多处回归。
+    "real_advanced": tuple(TASKS_REAL_ADVANCED),
 }
 
 
@@ -334,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
             "跑哪个套件：default（29 个短任务）| long（长程任务）"
             "| full（104 个 capability）| hard（14 个难度任务）"
             "| real（5 个真实标准库回归）"
+            "| real_advanced（6 个隐藏需求/多回归）"
         ),
     )
     parser.add_argument(
