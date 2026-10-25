@@ -629,4 +629,114 @@ class CsvHiddenTest(unittest.TestCase):
 '''
         },
     ),
+    _regression_task(
+        task_id="real/spec/textwrap/replace_whitespace",
+        module="textwrap",
+        category=REAL_SPEC,
+        prompt=(
+            "`textwrap.py` 是 Python 标准库的完整副本。`replace_whitespace=True` "
+            "时应把换行、制表等空白替换成空格。请修复。"
+        ),
+        old="        if self.replace_whitespace:",
+        new="        if False:",
+        tests={
+            "test_textwrap.py": '''\
+import textwrap
+import unittest
+
+
+class TextwrapTest(unittest.TestCase):
+    def test_plain_spaces(self):
+        self.assertEqual(textwrap.fill("a  b", width=10), "a  b")
+        self.assertEqual(
+            textwrap.fill("hello world", width=5), "hello\\nworld"
+        )
+'''
+        },
+        hidden_tests={
+            "test_textwrap_hidden.py": '''\
+import textwrap
+import unittest
+
+
+class TextwrapHiddenTest(unittest.TestCase):
+    def test_newline_becomes_space(self):
+        self.assertEqual(textwrap.fill("a\\nb", width=10), "a b")
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/argparse/allow_abbrev",
+        module="argparse",
+        category=REAL_SPEC,
+        prompt=(
+            "`argparse.py` 是 Python 标准库的完整副本。`ArgumentParser` 默认"
+            "允许长选项缩写，例如 `--cou` 应匹配 `--count`。请修复。"
+        ),
+        old="            if self.allow_abbrev:",
+        new="            if False:",
+        tests={
+            "test_argparse.py": '''\
+import argparse
+import unittest
+
+
+class ArgparseTest(unittest.TestCase):
+    def test_full_option(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--count", type=int)
+        self.assertEqual(parser.parse_args(["--count", "3"]).count, 3)
+'''
+        },
+        hidden_tests={
+            "test_argparse_hidden.py": '''\
+import argparse
+import unittest
+
+
+class ArgparseHiddenTest(unittest.TestCase):
+    def test_abbreviated_option(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--count", type=int)
+        self.assertEqual(parser.parse_args(["--cou", "3"]).count, 3)
+'''
+        },
+    ),
+    _regression_task(
+        task_id="real/spec/heapq/nlargest_key",
+        module="heapq",
+        category=REAL_SPEC,
+        prompt=(
+            "`heapq.py` 是 Python 标准库的完整副本。`nlargest(n, iterable, "
+            "key=...)` 应按 `key` 取最大的 n 个元素。请修复。"
+        ),
+        old="        if top < k:",
+        new="        if False:",
+        tests={
+            "test_heapq.py": '''\
+import heapq
+import unittest
+
+
+class HeapqTest(unittest.TestCase):
+    def test_nlargest_without_key(self):
+        self.assertEqual(heapq.nlargest(2, [3, 1, 2]), [3, 2])
+'''
+        },
+        hidden_tests={
+            "test_heapq_hidden.py": '''\
+import heapq
+import unittest
+
+
+class HeapqHiddenTest(unittest.TestCase):
+    def test_nlargest_with_key(self):
+        items = [("a", 1), ("b", 3), ("c", 2)]
+        self.assertEqual(
+            heapq.nlargest(2, items, key=lambda item: item[1]),
+            [("b", 3), ("c", 2)],
+        )
+'''
+        },
+    ),
 ]
