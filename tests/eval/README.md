@@ -305,6 +305,12 @@ python tests/eval/runner.py --suite blind --verify-seeds
 python tests/eval/runner.py --suite blind --repeat 3
 ```
 
+最近一次干净工作区 `--repeat 3`（commit `e1a2610`）：
+**5/5、5/5、5/5（100%）**，`spread=0`；但 effort 显著上升：
+单任务单轮 7–12 次工具、3–7 次失败验证，`configparser` 三轮累计 21 次失败验证。
+“信息更少”提高的是成本，不是失败率。明细见
+[docs/BLIND_SUITE_REPORT.md](../../docs/BLIND_SUITE_REPORT.md)。
+
 最近一次干净工作区 `--repeat 2`（commit `5c971d5`）：
 **14/14、14/14（100%）**，`spread=0`，L3 审批 10 次全部由 harness 代为批准。
 上一版报告的 13/14 与 3/5、4/5 翻转已确认是 harness 未处理

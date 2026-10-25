@@ -142,6 +142,7 @@ python scripts/demo.py --only 1
 | 难度套件（hard） | **14/14 ×2（100%，spread 0，comparable=true，commit `f062a78`）**：14 个并发/spec/多层/排障/性能任务；修正任务定义后已饱和，需继续加难度。详见 [HARD_SUITE_REPORT.md](HARD_SUITE_REPORT.md) |
 | 真实代码套件（real） | **5/5 ×2（100%，spread 0，comparable=true，commit `3f34a2b`）**：5 个完整标准库模块回归；可见失败测试使定位空间过窄，已饱和。详见 [REAL_SUITE_REPORT.md](REAL_SUITE_REPORT.md) |
 | 真实代码进阶（real_advanced） | **14/14 ×2（100%，spread 0，comparable=true，commit `8c47527`）**：11 个隐藏需求（症状式提示）+ 3 个多回归；上一版翻转已确认是 L3 审批未 resume 的 harness 假象。详见 [REAL_ADVANCED_REPORT.md](REAL_ADVANCED_REPORT.md) |
+| 盲测套件（blind） | **5/5 ×3（100%，spread 0，comparable=true，commit `e1a2610`）**：无可见测试，只给症状；通过率饱和，但单任务工具/失败验证约为 spec 的 2–3 倍。详见 [BLIND_SUITE_REPORT.md](BLIND_SUITE_REPORT.md) |
 | 上下文画像 | 已接入 baseline/LangSmith：repo_map、worker 摘要、裁剪报告；采样见 [CONTEXT_PROFILE.md](CONTEXT_PROFILE.md) |
 | System E2E（本地） | **通过（2026-10-25）**：导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照；`make system-e2e`，不进 CI |
 | CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型 → `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |
