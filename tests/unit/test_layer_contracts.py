@@ -28,6 +28,8 @@ from coding_agent.web.app import (
     _sse_with_id,
 )
 
+pytestmark = pytest.mark.regression
+
 # A2 对外的控制路由；A1 只通过这些入口驱动/观察运行。
 CONTROL_ROUTES = {
     "/api/sessions",

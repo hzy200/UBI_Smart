@@ -31,6 +31,8 @@ from coding_agent.sandbox.policy import (
 )
 from coding_agent.tools.artifacts import ShellArtifact, pack
 
+pytestmark = pytest.mark.regression
+
 CONFIG = {"configurable": {"thread_id": "t1"}}
 
 

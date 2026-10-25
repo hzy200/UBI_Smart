@@ -94,7 +94,10 @@ def test_no_args_shows_help() -> None:
     assert runner.invoke(cli_app.app, []).exit_code != 0
 
 
-def test_show_completion_outputs_a_script() -> None:
+def test_show_completion_outputs_a_script(monkeypatch) -> None:
+    # Typer 通过 shellingham 探测宿主 shell；CI/conda/无交互终端下探测失败，
+    # 会让 `--show-completion` 以 exit 1 收场。显式固定 shell，测试不依赖宿主环境。
+    monkeypatch.setattr("typer.completion._get_shell_name", lambda: "bash")
     result = runner.invoke(cli_app.app, ["--show-completion"])
 
     assert result.exit_code == 0

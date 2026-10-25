@@ -8,8 +8,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from coding_agent.config import Settings
 from coding_agent.graph.build import estimate_recursion_limit
+
+pytestmark = pytest.mark.regression
 
 MARGIN = 10  # planner + respond + 余量
 

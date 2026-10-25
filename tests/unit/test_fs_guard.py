@@ -20,6 +20,8 @@ from coding_agent.sandbox.fs import (
 from coding_agent.sandbox.pathguard import SandboxPathError
 from coding_agent.sandbox.wsl_exec import ExecResult
 
+pytestmark = pytest.mark.regression
+
 
 def _fs() -> SandboxFs:
     # _stat_script / _parse_stat 都不用沙箱，传个占位即可

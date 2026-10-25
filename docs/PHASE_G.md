@@ -20,6 +20,9 @@ Phase G 把“打开文件夹”升级为托管工作区，并在专用 WSL 发�
 conda activate agent
 python scripts/phase_g_smoke.py --distro CodingAgent --workspace /tmp/agent-e2e-smoke
 python scripts/phase_g_e2e.py --source "D:\\User\\e2e-src"
+
+# 固定入口：把同一流程作为 pytest 断言（本地手动执行）
+make system-e2e
 ```
 
 前置：专用发行版已导入，且当前代码已安装进它的 venv：
@@ -176,7 +179,58 @@ Phase G E2E：ok（导入/更新/回滚/归档恢复/上传/HMAC/真实审批/�
 - Phase D 子进程从仓库根启动时读到 `.env`，覆盖了演练注入的坏 URL；
   子进程改用临时目录作为 cwd。
 
-## 8. 已知限制
+## 8. 智能体级测试入口
+
+前面的验证脚本证明 A3+A4 链路可用；`pytest` 里还需要一个**可重复调用**的智能体
+验收入口，否则“agent 本身好不好”只能靠人工跑脚本。
+
+```bash
+AGENT_WSL_DISTRO=CodingAgent pytest -m agent_e2e \
+  tests/integration/test_agent_e2e.py -q
+# 或 make agent-e2e
+```
+
+标记同时带 `llm`：默认 `pytest -m "not llm"` 与 CI 都会跳过。两个用例：
+
+| 用例 | 覆盖 |
+|---|---|
+| `test_direct_agent_completes_task` | 工具调用、写源码、自动验证、判定通过、token 回报 |
+| `test_orchestrated_implement_parallel_workers` | `orchestrated_implement`、任务图、并发 worker、worktree 工具调用、补丁合并 |
+
+实测（2026-10-25，真实模型）：
+
+```text
+direct（single_file/off_by_one）：通过
+orchestrated（long/parallel_modules）：
+  workflow = orchestrated_implement
+  任务图 3（implement×2 + test×1）
+  worker 3，最大同批 2，状态全部 success
+  worker 工具 6 次；worker token in 18,657 / out 915
+  合并 2/2（成功率 1.0），冲突 0
+  并行度 0.593；判定通过
+```
+
+判定标准不是“模型说了什么”，而是任务自带的测试在源码改动后是否通过。
+强制编排的确定性来源：请求里出现“两件事一起做 / 分别完成”时，
+`rule_workflow` 直接选择写编排，不再额外询问模型。
+
+审批暂停/恢复、快照回滚、checkpoint 续跑仍由 `scripts/phase_g_e2e.py`
+做全链路真实验收，pytest 入口不重复这三类高成本场景。
+
+### 系统级入口（本地）
+
+`tests/integration/test_system_e2e.py` 把 `phase_g_e2e.py` 的 JSON 输出
+变成 pytest 断言，覆盖导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照：
+
+```bash
+AGENT_SYSTEM_E2E=1 AGENT_WSL_DISTRO=CodingAgent make system-e2e
+```
+
+默认不执行（标记带 `llm`，PR CI 跳过）。2026-10-25 本机实跑通过。
+测试会从子进程环境剔除 localhost 代理变量（WSL NAT 模式不支持），
+否则 A3 无法在 WSL 内启动。
+
+## 9. 已知限制
 
 - 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
   清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。

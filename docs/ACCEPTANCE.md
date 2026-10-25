@@ -133,12 +133,15 @@ python scripts/demo.py --only 1
 
 | 项 | 结果 |
 |---|---|
-| 快反馈 | `pytest -m "not wsl and not llm"` 收集 **1,904**，deselect **223**；MySQL 集成用例在无 `AGENT_TEST_MYSQL_URL` 时 skip |
-| 覆盖率 | **80.20%**（CI 子集，门槛 76）；P3 模块目标见 [COVERAGE.md](COVERAGE.md) |
+| 快反馈 | `pytest -m "not wsl and not llm"` 选中 **2,045**（2,043 通过 / 2 skip）；MySQL 集成用例在无 `AGENT_TEST_MYSQL_URL` 时 skip |
+| 覆盖率 | **82.68%**（CI 子集，门槛 76）；P3 模块目标见 [COVERAGE.md](COVERAGE.md) |
 | lint | 干净（`ruff check src tests`） |
 | 全量含 WSL | 本轮未重跑；旧 1561 passed / 87.5% 不再作为当前结论 |
 | 能力评测 | （历史基线，2026-10-18，未在本轮重跑）`default` 29 个短任务两轮 29/29（已饱和）；`long` 5 个长程任务 2/5。详见 [tests/eval/README](../tests/eval/README.md) |
-| LangSmith | （历史基线，未在本轮重跑）`coding-agent-full-v1` 150 条，capability 138/139；详见 [LANGSMITH_REPORT.md](LANGSMITH_REPORT.md) |
+| LangSmith | **157/157（2026-10-25）**：当时 `coding-agent-full-v2` 为 157 条；随后去重并新增子智能体覆盖，当前 `coding-agent-full-v3` 为 158 条（139 capability + 2 agent + 17 mechanism）。详见 [LANGSMITH_REPORT_V2.md](LANGSMITH_REPORT_V2.md) |
+| 难度套件（hard） | **13/14 ×2（92.9%，spread 0）**：14 个并发/spec/多层/排障/性能任务；稳定难点 `plugin_priority`。详见 [HARD_SUITE_REPORT.md](HARD_SUITE_REPORT.md) |
+| 上下文画像 | 已接入 baseline/LangSmith：repo_map、worker 摘要、裁剪报告；采样见 [CONTEXT_PROFILE.md](CONTEXT_PROFILE.md) |
+| System E2E（本地） | **通过（2026-10-25）**：导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照；`make system-e2e`，不进 CI |
 | CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型 → `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |
 
 > **口径提醒**：单次运行的通过率**说明不了任何事**。同一份代码曾跑出 52% 与 83%
@@ -152,8 +155,8 @@ python scripts/demo.py --only 1
 > **口径提醒**：全量一律写 `pytest -m "not llm"`。裸 `pytest` 会把那 3 条 `llm` 用例一起跑、
 > 真的调用模型 —— 本机 `.env` 配了 key 就计费，而它们本意是"需要时手动跑"。
 >
-> **CI 与本地不是一回事**：CI 是 Linux runner、没有 WSL2，只跑快反馈那 1,904 个用例
-> （其中 1 个 mysql 用例 skip），覆盖率 80.20%。沙箱层与能力层的覆盖仍依赖
+> **CI 与本地不是一回事**：CI 是 Linux runner、没有 WSL2，只跑快反馈那 2,045 个用例
+> （其中 2 个用例 skip），覆盖率 82.68%。沙箱层与能力层的覆盖仍依赖
 > `-m wsl`，本轮未重跑；CI 会以 `::warning::` 显式提示这个缺口。
 > 缺陷与待办集中在 [tech-debt.yaml](tech-debt.yaml)。
 >

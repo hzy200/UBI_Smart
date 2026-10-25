@@ -706,6 +706,14 @@ class AgentRuntime:
             history = history[: max(0, int(limit))]
         return history
 
+    async def final_state(self, thread_id: str) -> dict[str, Any]:
+        """读取该 thread 最近一次 checkpoint 的状态。
+
+        只读、不建图；评测用它取上下文画像（repo_map / worker 摘要 / 裁剪
+        报告）。运行失败或 checkpoint 不可用时返回空 dict。
+        """
+        return await self._prior_state(thread_id)
+
     async def _prior_state(self, thread_id: str) -> dict[str, Any]:
         """读取该 thread 上一次 checkpoint 的状态值。
 

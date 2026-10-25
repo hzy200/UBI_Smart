@@ -87,6 +87,10 @@ markers = [
     "wsl_env: 显式探测宿主 WSL 环境（如 doctor），允许真实执行沙箱命令",
     "execution: 真实 WSL/Linux 执行后端契约测试，允许启动沙箱命令",
     "mysql: 需要 AGENT_TEST_MYSQL_URL 指向独立测试库",
+    "smoke: 系统冒烟，无 WSL/LLM 依赖，提交/发版前快速确认主链路可用",
+    "regression: 承重不变量与历史回归集，失败即视为回归而不是新需求",
+    "agent_e2e: 智能体级端到端验收（真实 WSL + 真实模型，消耗额度）",
+    "system_e2e: A2/A3/A4 系统级端到端验收（专用 WSL 发行版 + 真实模型，本地手动执行）",
 ]
 
 [tool.coverage.run]
@@ -96,8 +100,8 @@ source = ["src/coding_agent"]
 # 把没被覆盖的行号打出来：沙箱层与能力层的缺口必须**看得见**，而不是藏在总数里
 show_missing = true
 # 门槛按 **CI 实际执行的那部分** 定：GitHub 托管 runner 是 Linux 容器、没有 WSL2，
-# 因此 `-m "not wsl and not llm"` 的子集在 Windows 上实测 78.87%（不含 wsl 集成测试）。
-# 取 76 而不是贴着 78.87：这些数字是在 Windows 上量的，CI 跑在 Linux，
+# 因此 `-m "not wsl and not llm"` 的子集在 Windows 上实测 82.68%（不含 wsl 集成测试）。
+# 取 76 而不是贴着 82.68：这些数字是在 Windows 上量的，CI 跑在 Linux，
 # 平台相关的分支（路径守卫、wsl 输出解码）会让数字小幅漂移，贴太近会变成随机红灯。
 # 本机跑全量（含 `-m wsl`）为 90.49%，远高于此值。
 # 之所以只做全局门槛而不按模块设：沙箱层的低覆盖（CI 子集下 tools/files.py 29%、

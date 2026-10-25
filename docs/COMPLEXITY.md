@@ -24,10 +24,10 @@ note: |
 | 源文件 | **179** |
 | 源码行数 | **43,789** |
 | 函数/方法 | **1,653** |
-| 测试文件 / 行数 | **168 / 42,896** |
-| 测试:源码 | **0.98 : 1** |
-| 快反馈用例 | **1,904**（`pytest -m "not wsl and not llm"`；223 deselected） |
-| 覆盖率 | **80.20%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
+| 测试文件 / 行数 | **178 / 45,362** |
+| 测试:源码 | **1.04 : 1** |
+| 快反馈用例 | **2,045**（`pytest -m "not wsl and not llm"`；2,043 通过 / 2 skip） |
+| 覆盖率 | **82.68%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
 
 测试体量已接近源码；但覆盖率只覆盖 CI 子集，真实 WSL/bwrap 与桌面入口
 不在其中，不能把全局数字当成所有子系统的健康度。
@@ -132,7 +132,7 @@ tui/web -> audit config events runtime
 | 复杂度集中度 | **改善**：8.8% 函数 CC>10，最大 CC 164 → 57 |
 | 真·复杂点 | `validate_tasks`、scheduler 主循环、fan-in、`execution._dispatch`、限流快照合并 |
 | 耦合 | **改善**：A2/A3 反向边已消除；宿主执行收敛到 `execution/host_ops.py`（ADR-0011） |
-| 可测性 | **改善**：0.98:1 测试比；CI 子集 80.20%，`implement.py` 19% → 77%、`control_server.py` 39% → 99%、`sandbox_backend.py` 44% → 100%；桌面 GUI 仍手测 |
+| 可测性 | **改善**：1.04:1 测试比；CI 子集 82.68%，`implement.py` 19% → 77%、`control_server.py` 39% → 99%、`sandbox_backend.py` 44% → 100%，重试/备份/合并等薄弱模块已补到 92%+；桌面 GUI 仍手测 |
 
 ## 7. 可选降复杂度动作（按性价比）
 

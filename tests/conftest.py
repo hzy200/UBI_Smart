@@ -33,6 +33,10 @@ def _forbid_real_wsl_unless_marked(request: pytest.FixtureRequest, monkeypatch) 
         request.node.get_closest_marker("wsl")
         or request.node.get_closest_marker("wsl_env")
         or request.node.get_closest_marker("execution")
+        # 智能体级 / 系统级 E2E 自己有标记：它们真实调用模型或启动 A2/A3，
+        # 不能被 `pytest -m wsl`（只跑沙箱层）顺带选中，因此不挂 wsl 标记。
+        or request.node.get_closest_marker("agent_e2e")
+        or request.node.get_closest_marker("system_e2e")
     ):
         return
 

@@ -54,6 +54,7 @@ from harness import (  # noqa: E402
 )
 from tasks import TASKS  # noqa: E402
 from tasks_full import TASKS_FULL  # noqa: E402
+from tasks_hard import TASKS_HARD  # noqa: E402
 from tasks_long import LONG_TASKS  # noqa: E402
 
 from coding_agent.config import get_settings  # noqa: E402
@@ -71,6 +72,8 @@ SUITES: dict[str, tuple[EvalTask, ...]] = {
     "long": LONG_TASKS,
     # LangSmith 全功能数据集使用的 104 个任务（与既有 ID 不重复）。
     "full": tuple(TASKS_FULL),
+    # 难度档：并发/竞态、隐藏需求、多层贯通、排障与性能。
+    "hard": tuple(TASKS_HARD),
 }
 
 
@@ -324,7 +327,10 @@ def main(argv: list[str] | None = None) -> int:
         "--suite",
         default="default",
         choices=sorted(SUITES),
-        help="跑哪个套件：default（29 个短任务）| long（几十文件的长程任务，成本高得多）",
+        help=(
+            "跑哪个套件：default（29 个短任务）| long（长程任务）"
+            "| full（104 个 capability）| hard（14 个难度任务）"
+        ),
     )
     parser.add_argument(
         "--verify-seeds", action="store_true", help="只跑判定，确认种子都未解决（不需要 API Key）"

@@ -22,8 +22,8 @@ orchestrator 子图，拆成 DAG 并发处理，最后把结构化结果交回�
 
 | 项 | 结果 |
 |---|---|
-| 快反馈 | `pytest -m "not wsl and not llm"` 收集 **1,904**（deselect 223），0 failed |
-| 覆盖率 | **80.20%**（CI 子集，`fail_under=76`；见 [COVERAGE.md](docs/COVERAGE.md)） |
+| 快反馈 | `pytest -m "not wsl and not llm"` 选中 **2,045**（2,043 通过 / 2 skip），0 failed |
+| 覆盖率 | **82.68%**（CI 子集，`fail_under=76`；见 [COVERAGE.md](docs/COVERAGE.md)） |
 | 全量含 WSL | 本轮未重跑；WSL/执行面仍由 `-m wsl` / `-m execution` 平台门禁守着 |
 | lint | `ruff check src tests` 干净 |
 | 前端 | `build_frontend.py` 构建 + `tsc --noEmit` 通过，`static/app.js` 无漂移 |

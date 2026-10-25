@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from coding_agent.audit import AuditLogger, verify_audit_files
 from coding_agent.audit.models import AuditRecord
+
+pytestmark = pytest.mark.regression
 
 
 def _record(detail: str) -> AuditRecord:

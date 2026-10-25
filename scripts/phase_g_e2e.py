@@ -186,12 +186,30 @@ def main(argv: list[str] | None = None) -> int:
         python=args.python,
         allow_write=True,
     )
-    server = supervisor.start_agent(
-        config,
-        log_path=work / "agent.log",
-        port=args.agent_port,
-    )
-    steps: dict = {"source": wsl_source, "agent_port": server.port}
+    try:
+        server = supervisor.start_agent(
+            config,
+            log_path=work / "agent.log",
+            port=args.agent_port,
+        )
+    except Exception as exc:  # noqa: BLE001 - 启动失败也要输出结构化结果
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "stage": "start_agent",
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 1
+    steps: dict = {
+        "source": wsl_source,
+        "agent_port": server.port,
+        "distro": args.distro,
+        "hmac": bool(hmac_key),
+    }
     try:
         env_settings = Settings()
         api_key = (

@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.regression
+
 SRC = Path(__file__).resolve().parents[2] / "src" / "coding_agent"
 
 # 前端包：只允许依赖 runtime / events / config 这些中立层

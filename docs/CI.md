@@ -34,8 +34,12 @@ review_cadence: 工作流文件变动时
 真实窗口与 OS 密钥环只做本地冒烟。
 
 **覆盖率门槛 `fail_under=76`** 按 CI 实际执行的子集定，不是贴着实测值
-（2026-10-24 CI 子集实测 **80.20%**，1,904 个用例；Linux/Windows 会有小幅漂移）。
+（2026-10-24 CI 子集实测 **82.68%**，2,045 个用例；Linux/Windows 会有小幅漂移）。
 子系统缺口见 [COVERAGE.md](COVERAGE.md)。原理见 `pyproject.toml` 的注释。
+
+五类测试（冒烟/单元/增量/集成/回归）的口径与放置规则见
+[TESTING.md](TESTING.md)。CI 的快反馈步骤已经包含 `smoke` 用例；
+增量选择器只在本地缩短反馈，不能替代这里的全量。
 
 ### 已知缺口
 
@@ -81,6 +85,9 @@ CI 是 Linux runner、没有 WSL2，所以 `wsl` 标记的用例**一行都没�
 
 ```bash
 make check                        # ruff + 快反馈
+make smoke                        # 冒烟（秒级，无外部依赖）
+make regression                   # 承重不变量回归集
+python scripts/select_tests.py --worktree   # 增量：只跑受影响的测试
 pytest -m "not llm"               # 全量（含真实 WSL）
 python scripts/gen_contracts.py   # 重生成契约
 python scripts/check_docs.py      # 文档一致性（过期只警告）

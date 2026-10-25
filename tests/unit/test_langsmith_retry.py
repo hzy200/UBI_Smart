@@ -22,6 +22,8 @@ def test_first_attempt_pass_does_not_retry() -> None:
 
     assert result["passed"] is True
     assert result["attempts"] == 1
+    assert result["first_attempt_passed"] is True
+    assert result["recovered_on_retry"] is False
     assert calls == 1
 
 
@@ -31,12 +33,19 @@ def test_failed_case_recovers_on_retry() -> None:
     def run_case():
         nonlocal calls
         calls += 1
-        return {"passed": calls >= 2}
+        return {
+            "passed": calls >= 2,
+            "verdict": "passed" if calls >= 2 else "failed",
+            "detail": "second" if calls >= 2 else "first boom",
+        }
 
     result = run_with_retries(run_case, retries=2)
 
     assert result["passed"] is True
     assert result["attempts"] == 2
+    assert result["first_attempt_passed"] is False
+    assert result["first_attempt"]["verdict"] == "failed"
+    assert result["first_attempt"]["detail"] == "first boom"
     assert result["recovered_on_retry"] is True
     assert calls == 2
 
@@ -53,4 +62,6 @@ def test_retries_are_bounded() -> None:
 
     assert result["passed"] is False
     assert result["attempts"] == 3
+    assert result["first_attempt_passed"] is False
+    assert result["recovered_on_retry"] is False
     assert calls == 3

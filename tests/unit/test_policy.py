@@ -4,6 +4,8 @@ import pytest
 
 from coding_agent.sandbox.policy import CommandLevel, classify
 
+pytestmark = pytest.mark.regression
+
 
 @pytest.mark.parametrize(
     "command",

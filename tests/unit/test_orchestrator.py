@@ -1063,6 +1063,43 @@ def test_review_role_uses_the_review_runner() -> None:
     assert result.findings == ["[warning] app/x.py 边界条件"]
 
 
+def test_readonly_worker_forwards_tool_calls() -> None:
+    """explore/review 的 tool_calls 必须进入 WorkerResult。
+
+    runtime 用 `len(result.tool_calls)` 生成 `WorkerFinished.tool_calls`。
+    漏掉这一步时，只读 worker 在评测里恒为 0 次工具调用 —— 看起来像
+    “worker 什么都没做”，实际只是指标没透传。
+    """
+    calls = [{"name": "file_read", "ok": True}]
+
+    async def explore_runner(**_kwargs):
+        return SubAgentArtifact(
+            agent_id="explore:e1",
+            parent_call_id="e1",
+            role="explore",
+            goal="定位",
+            status="success",
+            summary="ok",
+            tool_calls=list(calls),
+        )
+
+    runner = make_worker_runner(
+        explore_runner=explore_runner,  # type: ignore[arg-type]
+        review_runner=None,
+        sandbox=None,  # type: ignore[arg-type]
+        root="/ws",
+    )
+    result = _run(
+        runner(
+            {"id": "e1", "role": "explore", "goal": "定位"},
+            parent_request="r",
+            cwd="/ws",
+        )
+    )
+
+    assert result.tool_calls == calls
+
+
 def test_worker_runner_forwards_the_session_brief() -> None:
     seen: dict[str, Any] = {}
 

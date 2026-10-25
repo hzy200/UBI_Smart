@@ -33,16 +33,23 @@ python tests/eval/context_memory_bench.py --json   # 机器读 / A/B
 
 ## LangSmith 全功能评测
 
-`langsmith_suite.py` 把能力任务和机制探针放进同一份数据集：
+`langsmith_suite.py` 把能力任务、智能体级用例和机制探针放进同一份数据集：
 
 ```bash
-# 创建/补齐数据集（139 个 capability + 11 个 mechanism = 150）
-python tests/eval/langsmith_suite.py --upload --kinds all
+# 创建/补齐数据集（139 capability + 2 agent + 17 mechanism = 158）
+python tests/eval/langsmith_suite.py --upload --kinds all --dataset coding-agent-full-v3
 
-# 只跑机制探针（安全、路由、持久化、代码索引、账单配置、常驻 shell…）
+# 全量：能力 + 智能体 + 机制
+python tests/eval/langsmith_suite.py --run --kinds all \
+  --dataset coding-agent-full-v3 --case-retries 1 --concurrency 2
+
+# 只跑机制探针（安全、审计、工作区、HMAC、路由、持久化…）
 python tests/eval/langsmith_suite.py --run --kinds mechanism
 
-# 跑覆盖主要回路的 6 个 capability 抽样
+# 只跑智能体级用例（写编排 / 子智能体委派）
+python tests/eval/langsmith_suite.py --run --kinds agent
+
+# 跑覆盖主要回路的 7 个抽样（含写编排）
 python tests/eval/langsmith_suite.py --run --smoke
 
 # 只跑单个 case
@@ -52,19 +59,53 @@ python tests/eval/langsmith_suite.py --run --only single_file/off_by_one
 python tests/eval/langsmith_suite.py --run --kinds all --case-retries 1
 ```
 
-能力用例失败后会在独立工作区重跑一次，输出 `attempts` 与
+能力/智能体用例失败后会在独立工作区重跑一次，输出 `attempts` 与
 `recovered_on_retry`。长程/spec 类任务存在模型非确定性，单次失败不足以
 说明能力回归；重跑结果仍会如实标出首次失败。
 
 - `capability`：复用 `run_task`，真实 WSL + 模型，评估任务完成率；
   其中新增 `full` 套件 **104 个任务**（字符串/数值/集合/解析/校验/状态/
   跨文件/排障/spec/长程/并发/重构），种子与参考解均通过 `--verify-seeds`；
+- `agent`：复用同一批任务，但**显式覆盖运行设置**，确保真的走到目标工作流：
+
+  | case | 任务 | 断言 |
+  |---|---|---|
+  | `agent/orchestrated_implement` | `long/parallel_modules` | 工作流 = `orchestrated_implement`、≥2 worker、补丁合并成功、判定通过 |
+  | `agent/subagent_explore` | `long/discount_pipeline` | 关闭编排；提示词要求同时派 2 个 `delegate_explore`；断言 ≥1 子智能体、最大同批 ≥2、判定通过 |
+
+  之所以要单列：capability 用例走 `get_settings()` 默认值，而写编排默认关闭，
+  仅靠 capability 覆盖不到 implement worker 与 worktree 合并；子智能体委派
+  还需要关闭编排，否则 explore 会由 orchestration worker 代劳。
+- `CAPABILITY_CHECKS`：只读编排不另跑 case，而是在 capability 结果上断言
+  workflow 与 worker 数：
+
+  | capability case | 断言 |
+  |---|---|
+  | `long/discount_and_audit` | `parallel_readonly`、≥2 worker |
+  | `long/parallel_modules` | `parallel_readonly`、≥2 worker |
+
+  通过条件因此变成“任务判定通过 **且** 机制断言成立”。这样保留了只读编排
+  覆盖，又避免同一任务、同一设置重复跑一遍（约省 1M token/全量）。
 - `mechanism`：不调用模型，断言具体机制（secret 脱敏、写策略、allow rules、
-  steering 持久化、provider cost/capability 路由、import 图、账单配置、
-  shell 分级、LSP 分帧、常驻 shell、跨进程 usage）；
+  未登记工具 fail-closed、路径守卫、审计哈希链、归档 zip-slip、HMAC、
+  委派入口与 tool_calls 透传、steering 持久化、provider cost/capability 路由、
+  import 图、账单配置、shell 分级、LSP 分帧、常驻 shell、跨进程 usage）；
 - 子集运行会创建派生 dataset，不会误跑全量。
 
-最近一次本机实跑（2026-10-20，`coding-agent-full-v1`）：
+最近一次本机实跑（2026-10-25，`coding-agent-full-v2`）：
+
+- **157/157 = 100%**（139 capability + 2 agent + 16 mechanism），实验
+  `coding-agent-full-v2-a02ae03e`，并发 2，墙钟 30m08s；
+  （该轮之后删除了与 capability 重复的 `agent/parallel_readonly`，并新增
+  `agent/subagent_explore` 与委派机制探针；当前套件为 158 条：
+  139 capability + 2 agent + 17 mechanism）
+- 重跑后通过 1 个：`full/validation/username`（首次失败，第 2 次通过）；
+- 主 agent token 14.3M in / 0.21M out；worker 0.94M in / 0.085M out；
+- 机制：验证 156 ok / 62 failed、修复 43、重规划 45、worker 36、合并 2；
+- 写编排 3 任务 / 3 worker / 2 合并，只读并行 4 任务 / 5 worker；
+- 明细见 [docs/LANGSMITH_REPORT_V2.md](../../docs/LANGSMITH_REPORT_V2.md)。
+
+历史基线（2026-10-20，`coding-agent-full-v1`）：
 
 - `mechanism`：**11/11** 通过（安全、steering、路由、代码索引、账单配置、常驻 shell、成本对账）；
 - `smoke`：**6/6** 通过（direct、跨文件、排障、spec 隐藏测试、并发读、并发写/合并）；
@@ -78,6 +119,22 @@ python tests/eval/langsmith_suite.py --run --kinds all --case-retries 1
 - 另用真实 CLI 跑通 direct 修复与 4 个 implement worker 的并发写编排。
 
 ## 用法
+
+### pytest 入口（智能体 E2E）
+
+`tests/integration/test_agent_e2e.py` 复用本目录的 harness，给 pytest 一个
+可重复调用的智能体验收入口：
+
+```bash
+AGENT_WSL_DISTRO=CodingAgent pytest -m agent_e2e \
+  tests/integration/test_agent_e2e.py -q
+```
+
+它覆盖 `direct` 与 `orchestrated_implement` 两条路径，断言判定通过、确实写了
+源码、验证被触发，以及编排路径真的启动了 worker 并合并补丁。
+标记同时带 `llm`，所以 `pytest -m "not llm"` 不会执行。
+
+### runner 脚本
 
 ```bash
 # 看任务清单
@@ -177,19 +234,43 @@ python tests/eval/steering_bench.py --repeat 3 --delay-ms 50
 - 真正要测提升，得先把 `spread` 压下来（提高任务数、降低单任务方差），
   或者把量级扩上去让差异远大于波动 —— 这正是 §「还缺什么」说的那件事。
 
-## 两个套件
+## 套件
 
-任务按**成本量级**分成两个套件，各跑各的、各记各的基线：
+任务按**成本量级与难度**分成四个套件，各跑各的、各记各的基线：
 
 | 套件 | 任务 | 基线 | 跑法 |
 |---|---|---|---|
 | `default` | 29 个（20 basic + 9 deep） | `baseline.json` | `python tests/eval/runner.py` |
 | `long` | 6 个（5 个 38 文件长程任务 + 1 个多写 worker 演示） | `baseline_long.json` | `python tests/eval/runner.py --suite long` |
+| `full` | 104 个全功能 capability 任务 | `baseline_full.json` | `python tests/eval/runner.py --suite full` |
+| `hard` | 14 个并发/spec/多层/排障/性能硬任务 | `baseline_hard.json` | `python tests/eval/runner.py --suite hard` |
 
 分套件不是分类癖：长程档的单任务成本是前两档的若干倍，混进全量会让整轮变得
 不可承受；它的波动量级也不同（任务更少、每个更长），混着报会掩盖差异。
 分成套件之后，「是不是子集」变成**相对本套件**而言 —— 所以 `--suite long` 跑全集
 仍然是 `comparable: true`，不需要 `--force`。
+
+`hard` 是**难度套件**，用来解决 default/full 已饱和的问题。14 个任务覆盖：
+
+| 类别 | 数量 | 考点 |
+|---|---|---|
+| 并发/竞态 | 4 | 同一 key 只加载一次、异步并发上限、指数退避、令牌桶 |
+| 需求未覆盖 | 3 | 隐藏测试检查游标分页、幂等创建、DST 本地日期 |
+| 跨文件/多层 | 3 | 币种字段贯通、配置优先级、插件优先级 |
+| 排障 | 2 | 缓存防御性拷贝、批量导入原子性 |
+| 性能/批量 | 2 | N+1 批量化、LRU 淘汰 |
+
+先跑双向自检，再做 `--repeat 2` 量化噪声：
+
+```bash
+python tests/eval/runner.py --suite hard --verify-seeds
+python tests/eval/runner.py --suite hard --repeat 2
+```
+
+最近一次本机 `--repeat 2`：**13/14、13/14（92.9%），spread 0**。
+`hard/multilayer/plugin_priority` 是稳定难点（两轮失败，单独复跑通过），
+说明这套任务已经恢复了对当前模型的区分度。两轮 token 约 234 万。
+明细与任务定义修正见 [docs/HARD_SUITE_REPORT.md](../../docs/HARD_SUITE_REPORT.md)。
 
 ## 任务构成（default 套件）
 
@@ -310,6 +391,9 @@ python tests/eval/steering_bench.py --repeat 3 --delay-ms 50
 | `worker_merge_attempts` / `worker_conflicts` | implement 合并尝试 / `merge_error` 非空 |
 | `merge_success_rate` / `conflict_rate` | 无合并尝试时为 `None`，不是 0% |
 | `tasks_reporting_worker_tokens` | 有多少任务真的回报了 worker 用量 |
+| `context_profile` | repo_map / worker 摘要 / 上下文裁剪报告；采样分析见 [docs/CONTEXT_PROFILE.md](../../docs/CONTEXT_PROFILE.md) |
+| `cache_hit_tokens` / `cache_miss_tokens` | provider 前缀缓存命中/未命中；未回报时 `None` |
+| `cache_hit_rate` | `hit / (hit + miss)`；没有回报时为 `None` |
 
 `--repeat k` 时这些字段按轮求和；`worker_parallelism` 由合并后的秒数重算，
 不是把每轮的比率再平均。

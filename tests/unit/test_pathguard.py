@@ -12,6 +12,8 @@ from coding_agent.sandbox.pathguard import (
     wsl_to_win,
 )
 
+pytestmark = pytest.mark.regression
+
 ROOT = "/home/agent/ws"
 
 

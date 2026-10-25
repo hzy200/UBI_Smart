@@ -26,16 +26,20 @@ from harness import (  # noqa: E402
     _NO_TESTS_RE,
     BASIC,
     CATEGORIES,
+    CROSS_FILE,
+    DEBUG,
     DEEP,
     DEFAULT_JUDGE,
     EVAL_DIRNAME,
     LONG,
+    SINGLE_FILE,
     SPEC,
     TIERS,
     TaskResult,
     aggregate_runs,
     clean_workspace,
     comparability,
+    context_profile_of,
     eval_audit_dir,
     format_table,
     mechanism_summary,
@@ -83,8 +87,12 @@ def test_task_ids_are_unique() -> None:
 
 
 def test_every_category_has_tasks() -> None:
+    """默认套件覆盖四类能力；并发/性能类在 hard 套件里单独校验。"""
     present = {task.category for task in TASKS}
-    assert present == set(CATEGORIES), f"类别覆盖不全：{present}"
+    assert present == {SINGLE_FILE, CROSS_FILE, DEBUG, SPEC}, (
+        f"默认套件类别覆盖不全：{present}"
+    )
+    assert present <= set(CATEGORIES)
 
 
 def test_the_baseline_is_wide_enough_to_mean_something() -> None:
@@ -99,7 +107,12 @@ def test_the_baseline_is_wide_enough_to_mean_something() -> None:
     assert per_tier[BASIC] >= 20 and per_tier[DEEP] >= 6
     assert LONG not in per_tier, "长程档不该混进默认套件"
     per_category = Counter(task.category for task in TASKS)
-    assert set(per_category) == set(CATEGORIES), f"类别覆盖不全：{dict(per_category)}"
+    assert set(per_category) == {
+        SINGLE_FILE,
+        CROSS_FILE,
+        DEBUG,
+        SPEC,
+    }, f"默认套件类别覆盖不全：{dict(per_category)}"
     assert min(per_category.values()) >= 2, f"某一类任务太少：{dict(per_category)}"
 
 
@@ -358,6 +371,208 @@ def test_worker_parallelism_and_merge_quality() -> None:
     assert summary["worker_conflicts"] == 1
     assert summary["merge_success_rate"] == 0.5
     assert summary["conflict_rate"] == 0.5
+
+
+def test_context_profile_counts_injected_text() -> None:
+    profile = context_profile_of(
+        {
+            "repo_summary": {"repo_map": "abc", "file_count": 2},
+            "project_instructions": "rule",
+            "session_brief": "brief",
+            "worker_context": "ctx",
+            "orchestrator_summary": "sum",
+            "worker_brief": "brief2",
+            "tasks": [{"id": "t1"}],
+            "worker_results": [
+                {"summary": "hello", "findings": ["f1", "f2"]},
+                {"summary": "ok"},
+            ],
+            "context_trim": {
+                "before_chars": 100,
+                "after_chars": 80,
+                "before_tokens": 25,
+                "after_tokens": 20,
+                "trimmed": 1,
+                "node": "act",
+            },
+        }
+    )
+
+    assert profile["repo_map_chars"] == 3
+    assert profile["project_instructions_chars"] == 4
+    assert profile["planned_tasks"] == 1
+    assert profile["worker_summary_chars"] == 7
+    assert profile["worker_findings_chars"] == 4
+    assert profile["context_trim"] == {
+        "before_chars": 100,
+        "after_chars": 80,
+        "before_tokens": 25,
+        "after_tokens": 20,
+        "trimmed": 1,
+        "node": "act",
+    }
+
+
+def test_aggregate_runs_keeps_the_worst_context_profile() -> None:
+    small = summarize([
+        _result(
+            "t",
+            context_profile={
+                "repo_map_chars": 10,
+                "context_trim": {"before_tokens": 5},
+            },
+        )
+    ])
+    large = summarize([
+        _result(
+            "t",
+            context_profile={
+                "repo_map_chars": 99,
+                "context_trim": {"before_tokens": 50},
+            },
+        )
+    ])
+
+    merged = aggregate_runs([small, large])
+
+    assert merged["tasks"][0]["context_profile"]["repo_map_chars"] == 99
+
+
+def test_cache_hit_rate_is_reported() -> None:
+    summary = mechanism_summary([
+        _result("a", cache_hit_tokens=100, cache_miss_tokens=300),
+        _result("b", cache_hit_tokens=50, cache_miss_tokens=50),
+    ])
+
+    assert summary["cache_hit_tokens"] == 150
+    assert summary["cache_miss_tokens"] == 350
+    assert summary["tasks_reporting_cache"] == 2
+    assert summary["cache_hit_rate"] == 0.3
+
+
+def test_cache_is_none_when_nobody_reported() -> None:
+    summary = mechanism_summary([_result("a")])
+    assert summary["cache_hit_tokens"] is None
+    assert summary["cache_miss_tokens"] is None
+    assert summary["cache_hit_rate"] is None
+
+
+def test_merge_mechanisms_sums_cache() -> None:
+    runs = [
+        {
+            "pass_rate": 1.0,
+            "tasks": [],
+            "mechanism": {
+                "cache_hit_tokens": 100,
+                "cache_miss_tokens": 300,
+                "tasks_reporting_cache": 1,
+            },
+        },
+        {
+            "pass_rate": 1.0,
+            "tasks": [],
+            "mechanism": {
+                "cache_hit_tokens": 50,
+                "cache_miss_tokens": 50,
+                "tasks_reporting_cache": 1,
+            },
+        },
+    ]
+
+    merged = merge_mechanisms(runs)
+
+    assert merged["cache_hit_tokens"] == 150
+    assert merged["cache_miss_tokens"] == 350
+    assert merged["tasks_reporting_cache"] == 2
+    assert merged["cache_hit_rate"] == 0.3
+
+
+def test_aggregate_runs_sums_cache_tokens_across_repeats() -> None:
+    run1 = summarize([
+        _result("t", cache_hit_tokens=10, cache_miss_tokens=20)
+    ])
+    run2 = summarize([
+        _result("t", cache_hit_tokens=5, cache_miss_tokens=5)
+    ])
+
+    merged = aggregate_runs([run1, run2])
+
+    assert merged["tasks"][0]["cache_hit_tokens"] == 15
+    assert merged["tasks"][0]["cache_miss_tokens"] == 25
+
+
+def test_worker_statuses_are_broken_down_by_role() -> None:
+    """全局 `failed` 不能区分「test 在实现前失败」与「explore 崩了」。"""
+    summary = mechanism_summary([
+        _result(
+            "a",
+            worker_statuses={"failed": 2, "success": 1},
+            worker_statuses_by_role={
+                "test": {"failed": 2},
+                "explore": {"success": 1},
+            },
+        ),
+        _result(
+            "b",
+            worker_statuses={"success": 1},
+            worker_statuses_by_role={"implement": {"success": 1}},
+        ),
+    ])
+
+    assert summary["worker_statuses"] == {"failed": 2, "success": 2}
+    assert summary["worker_statuses_by_role"] == {
+        "explore": {"success": 1},
+        "implement": {"success": 1},
+        "test": {"failed": 2},
+    }
+
+
+def test_merge_mechanisms_merges_role_statuses() -> None:
+    runs = [
+        {
+            "pass_rate": 1.0,
+            "tasks": [],
+            "mechanism": {
+                "worker_statuses_by_role": {
+                    "test": {"failed": 1},
+                    "explore": {"success": 1},
+                }
+            },
+        },
+        {
+            "pass_rate": 1.0,
+            "tasks": [],
+            "mechanism": {
+                "worker_statuses_by_role": {
+                    "test": {"failed": 1},
+                    "implement": {"success": 2},
+                }
+            },
+        },
+    ]
+
+    merged = merge_mechanisms(runs)
+
+    assert merged["worker_statuses_by_role"] == {
+        "explore": {"success": 1},
+        "implement": {"success": 2},
+        "test": {"failed": 2},
+    }
+
+
+def test_aggregate_runs_merges_role_statuses_across_repeats() -> None:
+    run1 = summarize([
+        _result("t", worker_statuses_by_role={"test": {"failed": 1}})
+    ])
+    run2 = summarize([
+        _result("t", worker_statuses_by_role={"test": {"failed": 2}})
+    ])
+
+    merged = aggregate_runs([run1, run2])
+
+    assert merged["tasks"][0]["worker_statuses_by_role"] == {
+        "test": {"failed": 3}
+    }
 
 
 def test_merge_rates_are_none_when_no_merge_was_attempted() -> None:

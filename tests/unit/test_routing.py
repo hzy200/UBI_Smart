@@ -21,6 +21,8 @@ from coding_agent.graph.routing import (
     route_after_planner,
 )
 
+pytestmark = pytest.mark.regression
+
 MAX_REPAIRS = 3
 route_after_verify = make_route_after_verify(MAX_REPAIRS)
 route_after_review = make_route_after_review(MAX_REPAIRS)

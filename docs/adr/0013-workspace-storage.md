@@ -53,6 +53,6 @@ Agent 执行依赖 POSIX 语义：文件锁、可执行位、符号链接、`git
 
 ## 复核
 
-- **Verified by**：`tests/unit/test_workspace_registry.py`、后续
-  `tests/unit/test_workspace_revisions.py`。
+- **Verified by**：`tests/unit/test_workspace_registry.py`、
+  `tests/unit/test_workspace_quota_revision.py`。
 - **Revisit when**：企业部署内部 Git 服务，或需要多机共享工作区时。

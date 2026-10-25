@@ -144,6 +144,10 @@ def make_worker_runner(
                 input_tokens=artifact.input_tokens,
                 output_tokens=artifact.output_tokens,
                 duration_ms=int(artifact.duration_ms or 0),
+                # 只读 worker 的工具调用也要透传：runtime 用
+                # `len(result.tool_calls)` 统计 WorkerFinished.tool_calls。
+                # 漏掉这一项会让所有 explore/review worker 看起来一次工具都没用。
+                tool_calls=list(artifact.tool_calls),
                 llm_ms=artifact.llm_ms,
                 tool_ms=artifact.tool_ms,
                 timed_out=artifact.timed_out,
