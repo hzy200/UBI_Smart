@@ -32,6 +32,11 @@ pytestmark = pytest.mark.mysql
 def _url() -> str:
     url = os.environ.get("AGENT_TEST_MYSQL_URL", "").strip()
     if not url:
+        # 测试便利：允许直接复用 .env 中配置的控制面测试库。
+        from coding_agent.config import Settings
+
+        url = str(Settings().control_db_url or "").strip()
+    if not url:
         pytest.skip("未设置 AGENT_TEST_MYSQL_URL")
     database = make_url(url).database or ""
     if "test" not in database:
