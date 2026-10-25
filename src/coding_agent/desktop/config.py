@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 
@@ -61,6 +61,12 @@ class LauncherConfig:
     workspace: str = ""
     python: str = ""
     allow_write: bool = False
+    # RFC-0001：当前工作区与最近打开列表；旧 `workspace` 字段继续兼容。
+    workspace_id: str = ""
+    recent_workspaces: list[str] = field(default_factory=list)
+    # M4：A2 控制面数据库；空 = 继续用 gui-sessions.json。
+    # 例：mysql+pymysql://user:pass@127.0.0.1:3306/coding_agent
+    control_db_url: str = ""
 
     @classmethod
     def load(cls) -> LauncherConfig | None:
@@ -71,11 +77,19 @@ class LauncherConfig:
             return None
         if not isinstance(data, dict):
             return None
+        recent = data.get("recent_workspaces")
         return cls(
             distro=str(data.get("distro") or "Ubuntu"),
             workspace=str(data.get("workspace") or ""),
             python=str(data.get("python") or ""),
             allow_write=bool(data.get("allow_write", False)),
+            workspace_id=str(data.get("workspace_id") or ""),
+            recent_workspaces=(
+                [str(item) for item in recent if item]
+                if isinstance(recent, list)
+                else []
+            ),
+            control_db_url=str(data.get("control_db_url") or "").strip(),
         )
 
     def save(self) -> None:

@@ -117,15 +117,47 @@ def _control_prefix() -> list[str]:
     return [sys.executable, "-m", "coding_agent.control_server"]
 
 
+_WORKSPACE_ENV_KEYS = (
+    "AGENT_WORKSPACE_REGISTRY",
+    "AGENT_WORKSPACE_ROOT",
+    "AGENT_WORKSPACE_ARCHIVE_ROOT",
+    "AGENT_WORKSPACE_REVISIONS_KEEP",
+    "AGENT_WORKSPACE_IMPORT_MODE",
+    "AGENT_WORKSPACE_SCAN_PROVIDER",
+    "AGENT_WORKSPACE_MOUNT_ROOTS",
+    "AGENT_ALLOW_GIT_CLONE",
+)
+
+_WORKSPACE_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in _WORKSPACE_TRUTHY
+
+
 def _agent_env(config: LauncherConfig) -> dict[str, str]:
-    data_root = f"{home(config.distro)}/.coding-agent"
-    return {
+    wsl_home = home(config.distro)
+    data_root = f"{wsl_home}/.coding-agent"
+    env = {
         "AGENT_AUDIT_DIR": f"{data_root}/audit",
         "AGENT_CHECKPOINT_PATH": f"{data_root}/checkpoints.sqlite",
         "AGENT_STEERING_DIR": f"{data_root}/steering",
         "AGENT_EXECUTION_BACKEND": "local",
         "PYTHONIOENCODING": "utf-8",
     }
+    # Windows 侧的 AGENT_WORKSPACE_* 不会自动进入 WSL；显式透传。
+    for key in _WORKSPACE_ENV_KEYS:
+        value = os.environ.get(key, "").strip()
+        if value:
+            env[key] = value
+    if _truthy(os.environ.get("AGENT_WORKSPACE_REGISTRY")):
+        # 默认根必须与 A2 记录的是同一套 WSL 路径。
+        env.setdefault(
+            "AGENT_WORKSPACE_ROOT", f"{wsl_home}/agent-ws/users"
+        )
+        env.setdefault("AGENT_WORKSPACE_MOUNT_ROOTS", "/mnt/")
+        env.setdefault("AGENT_WORKSPACE_IMPORT_MODE", "copy")
+    return env
 
 
 def build_command(
@@ -170,7 +202,10 @@ def build_control_command(
         "--log-level",
         "warning",
     ]
-    if os.environ.get("AGENT_CONTROL_DB_URL", "").strip():
+    if (
+        str(config.control_db_url or "").strip()
+        or os.environ.get("AGENT_CONTROL_DB_URL", "").strip()
+    ):
         command.append("--migrate")
     if config.allow_write:
         command.append("--write")
@@ -258,6 +293,29 @@ def start_agent(
     problems = config.validate()
     if problems:
         raise RuntimeError("；".join(problems))
+    require_hardening = _truthy(
+        os.environ.get("AGENT_WSL_REQUIRE_HARDENING")
+    ) or _truthy(os.environ.get("AGENT_WORKSPACE_REGISTRY"))
+    if require_hardening:
+        from coding_agent.desktop import hardening
+
+        try:
+            report = hardening.check(
+                config.distro,
+                require_no_interop=_truthy(
+                    os.environ.get("AGENT_WSL_REQUIRE_NO_INTEROP")
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - 探测失败按不通过
+            raise RuntimeError(
+                f"WSL 加固检查失败：{type(exc).__name__}: {exc}"
+            ) from exc
+        if not report.ok:
+            raise RuntimeError(
+                "WSL 加固不满足要求：" + "；".join(report.problems)
+            )
+        for warning in report.warnings:
+            _LOG.warning("WSL 加固提示：%s", warning)
     if config.workspace.startswith("/"):
         ensure_dir(config.distro, config.workspace)
     data_root = f"{home(config.distro)}/.coding-agent"
@@ -316,6 +374,8 @@ def start_control(
             "PYTHONIOENCODING": "utf-8",
         }
     )
+    if str(config.control_db_url or "").strip():
+        env["AGENT_CONTROL_DB_URL"] = config.control_db_url.strip()
     token = token or secrets.token_urlsafe(32)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     proc = _spawn(
