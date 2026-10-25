@@ -92,7 +92,15 @@ python scripts/setup_control_mysql.py \
 `AGENT_CONTROL_DB_URL` 交给 A2，迁移使用管理员账号
 `control_server --migrate`。
 
-## 4. 已知限制
+## 4. 多实例事件传输
+
+A2↔A3 默认使用内存事件缓冲；配置 `AGENT_EVENT_TRANSPORT=redis` 后写入
+Redis Streams，并按 `seq` 重放。这里**刻意不使用 consumer group**：
+每个 A2 实例都需要完整事件流来服务自己的 SSE 客户端，consumer group
+会把同一条事件只投递给一个消费者。当前重放仍按 `seq` 过滤，后续可用
+阻塞读或专用索引优化扫描量。
+
+## 5. 已知限制
 
 - 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
   清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。
