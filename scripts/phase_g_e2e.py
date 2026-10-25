@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import shlex
 import sys
 import tempfile
@@ -143,6 +144,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="真实运行并触发一次写工具审批，随后验证快照回滚",
     )
+    parser.add_argument(
+        "--hmac",
+        action="store_true",
+        help="启用 A2→A3 context HMAC 签名联调",
+    )
     args = parser.parse_args(argv)
 
     source = Path(args.source)
@@ -157,6 +163,9 @@ def main(argv: list[str] | None = None) -> int:
     wsl_source = _wsl_source(str(source.resolve()))
 
     work = Path(tempfile.mkdtemp(prefix="coding-agent-e2e-"))
+    hmac_key = secrets.token_hex(32) if args.hmac else ""
+    if hmac_key:
+        os.environ["AGENT_INTERNAL_HMAC_KEY"] = hmac_key
     os.environ.update(
         {
             "AGENT_WORKSPACE_REGISTRY": "true",
@@ -203,9 +212,12 @@ def main(argv: list[str] | None = None) -> int:
             workspace_scan_provider="none",
             agent_internal_url=f"http://127.0.0.1:{server.port}",
             agent_internal_token=server.token,
+            agent_internal_hmac_key=hmac_key,
         )
         client = HttpAgentClient(
-            settings.agent_internal_url, server.token
+            settings.agent_internal_url,
+            server.token,
+            hmac_key=hmac_key,
         )
         app = create_app(
             settings,

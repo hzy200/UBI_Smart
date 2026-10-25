@@ -417,7 +417,9 @@ def test_agent_env_passes_explicit_values(monkeypatch) -> None:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("AGENT_WORKSPACE_ROOT", "/srv/ws")
     monkeypatch.setenv("AGENT_WORKSPACE_MOUNT_ROOTS", "/mnt/e")
+    monkeypatch.setenv("AGENT_INTERNAL_HMAC_KEY", "hmac-key")
     env = supervisor._agent_env(_config())
     assert env["AGENT_WORKSPACE_ROOT"] == "/srv/ws"
     assert env["AGENT_WORKSPACE_MOUNT_ROOTS"] == "/mnt/e"
+    assert env["AGENT_INTERNAL_HMAC_KEY"] == "hmac-key"
     assert "AGENT_WORKSPACE_REGISTRY" not in env

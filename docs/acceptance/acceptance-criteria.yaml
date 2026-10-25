@@ -1628,3 +1628,12 @@ criteria:
     status: implemented
     tests: [tests/unit/test_workspace_upload_a3.py::test_upload_success_activates_and_cleans, tests/unit/test_workspace_upload_proxy.py::test_upload_forwards_file, tests/unit/test_phase_g_e2e.py::test_help]
     see: docs/PHASE_G.md
+
+  - id: REQ-182
+    title: 内部 HMAC 签名联调
+    given: 桌面启动器透传 AGENT_INTERNAL_HMAC_KEY
+    when: A2 调用 A3 的导入/上传/回滚
+    then: A3 验签通过；未签名或篡改请求返回 401
+    status: implemented
+    tests: [tests/unit/test_internal_hmac.py::test_agent_accepts_valid_signature, tests/unit/test_internal_hmac.py::test_agent_rejects_missing_signature, tests/unit/test_desktop_supervisor.py::test_agent_env_passes_explicit_values]
+    see: docs/PHASE_G.md
