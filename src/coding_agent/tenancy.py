@@ -93,6 +93,14 @@ class TenantManager:
             else Path.cwd() / ".agent" / "web" / "users"
         )
 
+    @property
+    def workspaces_root(self) -> str:
+        """工作区注册表的默认根（RFC-0001）。
+
+        `AGENT_WORKSPACE_ROOT` 为空时回退到这里；调用方仍应先读显式配置。
+        """
+        return self._workspaces_root()
+
     def _workspaces_root(self) -> str:
         configured = str(self.settings.web_workspaces_root or "").strip()
         if configured:

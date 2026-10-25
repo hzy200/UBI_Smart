@@ -92,6 +92,7 @@ class ControlStore:
                 {
                     "thread_id": row.thread_id,
                     "workspace": row.workspace,
+                    "workspace_id": row.workspace_id,
                     "access_mode": row.access_mode,
                     "model": row.model,
                     "provider": row.provider,
@@ -123,6 +124,9 @@ class ControlStore:
                     )
                     session.add(row)
                 row.workspace = str(data.get("workspace") or "")
+                row.workspace_id = str(
+                    data.get("workspace_id") or ""
+                )[:36]
                 row.access_mode = str(
                     data.get("access_mode") or "read_only"
                 )

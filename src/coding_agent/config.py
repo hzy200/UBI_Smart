@@ -613,6 +613,70 @@ class Settings(BaseSettings):
     # auto | keyring | systemd；服务器部署用 systemd-creds，Vault/KMS 走同一 Protocol。
     secret_provider: str = Field(default="auto", alias="AGENT_SECRET_PROVIDER")
 
+    # ---------- 工作区注册表（RFC-0001，默认关闭） ----------
+    # false = 继续使用 control_sessions.workspace 裸路径，行为与旧部署一致。
+    workspace_registry: bool = Field(
+        default=False, alias="AGENT_WORKSPACE_REGISTRY"
+    )
+    # 工作区根；空 = 沿用租户 workspaces_root（TenantManager）。
+    # 必须是 A3/A4 视角的绝对 POSIX 路径。
+    workspace_root: str = Field(default="", alias="AGENT_WORKSPACE_ROOT")
+    # revision 归档根；空 = 关闭归档（仍可运行，但不能灾难恢复）。
+    workspace_archive_root: str = Field(
+        default="", alias="AGENT_WORKSPACE_ARCHIVE_ROOT"
+    )
+    # 每个工作区保留的 revision 数；超出后清理最旧的非 pinned 归档。
+    workspace_revisions_keep: int = Field(
+        default=10, alias="AGENT_WORKSPACE_REVISIONS_KEEP"
+    )
+    # copy = 桌面默认复制到 ext4；mount = 显式降级，需二次确认。
+    workspace_import_mode: str = Field(
+        default="copy", alias="AGENT_WORKSPACE_IMPORT_MODE"
+    )
+    # none | clamav；企业部署应在 M3 设为 clamav 并配合 fail-closed。
+    workspace_scan_provider: str = Field(
+        default="none", alias="AGENT_WORKSPACE_SCAN_PROVIDER"
+    )
+    # 允许的 /mnt 挂载根，逗号分隔；空 = 禁止任何挂载工作区。
+    workspace_mount_roots: str = Field(
+        default="", alias="AGENT_WORKSPACE_MOUNT_ROOTS"
+    )
+    # 本期不实现 git clone；保留开关，未来接入内部 Git 服务时打开。
+    allow_git_clone: bool = Field(
+        default=False, alias="AGENT_ALLOW_GIT_CLONE"
+    )
+    # 项目归档上传上限（单包、需 Content-Length）；默认 200 MiB。
+    workspace_upload_max_bytes: int = Field(
+        default=209_715_200, alias="AGENT_WORKSPACE_UPLOAD_MAX_BYTES"
+    )
+    # 解包后的文件数上限。
+    workspace_upload_max_files: int = Field(
+        default=200_000, alias="AGENT_WORKSPACE_UPLOAD_MAX_FILES"
+    )
+    # 解压比上限：解压后总字节 / 归档字节，防止 zip bomb。
+    workspace_extract_max_ratio: int = Field(
+        default=200, alias="AGENT_WORKSPACE_EXTRACT_MAX_RATIO"
+    )
+    # ClamAV 单次扫描超时。
+    workspace_scan_timeout_s: int = Field(
+        default=300, alias="AGENT_WORKSPACE_SCAN_TIMEOUT_S"
+    )
+
+    # ---------- 一致性与内部签名（M4） ----------
+    # 会话级运行租约 TTL；A2 崩溃后到期自动释放。
+    run_lease_ttl_s: int = Field(
+        default=120, alias="AGENT_RUN_LEASE_TTL_S"
+    )
+    # 幂等键保留时间。
+    idempotency_ttl_s: int = Field(
+        default=600, alias="AGENT_IDEMPOTENCY_TTL_S"
+    )
+    # 空 = 只依赖内部 Bearer token（兼容旧部署）；
+    # 非空 = A2 对 X-Agent-Context 做 HMAC，A3 验签。
+    agent_internal_hmac_key: str = Field(
+        default="", alias="AGENT_INTERNAL_HMAC_KEY"
+    )
+
     # ---------- 共享事件传输（Phase B3） ----------
     # memory = 单实例内存；redis = Redis Streams（多实例 SSE 重放）。
     event_transport: str = Field(

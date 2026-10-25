@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Float,
     Index,
@@ -23,7 +24,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-CONTROL_SCHEMA_VERSION = "1"
+CONTROL_SCHEMA_VERSION = "4"
 
 
 class Base(DeclarativeBase):
@@ -45,6 +46,9 @@ class ControlSession(Base):
     tenant: Mapped[str] = mapped_column(String(128), primary_key=True)
     thread_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     workspace: Mapped[str] = mapped_column(Text, default="")
+    # RFC-0001：业务身份用 workspace_id；workspace 是运行时解析结果。
+    # 旧行默认空串，由回填脚本幂等补齐。
+    workspace_id: Mapped[str] = mapped_column(String(36), default="", index=True)
     access_mode: Mapped[str] = mapped_column(String(16), default="read_only")
     model: Mapped[str] = mapped_column(String(128), default="")
     provider: Mapped[str] = mapped_column(String(128), default="")
@@ -136,3 +140,103 @@ class ControlUsageDaily(Base):
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class RunLease(Base):
+    """会话级运行租约（RFC-0001，M4）。
+
+    A2 在转发 run/resume 前抢占；A2 崩溃后由 expires_at 自动失效。
+    A3 不连接本表，仍保留进程内活跃判断。
+    """
+
+    __tablename__ = "run_leases"
+
+    session_key: Mapped[str] = mapped_column(String(192), primary_key=True)
+    lease_id: Mapped[str] = mapped_column(String(36), default="")
+    owner: Mapped[str] = mapped_column(String(128), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+
+
+class IdempotencyKey(Base):
+    """短期幂等记录；只存 JSON 响应，不存文件内容。"""
+
+    __tablename__ = "idempotency_keys"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(32), default="")
+    # running | done
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    response: Mapped[str] = mapped_column(Text, default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+
+
+class Workspace(Base):
+    """工作区业务身份（RFC-0001）。
+
+    `root_path` 只由 A2 生成，客户端不能提交；文件字节属于 A3/A4。
+    本表不存文件内容、checkpoint 或 API Key。
+    """
+
+    __tablename__ = "workspaces"
+
+    workspace_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128), default="")
+    owner: Mapped[str] = mapped_column(String(128), default="")
+    slug: Mapped[str] = mapped_column(String(64), default="")
+    display_name: Mapped[str] = mapped_column(String(120), default="")
+    source: Mapped[str] = mapped_column(String(24), default="upload")
+    root_path: Mapped[str] = mapped_column(Text, default="")
+    # ext4 | mount；mount 表示显式降级（性能/隔离更弱）。
+    root_kind: Mapped[str] = mapped_column(String(16), default="ext4")
+    # provisioning | active | archived | failed | deleted
+    status: Mapped[str] = mapped_column(String(16), default="provisioning")
+    access_mode: Mapped[str] = mapped_column(String(16), default="read_only")
+    quota_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    used_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+    degraded_fs: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 由旧 control_sessions.workspace 回填而来；不享受新配额/归档语义。
+    legacy: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    updated_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant", "owner", "slug", name="uq_workspace_tenant_owner_slug"
+        ),
+        Index("ix_workspaces_tenant_status", "tenant", "status"),
+        Index("ix_workspaces_owner", "tenant", "owner"),
+    )
+
+
+class WorkspaceRevision(Base):
+    """一次导入/上传的不可变快照；归档字节在 A4 的归档盘。"""
+
+    __tablename__ = "workspace_revisions"
+
+    revision_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), default="")
+    source: Mapped[str] = mapped_column(String(24), default="upload")
+    actor: Mapped[str] = mapped_column(String(128), default="")
+    git_commit: Mapped[str] = mapped_column(String(64), default="")
+    archive_path: Mapped[str] = mapped_column(Text, default="")
+    archive_sha256: Mapped[str] = mapped_column(String(64), default="")
+    bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+    # clean | warn | failed | skipped
+    scan_status: Mapped[str] = mapped_column(String(16), default="skipped")
+    # active | superseded | pruned
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    # pinned 不参与自动清理，可独立于状态存在。
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index(
+            "ix_workspace_revisions_workspace_created",
+            "workspace_id",
+            "created_at",
+        ),
+    )

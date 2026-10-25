@@ -25,6 +25,10 @@ _LOG = logging.getLogger(__name__)
 _MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 _INI = Path(__file__).resolve().parent / "alembic.ini"
 
+# Phase B 的 create_all 只建过这一版基线。旧库没有 alembic_version 时，
+# 必须先 stamp 到它，再 upgrade，否则会漏掉后续增量迁移。
+BASELINE_REVISION = "0001_control_schema"
+
 
 def alembic_config(url: str) -> Config:
     config = Config(str(_INI))
@@ -43,6 +47,35 @@ def has_table(url: str, name: str) -> bool:
         return bool(inspect(engine).has_table(name))
     finally:
         engine.dispose()
+
+
+def has_column(url: str, table: str, column: str) -> bool:
+    engine = _connect(url)
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table(table):
+            return False
+        return any(
+            item["name"] == column
+            for item in inspector.get_columns(table)
+        )
+    finally:
+        engine.dispose()
+
+
+def _is_current_schema(url: str) -> bool:
+    """判断旧库是否已经是“新 create_all”建出的最新结构。
+
+    `Base.metadata.create_all` 会给新库直接建出 workspaces / workspace_id；
+    这类库只需补 alembic_version，不能重复执行 0002。
+    """
+    return (
+        has_table(url, "workspaces")
+        and has_column(url, "control_sessions", "workspace_id")
+        and has_column(url, "workspace_revisions", "pinned")
+        and has_table(url, "run_leases")
+        and has_table(url, "idempotency_keys")
+    )
 
 
 def current_revision(url: str) -> str | None:
@@ -77,9 +110,14 @@ def upgrade(
 
     config = alembic_config(url)
     if existing and current_revision(url) is None:
-        # Phase B 的旧库没有 alembic_version；只标记基线，不重建。
-        command.stamp(config, "head")
-        return {"action": "stamp", "revision": current_revision(url)}
+        if _is_current_schema(url):
+            # 新 create_all 已建出最新结构，只需补版本标记。
+            command.stamp(config, "head")
+            return {"action": "stamp", "revision": current_revision(url)}
+        # Phase B 旧库只建过基线：先 stamp 到 0001，再执行增量迁移。
+        command.stamp(config, BASELINE_REVISION)
+        command.upgrade(config, "head")
+        return {"action": "upgrade", "revision": current_revision(url)}
 
     command.upgrade(config, "head")
     return {"action": "upgrade", "revision": current_revision(url)}
