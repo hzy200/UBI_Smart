@@ -74,7 +74,25 @@ AGENT_WORKSPACE_MOUNT_ROOTS=/mnt/d
 AGENT_WSL_REQUIRE_HARDENING=true
 ```
 
-## 3. 已知限制
+## 3. 控制面 MySQL 初始化
+
+脚本只建库、建用户、授权，**不安装 MySQL**；迁移仍由管理员账号执行。
+
+```bash
+# 先看 SQL，不连接数据库
+python scripts/setup_control_mysql.py --dry-run
+
+# 有建库/建用户权限的账号执行
+python scripts/setup_control_mysql.py \
+  --admin-url "mysql+pymysql://root:***@127.0.0.1:3306/" \
+  --show-url
+```
+
+默认授权 `SELECT/INSERT/UPDATE/DELETE`，不授予 DDL；输出里的
+`AGENT_CONTROL_DB_URL` 交给 A2，迁移使用管理员账号
+`control_server --migrate`。
+
+## 4. 已知限制
 
 - 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
   清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。

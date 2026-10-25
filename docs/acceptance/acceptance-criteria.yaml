@@ -1597,3 +1597,23 @@ criteria:
     status: implemented
     tests: [tests/unit/test_phase_g_e2e.py::test_help]
     see: docs/PHASE_G.md
+
+  - id: REQ-179
+    title: 控制面 MySQL 初始化脚本
+    given: 已安装 MySQL 且提供管理员账号
+    when: 运行 setup_control_mysql.py
+    then: |
+      生成 utf8mb4 数据库与最小权限应用账号；默认不授予 DDL；
+      dry-run 不连接数据库且密码脱敏。
+    status: implemented
+    tests: [tests/unit/test_setup_control_mysql.py::test_help, tests/unit/test_setup_control_mysql.py::test_build_statements, tests/unit/test_setup_control_mysql.py::test_invalid_identifier_is_rejected, tests/unit/test_setup_control_mysql.py::test_password_validation, tests/unit/test_setup_control_mysql.py::test_dry_run]
+    see: docs/PHASE_G.md
+
+  - id: REQ-180
+    title: 重复运行返回可重连的 409
+    given: 同一会话已有活跃运行
+    when: 再次启动 run/resume
+    then: 返回 409，包含 code=run_in_progress、thread_id 与 stream_url；前端自动重连
+    status: implemented
+    tests: [tests/unit/test_run_leases.py::test_lease_conflict_detail_points_to_stream]
+    see: docs/rfc/0001-workspace-registry.md

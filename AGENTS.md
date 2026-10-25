@@ -35,6 +35,7 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 | Phase F 迁移/回滚演练 | `python scripts/phase_f_drill.py` |
 | Phase G WSL 环境冒烟 | `python scripts/phase_g_smoke.py` |
 | Phase G 工作区 E2E（需专用发行版） | `python scripts/phase_g_e2e.py --source <项目目录>` |
+| 控制面 MySQL 初始化（不安装 MySQL） | `python scripts/setup_control_mysql.py --dry-run` |
 | 性能基线 | `python scripts/phase_f_bench.py` |
 | 前端构建 / 类型检查 | `python scripts/build_frontend.py` |
 | 提交前一把梭 | `make check`（= lint + 快反馈） |
