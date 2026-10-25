@@ -202,6 +202,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
         context = deps.context(request)
         infos = SessionIndex(deps.audit_dir(context)).list(limit=50)
         items: list[dict] = []
+        approval_checks = 0
         for info in infos:
             state = deps.states.get(
                 (_safe_tenant(context.tenant), info.thread_id)
@@ -215,6 +216,27 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
                 status = "interrupted"
             if not status:
                 continue
+            approvals = 0
+            if (
+                status in {"paused", "interrupted"}
+                and approval_checks < 10
+            ):
+                approval_checks += 1
+                temporary = None
+                try:
+                    temporary = deps.new_runtime(context)
+                    found = await temporary.pending_approvals(
+                        info.thread_id
+                    )
+                    approvals = len(found)
+                except Exception:  # noqa: BLE001 - 单个会话失败不影响列表
+                    approvals = 0
+                finally:
+                    if temporary is not None:
+                        try:
+                            await deps.close_runtime(temporary)
+                        except Exception:  # noqa: BLE001
+                            pass
             items.append(
                 {
                     "thread_id": info.thread_id,
@@ -223,7 +245,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
                     "last_active": info.last_seen,
                     "status": status,
                     "recoverable": status in {"paused", "interrupted"},
-                    "approvals": 0,
+                    "approvals": approvals,
                 }
             )
         return {"items": items}
