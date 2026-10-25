@@ -92,18 +92,20 @@ python tests/eval/langsmith_suite.py --run --kinds all --case-retries 1
   import 图、账单配置、shell 分级、LSP 分帧、常驻 shell、跨进程 usage）；
 - 子集运行会创建派生 dataset，不会误跑全量。
 
-最近一次本机实跑（2026-10-25，`coding-agent-full-v2`）：
+最近一次本机实跑（2026-10-25，`coding-agent-full-v3`，L3 审批修复后）：
 
-- **157/157 = 100%**（139 capability + 2 agent + 16 mechanism），实验
-  `coding-agent-full-v2-a02ae03e`，并发 2，墙钟 30m08s；
-  （该轮之后删除了与 capability 重复的 `agent/parallel_readonly`，并新增
-  `agent/subagent_explore` 与委派机制探针；当前套件为 158 条：
-  139 capability + 2 agent + 17 mechanism）
-- 重跑后通过 1 个：`full/validation/username`（首次失败，第 2 次通过）；
-- 主 agent token 14.3M in / 0.21M out；worker 0.94M in / 0.085M out；
-- 机制：验证 156 ok / 62 failed、修复 43、重规划 45、worker 36、合并 2；
-- 写编排 3 任务 / 3 worker / 2 合并，只读并行 4 任务 / 5 worker；
-- 明细见 [docs/LANGSMITH_REPORT_V2.md](../../docs/LANGSMITH_REPORT_V2.md)。
+- **158/158 = 100%**（139 capability + 2 agent + 17 mechanism），实验
+  `coding-agent-full-v3-fixed-7a6830ab`，并发 2，墙钟 31m37s；
+- **158/158 首次通过**，无重跑；
+- 主 agent 14.69M in / 0.22M out；worker 0.72M in / 0.075M out；
+- 缓存命中率 **21.2%**（3.17M hit / 11.75M miss）；
+- 子智能体 2 个（最大同批 2）；写编排 4 worker、2 次合并；
+- 明细见 [docs/LANGSMITH_REPORT_V3.md](../../docs/LANGSMITH_REPORT_V3.md)。
+
+历史基线（2026-10-25，`coding-agent-full-v2`）：157/157，实验
+`coding-agent-full-v2-a02ae03e`，墙钟 30m08s；1 次重跑
+（`full/validation/username`）。明细见
+[docs/LANGSMITH_REPORT_V2.md](../../docs/LANGSMITH_REPORT_V2.md)。
 
 历史基线（2026-10-20，`coding-agent-full-v1`）：
 

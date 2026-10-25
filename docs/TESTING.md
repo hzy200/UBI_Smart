@@ -116,8 +116,8 @@ AGENT_SYSTEM_E2E=1 AGENT_WSL_DISTRO=CodingAgent make system-e2e
 
 更大规模的全量口径在 `tests/eval/langsmith_suite.py`：158 条（139 capability +
 2 agent + 17 mechanism；历史重复的 `agent/parallel_readonly` 已并入 capability
-的 workflow 断言，并新增子智能体委派用例），最近一次实跑 157/157，见
-[LANGSMITH_REPORT_V2.md](LANGSMITH_REPORT_V2.md)。
+的 workflow 断言，并新增子智能体委派用例），最近一次 L3 审批修复后实跑
+**158/158**，见 [LANGSMITH_REPORT_V3.md](LANGSMITH_REPORT_V3.md)。
 
 现有 default/full 已饱和时，用 `tests/eval/tasks_hard.py` 的 **hard 套件**
 （14 个并发/隐藏需求/多层/排障/性能任务）恢复区分度：
