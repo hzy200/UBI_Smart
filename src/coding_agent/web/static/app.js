@@ -164,6 +164,9 @@
     projectJobId: "",
     projectJobWorkspaceId: "",
     projectDropActive: false,
+    projectPercent: 0,
+    projectTransferPercent: 0,
+    projectProgressText: "",
     revisions: [],
     revisionBusy: false,
     desktopAvailable: false,
@@ -457,6 +460,15 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     pinLabel(revision) {
       return revision.pinned ? "\u53D6\u6D88 pin" : "pin";
     },
+    projectDisplayPercent() {
+      if (this.projectTransferPercent > 0 && this.projectTransferPercent < 100) {
+        return this.projectTransferPercent;
+      }
+      return Math.max(0, Math.min(100, Number(this.projectPercent || 0)));
+    },
+    projectBarStyle() {
+      return `width: ${this.projectDisplayPercent()}%;`;
+    },
     selectedProject() {
       return this.projects.find(
         (item) => item.workspace_id === this.projectId
@@ -515,7 +527,18 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         const data = await readJson(response, "\u8BFB\u53D6\u4EFB\u52A1\u72B6\u6001\u5931\u8D25");
         const scan = data.scan_status ? ` \xB7 \u626B\u63CF ${data.scan_status}` : "";
         this.projectMessage = `${label}\uFF1A${data.status}${scan}`;
+        const pct = data.progress;
+        if (typeof pct === "number") {
+          this.projectPercent = Math.max(0, Math.min(100, pct));
+        }
+        const phase = data.progress_phase || data.status;
+        const done = Number(data.processed_bytes || 0);
+        const total = Number(data.total_bytes || 0);
+        this.projectProgressText = `${phase}` + (total ? ` \xB7 ${this.formatBytes(done)} / ${this.formatBytes(total)}` : "") + (typeof pct === "number" ? ` \xB7 ${pct}%` : "");
         if (["active", "failed", "cancelled"].includes(data.status)) {
+          this.projectPercent = data.status === "active" ? 100 : 0;
+          this.projectTransferPercent = 100;
+          this.projectProgressText = data.status === "active" ? `\u5B8C\u6210 \xB7 ${this.formatBytes(data.bytes || 0)}` : `${data.status}${data.error ? " \xB7 " + data.error : ""}`;
           this.projectJobId = "";
           this.projectJobKind = "";
           this.projectJobWorkspaceId = "";
@@ -546,6 +569,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         if (!path) return;
         const name = path.split("/").filter(Boolean).pop() || "project";
         this.projectBusy = true;
+        this.projectPercent = 0;
+        this.projectTransferPercent = 0;
+        this.projectProgressText = "";
         this.projectMessage = `\u6B63\u5728\u5BFC\u5165 ${path} \u2026`;
         const created = await readJson(
           await authFetch("/api/workspaces", {
@@ -632,6 +658,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       ) || "project";
       try {
         this.projectBusy = true;
+        this.projectPercent = 0;
+        this.projectTransferPercent = 0;
+        this.projectProgressText = "";
         this.projectMessage = `\u6B63\u5728\u4E0A\u4F20 ${file.name} \u2026`;
         const created = await readJson(
           await authFetch("/api/workspaces", {
@@ -646,17 +675,45 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         );
         const form = new FormData();
         form.append("archive", file, file.name);
-        const job = await readJson(
-          await authFetch(
-            `/api/workspaces/${encodeURIComponent(created.workspace_id)}/uploads`,
-            {
-              method: "POST",
-              headers: { "Idempotency-Key": newIdempotencyKey() },
-              body: form
+        const job = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open(
+            "POST",
+            `/api/workspaces/${encodeURIComponent(created.workspace_id)}/uploads`
+          );
+          const token = getToken();
+          if (token) {
+            xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+          }
+          xhr.setRequestHeader("Idempotency-Key", newIdempotencyKey());
+          xhr.upload.onprogress = (event) => {
+            if (!event.lengthComputable) return;
+            this.projectTransferPercent = Math.max(
+              0,
+              Math.min(100, Math.round(event.loaded / event.total * 100))
+            );
+            this.projectMessage = `\u4E0A\u4F20\u4E2D ${this.projectTransferPercent}%`;
+          };
+          xhr.onload = () => {
+            let payload = {};
+            try {
+              payload = JSON.parse(xhr.responseText || "{}");
+            } catch (err) {
+              payload = {};
             }
-          ),
-          "\u542F\u52A8\u4E0A\u4F20\u5931\u8D25"
-        );
+            if (xhr.status >= 400) {
+              const detail = payload.detail;
+              reject(new Error(
+                typeof detail === "string" ? detail : JSON.stringify(detail || payload)
+              ));
+              return;
+            }
+            resolve(payload);
+          };
+          xhr.onerror = () => reject(new Error("\u4E0A\u4F20\u7F51\u7EDC\u9519\u8BEF"));
+          xhr.send(form);
+        });
+        this.projectTransferPercent = 100;
         this.projectJobKind = "uploads";
         this.projectJobWorkspaceId = created.workspace_id;
         this.projectJobId = job.job_id;

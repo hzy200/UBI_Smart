@@ -27,6 +27,9 @@ def test_app_js_contains_workspace_flow() -> None:
         "releaseLease",
         "purgeMaintenance",
         "restoreRevision",
+        "projectProgressText",
+        "projectBarStyle",
+        "XMLHttpRequest",
     ):
         assert marker in text, marker
 
@@ -44,6 +47,8 @@ def test_index_contains_registry_section() -> None:
     assert "恢复归档" in text
     assert 'aria-label="选择项目"' in text
     assert 'aria-label="项目归档文件"' in text
+    assert 'class="progress-bar"' in text
+    assert 'x-text="projectProgressText"' in text
 
 
 def test_style_has_narrow_layout_and_focus() -> None:

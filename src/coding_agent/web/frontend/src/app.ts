@@ -131,6 +131,9 @@ const agentApp = () => ({
   projectJobId: '',
   projectJobWorkspaceId: '',
   projectDropActive: false,
+  projectPercent: 0,
+  projectTransferPercent: 0,
+  projectProgressText: '',
   revisions: [],
   revisionBusy: false,
   desktopAvailable: false,
@@ -443,6 +446,20 @@ const agentApp = () => ({
     return revision.pinned ? '取消 pin' : 'pin';
   },
 
+  projectDisplayPercent() {
+    if (
+      this.projectTransferPercent > 0 &&
+      this.projectTransferPercent < 100
+    ) {
+      return this.projectTransferPercent;
+    }
+    return Math.max(0, Math.min(100, Number(this.projectPercent || 0)));
+  },
+
+  projectBarStyle() {
+    return `width: ${this.projectDisplayPercent()}%;`;
+  },
+
   selectedProject() {
     return this.projects.find(
       (item) => item.workspace_id === this.projectId,
@@ -511,7 +528,26 @@ const agentApp = () => ({
       const data = await readJson(response, '读取任务状态失败');
       const scan = data.scan_status ? ` · 扫描 ${data.scan_status}` : '';
       this.projectMessage = `${label}：${data.status}${scan}`;
+      const pct = data.progress;
+      if (typeof pct === 'number') {
+        this.projectPercent = Math.max(0, Math.min(100, pct));
+      }
+      const phase = data.progress_phase || data.status;
+      const done = Number(data.processed_bytes || 0);
+      const total = Number(data.total_bytes || 0);
+      this.projectProgressText =
+        `${phase}` +
+        (total
+          ? ` · ${this.formatBytes(done)} / ${this.formatBytes(total)}`
+          : '') +
+        (typeof pct === 'number' ? ` · ${pct}%` : '');
       if (['active', 'failed', 'cancelled'].includes(data.status)) {
+        this.projectPercent = data.status === 'active' ? 100 : 0;
+        this.projectTransferPercent = 100;
+        this.projectProgressText =
+          data.status === 'active'
+            ? `完成 · ${this.formatBytes(data.bytes || 0)}`
+            : `${data.status}${data.error ? ' · ' + data.error : ''}`;
         this.projectJobId = '';
         this.projectJobKind = '';
         this.projectJobWorkspaceId = '';
@@ -546,6 +582,9 @@ const agentApp = () => ({
       if (!path) return;
       const name = path.split('/').filter(Boolean).pop() || 'project';
       this.projectBusy = true;
+      this.projectPercent = 0;
+      this.projectTransferPercent = 0;
+      this.projectProgressText = '';
       this.projectMessage = `正在导入 ${path} …`;
       const created = await readJson(
         await authFetch('/api/workspaces', {
@@ -634,6 +673,9 @@ const agentApp = () => ({
     ) || 'project';
     try {
       this.projectBusy = true;
+      this.projectPercent = 0;
+      this.projectTransferPercent = 0;
+      this.projectProgressText = '';
       this.projectMessage = `正在上传 ${file.name} …`;
       const created = await readJson(
         await authFetch('/api/workspaces', {
@@ -648,17 +690,48 @@ const agentApp = () => ({
       );
       const form = new FormData();
       form.append('archive', file, file.name);
-      const job = await readJson(
-        await authFetch(
+      const job: any = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(
+          'POST',
           `/api/workspaces/${encodeURIComponent(created.workspace_id)}/uploads`,
-          {
-            method: 'POST',
-            headers: { 'Idempotency-Key': newIdempotencyKey() },
-            body: form,
-          },
-        ),
-        '启动上传失败',
-      );
+        );
+        const token = getToken();
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        }
+        xhr.setRequestHeader('Idempotency-Key', newIdempotencyKey());
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          this.projectTransferPercent = Math.max(
+            0,
+            Math.min(100, Math.round((event.loaded / event.total) * 100)),
+          );
+          this.projectMessage =
+            `上传中 ${this.projectTransferPercent}%`;
+        };
+        xhr.onload = () => {
+          let payload: any = {};
+          try {
+            payload = JSON.parse(xhr.responseText || '{}');
+          } catch (err) {
+            payload = {};
+          }
+          if (xhr.status >= 400) {
+            const detail = payload.detail;
+            reject(new Error(
+              typeof detail === 'string'
+                ? detail
+                : JSON.stringify(detail || payload),
+            ));
+            return;
+          }
+          resolve(payload);
+        };
+        xhr.onerror = () => reject(new Error('上传网络错误'));
+        xhr.send(form);
+      });
+      this.projectTransferPercent = 100;
       this.projectJobKind = 'uploads';
       this.projectJobWorkspaceId = created.workspace_id;
       this.projectJobId = job.job_id;

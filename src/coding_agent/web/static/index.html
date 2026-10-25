@@ -456,6 +456,10 @@
       </div>
       <div class="note" x-show="projectDropActive">松开以选择该归档</div>
       <div class="note" x-show="projectMessage" x-text="projectMessage"></div>
+      <div class="progress" x-show="projectBusy || projectPercent > 0">
+        <div class="progress-bar" :style="projectBarStyle()"></div>
+      </div>
+      <div class="note" x-show="projectProgressText" x-text="projectProgressText"></div>
       <template x-for="p in projects" :key="p.workspace_id">
         <div class="file-head">
           <span x-text="projectLabel(p)"></span>
