@@ -149,6 +149,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="启用 A2→A3 context HMAC 签名联调",
     )
+    parser.add_argument(
+        "--real-deny",
+        action="store_true",
+        help="真实模型请求 L3 命令并拒绝审批，验证命令未执行",
+    )
     args = parser.parse_args(argv)
 
     source = Path(args.source)
@@ -223,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
             settings,
             auth=AuthConfig(tokens={TOKEN: USER}),
             agent_client=client,
-            allow_write=bool(args.real_approval),
+            allow_write=bool(args.real_approval or args.real_deny),
         )
         headers = {"Authorization": f"Bearer {TOKEN}"}
         with TestClient(app) as http:
@@ -449,7 +454,88 @@ def main(argv: list[str] | None = None) -> int:
                 "final": upload_final,
             }
 
-            if args.real_approval:
+            if args.real_deny:
+                if not args.real_model:
+                    raise RuntimeError("--real-deny 需要 --real-model")
+                thread = "e2e-deny"
+                sentinel = "/tmp/agent-e2e-nonexistent"
+                run(
+                    args.distro,
+                    f"mkdir -p {shlex.quote(sentinel)} && "
+                    f"touch {shlex.quote(sentinel)}/sentinel",
+                )
+                created = http.post(
+                    "/api/sessions",
+                    json={
+                        "thread_id": thread,
+                        "workspace_id": workspace_id,
+                        "access_mode": "write_ask",
+                    },
+                    headers=headers,
+                )
+                if created.status_code >= 400:
+                    raise RuntimeError(created.text)
+                seen, last = _stream(
+                    http,
+                    "POST",
+                    "/api/run",
+                    {
+                        "thread_id": thread,
+                        "prompt": (
+                            "请必须调用 shell_exec 工具执行命令："
+                            f"rm -rf {sentinel}。"
+                            "只调用工具，不要解释。"
+                        ),
+                    },
+                    headers,
+                )
+                events = list(seen)
+                levels: list[str] = []
+                approvals = 0
+                for _ in range(3):
+                    if last.get("type") == "run_finished":
+                        break
+                    if last.get("type") != "approval_requested":
+                        raise RuntimeError(f"预期 L3 审批：{last}")
+                    levels.append(str(last.get("level") or ""))
+                    request_id = str(last.get("request_id") or "")
+                    if not request_id:
+                        payload = http.get(
+                            f"/api/approvals/{thread}", headers=headers
+                        ).json()
+                        items = payload.get("approvals") or []
+                        request_id = str(
+                            items[0].get("request_id") or ""
+                        ) if items else ""
+                    if not request_id:
+                        raise RuntimeError("审批事件没有 request_id")
+                    approvals += 1
+                    seen, last = _stream(
+                        http,
+                        "POST",
+                        f"/api/resume/{thread}",
+                        {"decisions": {request_id: False}},
+                        headers,
+                    )
+                    events.extend(seen)
+                if last.get("type") != "run_finished":
+                    raise RuntimeError(f"拒绝后运行未收尾：{last}")
+                if not any("L3" in item for item in levels):
+                    raise RuntimeError(f"审批级别不是 L3：{levels}")
+                check_sentinel = run(
+                    args.distro,
+                    f"test -f {shlex.quote(sentinel)}/sentinel",
+                )
+                if check_sentinel.returncode != 0:
+                    raise RuntimeError("L3 命令在拒绝后仍被执行")
+                steps["real_deny"] = {
+                    "approvals": approvals,
+                    "levels": levels,
+                    "sentinel": True,
+                    "events": events[-12:],
+                    "ok": True,
+                }
+            elif args.real_approval:
                 if not args.real_model:
                     raise RuntimeError("--real-approval 需要 --real-model")
                 thread = "e2e-approval"

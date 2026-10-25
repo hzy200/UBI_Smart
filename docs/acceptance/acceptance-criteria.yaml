@@ -1646,3 +1646,12 @@ criteria:
     status: implemented
     tests: [tests/unit/test_control_services.py::test_redis_transport_two_instances_share_stream]
     see: docs/adr/0014-event-fanout-not-consumer-group.md
+
+  - id: REQ-184
+    title: L3 危险命令拒绝后不执行
+    given: write_ask 会话与真实模型
+    when: 模型请求 rm -rf 危险命令，人工拒绝
+    then: 触发 L3 审批；拒绝后命令未执行（sentinel 仍在），运行正常收尾
+    status: implemented
+    tests: [tests/unit/test_phase_g_e2e.py::test_help]
+    see: docs/PHASE_G.md

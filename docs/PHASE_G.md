@@ -61,6 +61,8 @@ revision：git commit + tar.gz + sha256
           snapshots=1，restore 删除该文件并完成回滚
 浏览器上传：zip → active，2 个文件，scan=skipped，revision 1
 HMAC 联调：--hmac 启用 AGENT_INTERNAL_HMAC_KEY，A2→A3 请求全部验签通过
+L3 拒绝：rm -rf 触发 2 次审批（L3/L2），全部拒绝；sentinel 仍在，
+          run_finished
 ```
 
 第二次导入复用当前 `.git` 历史（硬链接对象），staging 完成后原子替换；
