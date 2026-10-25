@@ -21,15 +21,18 @@ from __future__ import annotations
 import asyncio
 import glob
 import hashlib
+import json
 import os
 import re
 import shlex
 import shutil
 import tarfile
 import threading
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -72,6 +75,86 @@ class ImportDeps:
 
 class _Cancelled(Exception):
     pass
+
+
+_TERMINAL = {"active", "failed", "cancelled"}
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat(timespec="microseconds")
+
+
+def _jobs_root(settings: Settings) -> Path:
+    base = str(settings.agent_data_root or "").strip()
+    if base:
+        return Path(base) / "workspace_jobs"
+    return Path(settings.resolved_audit_dir).parent / "workspace_jobs"
+
+
+def _write_job_file(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        key: value
+        for key, value in data.items()
+        if not str(key).startswith("_")
+    }
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
+
+def _persist_job(deps: ImportDeps, job: dict[str, Any]) -> None:
+    try:
+        path = _jobs_root(deps.settings) / f"{job['job_id']}.json"
+        _write_job_file(path, job)
+    except OSError:
+        # 状态落盘失败不应中断任务；内存态仍可用于本次运行。
+        pass
+
+
+def _load_jobs(deps: ImportDeps) -> None:
+    """启动时载入任务；未完成的标记失败并清理 staging。"""
+    root = _jobs_root(deps.settings)
+    if not root.is_dir():
+        return
+    keep_s = max(1, int(deps.settings.workspace_job_retention_days or 7))
+    cutoff = time.time() - keep_s * 86400
+    try:
+        paths = sorted(root.glob("*.json"))
+    except OSError:
+        return
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        job_id = str(data.get("job_id") or path.stem)
+        status = str(data.get("status") or "")
+        if status not in _TERMINAL:
+            target = str(data.get("target") or "")
+            if target:
+                _recover_swap(target)
+            for key in ("staging", "workdir"):
+                leftover = str(data.get(key) or "")
+                if leftover:
+                    shutil.rmtree(leftover, ignore_errors=True)
+            data.update(
+                status="failed",
+                error="A3 重启，任务中断",
+                staging="",
+                workdir="",
+            )
+            _write_job_file(path, data)
+        elif path.stat().st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+            continue
+        data["_cancel"] = threading.Event()
+        deps.jobs[job_id] = data
 
 
 def _roots(settings: Settings) -> tuple[str, ...]:
@@ -217,11 +300,13 @@ def _update(
 ) -> None:
     with deps.lock:
         job.update(fields)
+        job["updated_at"] = _now_iso()
+        _persist_job(deps, job)
 
 
 def _public(job: dict[str, Any]) -> dict[str, Any]:
     # staging 是 A3 内部路径，不暴露给 A2/前端。
-    hidden = {"staging"}
+    hidden = {"staging", "workdir"}
     return {
         key: value
         for key, value in job.items()
@@ -622,6 +707,8 @@ async def _run_upload(
 
 
 def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
+    _load_jobs(deps)
+
     @app.post("/v1/workspaces/import")
     async def start_import(
         body: WorkspaceImportBody, request: Request
@@ -649,6 +736,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
             job = {
                 "job_id": job_id,
                 "workspace_id": context.workspace_id,
+                "kind": "import",
                 "status": "queued",
                 "source": source,
                 "target": context.workspace,
@@ -656,9 +744,11 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                 "files": 0,
                 "error": "",
                 "staging": "",
+                "created_at": _now_iso(),
                 "_cancel": threading.Event(),
             }
             deps.jobs[job_id] = job
+            _persist_job(deps, job)
         asyncio.create_task(_run_import(deps, context, job, body))
         return _public(job)
 
@@ -721,18 +811,22 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
             job = {
                 "job_id": job_id,
                 "workspace_id": context.workspace_id,
+                "kind": "upload",
                 "status": "receiving",
                 "source": filename,
                 "target": target,
+                "workdir": workdir,
                 "bytes": 0,
                 "files": 0,
                 "scan_status": "",
                 "scan_detail": "",
                 "revision": None,
                 "error": "",
+                "created_at": _now_iso(),
                 "_cancel": threading.Event(),
             }
             deps.jobs[job_id] = job
+            _persist_job(deps, job)
 
         archive_path = os.path.join(workdir, "archive.bin")
         total = 0

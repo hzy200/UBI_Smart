@@ -661,6 +661,10 @@ class Settings(BaseSettings):
     workspace_scan_timeout_s: int = Field(
         default=300, alias="AGENT_WORKSPACE_SCAN_TIMEOUT_S"
     )
+    # A3 导入/上传任务状态保留天数；超期的终态文件在下次启动时清理。
+    workspace_job_retention_days: int = Field(
+        default=7, alias="AGENT_WORKSPACE_JOB_RETENTION_DAYS"
+    )
 
     # ---------- 一致性与内部签名（M4） ----------
     # 会话级运行租约 TTL；A2 崩溃后到期自动释放。
