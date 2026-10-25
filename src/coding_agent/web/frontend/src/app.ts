@@ -939,9 +939,15 @@ const agentApp = () => ({
     this.capabilities = await readJson(response, '无法读取能力');
     const budget = Number(this.capabilities.run_cost_budget_usd || 0);
     const maxUpload = Number(this.capabilities.max_upload_bytes || 0);
+    const projectUpload = Number(
+      this.capabilities.workspace_upload_max_bytes || 0,
+    );
     this.limitsText =
       `单次运行成本预算：${budget > 0 ? '$' + budget.toFixed(2) : '未设置'} · ` +
-      `单文件上传上限：${this.formatBytes(maxUpload)}`;
+      `单文件上传上限：${this.formatBytes(maxUpload)}` +
+      (projectUpload
+        ? ` · 项目归档上限：${this.formatBytes(projectUpload)}`
+        : '');
     this.refreshBadgeClass();
     if (this.capabilities.workspace_registry) {
       await this.loadProjects();

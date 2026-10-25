@@ -977,7 +977,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.capabilities = await readJson(response, "\u65E0\u6CD5\u8BFB\u53D6\u80FD\u529B");
       const budget = Number(this.capabilities.run_cost_budget_usd || 0);
       const maxUpload = Number(this.capabilities.max_upload_bytes || 0);
-      this.limitsText = `\u5355\u6B21\u8FD0\u884C\u6210\u672C\u9884\u7B97\uFF1A${budget > 0 ? "$" + budget.toFixed(2) : "\u672A\u8BBE\u7F6E"} \xB7 \u5355\u6587\u4EF6\u4E0A\u4F20\u4E0A\u9650\uFF1A${this.formatBytes(maxUpload)}`;
+      const projectUpload = Number(
+        this.capabilities.workspace_upload_max_bytes || 0
+      );
+      this.limitsText = `\u5355\u6B21\u8FD0\u884C\u6210\u672C\u9884\u7B97\uFF1A${budget > 0 ? "$" + budget.toFixed(2) : "\u672A\u8BBE\u7F6E"} \xB7 \u5355\u6587\u4EF6\u4E0A\u4F20\u4E0A\u9650\uFF1A${this.formatBytes(maxUpload)}` + (projectUpload ? ` \xB7 \u9879\u76EE\u5F52\u6863\u4E0A\u9650\uFF1A${this.formatBytes(projectUpload)}` : "");
       this.refreshBadgeClass();
       if (this.capabilities.workspace_registry) {
         await this.loadProjects();
