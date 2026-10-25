@@ -18,7 +18,7 @@ Phase G 把“打开文件夹”升级为托管工作区，并在专用 WSL 发�
 
 ```bash
 conda activate agent
-python scripts/phase_g_smoke.py --workspace /tmp/agent-e2e-smoke
+python scripts/phase_g_smoke.py --distro CodingAgent --workspace /tmp/agent-e2e-smoke
 python scripts/phase_g_e2e.py --source "D:\\User\\e2e-src"
 ```
 
@@ -144,7 +144,39 @@ processed_files  当前阶段已处理文件数
 A2 → A3 之后的解包/归档阶段由前端轮询上述字段显示。HTTP 一旦进入 A3，
 客户端无法直接读服务端进度，因此服务端阶段以轮询为准。
 
-## 7. 已知限制
+## 7. 全量验收（2026-10-25）
+
+环境：Windows 11 + conda `agent` + 专用 WSL `CodingAgent` + MySQL 8.0.27。
+
+```text
+全量 pytest -m "not llm"：通过（含 WSL / MySQL / execution，1 skip）
+LLM 测试：3 passed
+冒烟（smoke）：25 passed
+回归（regression）：350 passed
+覆盖率（快反馈）：82%（2279 passed，1 skipped）
+Phase D 故障演练：7/7
+Phase G 环境冒烟：ok
+Phase G E2E：ok（导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照）
+```
+
+性能基线（本机 loopback、fake A3、无真实网络）：
+
+| 指标 | SQLite | MySQL 8.0 |
+|---|---|---|
+| ExecutionService 代理 p95 | 1.06 ms | 1.08 ms |
+| control save_sessions p95 | 11.8 ms | 18.8 ms |
+| control index_audit(500) | 36.5 ms | 192.4 ms |
+| A2 启动（Popen→healthz） | ~3.8 s | ~3.8 s |
+| SSE 首事件 p95 | 60.8 ms | 47.7 ms |
+
+全量测试发现并修复了两处测试环境耦合：
+
+- `.env`/宿主环境中的 `AGENT_CONTROL_DB_URL` 被 `_env_file=None` 的用例读到，
+  导致共享 MySQL 污染；`tests/conftest.py` 默认隔离该变量，MySQL 用例放行。
+- Phase D 子进程从仓库根启动时读到 `.env`，覆盖了演练注入的坏 URL；
+  子进程改用临时目录作为 cwd。
+
+## 8. 已知限制
 
 - 导入/上传任务状态落盘到 A3 数据目录；A3 重启后未完成任务标记 failed、
   清理 staging，终态任务保留 `AGENT_WORKSPACE_JOB_RETENTION_DAYS` 天。
