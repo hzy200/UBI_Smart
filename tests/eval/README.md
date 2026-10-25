@@ -267,10 +267,12 @@ python tests/eval/runner.py --suite hard --verify-seeds
 python tests/eval/runner.py --suite hard --repeat 2
 ```
 
-最近一次本机 `--repeat 2`：**13/14、13/14（92.9%），spread 0**。
-`hard/multilayer/plugin_priority` 是稳定难点（两轮失败，单独复跑通过），
-说明这套任务已经恢复了对当前模型的区分度。两轮 token 约 234 万。
-明细与任务定义修正见 [docs/HARD_SUITE_REPORT.md](../../docs/HARD_SUITE_REPORT.md)。
+最近一次干净工作区 `--repeat 2`（commit `f062a78`）：
+**14/14、14/14（100%），spread 0**，两轮 token 约 238 万，缓存命中率 18.9%。
+修正任务定义缺陷后，hard 套件**也已饱和**；上一版 13/14 主要来自
+未写进提示词的要求与偶发实现错误，不能读成稳定能力缺口。
+下一步需要继续加难度，而不是把 hard 当作已解决的区分度来源。
+明细见 [docs/HARD_SUITE_REPORT.md](../../docs/HARD_SUITE_REPORT.md)。
 
 ## 任务构成（default 套件）
 
