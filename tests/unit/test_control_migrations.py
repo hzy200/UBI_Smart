@@ -1,4 +1,4 @@
-"""Phase D3：Alembic baseline 迁移与旧库 stamp。"""
+"""Phase D3：Alembic 迁移、旧库 stamp 与增量升级。"""
 
 from __future__ import annotations
 
@@ -8,14 +8,20 @@ import pytest
 
 pytest.importorskip("alembic")
 
+from alembic import command  # noqa: E402
+from sqlalchemy import create_engine, text  # noqa: E402
+
 from coding_agent.control.migrate import (  # noqa: E402
+    BASELINE_REVISION,
+    alembic_config,
     current_revision,
+    has_column,
     has_table,
     upgrade,
 )
 from coding_agent.control.store import ControlStore  # noqa: E402
 
-REVISION = "0001_control_schema"
+REVISION = "0004_leases_idempotency"
 
 
 def _url(tmp_path: Path) -> str:
@@ -28,6 +34,12 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
     assert result == {"action": "upgrade", "revision": REVISION}
     assert has_table(url, "control_meta")
     assert has_table(url, "control_sessions")
+    assert has_table(url, "workspaces")
+    assert has_table(url, "workspace_revisions")
+    assert has_column(url, "control_sessions", "workspace_id")
+    assert has_column(url, "workspace_revisions", "pinned")
+    assert has_table(url, "run_leases")
+    assert has_table(url, "idempotency_keys")
     assert current_revision(url) == REVISION
 
     again = upgrade(url)
@@ -43,11 +55,12 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
     store.close()
 
 
-def test_legacy_create_all_is_stamped_without_rebuild(tmp_path) -> None:
+def test_current_create_all_is_only_stamped(tmp_path) -> None:
+    """新 create_all 已建出最新结构；只补 alembic_version，不重复建表。"""
     url = _url(tmp_path)
-    store = ControlStore(url)  # Phase B 的 create_all 路径
+    store = ControlStore(url)  # 新模型路径
     store.save_sessions(
-        "local", [{"thread_id": "legacy", "title": "旧库"}], set()
+        "local", [{"thread_id": "new", "title": "新库"}], set()
     )
     store.close()
     assert current_revision(url) is None
@@ -56,10 +69,27 @@ def test_legacy_create_all_is_stamped_without_rebuild(tmp_path) -> None:
     assert result == {"action": "stamp", "revision": REVISION}
     assert current_revision(url) == REVISION
 
-    store = ControlStore(url, auto_create=False)
-    rows, _ = store.load_sessions("local")
-    assert rows[0]["thread_id"] == "legacy"
-    store.close()
+
+def test_phase_b_baseline_is_upgraded_incrementally(tmp_path) -> None:
+    """模拟 Phase B 旧库：只有 0001 的表，没有 alembic_version。"""
+    url = _url(tmp_path)
+    command.upgrade(alembic_config(url), BASELINE_REVISION)
+    engine = create_engine(url, future=True)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE alembic_version"))
+    engine.dispose()
+    assert current_revision(url) is None
+    assert not has_table(url, "workspaces")
+    assert not has_column(url, "control_sessions", "workspace_id")
+
+    result = upgrade(url)
+    assert result == {"action": "upgrade", "revision": REVISION}
+    assert current_revision(url) == REVISION
+    assert has_table(url, "workspaces")
+    assert has_column(url, "control_sessions", "workspace_id")
+    assert has_column(url, "workspace_revisions", "pinned")
+    assert has_table(url, "run_leases")
+    assert has_table(url, "idempotency_keys")
 
 
 def test_upgrade_rejects_empty_url() -> None:

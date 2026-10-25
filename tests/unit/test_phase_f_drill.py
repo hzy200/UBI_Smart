@@ -39,7 +39,7 @@ def test_sqlite_drill_upgrade_downgrade_backup_restore() -> None:
     assert sqlite["downgraded"] is True
     assert sqlite["empty_after_reupgrade"] is True
     assert sqlite["restored_title"] == "before"
-    assert sqlite["revision"] == "0001_control_schema"
+    assert sqlite["revision"] == "0004_leases_idempotency"
 
 
 def test_bench_help() -> None:

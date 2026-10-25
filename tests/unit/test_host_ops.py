@@ -43,6 +43,18 @@ _SAMPLES = {
     "merge_temp_cleanup": "rm -f /tmp/agent-merge-index-deadbeef",
     "snapshot_read": "python3 - <<'__AGENT_SNAPSHOT__'",
     "repo_survey": 'echo "AGENT_DIRS"',
+    "workspace_import_prepare": "mkdir -p /home/agent/ws/demo.import-abc",
+    "workspace_import": (
+        "tar -C '/mnt/d/proj' --exclude=./.agent -cf - . "
+        "| tar -C '/home/agent/ws/demo.import-abc' -xf -"
+    ),
+    "workspace_import_cleanup": "rm -rf /home/agent/ws/demo.import-abc",
+    "workspace_git_init": "git init -q",
+    "workspace_revision_add": "git add -A",
+    "workspace_revision_commit": "git commit -q -m upload --allow-empty",
+    "workspace_revision_probe": "git rev-parse HEAD",
+    "workspace_rollback": "git reset --hard abc123",
+    "workspace_archive_delete": "rm -f /srv/archive/rev.tar.gz",
 }
 
 

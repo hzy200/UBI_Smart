@@ -372,3 +372,47 @@ def test_unsupported_kind_is_a_receipt_not_an_exception(tmp_path) -> None:
     )
     assert result.status == "unsupported"
     assert "unknown_kind" in result.error
+
+
+class _HostSandbox:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def run(self, command, *, cwd=None, **_kwargs):
+        self.calls.append((command, cwd))
+        return "ok"
+
+
+class _HostBackend(FakeBackend):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sandbox = _HostSandbox()
+
+
+def test_host_run_uses_whitelist(tmp_path) -> None:
+    from coding_agent.execution.host_ops import HostExecutionDenied
+
+    backend = _HostBackend()
+    service = _service(tmp_path, backend)
+    assert (
+        service.host_run(
+            "mkdir -p /ws/stage",
+            kind="workspace_import_prepare",
+            cwd="/ws",
+        )
+        == "ok"
+    )
+    with pytest.raises(HostExecutionDenied):
+        service.host_run("rm -rf /", kind="workspace_import", cwd="/ws")
+
+
+def test_host_run_requires_backend_sandbox(tmp_path) -> None:
+    from coding_agent.execution.contracts import ExecutionError
+
+    service = _service(tmp_path)
+    with pytest.raises(ExecutionError):
+        service.host_run(
+            "mkdir -p /ws/stage",
+            kind="workspace_import_prepare",
+            cwd="/ws",
+        )
