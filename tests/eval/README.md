@@ -290,13 +290,13 @@ real 套件**也已饱和**：可见测试直接指出了失败行为，文件�
 
 ```bash
 python tests/eval/runner.py --suite real_advanced --verify-seeds
-python tests/eval/runner.py --suite real_advanced --repeat 2
+python tests/eval/runner.py --suite real_advanced --repeat 3
 ```
 
 最近一次干净工作区 `--repeat 2`（commit `5c971d5`）：
-**5/6（83.3%）、6/6（100%）**，平均 91.7%，**spread 16.7pp**，
-`real/spec/fractions/negative_denominator` 翻转。这是首次出现非零区分度；
-6 个任务样本仍小，确认结论需要 `--repeat 3` 并扩充 spec 任务。
+**9/9、9/9、8/9（平均 96.3%）**，**spread 11.1pp**，
+`real/spec/argparse/allow_abbrev` 在第三轮翻转。这是当前唯一稳定出现
+区分度的轴；9 个任务样本仍小，1 个翻转就是 11.1pp。
 明细见 [docs/REAL_ADVANCED_REPORT.md](../../docs/REAL_ADVANCED_REPORT.md)。
 
 最近一次干净工作区 `--repeat 2`（commit `f062a78`）：
