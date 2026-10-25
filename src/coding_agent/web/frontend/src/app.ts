@@ -1445,6 +1445,7 @@ const agentApp = () => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: text, thread_id: this.threadId }),
       });
+      if (await this.handleRunConflict(response)) return;
       await this.consume(response);
     } catch (err) {
       this.failRun(err);
@@ -1464,6 +1465,25 @@ const agentApp = () => ({
         this.handleEvent(event);
       },
       { getLastSeq: () => this.lastSeq },
+    );
+  },
+
+  async handleRunConflict(response) {
+    if (response.status !== 409) return false;
+    let payload: any = {};
+    try {
+      payload = await response.json();
+    } catch (err) {
+      throw new Error('该会话正在运行');
+    }
+    const detail = payload.detail;
+    if (detail && detail.code === 'run_in_progress') {
+      this.toastMessage('该会话已在运行，正在连接事件流…');
+      await this.reconnect();
+      return true;
+    }
+    throw new Error(
+      typeof detail === 'string' ? detail : JSON.stringify(detail || payload),
     );
   },
 
@@ -1876,6 +1896,7 @@ const agentApp = () => ({
         body: JSON.stringify({ decisions: this.decisions }),
       });
       this.decisions = {};
+      if (await this.handleRunConflict(response)) return;
       await this.consume(response);
     } catch (err) {
       this.failRun(err);
@@ -1928,6 +1949,7 @@ const agentApp = () => ({
       const response = await authFetch(`/api/resume_steering/${encodeURIComponent(this.threadId)}`, {
         method: 'POST',
       });
+      if (await this.handleRunConflict(response)) return;
       await this.consume(response);
     } catch (err) {
       this.failRun(err);

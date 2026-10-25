@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from coding_agent.control.leases import LeaseHeld, RunLeaseStore
 from coding_agent.control.schema import Base, RunLease
+from coding_agent.web.routes.runs import lease_conflict_detail
 from coding_agent.web.services import _terminal_marker
 
 
@@ -83,6 +84,18 @@ def test_purge_expired(store: RunLeaseStore) -> None:
         )
     assert store.purge_expired() == 1
     assert store.list_active() == []
+
+
+def test_lease_conflict_detail_points_to_stream() -> None:
+    detail = lease_conflict_detail(
+        "t1", "k1", {"lease_id": "k1"}
+    )
+    assert detail["code"] == "run_in_progress"
+    assert detail["thread_id"] == "t1"
+    assert detail["stream_url"] == "/api/stream/t1"
+    assert detail["idempotent"] is True
+    other = lease_conflict_detail("t1", "k1", {"lease_id": "other"})
+    assert "idempotent" not in other
 
 
 def test_terminal_marker_detection() -> None:

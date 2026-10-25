@@ -1449,6 +1449,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ prompt: text, thread_id: this.threadId })
         });
+        if (await this.handleRunConflict(response)) return;
         await this.consume(response);
       } catch (err) {
         this.failRun(err);
@@ -1466,6 +1467,24 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.handleEvent(event);
         },
         { getLastSeq: () => this.lastSeq }
+      );
+    },
+    async handleRunConflict(response) {
+      if (response.status !== 409) return false;
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (err) {
+        throw new Error("\u8BE5\u4F1A\u8BDD\u6B63\u5728\u8FD0\u884C");
+      }
+      const detail = payload.detail;
+      if (detail && detail.code === "run_in_progress") {
+        this.toastMessage("\u8BE5\u4F1A\u8BDD\u5DF2\u5728\u8FD0\u884C\uFF0C\u6B63\u5728\u8FDE\u63A5\u4E8B\u4EF6\u6D41\u2026");
+        await this.reconnect();
+        return true;
+      }
+      throw new Error(
+        typeof detail === "string" ? detail : JSON.stringify(detail || payload)
       );
     },
     async reconnect() {
@@ -1852,6 +1871,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           body: JSON.stringify({ decisions: this.decisions })
         });
         this.decisions = {};
+        if (await this.handleRunConflict(response)) return;
         await this.consume(response);
       } catch (err) {
         this.failRun(err);
@@ -1899,6 +1919,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         const response = await authFetch(`/api/resume_steering/${encodeURIComponent(this.threadId)}`, {
           method: "POST"
         });
+        if (await this.handleRunConflict(response)) return;
         await this.consume(response);
       } catch (err) {
         this.failRun(err);

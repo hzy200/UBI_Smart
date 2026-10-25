@@ -62,6 +62,25 @@ def _lease_key(user: AuthUser, public_thread: str) -> str:
     return f"{user.name}:{public_thread}"
 
 
+def lease_conflict_detail(
+    public_thread: str,
+    idempotency_key: str = "",
+    active: dict | None = None,
+) -> dict:
+    detail = {
+        "code": "run_in_progress",
+        "thread_id": public_thread,
+        "stream_url": f"/api/stream/{public_thread}",
+    }
+    if (
+        idempotency_key
+        and active
+        and str(active.get("lease_id") or "") == idempotency_key
+    ):
+        detail["idempotent"] = True
+    return detail
+
+
 def _is_terminal_chunk(chunk: bytes) -> bool:
     text = chunk.decode("utf-8", errors="replace")
     return (
@@ -118,7 +137,18 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 lease_id=idempotency_key,
             )
         except LeaseHeld as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            key = _lease_key(user, public_thread)
+            active = None
+            try:
+                active = deps.run_leases.active(key)
+            except Exception:  # noqa: BLE001 - 冲突详情失败不影响拒绝
+                pass
+            raise HTTPException(
+                status_code=409,
+                detail=lease_conflict_detail(
+                    public_thread, idempotency_key, active
+                ),
+            ) from exc
 
     def _release_lease(
         user: AuthUser, public_thread: str, lease_id: str
