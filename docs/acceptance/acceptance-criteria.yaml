@@ -1570,3 +1570,12 @@ criteria:
     status: implemented
     tests: [tests/unit/test_workspace_jobs_persistence.py::test_persist_excludes_runtime_event, tests/unit/test_workspace_jobs_persistence.py::test_update_persists_status, tests/unit/test_workspace_jobs_persistence.py::test_load_terminal_job, tests/unit/test_workspace_jobs_persistence.py::test_incomplete_job_is_failed_and_cleaned, tests/unit/test_workspace_jobs_persistence.py::test_stale_terminal_job_is_removed, tests/unit/test_workspace_jobs_persistence.py::test_load_recovers_interrupted_swap]
     see: docs/PHASE_G.md
+
+  - id: REQ-176
+    title: 恢复中心返回真实待审批数
+    given: 存在暂停或异常中断的会话
+    when: 请求 /v1/recovery
+    then: 为最多 10 个会话加载 pending approvals；失败按 0 处理，不影响列表
+    status: implemented
+    tests: [tests/unit/test_agent_server_recovery.py::test_recovery_counts_pending_approvals]
+    see: docs/PHASE_G.md

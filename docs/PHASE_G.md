@@ -81,5 +81,7 @@ AGENT_WSL_REQUIRE_HARDENING=true
 - 归档未加密，依赖磁盘权限与运维备份。
 - 回滚走本地 git；归档恢复需要归档内包含 `.git`，并拒绝符号链接。
 - 归档恢复会校验路径与 sha256，恢复前自动生成 pre-restore revision。
+- 恢复中心会为最多 10 个暂停/中断会话加载真实 pending approvals；
+  单个会话加载失败按 0 处理，不阻塞列表。
 - 真实模型运行、审批、快照链路仍需配置 provider key 后人工验收。
 - 现有 Ubuntu 发行版未加固；不要直接用它承载托管工作区。
