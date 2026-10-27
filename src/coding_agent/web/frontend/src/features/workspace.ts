@@ -158,7 +158,7 @@ export const workspaceMixin = {
     return Math.max(0, Math.min(100, Number(this.projectPercent || 0)));
   },
 
-  projectBarStyle() {
+  get projectBarStyle() {
     return `width: ${this.projectDisplayPercent()}%;`;
   },
 
@@ -177,7 +177,10 @@ export const workspaceMixin = {
     try {
       const response = await authFetch('/api/workspaces');
       const data = await readJson(response, '读取项目失败');
-      this.projects = data.workspaces || [];
+      this.projects = (data.workspaces || []).map((project) => ({
+        ...project,
+        _label: this.projectLabel(project),
+      }));
       if (
         this.projectId &&
         !this.projects.some((p) => p.workspace_id === this.projectId)
@@ -204,7 +207,17 @@ export const workspaceMixin = {
         `/api/workspaces/${encodeURIComponent(this.projectId)}/revisions`,
       );
       const data = await readJson(response, '读取 revision 失败');
-      this.revisions = data.revisions || [];
+      this.revisions = (data.revisions || []).map((revision) => ({
+        ...revision,
+        _label: this.revisionLabel(revision),
+        _pinLabel: this.pinLabel(revision),
+        _disabled: Boolean(this.revisionBusy || revision.status === 'pruned'),
+        _restoreDisabled: Boolean(
+          this.revisionBusy
+          || revision.status === 'pruned'
+          || !revision.archive_path
+        ),
+      }));
     } catch (err) {
       this.projectMessage = `revision 读取失败：${err}`;
     }

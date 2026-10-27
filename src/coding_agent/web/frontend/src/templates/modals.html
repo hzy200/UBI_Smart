@@ -1,23 +1,23 @@
 <div class="modal command-modal" x-show="commandOpen" x-cloak
-     @click.self="closeCommandPalette()"
+     @click.self="closeCommandPalette"
      role="dialog" aria-modal="true" aria-labelledby="command-title">
   <div class="command-box">
     <h3 id="command-title" class="sr-only">命令面板</h3>
     <div class="command-input-row">
       <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       <input x-ref="commandInput" x-model="commandQuery"
-             @input="onCommandQuery()"
-             @keydown="onCommandKeydown($event)"
+             @input="onCommandInput"
+             @keydown="onCommandKeydown"
              :aria-activedescendant="'command-item-' + commandIndex"
              aria-controls="command-list"
              placeholder="输入命令、会话或文件…" aria-label="命令面板搜索">
       <kbd>Esc</kbd>
     </div>
     <div class="command-list" id="command-list" role="listbox" aria-label="命令列表">
-      <template x-for="(cmd, index) in filteredCommands()" :key="cmd.id">
-        <button class="command-item" :id="'command-item-' + index" :class="commandClass(index)"
-                role="option" :aria-selected="index === commandIndex ? 'true' : 'false'"
-                @mouseenter="hoverCommand(index)" @click="runCommand(cmd)">
+      <template x-for="cmd in filteredCommandResults" :key="cmd.id">
+        <button class="command-item" :id="cmd._domId" :class="cmd._cls"
+                role="option" :aria-selected="cmd._selected"
+                :data-index="cmd._index" @mouseenter="onCommandHover" @click="onCommandClick">
           <span class="command-main">
             <span class="command-title" x-text="cmd.title"></span>
             <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>
@@ -26,7 +26,7 @@
         </button>
       </template>
       <div class="note" x-show="fileSearchLoading">正在搜索文件…</div>
-      <div class="empty" x-show="filteredCommands().length === 0 && !fileSearchLoading">没有匹配的命令</div>
+      <div class="empty" x-show="noCommands">没有匹配的命令</div>
     </div>
   </div>
 </div>
@@ -36,15 +36,15 @@
   <div class="modal-box">
     <h3 id="approval-title">需要确认</h3>
     <div class="approval" x-show="approval">
-      <div class="approval-level" x-text="approval ? approval.level : ''"></div>
-      <pre x-text="approval ? approval.command : ''"></pre>
-      <div class="note" x-text="approval ? approval.reason : ''"></div>
-      <div class="note" x-text="approval ? ('工具：' + approval.tool) : ''"></div>
+      <div class="approval-level" x-text="approvalLevelText"></div>
+      <pre x-text="approvalCommandText"></pre>
+      <div class="note" x-text="approvalReasonText"></div>
+      <div class="note" x-text="approvalToolText"></div>
     </div>
     <div class="approval-actions">
-      <button class="primary" @click="decide(true)">批准（y）</button>
-      <button class="danger" @click="decide(false)">拒绝（n）</button>
-      <button @click="decideAll(false)">全部拒绝</button>
+      <button class="primary" data-action="approval" data-allow="true" @click="onAction">批准（y）</button>
+      <button class="danger" data-action="approval" data-allow="false" @click="onAction">拒绝（n）</button>
+      <button @click="rejectAll">全部拒绝</button>
     </div>
     <div class="note" x-text="approvalPosition"></div>
   </div>
@@ -55,7 +55,7 @@
   <div class="modal-box">
     <h3 id="shortcuts-title">快捷键</h3>
     <div class="shortcuts">
-      <template x-for="row in shortcuts()" :key="row.keys">
+      <template x-for="row in shortcutRows" :key="row.keys">
         <div class="shortcut-row">
           <kbd x-text="row.keys"></kbd>
           <span x-text="row.action"></span>
@@ -63,7 +63,7 @@
       </template>
     </div>
     <div class="modal-actions">
-      <button @click="shortcutsOpen = false">关闭</button>
+      <button @click="closeShortcuts">关闭</button>
     </div>
   </div>
 </div>
@@ -73,59 +73,59 @@
   <div class="modal-box settings-shell">
     <div class="settings-head">
       <h3 id="settings-title">设置</h3>
-      <button class="icon-btn" @click="toggleSettings()" aria-label="关闭设置">×</button>
+      <button class="icon-btn" @click="toggleSettings" aria-label="关闭设置">×</button>
     </div>
     <div class="settings-body">
       <nav class="settings-nav" role="tablist" aria-label="设置分类">
-        <button role="tab" :aria-selected="settingsTab === 'appearance' ? 'true' : 'false'"
-                :class="settingsTabClass('appearance')" @click="setSettingsTab('appearance')">外观</button>
-        <button role="tab" :aria-selected="settingsTab === 'models' ? 'true' : 'false'"
-                :class="settingsTabClass('models')" @click="setSettingsTab('models')">模型</button>
-        <button role="tab" :aria-selected="settingsTab === 'workspace' ? 'true' : 'false'"
-                :class="settingsTabClass('workspace')" @click="setSettingsTab('workspace')">工作区</button>
-        <button role="tab" :aria-selected="settingsTab === 'diagnostics' ? 'true' : 'false'"
-                :class="settingsTabClass('diagnostics')" @click="setSettingsTab('diagnostics')">诊断</button>
-        <button role="tab" :aria-selected="settingsTab === 'advanced' ? 'true' : 'false'"
-                :class="settingsTabClass('advanced')" @click="setSettingsTab('advanced')">高级</button>
+        <button role="tab" :aria-selected="settingsTabFlags.appearance"
+                :class="settingsTabClasses.appearance" data-action="settings-tab" data-tab="appearance" @click="onAction">外观</button>
+        <button role="tab" :aria-selected="settingsTabFlags.models"
+                :class="settingsTabClasses.models" data-action="settings-tab" data-tab="models" @click="onAction">模型</button>
+        <button role="tab" :aria-selected="settingsTabFlags.workspace"
+                :class="settingsTabClasses.workspace" data-action="settings-tab" data-tab="workspace" @click="onAction">工作区</button>
+        <button role="tab" :aria-selected="settingsTabFlags.diagnostics"
+                :class="settingsTabClasses.diagnostics" data-action="settings-tab" data-tab="diagnostics" @click="onAction">诊断</button>
+        <button role="tab" :aria-selected="settingsTabFlags.advanced"
+                :class="settingsTabClasses.advanced" data-action="settings-tab" data-tab="advanced" @click="onAction">高级</button>
       </nav>
       <div class="settings-content">
-        <section class="settings-view" x-show="settingsTab === 'appearance'">
+        <section class="settings-view" x-show="settingsTabFlags.appearance">
           <h4>外观</h4>
           <label>主题</label>
-          <select x-model="theme" @change="saveSettings()">
+          <select x-model="theme" @change="saveSettings">
             <option value="dark">深色</option>
             <option value="light">浅色</option>
             <option value="auto">跟随系统</option>
           </select>
           <label>字体</label>
-          <select x-model="fontFamily" @change="saveSettings()">
+          <select x-model="fontFamily" @change="saveSettings">
             <option value="system">系统无衬线</option>
             <option value="serif">衬线</option>
             <option value="mono">等宽</option>
           </select>
           <label>字号</label>
-          <select x-model="fontSize" @change="saveSettings()">
+          <select x-model="fontSize" @change="saveSettings">
             <option value="small">小</option>
             <option value="normal">中</option>
             <option value="large">大</option>
           </select>
           <label>密度</label>
-          <select x-model="density" @change="saveSettings()">
+          <select x-model="density" @change="saveSettings">
             <option value="compact">紧凑</option>
             <option value="normal">标准</option>
           </select>
           <div class="panel-actions">
-            <button @click="resetLayout()">重置侧栏/检查器宽度</button>
+            <button @click="resetLayout">重置侧栏/检查器宽度</button>
           </div>
           <label>
-            <input type="checkbox" :checked="showReasoning" @change="toggleReasoning()" style="width:auto">
+            <input type="checkbox" :checked="showReasoning" @change="toggleReasoning" style="width:auto">
             显示模型推理（默认关闭；只影响界面展示）
           </label>
         </section>
 
-        <section class="settings-view" x-show="settingsTab === 'models'">
+        <section class="settings-view" x-show="settingsTabFlags.models">
           <h4>Provider 档案</h4>
-          <div class="note" x-show="!profilesEnabled">多用户模式请通过 AGENT_LLM_PROVIDERS 配置。</div>
+          <div class="note" x-show="profilesDisabled">多用户模式请通过 AGENT_LLM_PROVIDERS 配置。</div>
           <div x-show="profilesEnabled">
             <div class="row">
               <input x-model="profileName" placeholder="名称，如 local">
@@ -133,9 +133,9 @@
               <input x-model="profileModel" placeholder="模型名">
             </div>
             <div class="panel-actions">
-              <button class="primary" @click="saveProfile()">保存档案</button>
-              <button @click="discoverModels()">发现模型</button>
-              <button @click="useLocalPreset()">本地端点预设</button>
+              <button class="primary" @click="saveProfile">保存档案</button>
+              <button @click="discoverModels">发现模型</button>
+              <button @click="useLocalPreset">本地端点预设</button>
             </div>
             <div class="note" x-show="modelOptionsText" x-text="modelOptionsText"></div>
             <template x-for="p in profiles" :key="p.name">
@@ -144,8 +144,8 @@
                   <span x-text="p.name"></span>
                   <span x-text="p.model"></span>
                   <span class="note" x-text="p.base_url"></span>
-                  <button @click="editProfile(p)">编辑</button>
-                  <button class="danger" @click="deleteProfile(p.name)">删除</button>
+                  <button data-action="profile" data-op="edit" :data-name="p.name" @click="onAction">编辑</button>
+                  <button class="danger" data-action="profile" data-op="delete" :data-name="p.name" @click="onAction">删除</button>
                 </div>
               </div>
             </template>
@@ -161,121 +161,121 @@
           </select>
           <input type="password" x-model="providerKeyInput" placeholder="粘贴 API Key">
           <div class="panel-actions">
-            <button class="primary" @click="saveProviderKey()">保存密钥</button>
-            <button @click="testProvider()">测试连接</button>
-            <button class="danger" @click="deleteProviderKey()">删除密钥</button>
+            <button class="primary" @click="saveProviderKey">保存密钥</button>
+            <button @click="testProvider">测试连接</button>
+            <button class="danger" @click="deleteProviderKey">删除密钥</button>
           </div>
         </section>
 
-        <section class="settings-view" x-show="settingsTab === 'workspace'">
+        <section class="settings-view" x-show="settingsTabFlags.workspace">
           <h4>工作区与 Python</h4>
           <div class="project-report" x-text="projectReport"></div>
           <div class="panel-actions">
-            <button x-show="desktopAvailable && !capabilities.host_mode"
-                    @click="pickWorkspace()">选择文件夹</button>
-            <button @click="probeProject()" :disabled="projectLoading">重新探测</button>
-            <button x-show="desktopAvailable" @click="openInVscode()">在 VS Code 打开</button>
-            <button x-show="canCopyWorkspace" @click="copyWorkspace()" :disabled="copyBusy">复制到 WSL 原生目录</button>
+            <button x-show="canPickWorkspace"
+                    @click="pickWorkspace">选择文件夹</button>
+            <button @click="probeProject" :disabled="projectLoading">重新探测</button>
+            <button x-show="desktopAvailable" @click="openInVscode">在 VS Code 打开</button>
+            <button x-show="canCopyWorkspace" @click="copyWorkspace" :disabled="copyBusy">复制到 WSL 原生目录</button>
           </div>
           <div class="note note-bad" x-show="projectHasWarnings" x-text="projectWarnings"></div>
           <div class="note" x-show="copyMessage" x-text="copyMessage"></div>
 
           <h4>项目（工作区注册表）</h4>
           <div x-show="capabilities.workspace_registry"
-               @dragover.prevent="projectDropActive = true"
-               @dragleave="projectDropActive = false"
-               @drop.prevent="onProjectDrop($event)">
+               @dragover.prevent="onProjectDragOver"
+               @dragleave="onProjectDragLeave"
+               @drop.prevent="onProjectDrop">
             <div class="panel-actions">
-              <button x-show="desktopAvailable" @click="importLocalProject()"
+              <button x-show="desktopAvailable" @click="importLocalProject"
                       :disabled="projectBusy">导入到 WSL 工作区</button>
-              <button @click="registerHostWorkspace()" :disabled="projectBusy">
+              <button @click="registerHostWorkspace" :disabled="projectBusy">
                 添加本机工作区
               </button>
-              <button @click="refreshProjects()" :disabled="projectBusy">刷新项目</button>
-              <button class="danger" x-show="projectBusy && projectJobId"
-                      @click="cancelProjectJob()">取消任务</button>
+              <button @click="refreshProjects" :disabled="projectBusy">刷新项目</button>
+              <button class="danger" x-show="showCancelProjectJob"
+                      @click="cancelProjectJob">取消任务</button>
             </div>
             <label>上传项目归档（zip / tar / tar.gz）；可直接拖拽到此处</label>
             <input type="file" accept=".zip,.tar,.tar.gz,.tgz"
-                   aria-label="项目归档文件" @change="onProjectFile($event)">
+                   aria-label="项目归档文件" @change="onProjectFile">
             <div class="panel-actions">
-              <button class="primary" @click="uploadProject()"
-                      :disabled="projectBusy || !projectFile">上传并创建项目</button>
+              <button class="primary" @click="uploadProject"
+                      :disabled="projectUploadDisabled">上传并创建项目</button>
               <span class="note" x-text="projectFileName"></span>
             </div>
             <div class="note" x-show="projectDropActive">松开以选择该归档</div>
             <div class="note" x-show="projectMessage" x-text="projectMessage"></div>
-            <div class="progress" x-show="projectBusy || projectPercent > 0">
-              <div class="progress-bar" :style="projectBarStyle()"></div>
+            <div class="progress" x-show="showProjectProgress">
+              <div class="progress-bar" :style="projectBarStyle"></div>
             </div>
             <div class="note" x-show="projectProgressText" x-text="projectProgressText"></div>
             <template x-for="p in projects" :key="p.workspace_id">
               <div class="file-head">
-                <span x-text="projectLabel(p)"></span>
+                <span x-text="p._label"></span>
                 <span class="note" x-text="p.root_path"></span>
-                <button @click="selectProject(p.workspace_id)">打开</button>
+                <button data-action="select-project" :data-id="p.workspace_id" @click="onAction">打开</button>
               </div>
             </template>
-            <div class="empty" x-show="projects.length === 0">还没有项目</div>
+            <div class="empty" x-show="noProjects">还没有项目</div>
             <h4>Revisions</h4>
-            <div class="note" x-show="!revisions.length">还没有 revision</div>
+            <div class="note" x-show="noRevisions">还没有 revision</div>
             <template x-for="r in revisions" :key="r.revision_id">
               <div class="file-head">
-                <span x-text="revisionLabel(r)"></span>
-                <button @click="rollbackRevision(r)"
-                        :disabled="revisionBusy || r.status === 'pruned'">回滚</button>
-                <button @click="restoreRevision(r)"
-                        :disabled="revisionBusy || r.status === 'pruned' || !r.archive_path">恢复归档</button>
-                <button @click="pinRevision(r)" :disabled="revisionBusy"
-                        x-text="pinLabel(r)"></button>
+                <span x-text="r._label"></span>
+                <button data-action="revision" data-op="rollback" :data-id="r.revision_id" @click="onAction"
+                        :disabled="r._disabled">回滚</button>
+                <button data-action="revision" data-op="restore" :data-id="r.revision_id" @click="onAction"
+                        :disabled="r._restoreDisabled">恢复归档</button>
+                <button data-action="revision" data-op="pin" :data-id="r.revision_id" @click="onAction" :disabled="revisionBusy"
+                        x-text="r._pinLabel"></button>
               </div>
             </template>
             <div class="panel-actions">
-              <button @click="pruneRevisions()" :disabled="revisionBusy">清理旧归档</button>
+              <button @click="pruneRevisions" :disabled="revisionBusy">清理旧归档</button>
             </div>
           </div>
-          <p class="note" x-show="!capabilities.workspace_registry">
+          <p class="note" x-show="noWorkspaceRegistry">
             工作区注册表未启用；使用上面的工作区路径直接创建会话。
           </p>
         </section>
 
-        <section class="settings-view" x-show="settingsTab === 'diagnostics'">
+        <section class="settings-view" x-show="settingsTabFlags.diagnostics">
           <h4>预算与通知</h4>
           <div class="note" x-text="limitsText"></div>
           <label>
-            <input type="checkbox" :checked="notifyEnabled" @change="toggleNotify()" style="width:auto">
+            <input type="checkbox" :checked="notifyEnabled" @change="toggleNotify" style="width:auto">
             审批 / 完成 / 失败时发送系统通知
           </label>
 
           <h4>诊断与更新</h4>
           <div class="panel-actions" x-show="desktopAvailable">
-            <button @click="collectDiagnostics()" :disabled="diagnosticsBusy">生成诊断包</button>
-            <button @click="revealDiagnostics()" :disabled="!diagnosticsPath">打开所在目录</button>
-            <button @click="checkUpdate()">检查更新</button>
-            <button x-show="updateInfo && updateInfo.available" @click="openUpdate()">下载更新</button>
+            <button @click="collectDiagnostics" :disabled="diagnosticsBusy">生成诊断包</button>
+            <button @click="revealDiagnostics" :disabled="noDiagnosticsPath">打开所在目录</button>
+            <button @click="checkUpdate">检查更新</button>
+            <button x-show="updateAvailable" @click="openUpdate">下载更新</button>
           </div>
           <div class="note" x-show="diagnosticsPath" x-text="diagnosticsPath"></div>
           <div class="note" x-show="updateText" x-text="updateText"></div>
         </section>
 
-        <section class="settings-view" x-show="settingsTab === 'advanced'">
+        <section class="settings-view" x-show="settingsTabFlags.advanced">
           <h4>账户</h4>
           <div class="panel-actions">
-            <span class="note" x-text="'认证方式：' + authModeLabel()"></span>
-            <button class="danger" @click="logout()">退出登录</button>
+            <span class="note" x-text="authModeText"></span>
+            <button class="danger" @click="logout">退出登录</button>
           </div>
 
           <h4>运维维护</h4>
           <div class="panel-actions">
-            <button @click="releaseLease()" :disabled="!threadId">释放当前会话租约</button>
-            <button @click="purgeMaintenance()">清理过期租约/幂等键</button>
+            <button @click="releaseLease" :disabled="noThread">释放当前会话租约</button>
+            <button @click="purgeMaintenance">清理过期租约/幂等键</button>
           </div>
         </section>
       </div>
     </div>
     <div class="settings-foot">
       <span class="note">设置会立即保存到本机。</span>
-      <button @click="toggleSettings()">关闭</button>
+      <button @click="toggleSettings">关闭</button>
     </div>
   </div>
 </div>
@@ -290,14 +290,14 @@
           <span x-text="item._text"></span>
           <span class="note" x-show="item._approvals" x-text="item._approvals"></span>
           <span :class="item._cls" x-text="item._status"></span>
-          <button @click="recoveryResume(item)">打开 / 恢复</button>
-          <button class="danger" @click="deleteSession(item.thread_id)">删除会话</button>
+          <button data-action="recovery" data-op="open" :data-id="item.thread_id" @click="onAction">打开 / 恢复</button>
+          <button class="danger" data-action="recovery" data-op="delete" :data-id="item.thread_id" @click="onAction">删除会话</button>
         </div>
       </div>
     </template>
-    <div class="empty" x-show="recoveryItems.length === 0">没有需要恢复的会话</div>
+    <div class="empty" x-show="noRecovery">没有需要恢复的会话</div>
     <div class="modal-actions">
-      <button @click="closeRecovery()">关闭</button>
+      <button @click="closeRecovery">关闭</button>
     </div>
   </div>
 </div>

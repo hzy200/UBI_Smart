@@ -65,7 +65,7 @@ export const authMixin = {
     location.assign(target);
   },
 
-  authModeLabel() {
+  get authModeLabel() {
     if (this.authMode === 'desktop-token') return '桌面本地令牌';
     if (this.authMode === 'bff-cookie') return '统一登录（BFF Cookie）';
     return 'Bearer Token（仅内存）';

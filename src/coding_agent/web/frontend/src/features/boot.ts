@@ -195,7 +195,10 @@ export const bootMixin = {
         return;
       }
       const data = await readJson(response, '读取授权请求失败');
-      const pending = data.pending || [];
+      const pending = (data.pending || []).map((item) => ({
+        ...item,
+        _verbsText: this.consentVerbs(item.verbs),
+      }));
       const hasNew = pending.length > this.consents.length;
       this.consents = pending;
       if (hasNew) this.scrollBottom();

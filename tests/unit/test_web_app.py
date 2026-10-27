@@ -137,15 +137,79 @@ def test_index_page_is_served(settings) -> None:
 def test_index_has_no_build_chain(settings) -> None:
     """刻意不引前端构建链：静态 JS/CSS 直接由应用提供，没有打包步骤。"""
     client = TestClient(web.create_app(settings))
-    html = client.get("/").text
+    response = client.get("/")
+    html = response.text
     assert "/static/app.js" in html
     assert "/static/style.css" in html
     assert "webpack" not in html.lower()
     assert "vite" not in html.lower()
     assert "/static/vendor/alpine-csp.min.js" in html
+    assert "unsafe-eval" not in response.headers.get(
+        "content-security-policy", ""
+    )
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/static/style.css").status_code == 200
     assert client.get("/static/vendor/alpine-csp.min.js").status_code == 200
+
+
+def test_desktop_endpoints_reject_browser_mode(settings) -> None:
+    client = TestClient(web.create_app(settings))
+    for path in ("/api/desktop/cancel_all", "/api/desktop/shutdown"):
+        response = client.post(path)
+        assert response.status_code == 403
+        assert response.json()["code"] == "desktop.unavailable"
+
+
+def test_runtime_config_is_public_and_same_origin(settings) -> None:
+    response = TestClient(web.create_app(settings)).get("/config.json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["schemaVersion"] == 1
+    assert data["apiBaseUrl"] == ""
+    assert data["apiVersion"] == "v0"
+    assert data["authMode"] == "bearer"
+    assert data["sse"]["heartbeatMs"] == 15000
+    assert data["sse"]["idleTimeoutMs"] == 45000
+    assert data["requestIdHeader"] == "X-Request-ID"
+    assert response.headers["cache-control"] == "no-cache"
+    # 配置公开可读，但不得包含任何凭证或密钥。
+    assert "token" not in json.dumps(data).lower()
+    assert "key" not in json.dumps(data).lower()
+
+
+def test_runtime_config_marks_desktop_mode(settings) -> None:
+    client = TestClient(web.create_app(settings, desktop_mode=True))
+    data = client.get("/config.json").json()
+    assert data["authMode"] == "desktop-token"
+    assert data["apiBaseUrl"] == ""
+
+
+def test_runtime_config_stays_public_when_auth_is_enabled(settings) -> None:
+    locked = settings.model_copy(
+        update={"web_auth_tokens": '{"secret-token": "alice"}'}
+    )
+    client = TestClient(web.create_app(locked))
+    assert client.get("/config.json").status_code == 200
+    assert client.get("/api/capabilities").status_code == 401
+
+
+def test_healthz_reports_frontend_version_contract(settings) -> None:
+    client = TestClient(web.create_app(settings))
+    data = client.get("/healthz").json()
+    assert data["api_version"] == "v0"
+    assert data["min_frontend_version"] == "0.1.0"
+    assert data["capabilities_version"] == 1
+    assert data["version"] == "0.1.0"
+    # 版本握手必须先于认证，否则前端无法在登录前阻断。
+    locked = settings.model_copy(
+        update={"web_auth_tokens": '{"secret-token": "alice"}'}
+    )
+    assert TestClient(web.create_app(locked)).get("/healthz").status_code == 200
+
+
+def test_capabilities_reports_capabilities_version(settings) -> None:
+    data = TestClient(web.create_app(settings)).get("/api/capabilities").json()
+    assert data["capabilities_version"] == 1
 
 
 def test_health_reports_configuration(settings) -> None:
@@ -275,7 +339,84 @@ def test_run_closes_the_runtime(monkeypatch, settings) -> None:
 
 def test_run_rejects_empty_prompt(monkeypatch, settings) -> None:
     client = _client(monkeypatch, settings)
-    assert client.post("/api/run", json={"prompt": ""}).status_code == 422
+    response = client.post("/api/run", json={"prompt": ""})
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "request.invalid"
+    assert body["request_id"] == response.headers["x-request-id"]
+    assert body["details"]["errors"]
+
+
+def test_http_errors_use_problem_json_and_request_id(settings) -> None:
+    locked = settings.model_copy(
+        update={"web_auth_tokens": '{"secret-token": "alice"}'}
+    )
+    client = TestClient(web.create_app(locked))
+
+    response = client.get("/api/capabilities")
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith(
+        "application/problem+json"
+    )
+    body = response.json()
+    assert body["type"] == "urn:codingagent:error:auth.required"
+    assert body["code"] == "auth.required"
+    assert body["status"] == 401
+    assert body["retryable"] is False
+    assert body["instance"] == "/api/capabilities"
+    assert body["request_id"] == response.headers["x-request-id"]
+    assert response.headers["www-authenticate"] == "Bearer"
+
+    missing = client.get("/api/does-not-exist")
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "request.not_found"
+    assert missing.json()["request_id"] == missing.headers["x-request-id"]
+
+
+def test_old_or_invalid_frontend_version_is_rejected(settings) -> None:
+    client = TestClient(web.create_app(settings))
+
+    ok = client.get(
+        "/api/capabilities", headers={"X-Frontend-Version": "0.1.0"}
+    )
+    assert ok.status_code == 200
+    missing = client.get("/api/capabilities")
+    assert missing.status_code == 200
+
+    old = client.get(
+        "/api/capabilities", headers={"X-Frontend-Version": "0.0.9"}
+    )
+    assert old.status_code == 426
+    body = old.json()
+    assert body["code"] == "version.frontend_too_old"
+    assert body["details"]["minimum"] == "0.1.0"
+    assert body["details"]["received"] == "0.0.9"
+    assert body["request_id"] == old.headers["x-request-id"]
+
+    invalid = client.get(
+        "/api/capabilities", headers={"X-Frontend-Version": "not-a-version"}
+    )
+    assert invalid.status_code == 426
+    assert invalid.json()["code"] == "version.frontend_too_old"
+
+    # 版本握手端点本身不能被版本中间件拦住。
+    assert client.get(
+        "/healthz", headers={"X-Frontend-Version": "0.0.9"}
+    ).status_code == 200
+
+
+def test_request_id_is_echoed_only_when_valid(settings) -> None:
+    client = TestClient(web.create_app(settings))
+    valid = client.get(
+        "/healthz", headers={"X-Request-ID": "client-request-123456"}
+    )
+    assert valid.headers["x-request-id"] == "client-request-123456"
+
+    invalid = client.get(
+        "/healthz", headers={"X-Request-ID": "bad id with spaces"}
+    )
+    assert invalid.headers["x-request-id"] != "bad id with spaces"
+    assert len(invalid.headers["x-request-id"]) == 32
 
 
 def test_security_headers_are_present(monkeypatch, settings) -> None:
@@ -285,6 +426,31 @@ def test_security_headers_are_present(monkeypatch, settings) -> None:
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
     assert "default-src 'self'" in response.headers["content-security-policy"]
+
+
+def test_cors_headers_are_present_on_sse(monkeypatch, settings) -> None:
+    settings = settings.model_copy(
+        update={"web_cors_allowed_origins": "https://app.example.com"}
+    )
+    client = _client(monkeypatch, settings)
+    with client.stream(
+        "POST",
+        "/api/run",
+        json={"prompt": "hi"},
+        headers={"Origin": "https://app.example.com"},
+    ) as response:
+        assert response.status_code == 200
+        assert (
+            response.headers["access-control-allow-origin"]
+            == "https://app.example.com"
+        )
+        assert response.headers["content-type"].startswith(
+            "text/event-stream"
+        )
+        assert "no-transform" in response.headers["cache-control"]
+        assert response.headers["x-accel-buffering"] == "no"
+        assert response.headers["connection"] == "keep-alive"
+        next(response.iter_lines(), None)
 
 
 def test_chunked_body_is_rejected(settings) -> None:
@@ -298,6 +464,8 @@ def test_chunked_body_is_rejected(settings) -> None:
         },
     )
     assert response.status_code == 411
+    assert response.json()["code"] == "request.length_required"
+    assert response.json()["request_id"] == response.headers["x-request-id"]
 
 
 def test_oversized_body_is_rejected(monkeypatch, settings) -> None:
@@ -311,6 +479,9 @@ def test_oversized_body_is_rejected(monkeypatch, settings) -> None:
     )
 
     assert response.status_code == 413
+    assert response.json()["code"] == "request.too_large"
+    assert response.json()["details"]["limit_bytes"] == 32
+    assert response.json()["details"]["scope"] == "body"
 
 
 def test_rate_limit_is_per_user(monkeypatch, settings) -> None:
@@ -323,6 +494,9 @@ def test_rate_limit_is_per_user(monkeypatch, settings) -> None:
     assert first.status_code == 200
     assert second.status_code == 429
     assert second.headers["retry-after"]
+    assert second.json()["code"] == "rate.limited"
+    assert second.json()["retryable"] is True
+    assert second.json()["request_id"] == second.headers["x-request-id"]
 
 
 def test_run_uses_ask_mode_so_approvals_can_resume(monkeypatch, settings) -> None:
@@ -450,7 +624,10 @@ def test_thread_history(monkeypatch, settings) -> None:
 
 def test_thread_history_empty(monkeypatch, settings) -> None:
     client = _client(monkeypatch, settings)
-    assert client.get("/api/thread/none").json() == {"messages": []}
+    assert client.get("/api/thread/none").json() == {
+        "messages": [],
+        "transcript": [],
+    }
 
 
 def test_thread_history_reports_unavailable(monkeypatch, settings) -> None:
@@ -471,6 +648,44 @@ def test_thread_history_reports_unavailable(monkeypatch, settings) -> None:
     resp = TestClient(web.create_app(settings)).get("/api/thread/abc")
     assert resp.status_code == 503
     assert "checkpoint 打不开" in resp.json()["detail"]
+
+
+def test_transcript_roundtrip_preserves_tool_cards(settings) -> None:
+    """桌面轨迹要保存工具卡片/阶段，重新打开会话才能看到工作痕迹。"""
+    from pathlib import Path
+
+    client = TestClient(web.create_app(settings))
+    messages = [
+        {"role": "user", "phase": "user", "text": "看看目录"},
+        {
+            "role": "工具",
+            "phase": "tool",
+            "kind": "tool",
+            "name": "file_list",
+            "summary": "ls .",
+            "preview": "a.txt",
+            "state": "完成",
+            "ok": True,
+        },
+        {"role": "assistant", "phase": "final", "text": "目录里只有 a.txt"},
+    ]
+    response = client.post(
+        "/api/thread/t1/transcript", json={"messages": messages}
+    )
+    assert response.status_code == 200
+    assert response.json()["count"] == 3
+
+    path = (
+        Path(settings.resolved_audit_dir)
+        / "transcripts"
+        / "t1.json"
+    )
+    import json as _json
+
+    saved = _json.loads(path.read_text(encoding="utf-8"))
+    assert saved["messages"][1]["kind"] == "tool"
+    assert saved["messages"][1]["preview"] == "a.txt"
+    assert saved["messages"][2]["phase"] == "final"
 
 
 def test_importing_the_module_does_not_build_an_app() -> None:

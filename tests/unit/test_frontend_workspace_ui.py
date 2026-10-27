@@ -87,21 +87,21 @@ def test_index_contains_registry_section() -> None:
     assert 'x-text="projectProgressText"' in text
     assert 'class="msg-copy"' in text
     assert 'class="inline-tool"' in text
-    assert "copyTranscriptMessage(m)" in text
+    assert 'data-op="copy"' in text
     assert "consent-card" in text
     assert 'class="session-group"' in text
     assert 'class="msg-badge"' in text
     assert 'id="boot"' in text
     assert 'id="config-error"' in text
     assert "configError" in text
-    assert "configLoaded" in text
+    assert "bootVisible" in text
     assert 'id="version-error"' in text
-    assert "versionChecked" in text
     assert "versionError" in text
-    assert "authMode === 'bff-cookie'" in text
-    assert "startLogin()" in text
-    assert "logout()" in text
-    assert "authModeLabel()" in text
+    assert "loginVisible" in text
+    assert "authBffVisible" in text
+    assert "startLogin" in text
+    assert "logout" in text
+    assert "authModeText" in text
 
 
 def test_style_has_narrow_layout_and_focus() -> None:
@@ -127,13 +127,13 @@ def test_ide_shell_and_command_palette_are_guarded() -> None:
         'class="statusbar"',
         'command-modal',
         'x-ref="commandInput"',
-        ':style="layoutStyle()"',
-        "startResize('sidebar'",
-        "startResize('inspector'",
+        ':style="layoutStyle"',
+        'data-side="sidebar"',
+        'data-side="inspector"',
         "viewClasses.sessions",
-        "currentSessionTitle()",
-        "toggleSidebar()",
-        "toggleInspector()",
+        "currentSessionTitle",
+        "toggleSidebar",
+        "toggleInspector",
         "activity-dot",
         "filesDirty",
         "tasksDirty",
@@ -162,12 +162,12 @@ def test_ide_shell_and_command_palette_are_guarded() -> None:
 def test_m3_workspace_features_are_guarded() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     for marker in (
-        "mainTab === 'file'",
-        "mainTab === 'diff'",
-        "diffRows()",
+        "mainTabFlags.file",
+        "mainTabFlags.diff",
+        "diffResultRows",
         "fileView._html",
         "notification-panel",
-        "unreadNotifications",
+        "hasUnreadNotifications",
         "tabClasses.timeline",
         "timeline-item",
     ):
@@ -196,16 +196,16 @@ def test_m4_conversation_and_tools_are_guarded() -> None:
     for marker in (
         "messageSearchOpen",
         "data-message-id",
-        "editMessage(m)",
-        "regenerate()",
-        "openMessageSearch()",
+        'data-op="edit"',
+        "regenerate",
+        "openMessageSearch",
         "jump-latest",
-        "filteredTools()",
-        "toolFilterClass",
+        "filteredToolResults",
+        "toolFilterClasses",
         "tool-detail",
-        "filteredTreeRows()",
-        "openFileInVscode()",
-        "usageText()",
+        "filteredTreeResults",
+        "openFileInVscode",
+        "usageLabel",
     ):
         assert marker in html, marker
 
@@ -231,11 +231,11 @@ def test_m4_conversation_and_tools_are_guarded() -> None:
 def test_m5_windowing_and_a11y_are_guarded() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     for marker in (
-        "virtualMessages()",
+        "virtualMessageResults",
         "virtualTop",
         "virtualBottom",
         "virtual-spacer",
-        "transcriptClass()",
+        "transcriptClassValue",
         'aria-selected',
         'aria-pressed',
         'aria-activedescendant',
@@ -274,11 +274,11 @@ def test_m6_editor_tabs_tree_and_problems_are_guarded() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     for marker in (
         "editorTabs",
-        "editorTabClass",
-        "activateEditorTab",
-        "closeEditorTab",
-        "refreshTree()",
-        "filteredTreeRows()",
+        'data-action="editor-tab"',
+        'data-op="activate"',
+        'data-op="close"',
+        "refreshTree",
+        "filteredTreeResults",
         "problem-card",
         "activity-badge",
         "i-alert",
@@ -310,9 +310,9 @@ def test_m7_session_management_is_guarded() -> None:
     for marker in (
         "sessionFilter",
         "session-filters",
-        "toggleSessionPin(s)",
-        "toggleSessionArchive(s)",
-        "editSessionTags(s)",
+        'data-op="pin"',
+        'data-op="archive"',
+        'data-op="tags"',
         "session-pin",
         "session-tag",
     ):
@@ -334,22 +334,26 @@ def test_m7_session_management_is_guarded() -> None:
         assert marker in css, marker
 
 
-def test_csp_unsafe_eval_expression_inventory_does_not_grow() -> None:
-    """TD-016：切到 Alpine CSP 构建前，先把这些表达式改成方法调用。"""
+def test_csp_build_has_no_unsafe_eval_expressions() -> None:
+    """TD-016：模板必须保持 Alpine CSP 构建可用的表达式子集。"""
     import re
 
     html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'x-data="agentApp"' in html
+    assert "/static/vendor/alpine-csp.min.js" in html
+    assert "/static/vendor/alpine.min.js" not in html
     attrs = re.findall(
-        r'\b(?:x-[a-z-]+|@[a-z.:-]+|:[a-z-]+)="([^"]*)"', html
+        r'\s(@[a-z.:-]+|x-[a-z-]+|:[a-z-]+)="([^"]*)"', html
     )
-    incompatible = [
-        expr for expr in attrs
-        if expr.strip() and re.search(
-            r"(\s=\s|===|!==|==|!=|\|\||&&|[?:]|\.\.\.|\{|\}|;|=>)", expr
-        )
-    ]
-    # 当前基线；新增表达式不应让 CSP 迁移成本继续变大。
-    assert len(incompatible) <= 76, (
-        "CSP 不兼容表达式增加了："
-        f"{len(incompatible)} > 76；请改用组件方法/计算属性"
+    incompatible = []
+    for name, expr in attrs:
+        text = expr.strip()
+        if not text:
+            continue
+        if re.search(
+            r"(\s=\s|===|!==|==|!=|\|\||&&|[?:]|\.\.\.|\{|\}|;|=>)", text
+        ) or re.search(r"\b[A-Za-z_$][\w$]*\s*\([^)]*[^\s)]", text):
+            incompatible.append((name, text))
+    assert not incompatible, (
+        "CSP 不兼容表达式：" + repr(incompatible[:5])
     )

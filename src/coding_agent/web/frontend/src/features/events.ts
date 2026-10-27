@@ -63,7 +63,8 @@ export const eventsMixin = {
         const node = event.node || '';
         let block = this.reasoningBlocks[this.reasoningBlocks.length - 1];
         if (!block || block.node !== node) {
-          block = { node, text: '' };
+          if (block) block._open = false;
+          block = { node, text: '', _open: true };
           this.reasoningBlocks.push(block);
         }
         block.text += event.text || '';
@@ -383,6 +384,7 @@ export const eventsMixin = {
   },
 
   refreshToolDetail(tool) {
+    tool._hasToolText = Boolean(tool.summary || tool.preview);
     tool._detail = JSON.stringify({
       call_id: tool.call_id,
       name: tool.name,
@@ -396,6 +398,12 @@ export const eventsMixin = {
 
   setToolFilter(name) {
     this.toolFilter = name;
+    this.toolFilterClasses = {
+      all: name === 'all' ? 'active' : '',
+      running: name === 'running' ? 'active' : '',
+      ok: name === 'ok' ? 'active' : '',
+      error: name === 'error' ? 'active' : '',
+    };
   },
 
   toolFilterClass(name) {
@@ -436,7 +444,7 @@ export const eventsMixin = {
       return;
     }
     const summary = event.summary || '';
-    this.messages.push({
+    const message = {
       id: ++this._msgSeq,
       role: '工具',
       phase: 'tool',
@@ -451,7 +459,11 @@ export const eventsMixin = {
       done: false,
       _expanded: false,
       _cls: 'msg-tool tool-running',
-    });
+      _timing: '',
+      _longOutput: false,
+    };
+    this.decorateMessage(message, 'tool');
+    this.messages.push(message);
     this.scrollBottom(false);
   },
 
@@ -482,6 +494,11 @@ export const eventsMixin = {
     message._cls =
       `msg-tool ${event.ok ? 'tool-ok' : 'tool-error'}`;
     if (event.rejected) message._cls = 'msg-tool tool-rejected';
+    message._timing = event.duration_ms != null
+      ? `${event.duration_ms}ms`
+      : (event.exit_code != null ? `exit ${event.exit_code}` : '');
+    message._longOutput = String(event.preview || '').length > 800;
+    this.decorateMessage(message, 'tool');
     this.scrollBottom(false);
   },
 

@@ -41,10 +41,52 @@ export const transcriptMixin = {
       _expanded: false,
       _cls: `msg-${role}${role === 'assistant' ? ' msg-answer' : ''}`,
     };
+    this.decorateMessage(message, resolvedPhase);
     this.messages.push(message);
     this.scrollBottom(role === 'user' || resolvedPhase === 'final');
     this.scheduleVirtualRange();
     this.$nextTick(() => this.decorateTranscript());
+    return message;
+  },
+
+  decorateMessage(message, phase) {
+    const resolved = phase || message.phase || message.role;
+    message._isUser = message.role === 'user';
+    message._isTool = message.kind === 'tool';
+    message._notTool = !message._isTool;
+    message._isFinal = message.role === 'assistant' && resolved === 'final';
+    message._label = message._isTool
+      ? '工具'
+      : message.role === 'user'
+        ? '你'
+        : message.role === 'system'
+          ? '过程'
+          : message.role === 'assistant'
+            ? (resolved === 'final'
+              ? '最终回答'
+              : resolved === 'process' ? '工作中' : '回答')
+            : message.role || '';
+    const text = String(message.text || '');
+    message._longAnswer = !message._isTool
+      && (text.length > 1200 || text.split('\n').length > 24);
+    message._hasToolText = Boolean(message.summary || message.preview);
+    message._badgeClass = `badge-${resolved}`;
+    message._hit = Boolean(message._hit);
+    message._renderClass = `${message._cls || ''}${message._hit ? ' msg-hit' : ''}`;
+    message._timing = message._timing || '';
+    message._longOutput = Boolean(message._longOutput);
+    message._dotClass = (message._cls || '').includes('tool-ok')
+      ? 'dot-ok'
+      : ((message._cls || '').includes('tool-error')
+        || (message._cls || '').includes('tool-rejected'))
+        ? 'dot-bad'
+        : 'dot-run';
+    message._outputClass = (!message._expanded && message._longOutput)
+      ? 'is-collapsed'
+      : '';
+    message._answerClass = (!message._expanded && message._longAnswer)
+      ? 'msg-collapsed'
+      : '';
     return message;
   },
 
@@ -68,6 +110,7 @@ export const transcriptMixin = {
         message.phase = 'final';
         message.done = true;
         message._cls = 'msg-assistant msg-final';
+        this.decorateMessage(message, 'final');
         return message;
       }
     }
@@ -214,6 +257,7 @@ export const transcriptMixin = {
         _expanded: false,
         _cls: 'msg-assistant msg-process',
       };
+      this.decorateMessage(this._currentMessage, 'process');
       this.messages.push(this._currentMessage);
       tokenBuffers.set(this._currentMessage.id, '');
     }
@@ -230,6 +274,7 @@ export const transcriptMixin = {
       if (target) {
         target.text = raw;
         target.html = renderMarkdown(raw);
+        this.decorateMessage(target);
       }
       this.scrollBottom(false);
     }, 60));
@@ -246,6 +291,7 @@ export const transcriptMixin = {
     if (target && raw !== undefined) {
       target.text = raw;
       target.html = renderMarkdown(raw);
+      this.decorateMessage(target);
     }
     tokenBuffers.delete(id);
   },
@@ -254,6 +300,7 @@ export const transcriptMixin = {
     if (this._currentMessage) {
       this.flushAssistantToken(this._currentMessage.id);
       this._currentMessage.done = true;
+      this.decorateMessage(this._currentMessage);
     }
     this._currentMessage = null;
     this._currentNode = '';
@@ -391,6 +438,10 @@ export const transcriptMixin = {
     this.messageQuery = '';
     this.messageMatches = [];
     this.messageMatchIndex = 0;
+    for (const message of this.messages) {
+      message._hit = false;
+      message._renderClass = message._cls || '';
+    }
   },
 
   searchMessages(query) {
@@ -406,6 +457,11 @@ export const transcriptMixin = {
         query,
       ))
       .map((message) => message.id);
+    const matched = new Set(this.messageMatches);
+    for (const message of this.messages) {
+      message._hit = matched.has(message.id);
+      message._renderClass = `${message._cls || ''}${message._hit ? ' msg-hit' : ''}`;
+    }
     this.messageMatchIndex = 0;
     this.scrollToMessageMatch();
   },
@@ -456,7 +512,7 @@ export const transcriptMixin = {
     this.scrollToMessageMatch();
   },
 
-  messageMatchLabel() {
+  get messageMatchLabel() {
     if (!this.messageMatches.length) return this.messageQuery ? '0/0' : '';
     return `${this.messageMatchIndex + 1}/${this.messageMatches.length}`;
   },

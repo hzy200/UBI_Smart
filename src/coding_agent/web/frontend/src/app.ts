@@ -25,9 +25,10 @@ import { memoryMixin } from './features/memory';
 import { keyboardMixin } from './features/keyboard';
 import { layoutMixin } from './features/layout';
 import { notificationsMixin } from './features/notifications';
+import { cspMixin } from './features/csp';
 
 const agentApp = () => {
-  return ({
+  const app: Record<string, any> = ({
   ready: false,
   configLoaded: false,
   configError: '',
@@ -122,6 +123,7 @@ const agentApp = () => {
   planDegraded: false,
   tools: [],
   toolFilter: 'all',
+  toolFilterClasses: { all: 'active', running: '', ok: '', error: '' },
   toolQuery: '',
   files: [],
   checkpoints: [],
@@ -135,6 +137,7 @@ const agentApp = () => {
   sessionRows: [],
   sessionQuery: '',
   sessionFilter: 'all',
+  sessionFilterClasses: { all: 'active', pinned: '', archived: '' },
   treeChildren: {},
   treeExpanded: {},
   treeLoadingMap: {},
@@ -176,6 +179,12 @@ const agentApp = () => {
   diffPath: '',
   view: 'sessions',
   viewClasses: { sessions: 'active', files: '', tree: '', git: '', tasks: '', memory: '', audit: '', problems: '' },
+  viewFlags: { sessions: true, files: false, tree: false, git: false, tasks: false, memory: false, audit: false, problems: false },
+  settingsTabFlags: { appearance: true, models: false, workspace: false, diagnostics: false, advanced: false },
+  settingsTabClasses: { appearance: 'active', models: '', workspace: '', diagnostics: '', advanced: '' },
+  tabFlags: { plan: true, tools: false, timeline: false },
+  mainTabFlags: { chat: true, file: false, diff: false },
+  mainTabClasses: { chat: 'active', file: '', diff: '' },
   problems: [],
   _problemSeq: 0,
   filesDirty: false,
@@ -220,29 +229,35 @@ const agentApp = () => {
   _consentTimer: null,
   consents: [],
   consentSupported: true,
-
-  ...bootMixin,
-  ...authMixin,
-  ...settingsMixin,
-  ...workspaceMixin,
-  ...view_modelMixin,
-  ...systemMixin,
-  ...sessionsMixin,
-  ...transcriptMixin,
-  ...runMixin,
-  ...eventsMixin,
-  ...approvalsMixin,
-  ...steeringMixin,
-  ...uploadsMixin,
-  ...inspectorMixin,
-  ...recoveryMixin,
-  ...providersMixin,
-  ...desktopMixin,
-  ...memoryMixin,
-  ...keyboardMixin,
-  ...layoutMixin,
-  ...notificationsMixin,
-});
+  });
+  const mixins = [
+    bootMixin,
+    authMixin,
+    settingsMixin,
+    workspaceMixin,
+    view_modelMixin,
+    systemMixin,
+    sessionsMixin,
+    transcriptMixin,
+    runMixin,
+    eventsMixin,
+    approvalsMixin,
+    steeringMixin,
+    uploadsMixin,
+    inspectorMixin,
+    recoveryMixin,
+    providersMixin,
+    desktopMixin,
+    memoryMixin,
+    keyboardMixin,
+    layoutMixin,
+    notificationsMixin,
+    cspMixin,
+  ];
+  for (const mixin of mixins) {
+    Object.defineProperties(app, Object.getOwnPropertyDescriptors(mixin));
+  }
+  return app;
 };
 
 const registerAgentApp = () => {
@@ -250,7 +265,6 @@ const registerAgentApp = () => {
   window.Alpine.data('agentApp', agentApp);
 };
 
-(window as any).agentAppData = agentApp();
 const startAlpine = (window as any).__alpineStart;
 if (typeof startAlpine === 'function') {
   registerAgentApp();

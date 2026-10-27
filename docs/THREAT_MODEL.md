@@ -4,8 +4,8 @@ doc_id: threat-model
 title: 威胁模型
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-25
-review_cadence: 安全相关代码变动时（sandbox/ · approve.py · 审批语义 · 路径守卫）
+last_reviewed: 2026-10-26
+review_cadence: 安全相关代码变动时（sandbox/ · approve.py · 审批语义 · 路径守卫 · 认证 · 跨域 · 桌面桥）
 ---
 
 # 威胁模型
@@ -24,6 +24,10 @@ review_cadence: 安全相关代码变动时（sandbox/ · approve.py · 审批�
 | 工作区元数据与根路径 | A2 MySQL | 路径被篡改会把执行引到错误目录 |
 | revision 归档 | 本地归档盘（含完整源码） | 泄漏源码；误删后无法灾难恢复 |
 | 审计与快照 | 宿主 `.agent/audit`；工作区 `.agent/backups` | 可追溯性与可回滚 |
+| A2L 本地映射与 grant | 客户端本地 SQLite / 受保护目录 | 映射泄露会暴露宿主路径；grant 被篡改会越权 |
+| 浏览器会话凭证 | 内存 / httpOnly Cookie / 桌面 sessionStorage | 被 XSS 读取或 CSRF 冒用会直接操作工作区 |
+| 运行时配置与 API 基址 | 前端 `config.json` / 桌面注入 | 被篡改可把请求与凭证引到攻击者源站 |
+| 桌面桥能力面 | pywebview `js_api` | 被远程页面或 iframe 触达会升级为本机文件/更新操作 |
 
 **已核实（2026-10-04）**：
 
@@ -46,7 +50,7 @@ WSL2 登录 bash → （可选）bwrap 挂载命名空间 → 命令
 Linux 用户空间（非 root）
 ```
 
-攻击面：shell 命令、文件工具路径、git/deps 参数、审批交互、前端 SSE/HTML、文件上传、GUI 本地服务、checkpoint/审计文件、密钥环。
+攻击面：shell 命令、文件工具路径、git/deps 参数、审批交互、前端 SSE/HTML、文件上传、GUI 本地服务、checkpoint/审计文件、密钥环；前后端分离后新增浏览器跨域预检、认证 Cookie/CSRF、反代与 BFF、运行时配置、桌面桥调用方。
 
 ## 3. 两个威胁模型
 
@@ -86,18 +90,59 @@ Linux 用户空间（非 root）
 - 秘密文件读保护 + 工具日志脱敏 + 审计哈希链；
 - 单 Web 进程锁，避免多进程绕过配额。
 
+设计冻结、尚未实现（见 §5.13 与 [RFC-0003](rfc/0003-frontend-backend-separation.md)）：
+
+- 浏览器凭证按部署形态分档：桌面一次性 token、内网短期 Bearer、公网 BFF Cookie；
+- CORS 精确允许列表、错误响应也带 CORS 头、`Vary: Origin`；
+- Cookie 模式 CSRF、注销/吊销、单飞刷新；
+- 全链路 `X-Request-ID` 与稳定错误 `code`；
+- 前端运行时基址，禁止把凭证或基址写死。
+
 残余风险：宿主管理员、WSL/内核漏洞、恶意 WSL 发行版、绕开关键词的递归检索、
-以及审计链可被有主机权限者整体重写。
+以及审计链可被有主机权限者整体重写；以上与是否前后端分离无关。
 
 **验证入口**：[`tests/unit/test_tenancy.py`](../tests/unit/test_tenancy.py)、
 [`tests/unit/test_web_auth.py`](../tests/unit/test_web_auth.py)、
 [`tests/unit/test_web_app.py`](../tests/unit/test_web_app.py)。
 
+### T4　客户端执行域（A2L，**新增**）
+
+假设：服务端被攻破或存在恶意内部人员，攻击者试图把 A2L 当作内网横向执行的跳板；
+或提示注入诱导 agent 在用户本机执行命令、安装软件、读取凭据。
+
+T4 不是 T3 的别名：T3 是“多用户经公网访问同一服务”，T4 是“服务端 → 所有已部署
+客户端”的横向风险。对应设计见 [ADR-0015](adr/0015-host-capability-broker.md) 与
+[RFC-0002](rfc/0002-native-execution-domain-and-grant-model.md)。
+
+已规划的控制：
+
+- A2L **只主动外连**，不开入站端口；设备证书/mTLS 绑定 `a2l_id` 与用户；
+- 服务端请求不是授权；A2L 每次执行都独立做本地 grant + ZX 判定；
+- grant 的 scope/verbs/TTL 只存客户端，服务端只持有 `grant_id`；
+- ZX 由 `lowpriv` + OS ACL 强制（默认）；`appcontainer` 仅受限只读档；
+  `user-t1` 仅 `local-dev`；
+- typed ops 白名单，未知 op fail closed；本地同意 UI + 可撤销/可过期 grant；
+- 本地哈希链审计在 agent 不可写目录，异步转发 A2；
+- A2L 离线时 A4 降级 `sandbox`，不假装 host 可用；
+- A2L 绑定客户端生命周期：随客户端启动/退出，客户端运行期间最小权限、
+  单实例、崩溃重启、托盘可见、一键暂停/离线；不注册系统服务、不独立开机自启；
+  不得以 LocalSystem/root 运行，按交互用户会话隔离；
+- 自身更新只接受签名包/管理员策略，不接受服务端静默推送。
+
+残余风险：Windows 没有等价 bwrap；`user-t1` 只是 T1；构建脚本/安装器本身就是
+任意代码执行；提示注入可把“改文件”升级为“在用户本机装软件”；服务端仍有
+机会在用户不仔细看的情况下诱导同意；客户端运行期间 A2L 持续在线，攻击窗口
+覆盖整个客户端会话，必须靠最小权限与本地可见性补偿。
+
+**验证入口**（Phase 1 落地后）：
+`tests/unit/test_host_policy.py`、`tests/unit/test_host_broker_channel.py`、
+`tests/integration/test_host_broker_readonly.py`（`-m host`）。
+
 ## 4. 现有防线分级
 
 | 防线 | 实现 | 归属 | 回归测试 |
 |---|---|---|---|
-| 命令四级分级 + 复合取最高 | `sandbox/policy.py` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
+| 命令分级 L0–L4（L4 规划）+ 复合取最高 | `sandbox/policy.py` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 危险模式拦截（`rm -rf`、`sh -c` 包装、管道执行等） | `policy.DANGER_PATTERNS` | T1（**已知模式的枚举**，非完备） | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 未知命令/解析失败 fail-closed 为需确认 | `policy` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 只读命令**参数越界升级**（`~`、外部绝对路径、`..`、`$()`/变量） | `policy._escalate_auto_command` | T1（词法 best-effort） | [`test_policy.py`](../tests/unit/test_policy.py) |
@@ -112,6 +157,14 @@ Linux 用户空间（非 root）
 | 前端只消费事件；GUI HTML 经 DOMPurify/CSP | `tui/` `web/` `desktop/` | 接近 T2（降低 XSS 面、无旁路执行） | [`test_web_app.py`](../tests/unit/test_web_app.py)、[`test_web_auth.py`](../tests/unit/test_web_auth.py)、[`test_cli_render.py`](../tests/unit/test_cli_render.py) |
 | 编排写 worker：独立 worktree + `write_scope` + 合并前快照 | `orchestrator/implement.py`、`nodes.py` | T1（仍是 `--write` 预授权下的受控写路径） | [`test_write_scope.py`](../tests/unit/test_write_scope.py)、[`test_atomic_merge.py`](../tests/unit/test_atomic_merge.py)、[`test_implement_worker.py`](../tests/integration/test_implement_worker.py) |
 | worker 提议任务只能只读，host 复核角色/去重/依赖/总量 | `orchestrator/graph.py::validate_proposals` | T1（不允许 worker 自由扩大写范围） | [`test_orchestrator.py`](../tests/unit/test_orchestrator.py) |
+| A2L 只外连、设备证书、本地否决权 | `host_broker/server.py`、`host_broker/consent.py` | **T4 的第一层**（服务端不能静默下发指令） | Phase 1 planned：`test_host_broker_channel.py` |
+| A2L 绑定客户端生命周期、最小权限、单实例、托盘暂停/离线 | `host_broker/lifecycle.py`、`desktop/supervisor.py` | T4（降低长期暴露与误操作） | Phase 1 planned：`test_host_broker_lifecycle.py` |
+| grant 为（路径前缀 × 动词）+ TTL/撤销 | `host_broker/policy.py` | T1（授权语义；lowpriv+ACL 才接近 T2） | Phase 1 planned：`test_host_policy.py` |
+| ZX 由 lowpriv + ACL 强制（AppContainer 仅受限只读） | `host_broker/policy.py`、Windows ACL | **T4 的硬边界**；`user-t1` 仅 T1 | Phase 1 planned：`test_host_paths.py` |
+| 根目录只接受本地固定 NTFS；敏感根逐次确认 | `host_broker/paths.py`、`host_broker/policy.py` | T4（缩小暴露面） | Phase 1 planned：`test_host_workspace_store.py`、`test_host_policy.py` |
+| 本地 `op_journal` + unknown 语义 | `host_broker/op_journal.py` | T1/T4（防止恢复时盲目重放） | Phase 1 planned：`test_host_op_journal.py` |
+| host 路径 handle 级 canonicalization（junction/UNC/ADS） | `host_broker/paths.py` | 接近 T2（对 typed ops 是硬约束） | Phase 1 planned：`test_host_paths.py` |
+| 工具链只上报能力摘要，不暴露绝对路径 | `host_broker/toolchain.py` | T1/T4（减少模型拼路径） | Phase 1 planned：`test_host_toolchain_registry.py` |
 
 ## 5. 从 T1 升到 T2 需要的前置条件
 
@@ -245,6 +298,76 @@ Linux 用户空间（非 root）
 - **达标（部署要求）**：归档盘与工作盘分开挂载、`0700`、整盘加密，并至少具备
   云盘快照/RAID/异地备份之一；恢复演练写入 `runbook.yaml`。
 
+### 5.12 客户端执行域（A2L，Phase 1 起）
+
+- **现状**：Phase 1 只实现只读 typed ops（`host.list_dir/stat/read_text/
+  toolchains/env.inspect/health`），不开放宿主写、执行与安装；A2L 只外连，
+  默认关闭。工作区 `kind` 区分 `host`（NTFS）与 `sandbox`（ext4），禁止跨挂载。
+  P2–P5（写/编译/安装/企业分发）是后续工作，不纳入当前交付。
+- **缺口**：Windows 没有等价 bwrap；普通用户进程档（`user-t1`）只能防误操作，
+  不能防主动越狱。AppContainer/低权限账户能把 ZX 变成 OS 级拒绝，但仍不是
+  内核级隔离。
+- **达标（T4 基线）**：
+  1. A2L 默认以 `lowpriv` 运行并对 ZX 配 ACL deny；`appcontainer` 仅受限只读档；
+  2. 服务端请求必须经本地 grant 判定，服务端不能持有/下发 scope；
+  3. `host.exec` 与 `host.install` 分别按 L3/L4 处理，限制 `output_roots`、
+     网络域、安装器来源/哈希；不可信仓库留在 `sandbox`；
+  4. 本地审计在 agent 不可写目录，哈希链 + 设备签名，异步转发 A2；
+  5. A2L 离线时降级 `sandbox`，不把 host 请求悄悄改到 WSL；
+  6. A2L 绑定客户端生命周期，不注册系统服务、不独立开机自启；不得以
+     LocalSystem/root 运行；单实例、托盘可见、一键暂停/离线、随客户端签名更新；
+     host 绝对路径只存客户端；
+  7. grant 必须走本地闭环（request/pending/granted/denied/revoke），
+     A1 不能代批准；敏感根逐次确认，不能长 TTL 大 scope；
+  8. P1 根目录只接受本地固定 NTFS；拒绝 OneDrive、云占位、网络/映射盘、
+     UNC、WSL/VM 共享、reparse 根与设备路径；
+  9. `FileAccess` 只暴露只读三工具；每个 host op 先写本地 `op_journal`，
+     P2 写/执行恢复时未完成 op 返回 `unknown`，绝不盲目重放。
+- **已知不可解决**：提示注入仍可诱导用户同意；构建脚本/安装器仍是供应链风险；
+  拥有宿主管理员权限的人仍可绕过 A2L；客户端运行期间 A2L 持续在线，扩大攻击窗口。这些必须在 UI
+  与答辩材料中直说，不能把 `user-t1` 包装成 T2。
+
+### 5.13 前后端分离、浏览器凭证与桌面桥（设计冻结）
+
+- **现状**：前端与 API 同源，服务端没有 CORS；Web 认证是长期静态 Bearer，
+  token 存在 `sessionStorage`，不过期、不刷新、不注销；CSP 使用 Alpine
+  CSP 构建，不需要 `unsafe-eval`；桌面桥注入本地页面，当前未加载远程 URL。
+- **新增攻击面**：跨域预检与 CORS 配置、refresh Cookie 与 CSRF、BFF 会话、
+  反代对 SSE/上传的缓冲与超时、运行时配置注入、远程页面触达桌面桥。
+- **目标控制**（[ADR-0016](adr/0016-frontend-backend-topology-and-runtime-config.md)、
+  [ADR-0017](adr/0017-auth-model-for-separated-deployment.md)、
+  [ADR-0018](adr/0018-desktop-bridge-boundary.md)、
+  [RFC-0003](rfc/0003-frontend-backend-separation.md)）：
+  1. 基址只来自运行时配置，非法配置失败关闭；配置不含密钥，且不能扩大 CSP；
+  2. Web 凭证只放内存，禁止 localStorage；短期 TTL、单飞刷新、注销吊销；
+     401 与 403 分离；
+  3. CORS 只对精确允许列表开放，禁止 `*`/`null`/任意 Origin 反射；
+     `allow_credentials` 仅 Cookie 模式；CORS 最外层，错误响应也带头；
+  4. Cookie 模式使用 `HttpOnly; Secure; SameSite`，配 CSRF；
+     公网优先 BFF 同源，避免第三方 Cookie 限制；
+  5. 全链路 request ID；日志与错误详情不回显 token/Cookie/CSRF；
+  6. SSE 禁缓冲、禁压缩、心跳大于代理空闲超时；代理不自动重试已发送的流；
+  7. 桌面桥只绑定本地 origin 与顶层窗口；远程页面永不注入 `js_api`；
+     能力保持窄面，服务端对桌面专属端点二次判定；更新验签、诊断脱敏。
+- **残余风险**：
+  - 本地页面 XSS 仍可读取内存凭证或调用桥；只能靠 CSP、清洗、短 TTL、
+    窄桥能力与本地确认降低影响，不能假设本地页面绝对可信；
+  - CORS 配错（通配、反射）会把响应暴露给恶意源；CORS 本身不是认证；
+  - 第三方 Cookie 被浏览器拦截时跨站 Cookie 失效，公网必须走 BFF；
+  - 反代缓冲/压缩/超时会破坏 SSE 或延迟吊销生效；
+  - CDN 若缓存了带凭证的响应或缺 `Vary: Origin`，会跨用户泄漏；
+  - request ID 若来自不可信来源且不校验，可用于日志注入；
+  - 分离不改变 A2 具备执行能力这一事实；A2 仍只能 loopback，
+    暴露公网仍是最高风险。
+- **缺口**：九步设计均已实现（运行时配置/基址注入、配置失败关闭、版本握手、
+  前端认证适配/单飞刷新、错误协议与 request ID、CORS 允许列表、
+  SSE 心跳与代理规则、上传限额与幂等、桌面桥 origin 绑定、独立发版契约）。
+  真实跨域/反代/桌面窗口的部署 E2E 仍待补；这不改变 T3/T4 的残余风险结论。
+  BFF 服务本体由部署侧提供，尚未在本仓库落地。实现前不得把当前形态
+  宣称为"已支持公网多用户"。
+- **验证入口**：验收项 `REQ-202`–`REQ-212`；实现后补认证、CORS、
+  SSE 代理、上传与桥 origin 的契约测试。
+
 ## 6. 结论
 
 - **默认 local profile = T1**：防误操作 + 可审计 + 可回滚。
@@ -254,10 +377,18 @@ Linux 用户空间（非 root）
 - **production/ops profile = 只读审计档**：bwrap + 禁网 + `approval_mode=deny`，
   运行时强制关闭 `allow_write`；L2/L3 一律拒绝。它不是"安全的生产变更通道"，
   而是"允许只读排查、不允许任何变更"的档位。
-- **答辩建议**：把 T1/T2/T3 的边界讲清楚——"默认 T1；公网模式强制 T2 基线，
-  生产只读用 production profile，并明确残余风险"，比含糊地说"很安全"更站得住。
+- **T4 客户端执行域（A2L）**：只外连 + 本地 grant/ZX + lowpriv/ACL（AppContainer 仅受限只读）；
+  它不是 T2，`user-t1` 只用于 `local-dev`。构建/安装是代码执行，必须 L3/L4。
+- **T3 前后端分离增强（设计冻结）**：运行时基址、三档认证、CORS 允许列表、
+  BFF Cookie/CSRF 与 request ID 已定义，但代码未改；实现前不得宣称
+  已具备公网多用户部署能力。桌面桥只对本地页面开放，远程页面不注入 `js_api`。
+- **答辩建议**：把 T1/T2/T3/T4 的边界讲清楚——"默认 T1；公网模式强制 T2 基线，
+  生产只读用 production profile，客户端执行域是 T4 且默认关闭"，比含糊地说
+  "很安全"更站得住。
 
 ## 7. 维护
 
 本文档随防线变动更新。新增/修改安全相关代码时，对照 [ARCHITECTURE.md](ARCHITECTURE.md) 第 6 节不变量表与本表
-确认：**属于 T1 的手段不要被当成 T2 的保证**。
+确认：**属于 T1 的手段不要被当成 T2 的保证**。涉及认证、跨域、Cookie、
+反代或桌面桥时，同时对照 [RFC-0003](rfc/0003-frontend-backend-separation.md)
+与 ADR-0016–0018，并更新 §5.13 的"现状/缺口"。

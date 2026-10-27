@@ -173,6 +173,10 @@ export const inspectorMixin = {
       diffTruncated: truncated,
       diffExpanded: !truncated,
       diffPath: path,
+      _isFile: false,
+      _isDiff: true,
+      _active: false,
+      _cls: '',
     };
     const existing = this.editorTabs.find((tab) => tab.id === id);
     if (existing) Object.assign(existing, payload);
@@ -194,6 +198,23 @@ export const inspectorMixin = {
     return this.mainTab !== 'chat' && this.activeEditorId === id ? 'active' : '';
   },
 
+  setMainTabFlags(name) {
+    this.mainTabFlags = {
+      chat: name === 'chat',
+      file: name === 'file',
+      diff: name === 'diff',
+    };
+    this.mainTabClasses = {
+      chat: name === 'chat' ? 'active' : '',
+      file: name === 'file' ? 'active' : '',
+      diff: name === 'diff' ? 'active' : '',
+    };
+    for (const tab of this.editorTabs) {
+      tab._active = name !== 'chat' && tab.id === this.activeEditorId;
+      tab._cls = tab._active ? 'active' : '';
+    }
+  },
+
   activateEditorTab(id) {
     const tab = this.editorTabs.find((item) => item.id === id);
     if (!tab) return;
@@ -201,6 +222,7 @@ export const inspectorMixin = {
     if (tab.kind === 'file') {
       this.fileView = tab.fileView;
       this.mainTab = 'file';
+      this.setMainTabFlags('file');
       return;
     }
     this.diffText = tab.diffText;
@@ -209,6 +231,7 @@ export const inspectorMixin = {
     this.diffExpanded = tab.diffExpanded;
     this.diffPath = tab.diffPath;
     this.mainTab = 'diff';
+    this.setMainTabFlags('diff');
   },
 
   syncActiveEditor() {
@@ -242,6 +265,7 @@ export const inspectorMixin = {
     }
     this.activeEditorId = '';
     this.mainTab = 'chat';
+    this.setMainTabFlags('chat');
     this.fileView = { path: '', size: 0, _text: '', _html: '' };
     this.diffText = '';
     this.diffDisplay = '';
@@ -268,6 +292,7 @@ export const inspectorMixin = {
     this.editorTabs = [];
     this.activeEditorId = '';
     this.mainTab = 'chat';
+    this.setMainTabFlags('chat');
     this.fileView = { path: '', size: 0, _text: '', _html: '' };
     this.diffText = '';
     this.diffDisplay = '';
@@ -379,11 +404,13 @@ export const inspectorMixin = {
       for (const entry of this.treeChildren[path] || []) {
         const expanded = Boolean(this.treeExpanded[entry.path]);
         const loading = Boolean(this.treeLoadingMap[entry.path]);
+        const indent = 8 + depth * 14;
         rows.push({
           ...entry,
           _depth: depth,
           _expanded: expanded,
           _kind: entry.is_dir ? (loading ? '…' : (expanded ? '▾' : '▸')) : '·',
+          _style: `padding-left:${indent}px`,
         });
         if (entry.is_dir && expanded) walk(entry.path, depth + 1);
       }
@@ -397,7 +424,12 @@ export const inspectorMixin = {
     const all: any[] = [];
     const walk = (path: string) => {
       for (const entry of this.treeChildren[path] || []) {
-        all.push({ ...entry, _depth: 0, _kind: entry.is_dir ? '目录' : '·' });
+        all.push({
+          ...entry,
+          _depth: 0,
+          _kind: entry.is_dir ? '目录' : '·',
+          _style: 'padding-left:8px',
+        });
         if (entry.is_dir) walk(entry.path);
       }
     };
@@ -481,6 +513,10 @@ export const inspectorMixin = {
           title: path,
           fileView,
           stale: false,
+          _isFile: true,
+          _isDiff: false,
+          _active: false,
+          _cls: '',
         }];
       }
       this.activateEditorTab(id);
@@ -569,6 +605,7 @@ export const inspectorMixin = {
 
   showChat() {
     this.mainTab = 'chat';
+    this.setMainTabFlags('chat');
   },
 
   closeFileTab() {

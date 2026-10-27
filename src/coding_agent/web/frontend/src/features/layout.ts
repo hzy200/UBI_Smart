@@ -74,7 +74,7 @@ export const layoutMixin = {
     this.saveLayout();
   },
 
-  layoutStyle() {
+  get layoutStyle() {
     const sidebar = this.sidebarCollapsed ? 0 : this.sidebarWidth;
     const inspector = this.inspectorCollapsed ? 0 : this.inspectorWidth;
     return `--sidebar-width: ${sidebar}px; --inspector-width: ${inspector}px;`;
@@ -125,10 +125,14 @@ export const layoutMixin = {
 
   applyViewClasses() {
     const next: Record<string, string> = {};
+    const flags: Record<string, boolean> = {};
     for (const name of Object.keys(VIEW_TITLES)) {
-      next[name] = this.view === name ? 'active' : '';
+      const active = this.view === name;
+      next[name] = active ? 'active' : '';
+      flags[name] = active;
     }
     this.viewClasses = next;
+    this.viewFlags = flags;
   },
 
   setView(name: string, load = true, reveal = true) {
@@ -147,11 +151,11 @@ export const layoutMixin = {
     if (reveal) this.saveLayout();
   },
 
-  viewTitle() {
+  get viewTitle() {
     return VIEW_TITLES[this.view] || '会话';
   },
 
-  currentSessionTitle() {
+  get currentSessionTitle() {
     const current = (this.sessions || []).find(
       (item) => item.thread_id === this.threadId,
     );
@@ -159,13 +163,13 @@ export const layoutMixin = {
     return this.threadId || '新会话';
   },
 
-  modelLabel() {
+  get modelLabel() {
     if (this.model) return this.model;
     if (this.provider) return this.provider;
     return '默认模型';
   },
 
-  connectionClass() {
+  get connectionClass() {
     if (this.connectionState === 'streaming' || this.connectionState === 'reconnecting') {
       return 'status-dot-warn';
     }

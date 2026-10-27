@@ -276,8 +276,7 @@ GET    /api/audit
 - **密钥只进密钥环**：前端只看到 `has_key`，不返回明文。
 - **上传不执行**：上传目录在 `.agent/uploads`，不由 Agent 自动运行。
 - **XSS**：模型输出经 `marked + DOMPurify` 清洗；前端依赖全部本地 vendored，
-  CSP 为 `default-src 'self'`。当前使用标准 Alpine，`script-src` 需要
-  `'unsafe-eval'`（TD-016，公网部署前复核）。
+  CSP 为 `default-src 'self'`，使用 Alpine CSP 构建，不需要 `unsafe-eval`。
 - **本地服务**：只绑 loopback、随机 token、`TrustedHostMiddleware` 限制 Host，
   无 CORS、无 `/docs`；无 Content-Length 的 chunked 写请求直接拒绝。
 - **Provider 测试直连**：`trust_env=False`，不使用环境 HTTP(S)_PROXY，避免把

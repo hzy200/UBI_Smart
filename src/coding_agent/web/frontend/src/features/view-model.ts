@@ -17,13 +17,13 @@ export const view_modelMixin = {
   toolClass(tool) { return `tool-${tool.state || 'running'}`; },
   taskClass(task) { return `task-${task.status || 'pending'}`; },
   auditText(record) { return record.tool || record.detail || ''; },
-  loginMessage() {
+  get loginMessage() {
     if (this.authMode === 'bff-cookie') {
       return this.loginError || '会话已失效，请重新登录。';
     }
     return this.loginError || '输入访问 token（桌面端会自动填入）';
   },
-  workspaceLabel() { return this.workspace || '未选择工作区'; },
+  get workspaceLabel() { return this.workspace || '未选择工作区'; },
   providerKey(provider) { return `${provider.name}:${provider.model}`; },
   providerLabel(provider) { return `${provider.name} / ${provider.model}`; },
   syncModel() {
@@ -65,6 +65,9 @@ export const view_modelMixin = {
       _status: status,
       _cls: `task-${status}`,
       _text: `${task.id || task.task_id || ''} ${task.goal || ''}`,
+      _idText: task.id || task.task_id || '',
+      _goalText: task.goal || task._text || '',
+      _workerText: task.worker_id ? `worker: ${task.worker_id}` : '',
       _depends: depends.length ? `依赖 ${depends.join(', ')}` : '',
       _worker: task.worker_id || '',
       _timing: formatDuration(task.duration_ms),
@@ -82,7 +85,7 @@ export const view_modelMixin = {
     return '系统';
   },
   msgClass(message) { return `msg-${message.role}`; },
-  sendDisabled() {
+  get sendDisabled() {
     return (
       this.busy ||
       this.paused ||
@@ -98,10 +101,29 @@ export const view_modelMixin = {
       tools: name === 'tools' ? 'active' : '',
       timeline: name === 'timeline' ? 'active' : '',
     };
+    this.tabFlags = {
+      plan: name === 'plan',
+      tools: name === 'tools',
+      timeline: name === 'timeline',
+    };
     if (open && this.inspectorCollapsed) this.inspectorCollapsed = false;
   },
   setSettingsTab(name) {
     this.settingsTab = name;
+    this.settingsTabFlags = {
+      appearance: name === 'appearance',
+      models: name === 'models',
+      workspace: name === 'workspace',
+      diagnostics: name === 'diagnostics',
+      advanced: name === 'advanced',
+    };
+    this.settingsTabClasses = {
+      appearance: name === 'appearance' ? 'active' : '',
+      models: name === 'models' ? 'active' : '',
+      workspace: name === 'workspace' ? 'active' : '',
+      diagnostics: name === 'diagnostics' ? 'active' : '',
+      advanced: name === 'advanced' ? 'active' : '',
+    };
   },
   settingsTabClass(name) {
     return this.settingsTab === name ? 'active' : '';
@@ -124,14 +146,14 @@ export const view_modelMixin = {
     if (this.capabilities.read_only) return '只读';
     return this.accessMode === 'write_auto' ? '自动写' : '审批写';
   },
-  accessDisabled() {
+  get accessDisabled() {
     return !this.capabilities.server_write_enabled;
   },
   usageText() {
     if (!this.usage.input && !this.usage.output) return '';
     return `${this.usage.input} in / ${this.usage.output} out`;
   },
-  usageTitle() {
+  get usageTitle() {
     const parts = [];
     if (this.usage.cost) parts.push(`费用 $${this.usage.cost.toFixed(4)}`);
     if (this.usage.budget) {

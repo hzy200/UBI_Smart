@@ -61,7 +61,7 @@ export const sessionsMixin = {
         const text = [item.summary, item.preview]
           .filter(Boolean)
           .join('\n') || item.text || '';
-        this.messages.push({
+        const toolMessage = {
           id: ++this._msgSeq,
           role: '工具',
           phase: 'tool',
@@ -76,7 +76,10 @@ export const sessionsMixin = {
           done: true,
           _expanded: false,
           _cls: `msg-tool ${cls}`,
-        });
+          _longOutput: String(item.preview || '').length > 800,
+        };
+        this.decorateMessage(toolMessage);
+        this.messages.push(toolMessage);
         continue;
       }
       const role = ['user', 'system', 'assistant'].includes(item.role)
@@ -91,7 +94,7 @@ export const sessionsMixin = {
             ? 'msg-assistant msg-process'
             : 'msg-assistant msg-answer';
       }
-      this.messages.push({
+      const message = {
         id: ++this._msgSeq,
         role,
         phase,
@@ -100,7 +103,9 @@ export const sessionsMixin = {
         done: true,
         _expanded: false,
         _cls: cls,
-      });
+      };
+      this.decorateMessage(message, phase);
+      this.messages.push(message);
     }
     // 兼容旧轨迹：即使保存时尾部有过程提示，也把最终回答放回最后。
     this.moveFinalAnswerLast();
@@ -123,6 +128,9 @@ export const sessionsMixin = {
         _meta: `${item.thread_id} · ${item.last_active || ''}` +
           (item.archived ? ' · 已归档' : '') +
           (item.interrupted ? ' · 异常中断' : ''),
+        _pinLabel: item.pinned ? '取消置顶' : '置顶',
+        _archiveLabel: item.archived ? '取消归档' : '归档',
+        _hasTags: Array.isArray(item.tags) && item.tags.length > 0,
         _cls: item.thread_id === this.threadId ? 'active' : '',
       }));
       this.filterSessions();
@@ -137,6 +145,11 @@ export const sessionsMixin = {
 
   setSessionFilter(name) {
     this.sessionFilter = name;
+    this.sessionFilterClasses = {
+      all: name === 'all' ? 'active' : '',
+      pinned: name === 'pinned' ? 'active' : '',
+      archived: name === 'archived' ? 'active' : '',
+    };
     this.filterSessions();
   },
 
@@ -163,6 +176,9 @@ export const sessionsMixin = {
         row._meta = `${row.thread_id} · ${row.last_active || ''}` +
           (row.archived ? ' · 已归档' : '') +
           (row.interrupted ? ' · 异常中断' : '');
+        row._pinLabel = row.pinned ? '取消置顶' : '置顶';
+        row._archiveLabel = row.archived ? '取消归档' : '归档';
+        row._hasTags = row.tags.length > 0;
       }
       this.filterSessions();
       return data;
@@ -430,6 +446,7 @@ export const sessionsMixin = {
     this.diffTruncated = false;
     this.diffExpanded = false;
     this.mainTab = 'chat';
+    this.mainTabFlags = { chat: true, file: false, diff: false };
     this.editorTabs = [];
     this.activeEditorId = '';
     this.fileView = { path: '', size: 0, _text: '', _html: '' };

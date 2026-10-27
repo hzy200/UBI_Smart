@@ -368,9 +368,10 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 
 ## 10. 安全约束
 
-- **CSP**：`default-src 'self'`、`connect-src 'self'`、`frame-ancestors 'none'`、
-  `form-action 'self'`、`base-uri 'none'`。当前因标准 Alpine 需要
-  `script-src 'unsafe-eval'`，已登记 **TD-016**；公网多用户部署前必须复核。
+- **CSP**：`default-src 'self'`、`script-src 'self'`、`connect-src 'self'`、
+  `frame-ancestors 'none'`、`form-action 'self'`、`base-uri 'none'`。
+  前端使用 Alpine CSP 构建，不需要 `unsafe-eval`；模板必须保持
+  “属性访问/无参方法/委托事件”的表达式子集，守卫测试会拦截回归。
 - **跨域**：`AGENT_CORS_ALLOWED_ORIGINS` 配置精确允许列表后启用；
   禁止 `*`/`null`/路径；A2 侧 `allow_credentials=False`（Bearer 形态），
   预检 204，401/426/413 等错误响应也带 CORS 头与 `Vary: Origin`。
@@ -420,6 +421,15 @@ pytest -m "not llm" tests/unit/test_frontend_workspace_ui.py \
        tests/unit/test_workspace_routes.py
 ```
 
+手工 CSP 冒烟（需要 pywebview）：
+
+```bash
+python scripts/probe_frontend_csp.py
+```
+
+脚本启动桩 API、以严格 CSP 头加载实时静态产物，并验证初始化、活动栏切换、
+设置分类、命令面板与主题命令。
+
 覆盖点：构建产物包含项目/工作区流程；页面无构建链；静态资源可访问；
 安全头/CSP；SSE 事件流；审批/steering/恢复端点；工作区绑定与
 transcript 保存。
@@ -452,7 +462,6 @@ transcript 保存。
 | 限制 | 影响 | 备注 |
 |---|---|---|
 | 顶栏右侧按钮在部分 DPI 下不绘制/被裁切 | 设置入口不可见 | 侧栏已提供设置/+ 本机兜底 |
-| 标准 Alpine 需要 `unsafe-eval` | CSP 放宽 | TD-016，公网部署前复核 |
 | 无浏览器自动化/JS 单测 | 交互回归靠手测 | 构建产物守卫只能防漂移 |
 | 轨迹只在桌面 UI 运行时保存 | 旧会话/CLI 运行无工具卡片 | 不替代 checkpoint/审计 |
 | 轨迹优先于 checkpoint | CLI 追加的运行可能被旧轨迹遮住 | 桌面单用户场景可接受 |
@@ -469,6 +478,7 @@ transcript 保存。
 |---|---|
 | `web/frontend/src/app.ts` | 初始状态与各域 mixin 的组合入口 |
 | `web/frontend/src/features/*.ts` | 按域拆分的 Alpine mixin（会话/工作区/运行/检查器等） |
+| `web/frontend/src/features/csp.ts` | CSP 兼容层：delegated actions 与无参 getter |
 | `web/frontend/src/api/http.ts` | 认证、fetch、401 刷新与 problem+json 解析 |
 | `web/frontend/src/ui/format.ts` | 展示格式化与 Markdown 清洗 |
 | `web/frontend/src/ui/diff.ts` | 统一 diff 的纯解析逻辑 |

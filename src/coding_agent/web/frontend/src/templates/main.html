@@ -1,73 +1,73 @@
   <main class="main">
     <div class="main-tabs" role="tablist" aria-label="主区标签">
       <div class="main-tab-list">
-        <button class="main-tab" role="tab" :class="mainTabClass('chat')"
-                :aria-selected="mainTab === 'chat' ? 'true' : 'false'" @click="showChat()">
+        <button class="main-tab" role="tab" :class="mainTabClasses.chat"
+                :aria-selected="mainTabFlags.chat" @click="showChat">
           <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
           <span>对话</span>
         </button>
         <template x-for="tab in editorTabs" :key="tab.id">
-          <button class="main-tab" role="tab" :class="editorTabClass(tab.id)"
-                  :aria-selected="mainTab !== 'chat' && activeEditorId === tab.id ? 'true' : 'false'"
-                  @click="activateEditorTab(tab.id)">
-            <svg class="icon" aria-hidden="true" x-show="tab.kind === 'file'"><use href="#i-files"></use></svg>
-            <svg class="icon" aria-hidden="true" x-show="tab.kind === 'diff'"><use href="#i-git"></use></svg>
+          <button class="main-tab" role="tab" :class="tab._cls"
+                  :aria-selected="tab._active"
+                  data-action="editor-tab" data-op="activate" :data-id="tab.id" @click="onAction">
+            <svg class="icon" aria-hidden="true" x-show="tab._isFile"><use href="#i-files"></use></svg>
+            <svg class="icon" aria-hidden="true" x-show="tab._isDiff"><use href="#i-git"></use></svg>
             <span class="main-tab-label" x-text="tab.title"></span>
-            <span class="tab-close" role="button" @click.stop="closeEditorTab(tab.id)" title="关闭标签">×</span>
+            <span class="tab-close" role="button" data-action="editor-tab" data-op="close" :data-id="tab.id" @click.stop="onAction" title="关闭标签">×</span>
           </button>
         </template>
       </div>
       <div class="main-search" x-show="messageSearchOpen" x-cloak>
         <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
         <input x-ref="messageSearchInput" x-model="messageQuery"
-               @input="searchMessages(messageQuery)"
-               @keydown.enter.prevent="nextMessageMatch(1)"
-               @keydown.escape="closeMessageSearch()"
+               @input="onMessageSearchInput"
+               @keydown.enter.prevent="nextMatchNext"
+               @keydown.escape="closeMessageSearch"
                placeholder="搜索对话…" aria-label="搜索对话">
-        <span class="note" x-text="messageMatchLabel()"></span>
-        <button @click="nextMessageMatch(-1)" title="上一个">↑</button>
-        <button @click="nextMessageMatch(1)" title="下一个">↓</button>
-        <button @click="closeMessageSearch()" title="关闭搜索">×</button>
+        <span class="note" x-text="messageMatchLabel"></span>
+        <button @click="nextMatchPrev" title="上一个">↑</button>
+        <button @click="nextMatchNext" title="下一个">↓</button>
+        <button @click="closeMessageSearch" title="关闭搜索">×</button>
       </div>
-      <span class="main-tab-title" x-show="!messageSearchOpen" x-text="currentSessionTitle()"></span>
+      <span class="main-tab-title" x-show="messageSearchClosed" x-text="currentSessionTitle"></span>
       <span class="spacer"></span>
-      <span class="main-tab-state" x-show="!messageSearchOpen" x-text="stateText"></span>
-      <button class="icon-btn" x-show="!messageSearchOpen" @click="openMessageSearch()"
+      <span class="main-tab-state" x-show="messageSearchClosed" x-text="stateText"></span>
+      <button class="icon-btn" x-show="messageSearchClosed" @click="openMessageSearch"
               title="搜索对话（Ctrl+Shift+F）" aria-label="搜索对话">
         <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
       </button>
-      <button class="icon-btn" @click="openCommandPalette()" title="命令面板" aria-label="命令面板">
+      <button class="icon-btn" @click="openCommandPalette" title="命令面板" aria-label="命令面板">
         <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       </button>
     </div>
 
-    <section class="editor-view" x-show="mainTab === 'file'" x-cloak>
+    <section class="editor-view" x-show="mainTabFlags.file" x-cloak>
       <div class="editor-toolbar">
         <span class="editor-path" x-text="fileView.path"></span>
         <span class="note" x-text="fileView._size"></span>
         <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
-        <span class="note note-bad" x-show="activeEditorTab() && activeEditorTab().stale">文件已变化</span>
+        <span class="note note-bad" x-show="activeEditorStale">文件已变化</span>
         <span class="spacer"></span>
-        <button x-show="activeEditorTab() && activeEditorTab().stale" @click="refreshActiveFile()">刷新</button>
-        <button @click="copyText(fileView.path)">复制路径</button>
-        <button x-show="canOpenFileInVscode()" @click="openFileInVscode()">在 VS Code 打开</button>
-        <button @click="copyText(fileView._text)">复制内容</button>
-        <button @click="closeActiveEditorTab()">关闭</button>
+        <button x-show="activeEditorStale" @click="refreshActiveFile">刷新</button>
+        <button @click="copyActiveFilePath">复制路径</button>
+        <button x-show="fileInVscodeAvailable" @click="openFileInVscode">在 VS Code 打开</button>
+        <button @click="copyActiveFileContent">复制内容</button>
+        <button @click="closeActiveEditorTab">关闭</button>
       </div>
       <pre class="editor-code"><code x-html="fileView._html"></code></pre>
     </section>
 
-    <section class="editor-view" x-show="mainTab === 'diff'" x-cloak>
+    <section class="editor-view" x-show="mainTabFlags.diff" x-cloak>
       <div class="editor-toolbar">
         <span class="editor-path">Diff</span>
-        <span class="note" x-text="diffPath || '本轮改动'"></span>
+        <span class="note" x-text="diffPathLabel"></span>
         <span class="spacer"></span>
-        <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部</button>
-        <button @click="copyText(diffDisplay)">复制</button>
-        <button @click="closeActiveEditorTab()">关闭</button>
+        <button x-show="canExpandDiff" @click="expandDiff">展开全部</button>
+        <button @click="copyActiveDiff">复制</button>
+        <button @click="closeActiveEditorTab">关闭</button>
       </div>
       <div class="diff-view">
-        <template x-for="row in diffRows()" :key="row._key">
+        <template x-for="row in diffResultRows" :key="row._key">
           <div class="diff-line" :class="row._cls">
             <span class="diff-no" x-text="row._no"></span>
             <span class="diff-text" x-text="row.text"></span>
@@ -76,70 +76,67 @@
       </div>
     </section>
 
-    <div class="main-chat" x-show="mainTab === 'chat'">
-    <div class="reasoning" x-show="showReasoning && reasoningBlocks.length" x-cloak>
+    <div class="main-chat" x-show="mainTabFlags.chat">
+    <div class="reasoning" x-show="hasReasoning" x-cloak>
       <template x-for="(block, index) in reasoningBlocks" :key="index">
-        <details class="reasoning-block" :open="index === reasoningBlocks.length - 1">
+        <details class="reasoning-block" :open="block._open">
           <summary>模型思考 <span x-text="block.node"></span></summary>
           <pre x-text="block.text"></pre>
         </details>
       </template>
     </div>
-    <div class="transcript" :class="transcriptClass()" x-ref="transcript" role="log"
-         aria-live="polite" aria-label="对话记录" @scroll="onTranscriptScroll($event)">
-      <div class="virtual-spacer" :style="'height:' + virtualTop + 'px'"></div>
-      <template x-for="m in virtualMessages()" :key="m.id">
-        <div class="msg" :class="messageClass(m)" :data-message-id="m.id">
+    <div class="transcript" :class="transcriptClassValue" x-ref="transcript" role="log"
+         aria-live="polite" aria-label="对话记录" @scroll="onTranscriptScroll">
+      <div class="virtual-spacer" :style="virtualTopStyle"></div>
+      <template x-for="m in virtualMessageResults" :key="m.id">
+        <div class="msg" :class="m._renderClass" :data-message-id="m.id">
           <div class="msg-head">
             <span class="msg-badge"
-                  :class="'badge-' + (m.phase || m.role)"
-                  x-text="messageLabel(m)"></span>
-            <button class="msg-copy" @click="copyTranscriptMessage(m)"
+                  :class="m._badgeClass"
+                  x-text="m._label"></span>
+            <button class="msg-copy" data-action="message" data-op="copy" :data-id="m.id" @click="onAction"
                     title="复制这条消息">复制</button>
-            <button class="msg-copy" x-show="m.role === 'user'"
-                    @click="editMessage(m)" title="编辑后重新发送">编辑重发</button>
+            <button class="msg-copy" x-show="m._isUser"
+                    data-action="message" data-op="edit" :data-id="m.id" @click="onAction" title="编辑后重新发送">编辑重发</button>
             <button class="msg-copy"
-                    x-show="m.role === 'assistant' && m.phase === 'final' && _lastPrompt && !busy"
-                    @click="regenerate()" title="重新生成">重新生成</button>
+                    x-show="m._isFinal"
+                    @click="regenerate" title="重新生成">重新生成</button>
           </div>
-          <template x-if="m.kind === 'tool'">
+          <template x-if="m._isTool">
             <div class="inline-tool" :class="m._cls">
               <div class="inline-tool-head">
-                <span class="tool-dot"
-                      :class="m._cls.includes('tool-ok') ? 'dot-ok'
-                        : (m._cls.includes('tool-error') || m._cls.includes('tool-rejected')) ? 'dot-bad'
-                        : 'dot-run'"></span>
+                <span class="tool-dot" :class="m._dotClass"></span>
                 <span class="tool-name" x-text="m.name"></span>
                 <span class="tool-level" x-text="m.level"></span>
-                <span class="tool-meta"
-                      x-text="m.duration_ms != null ? `${m.duration_ms}ms`
-                        : (m.exit_code != null ? `exit ${m.exit_code}` : '')"></span>
+                <span class="tool-meta" x-text="m._timing"></span>
                 <span class="tool-state" x-text="m.state"></span>
               </div>
               <div class="inline-tool-cmd" x-show="m.summary"
                    x-text="m.summary"></div>
               <pre class="inline-tool-out" x-show="m.preview"
                    x-text="m.preview"
-                   :class="{ 'is-collapsed': !m._expanded && (m.preview || '').length > 800 }"></pre>
+                   :class="m._outputClass"></pre>
               <button class="msg-toggle"
-                      x-show="(m.preview || '').length > 800"
-                      @click="m._expanded = !m._expanded"
-                      x-text="m._expanded ? '收起输出' : '展开输出'"></button>
+                      x-show="m._longOutput"
+                      data-action="message" data-op="expand" :data-id="m.id" @click="onAction">
+                展开/收起
+              </button>
             </div>
           </template>
-          <template x-if="m.kind !== 'tool'">
+          <template x-if="m._notTool">
             <div class="msg-text">
               <div class="msg-body"
-                   :class="{ 'msg-collapsed': !m._expanded && isAnswerLong(m) }"
+                   :class="m._answerClass"
                    x-html="m.html"></div>
-              <button class="msg-toggle" x-show="isAnswerLong(m)"
-                      @click="m._expanded = !m._expanded"
-                      x-text="m._expanded ? '收起全文' : '展开全文'"></button>
+              <button class="msg-toggle" x-show="m._longAnswer"
+                      data-action="message" data-op="expand" :data-id="m.id" @click="onAction">
+                展开/收起
+              </button>
             </div>
           </template>
         </div>
       </template>
-      <div class="virtual-spacer" :style="'height:' + virtualBottom + 'px'"></div>
+      <div class="virtual-spacer" :style="virtualBottomStyle"></div>
       <template x-for="c in consents" :key="c.id">
         <div class="consent-card" role="alert">
           <div class="consent-head">
@@ -147,7 +144,7 @@
             <span class="consent-sensitive" x-show="c.sensitive">敏感路径</span>
           </div>
           <div class="consent-row">
-            <span>操作</span><span x-text="consentVerbs(c.verbs)"></span>
+            <span>操作</span><span x-text="c._verbsText"></span>
           </div>
           <div class="consent-row" x-show="c.reason">
             <span>原因</span><span x-text="c.reason"></span>
@@ -158,46 +155,46 @@
             </template>
           </div>
           <div class="consent-actions">
-            <button class="danger" @click="decideConsent(c.id, false)">拒绝</button>
-            <button class="primary" @click="decideConsent(c.id, true)">允许本次</button>
+            <button class="danger" data-action="consent" :data-id="c.id" data-allow="false" @click="onAction">拒绝</button>
+            <button class="primary" data-action="consent" :data-id="c.id" data-allow="true" @click="onAction">允许本次</button>
           </div>
         </div>
       </template>
-      <div class="empty" x-show="messages.length === 0 && consents.length === 0">
+      <div class="empty" x-show="transcriptEmpty">
         输入任务开始。默认只读：Agent 只能读取文件，不能运行命令或测试。
       </div>
     </div>
 
-    <button class="jump-latest" x-show="showJumpLatest" @click="scrollBottom(true)">
+    <button class="jump-latest" x-show="showJumpLatest" @click="scrollLatest">
       跳到最新 ↓
     </button>
 
-    <div class="composer" @dragover.prevent @drop.prevent="dropFiles($event)">
-      <textarea x-model="prompt" @keydown="onEnter($event)"
-                @compositionstart="onCompositionStart()"
-                @compositionend="onCompositionEnd()"
+    <div class="composer" @dragover.prevent @drop.prevent="dropFiles">
+      <textarea x-model="prompt" @keydown="onEnter"
+                @compositionstart="onCompositionStart"
+                @compositionend="onCompositionEnd"
                 aria-label="任务输入"
                 placeholder="输入任务，Enter 发送，Shift+Enter 换行"></textarea>
       <div class="composer-actions">
-        <button @click="send()" :disabled="sendDisabled()">发送</button>
-        <button @click="steer('pause')" :disabled="!busy">暂停</button>
-        <button @click="steer('cancel')" :disabled="!busy && !paused">取消</button>
-        <button @click="resumeSteering()" :disabled="!paused">继续</button>
-        <button @click="reconnect()" x-show="canReconnect">重连事件流</button>
-        <button @click="retry()" x-show="_lastPrompt && !busy">重试上一条</button>
-        <button @click="openNewSettings()" :disabled="!busy">追加任务</button>
-        <button @click="replan()" :disabled="!busy">重规划</button>
+        <button @click="send" :disabled="sendDisabled">发送</button>
+        <button data-action="steer" data-steer="pause" @click="onAction" :disabled="pauseDisabled">暂停</button>
+        <button data-action="steer" data-steer="cancel" @click="onAction" :disabled="cancelDisabled">取消</button>
+        <button @click="resumeSteering" :disabled="resumeDisabled">继续</button>
+        <button @click="reconnect" x-show="canReconnect">重连事件流</button>
+        <button @click="retry" x-show="canRetry">重试上一条</button>
+        <button @click="openNewSettings" :disabled="appendDisabled">追加任务</button>
+        <button @click="replan" :disabled="replanDisabled">重规划</button>
         <label class="upload-label">
           上传文件
-          <input type="file" multiple @change="uploadFiles($event)">
+          <input type="file" multiple @change="uploadFiles">
         </label>
       </div>
-      <div class="upload-list" x-show="uploads.length > 0">
+      <div class="upload-list" x-show="hasUploads">
         <template x-for="u in uploads" :key="u.relative_path">
           <span class="upload-chip" :title="u.relative_path">
             <span x-text="u._name"></span>
             <span class="upload-size" x-text="u._size"></span>
-            <button class="chip-delete" @click="deleteUpload(u.relative_path)">×</button>
+            <button class="chip-delete" data-action="delete-upload" :data-path="u.relative_path" @click="onAction">×</button>
           </span>
         </template>
       </div>
@@ -206,6 +203,6 @@
     </div>
   </main>
 
-  <div class="splitter splitter-right" x-show="!inspectorCollapsed"
-       @pointerdown="startResize('inspector', $event)"
+  <div class="splitter splitter-right" x-show="inspectorVisible"
+       data-side="inspector" @pointerdown="onStartResize"
        role="separator" aria-orientation="vertical" aria-label="调整检查器宽度"></div>

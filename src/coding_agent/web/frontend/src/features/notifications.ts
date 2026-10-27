@@ -15,6 +15,7 @@ export const notificationsMixin = {
       title: text,
       body: String(body || '').slice(0, 300),
       time: new Date().toLocaleTimeString(),
+      _cls: `notif-${kind || 'info'}`,
     };
     this.notifications = [item, ...this.notifications].slice(0, MAX_NOTIFICATIONS);
     if (this.notificationsOpen) this.unreadNotifications = 0;

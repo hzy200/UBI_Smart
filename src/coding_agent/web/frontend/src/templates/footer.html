@@ -1,43 +1,43 @@
 <div class="notification-panel" x-show="notificationsOpen" x-cloak
-     @click.outside="closeNotifications()" role="dialog" aria-label="通知中心">
+     @click.outside="closeNotifications" role="dialog" aria-label="通知中心">
   <div class="notification-head">
     <h3>通知</h3>
-    <span class="notification-unread" x-show="unreadNotifications > 0"
-          x-text="unreadNotifications + ' 条未读'"></span>
-    <button class="icon-btn" @click="markNotificationsRead()" title="全部已读" aria-label="全部已读">
+    <span class="notification-unread" x-show="hasUnreadNotifications"
+          x-text="unreadNotificationsText"></span>
+    <button class="icon-btn" @click="markNotificationsRead" title="全部已读" aria-label="全部已读">
       <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
     </button>
-    <button class="icon-btn" @click="clearNotifications()" title="清空通知" aria-label="清空通知">
+    <button class="icon-btn" @click="clearNotifications" title="清空通知" aria-label="清空通知">
       <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
     </button>
   </div>
   <div class="notification-list" aria-live="polite">
     <template x-for="item in notifications" :key="item.id">
-      <div class="notification-item" :class="notificationClass(item)">
+      <div class="notification-item" :class="item._cls">
         <div class="notification-title" x-text="item.title"></div>
         <div class="notification-body" x-show="item.body" x-text="item.body"></div>
         <div class="notification-time" x-text="item.time"></div>
       </div>
     </template>
-    <div class="empty" x-show="notifications.length === 0">还没有通知</div>
+    <div class="empty" x-show="noNotifications">还没有通知</div>
   </div>
 </div>
 
 <footer class="statusbar" role="contentinfo" x-show="ready" x-cloak>
   <span class="status-item" :title="healthText">
-    <span class="status-dot" :class="connectionClass()"></span>
+    <span class="status-dot" :class="connectionClass"></span>
     <span x-text="stateText"></span>
   </span>
-  <span class="status-item connection" x-show="connectionText()" x-cloak x-text="connectionText()"></span>
-  <span class="status-item badge" :class="badgeClasses" x-text="accessLabel()"></span>
-  <span class="status-item" x-text="modelLabel()"></span>
-  <span class="status-item status-workspace" x-text="workspaceLabel()"></span>
+  <span class="status-item connection" x-show="connectionLabel" x-cloak x-text="connectionLabel"></span>
+  <span class="status-item badge" :class="badgeClasses" x-text="accessLabel"></span>
+  <span class="status-item" x-text="modelLabel"></span>
+  <span class="status-item status-workspace" x-text="workspaceLabel"></span>
   <span class="status-item" x-show="gitInfo._branch" x-text="gitInfo._branch"></span>
   <span class="spacer"></span>
-  <span class="status-item" x-show="usageText()" :title="usageTitle()" x-text="usageText()"></span>
+  <span class="status-item" x-show="usageLabel" :title="usageTitle" x-text="usageLabel"></span>
   <span class="status-item" x-text="costText"></span>
   <span class="status-item status-health" x-text="healthText"></span>
-  <button class="status-item status-command" @click="openCommandPalette()" title="打开命令面板">
+  <button class="status-item status-command" @click="openCommandPalette" title="打开命令面板">
     Ctrl Shift P
   </button>
 </footer>
@@ -48,7 +48,7 @@
 <script src="/static/vendor/marked.min.js"></script>
 <script src="/static/vendor/purify.min.js"></script>
 <script src="/static/vendor/highlight.min.js"></script>
-<script src="/static/vendor/alpine.min.js"></script>
+<script src="/static/vendor/alpine-csp.min.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

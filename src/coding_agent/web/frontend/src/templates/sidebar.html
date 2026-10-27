@@ -1,167 +1,165 @@
 <nav class="activitybar" aria-label="主导航">
   <div class="activity-group">
-    <button class="activity-item" :class="viewClasses.sessions" @click="setView('sessions')"
-            :aria-pressed="view === 'sessions' ? 'true' : 'false'"
+    <button class="activity-item" :class="viewClasses.sessions" data-action="view" data-view="sessions" @click="onAction"
+            :aria-pressed="viewFlags.sessions"
             title="会话" aria-label="会话">
       <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
     </button>
-    <button class="activity-item" :class="viewClasses.files" @click="setView('files')"
-            :aria-pressed="view === 'files' ? 'true' : 'false'"
+    <button class="activity-item" :class="viewClasses.files" data-action="view" data-view="files" @click="onAction"
+            :aria-pressed="viewFlags.files"
             title="文件改动" aria-label="文件改动">
       <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
       <span class="activity-dot" x-show="filesDirty" aria-hidden="true"></span>
     </button>
-    <button class="activity-item" :class="viewClasses.tree" @click="setView('tree')"
-            :aria-pressed="view === 'tree' ? 'true' : 'false'"
+    <button class="activity-item" :class="viewClasses.tree" data-action="view" data-view="tree" @click="onAction"
+            :aria-pressed="viewFlags.tree"
             title="文件树" aria-label="文件树">
       <svg class="icon" aria-hidden="true"><use href="#i-tree"></use></svg>
     </button>
-    <button class="activity-item" :class="viewClasses.git" @click="setView('git')"
-            :aria-pressed="view === 'git' ? 'true' : 'false'"
+    <button class="activity-item" :class="viewClasses.git" data-action="view" data-view="git" @click="onAction"
+            :aria-pressed="viewFlags.git"
             title="Git" aria-label="Git">
       <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
     </button>
-    <button class="activity-item" :class="viewClasses.tasks" @click="setView('tasks')"
-            :aria-pressed="view === 'tasks' ? 'true' : 'false'"
+    <button class="activity-item" :class="viewClasses.tasks" data-action="view" data-view="tasks" @click="onAction"
+            :aria-pressed="viewFlags.tasks"
             title="任务" aria-label="任务">
       <svg class="icon" aria-hidden="true"><use href="#i-tasks"></use></svg>
       <span class="activity-dot" x-show="tasksDirty" aria-hidden="true"></span>
     </button>
-    <button class="activity-item" :class="viewClasses.memory" @click="setView('memory')"
-            :aria-pressed="view === 'memory' ? 'true' : 'false'"
+    <button class="activity-item" :class="viewClasses.memory" data-action="view" data-view="memory" @click="onAction"
+            :aria-pressed="viewFlags.memory"
             title="记忆" aria-label="记忆">
       <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
     </button>
-    <button class="activity-item" :class="viewClasses.audit" @click="setView('audit')"
-            :aria-pressed="view === 'audit' ? 'true' : 'false'"
+    <button class="activity-item" :class="viewClasses.audit" data-action="view" data-view="audit" @click="onAction"
+            :aria-pressed="viewFlags.audit"
             title="审计" aria-label="审计">
       <svg class="icon" aria-hidden="true"><use href="#i-audit"></use></svg>
     </button>
-    <button class="activity-item" :class="viewClasses.problems" @click="setView('problems')"
-            :aria-pressed="view === 'problems' ? 'true' : 'false'"
+    <button class="activity-item" :class="viewClasses.problems" data-action="view" data-view="problems" @click="onAction"
+            :aria-pressed="viewFlags.problems"
             title="问题" aria-label="问题">
       <svg class="icon" aria-hidden="true"><use href="#i-alert"></use></svg>
-      <span class="activity-badge" x-show="problems.length > 0" x-text="problems.length"></span>
+      <span class="activity-badge" x-show="hasProblems" x-text="problems.length"></span>
     </button>
   </div>
   <span class="spacer"></span>
-  <button class="activity-item" @click="toggleSettings()" title="设置" aria-label="设置">
+  <button class="activity-item" @click="toggleSettings" title="设置" aria-label="设置">
     <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
   </button>
 </nav>
 
-<aside class="sidebar" id="sidebar-panel" x-show="!sidebarCollapsed">
+<aside class="sidebar" id="sidebar-panel" x-show="sidebarVisible">
   <div class="sidebar-head">
-    <h3 x-text="viewTitle()">会话</h3>
+    <h3 x-text="viewTitle">会话</h3>
     <div class="row">
-      <button class="icon-btn" x-show="view === 'sessions'" @click="newSession()"
+      <button class="icon-btn" x-show="viewFlags.sessions" @click="newSession"
               title="新会话" aria-label="新会话">
         <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
       </button>
-      <button class="icon-btn" @click="toggleSidebar()" title="收起侧栏" aria-label="收起侧栏">
+      <button class="icon-btn" @click="toggleSidebar" title="收起侧栏" aria-label="收起侧栏">
         <svg class="icon" aria-hidden="true"><use href="#i-panel-left"></use></svg>
       </button>
     </div>
   </div>
 
   <div class="sidebar-body">
-    <div class="view" x-show="view === 'sessions'">
+    <div class="view" x-show="viewFlags.sessions">
       <div class="session-form">
         <div x-show="capabilities.workspace_registry">
           <label>项目</label>
           <div class="row">
-            <select x-model="projectId" @change="selectProject(projectId)"
+            <select x-model="projectId" @change="selectCurrentProject"
                     aria-label="选择项目">
               <option value="">选择项目…</option>
               <template x-for="p in projects" :key="p.workspace_id">
-                <option :value="p.workspace_id" x-text="projectLabel(p)"></option>
+                <option :value="p.workspace_id" x-text="p._label"></option>
               </template>
             </select>
-            <button @click="registerHostWorkspace()" :disabled="projectBusy"
+            <button @click="registerHostWorkspace" :disabled="projectBusy"
                     title="选择一个本机文件夹作为工作区">+ 本机</button>
           </div>
-          <div class="note" x-show="projects.length === 0">
+          <div class="note" x-show="noProjects">
             还没有项目；在设置里导入文件夹或上传归档。
           </div>
           <div class="note">
             切换项目后，发送时会自动新建会话（已有会话的工作区不可改绑）。
           </div>
           <div class="note note-ok" x-show="threadId">
-            当前会话绑定：<span x-text="workspace || '未知'"></span>（不可更改）
+            当前会话绑定：<span x-text="workspaceDisplay"></span>（不可更改）
           </div>
           <input x-model="workspaceInput" readonly
-                 :placeholder="capabilities.host_mode
-                   ? '本机项目由客户端选择并登记'
-                   : '选择项目后自动填入工作区'">
+                 :placeholder="workspaceInputPlaceholder">
         </div>
-        <div x-show="!capabilities.workspace_registry">
+        <div x-show="noWorkspaceRegistry">
           <label>工作区</label>
           <div class="row">
             <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
-            <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace()">选择…</button>
+            <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace">选择…</button>
           </div>
         </div>
         <label>文件权限</label>
-        <select x-model="accessMode" :disabled="accessDisabled()">
+        <select x-model="accessMode" :disabled="accessDisabled">
           <option value="read_only">只读（不可运行）</option>
           <option value="write_ask" x-show="capabilities.server_write_enabled">审批写</option>
           <option value="write_auto" x-show="capabilities.server_write_enabled">自动写</option>
         </select>
         <label>模型</label>
-        <select x-model="model" @change="syncModel()">
+        <select x-model="model" @change="syncModel">
           <option value="">默认模型</option>
           <template x-for="p in providers" :key="p._key">
             <option :value="p.model" x-text="p._label"></option>
           </template>
         </select>
-        <button @click="switchModel()" :disabled="!threadId || busy">应用到当前会话</button>
-        <button class="primary" @click="createSession()" :disabled="busy || approvals.length || paused">创建会话</button>
+        <button @click="switchModel" :disabled="applyModelDisabled">应用到当前会话</button>
+        <button class="primary" @click="createSession" :disabled="createSessionDisabled">创建会话</button>
       </div>
-      <input class="session-search" x-model="sessionQuery" @input="filterSessions()"
+      <input class="session-search" x-model="sessionQuery" @input="onSessionSearchInput"
              placeholder="搜索会话或标签…">
       <div class="session-filters">
-        <button :class="sessionFilterClass('all')" @click="setSessionFilter('all')">全部</button>
-        <button :class="sessionFilterClass('pinned')" @click="setSessionFilter('pinned')">置顶</button>
-        <button :class="sessionFilterClass('archived')" @click="setSessionFilter('archived')">归档</button>
+        <button :class="sessionFilterClasses.all" data-action="session-filter" data-filter="all" @click="onAction">全部</button>
+        <button :class="sessionFilterClasses.pinned" data-action="session-filter" data-filter="pinned" @click="onAction">置顶</button>
+        <button :class="sessionFilterClasses.archived" data-action="session-filter" data-filter="archived" @click="onAction">归档</button>
       </div>
       <div class="session-list">
         <template x-for="s in sessionRows" :key="s.thread_id">
           <div class="session-entry">
             <div class="session-group" x-show="s._showGroup"
                  x-text="s._groupLabel"></div>
-            <div class="session-item" :class="s._cls" @click="openSession(s.thread_id)">
+            <div class="session-item" :class="s._cls" data-action="session" data-op="open" :data-id="s.thread_id" @click="onAction">
               <div class="t">
                 <span class="session-pin" x-show="s.pinned" title="已置顶">★</span>
                 <span x-text="s._title"></span>
               </div>
-              <div class="session-tags" x-show="s.tags && s.tags.length">
+              <div class="session-tags" x-show="s._hasTags">
                 <template x-for="tag in s.tags" :key="tag">
                   <span class="session-tag" x-text="tag"></span>
                 </template>
               </div>
               <div class="m" x-text="s._meta"></div>
               <div class="session-actions">
-                <button @click.stop="toggleSessionPin(s)"
-                        x-text="s.pinned ? '取消置顶' : '置顶'"></button>
-                <button @click.stop="toggleSessionArchive(s)"
-                        x-text="s.archived ? '取消归档' : '归档'"></button>
-                <button @click.stop="editSessionTags(s)">标签</button>
-                <button @click.stop="renameSession(s.thread_id)">改名</button>
-                <button @click.stop="exportSession(s.thread_id)">导出</button>
-                <button class="danger" @click.stop="deleteSession(s.thread_id)">删除</button>
+                <button data-action="session" data-op="pin" :data-id="s.thread_id" @click.stop="onAction"
+                        x-text="s._pinLabel"></button>
+                <button data-action="session" data-op="archive" :data-id="s.thread_id" @click.stop="onAction"
+                        x-text="s._archiveLabel"></button>
+                <button data-action="session" data-op="tags" :data-id="s.thread_id" @click.stop="onAction">标签</button>
+                <button data-action="session" data-op="rename" :data-id="s.thread_id" @click.stop="onAction">改名</button>
+                <button data-action="session" data-op="export" :data-id="s.thread_id" @click.stop="onAction">导出</button>
+                <button class="danger" data-action="session" data-op="delete" :data-id="s.thread_id" @click.stop="onAction">删除</button>
               </div>
             </div>
           </div>
         </template>
-        <div class="empty" x-show="sessionRows.length === 0">没有匹配的会话</div>
+        <div class="empty" x-show="noSessions">没有匹配的会话</div>
       </div>
     </div>
 
-    <div class="view" x-show="view === 'files'">
+    <div class="view" x-show="viewFlags.files">
       <div class="panel-actions">
-        <button @click="loadSnapshots()">刷新快照</button>
-        <button @click="restoreRun()">回滚本轮</button>
-        <button @click="loadCheckpoints()">检查点</button>
+        <button @click="loadSnapshots">刷新快照</button>
+        <button @click="restoreRun">回滚本轮</button>
+        <button @click="loadCheckpoints">检查点</button>
       </div>
       <template x-for="c in checkpoints" :key="c.checkpoint_id">
         <div class="file-card">
@@ -169,8 +167,8 @@
             <span x-text="c.step"></span>
             <span x-text="c.checkpoint_id"></span>
             <span x-text="c.preview"></span>
-            <button @click="forkCheckpoint(c.checkpoint_id)">分叉</button>
-            <button class="danger" @click="rewindTo(c.checkpoint_id)">回退到此</button>
+            <button data-action="checkpoint" data-op="fork" :data-id="c.checkpoint_id" @click="onAction">分叉</button>
+            <button class="danger" data-action="checkpoint" data-op="rewind" :data-id="c.checkpoint_id" @click="onAction">回退到此</button>
           </div>
         </div>
       </template>
@@ -178,42 +176,42 @@
         <div class="file-card">
           <div class="file-head">
             <span x-text="f.path"></span>
-            <button @click="loadDiff(f.snapshot_id, f.path)">查看 diff</button>
-            <button @click="acceptFile(f)">接受</button>
-            <button class="danger" @click="restoreSnapshot(f.snapshot_id, f.path)">拒绝（回滚）</button>
+            <button data-action="file" data-op="diff" :data-snapshot="f.snapshot_id" :data-path="f.path" @click="onAction">查看 diff</button>
+            <button data-action="file" data-op="accept" :data-key="f._key" @click="onAction">接受</button>
+            <button class="danger" data-action="file" data-op="reject" :data-snapshot="f.snapshot_id" :data-path="f.path" @click="onAction">拒绝（回滚）</button>
           </div>
         </div>
       </template>
       <div class="note">查看 diff 会在主区打开标签页。</div>
       <div class="note">接受 = 保留当前内容；拒绝 = 恢复到快照前的内容（回滚前会再留底）。</div>
-      <div class="empty" x-show="files.length === 0 && diffText === ''">还没有文件改动</div>
+      <div class="empty" x-show="filesEmptyState">还没有文件改动</div>
     </div>
 
-    <div class="view" x-show="view === 'tree'">
+    <div class="view" x-show="viewFlags.tree">
       <div class="panel-actions">
-        <button @click="refreshTree()">刷新</button>
-        <button @click="collapseAllTree()">收起全部</button>
-        <span class="note" x-text="treeRootLoading() ? '加载中…' : ''"></span>
+        <button @click="refreshTree">刷新</button>
+        <button @click="collapseAllTree">收起全部</button>
+        <span class="note" x-text="treeLoadingText"></span>
       </div>
       <input class="tree-search" x-model="treeQuery" placeholder="过滤已加载文件…">
-      <template x-for="entry in filteredTreeRows()" :key="entry._key">
+      <template x-for="entry in filteredTreeResults" :key="entry._key">
         <div class="tree-row" :class="entry._cls"
-             :style="'padding-left:' + (8 + entry._depth * 14) + 'px'"
-             @click="openTreeEntry(entry)">
+             :style="entry._style"
+             data-action="tree" :data-path="entry.path" :data-dir="entry.is_dir" @click="onAction">
           <span class="tree-kind" x-text="entry._kind"></span>
           <span class="tree-name" x-text="entry.name"></span>
           <span class="note" x-text="entry._meta"></span>
-          <button class="tree-copy" @click.stop="copyText(entry.path)" title="复制路径">复制路径</button>
+          <button class="tree-copy" data-action="copy-path" :data-path="entry.path" @click.stop="onAction" title="复制路径">复制路径</button>
         </div>
       </template>
-      <div class="empty" x-show="!treeRootLoading() && filteredTreeRows().length === 0">没有匹配的文件，或目录为空</div>
+      <div class="empty" x-show="treeEmpty">没有匹配的文件，或目录为空</div>
       <div class="note">点击目录展开/折叠；点击文件在主区打开只读预览。</div>
     </div>
 
-    <div class="view" x-show="view === 'git'">
+    <div class="view" x-show="viewFlags.git">
       <div class="panel-actions">
-        <button @click="loadGit(false)">刷新状态</button>
-        <button @click="loadGit(true)">查看 diff</button>
+        <button data-action="load-git" data-diff="false" @click="onAction">刷新状态</button>
+        <button data-action="load-git" data-diff="true" @click="onAction">查看 diff</button>
         <span class="note" x-text="gitInfo._state"></span>
       </div>
       <div class="note" x-text="gitInfo._branch"></div>
@@ -223,21 +221,21 @@
       <template x-for="row in gitInfo._commits" :key="row._key">
         <div class="note" x-text="row._text"></div>
       </template>
-      <div class="note" x-show="mainTab === 'diff' && diffPath === 'Git'">Git diff 已在主区标签中打开。</div>
+      <div class="note" x-show="gitDiffTabOpen">Git diff 已在主区标签中打开。</div>
     </div>
 
-    <div class="view" x-show="view === 'tasks'">
-      <template x-for="task in tasks" :key="task.id || task.task_id">
+    <div class="view" x-show="viewFlags.tasks">
+      <template x-for="task in tasks" :key="task._idText">
         <div class="task-card" :class="task._cls">
           <div class="task-line">
-            <span class="task-id" x-text="task.id || task.task_id"></span>
+            <span class="task-id" x-text="task._idText"></span>
             <span class="task-role" x-text="task.role"></span>
             <span class="task-status" x-text="task._status"></span>
           </div>
-          <div class="task-goal" x-text="task.goal || task._text"></div>
+          <div class="task-goal" x-text="task._goalText"></div>
           <div class="task-meta">
             <span x-show="task._depends" x-text="task._depends"></span>
-            <span x-show="task._worker" x-text="'worker: ' + task._worker"></span>
+            <span x-show="task._worker" x-text="task._workerText"></span>
             <span x-show="task._timing" x-text="task._timing"></span>
             <span x-show="task._tokens" x-text="task._tokens"></span>
             <span x-show="task.tool_calls" x-text="task.tool_calls + ' tool calls'"></span>
@@ -245,26 +243,26 @@
           </div>
         </div>
       </template>
-      <div class="empty" x-show="tasks.length === 0">没有编排任务</div>
+      <div class="empty" x-show="noTasks">没有编排任务</div>
     </div>
 
-    <div class="view" x-show="view === 'memory'">
+    <div class="view" x-show="viewFlags.memory">
       <div class="panel-actions">
         <input x-model="memoryText" placeholder="新增一条项目记忆">
-        <button @click="remember()">记住</button>
+        <button @click="remember">记住</button>
       </div>
       <template x-for="(fact, i) in memory" :key="i">
         <div class="memory-item">
           <span x-text="fact"></span>
-          <button class="danger" @click="forget(i)">删除</button>
+          <button class="danger" data-action="memory-forget" :data-index="i" @click="onAction">删除</button>
         </div>
       </template>
-      <div class="empty" x-show="memory.length === 0">没有项目记忆</div>
+      <div class="empty" x-show="noMemory">没有项目记忆</div>
     </div>
 
-    <div class="view" x-show="view === 'audit'">
+    <div class="view" x-show="viewFlags.audit">
       <div class="panel-actions">
-        <button @click="loadAudit()">刷新审计</button>
+        <button @click="loadAudit">刷新审计</button>
       </div>
       <template x-for="(r, i) in audit" :key="i">
         <div class="audit-row">
@@ -273,13 +271,13 @@
           <span x-text="r._text"></span>
         </div>
       </template>
-      <div class="empty" x-show="audit.length === 0">没有审计记录</div>
+      <div class="empty" x-show="noAudit">没有审计记录</div>
     </div>
 
-    <div class="view" x-show="view === 'problems'">
+    <div class="view" x-show="viewFlags.problems">
       <div class="panel-actions">
-        <button @click="clearProblems()">清空</button>
-        <span class="note" x-text="problems.length + ' 个问题'"></span>
+        <button @click="clearProblems">清空</button>
+        <span class="note" x-text="problemsCountText"></span>
       </div>
       <template x-for="p in problems" :key="p.id">
         <div class="problem-card" :class="p._cls">
@@ -290,11 +288,11 @@
           <pre class="problem-detail" x-show="p.detail" x-text="p.detail"></pre>
         </div>
       </template>
-      <div class="empty" x-show="problems.length === 0">没有诊断问题</div>
+      <div class="empty" x-show="noProblems">没有诊断问题</div>
     </div>
   </div>
 </aside>
 
-<div class="splitter splitter-left" x-show="!sidebarCollapsed"
-     @pointerdown="startResize('sidebar', $event)"
+<div class="splitter splitter-left" x-show="sidebarVisible"
+     data-side="sidebar" @pointerdown="onStartResize"
      role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度"></div>

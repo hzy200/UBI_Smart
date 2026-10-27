@@ -607,7 +607,10 @@
           return;
         }
         const data = await readJson(response, "\u8BFB\u53D6\u6388\u6743\u8BF7\u6C42\u5931\u8D25");
-        const pending = data.pending || [];
+        const pending = (data.pending || []).map((item) => ({
+          ...item,
+          _verbsText: this.consentVerbs(item.verbs)
+        }));
         const hasNew = pending.length > this.consents.length;
         this.consents = pending;
         if (hasNew) this.scrollBottom();
@@ -694,7 +697,7 @@
       if (target === location.href) return;
       location.assign(target);
     },
-    authModeLabel() {
+    get authModeLabel() {
       if (this.authMode === "desktop-token") return "\u684C\u9762\u672C\u5730\u4EE4\u724C";
       if (this.authMode === "bff-cookie") return "\u7EDF\u4E00\u767B\u5F55\uFF08BFF Cookie\uFF09";
       return "Bearer Token\uFF08\u4EC5\u5185\u5B58\uFF09";
@@ -928,7 +931,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
       return Math.max(0, Math.min(100, Number(this.projectPercent || 0)));
     },
-    projectBarStyle() {
+    get projectBarStyle() {
       return `width: ${this.projectDisplayPercent()}%;`;
     },
     selectedProject() {
@@ -944,7 +947,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       try {
         const response = await authFetch("/api/workspaces");
         const data = await readJson(response, "\u8BFB\u53D6\u9879\u76EE\u5931\u8D25");
-        this.projects = data.workspaces || [];
+        this.projects = (data.workspaces || []).map((project) => ({
+          ...project,
+          _label: this.projectLabel(project)
+        }));
         if (this.projectId && !this.projects.some((p) => p.workspace_id === this.projectId)) {
           this.projectId = "";
         }
@@ -966,7 +972,15 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           `/api/workspaces/${encodeURIComponent(this.projectId)}/revisions`
         );
         const data = await readJson(response, "\u8BFB\u53D6 revision \u5931\u8D25");
-        this.revisions = data.revisions || [];
+        this.revisions = (data.revisions || []).map((revision) => ({
+          ...revision,
+          _label: this.revisionLabel(revision),
+          _pinLabel: this.pinLabel(revision),
+          _disabled: Boolean(this.revisionBusy || revision.status === "pruned"),
+          _restoreDisabled: Boolean(
+            this.revisionBusy || revision.status === "pruned" || !revision.archive_path
+          )
+        }));
       } catch (err) {
         this.projectMessage = `revision \u8BFB\u53D6\u5931\u8D25\uFF1A${err}`;
       }
@@ -1417,13 +1431,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     auditText(record) {
       return record.tool || record.detail || "";
     },
-    loginMessage() {
+    get loginMessage() {
       if (this.authMode === "bff-cookie") {
         return this.loginError || "\u4F1A\u8BDD\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55\u3002";
       }
       return this.loginError || "\u8F93\u5165\u8BBF\u95EE token\uFF08\u684C\u9762\u7AEF\u4F1A\u81EA\u52A8\u586B\u5165\uFF09";
     },
-    workspaceLabel() {
+    get workspaceLabel() {
       return this.workspace || "\u672A\u9009\u62E9\u5DE5\u4F5C\u533A";
     },
     providerKey(provider) {
@@ -1479,6 +1493,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _status: status,
         _cls: `task-${status}`,
         _text: `${task.id || task.task_id || ""} ${task.goal || ""}`,
+        _idText: task.id || task.task_id || "",
+        _goalText: task.goal || task._text || "",
+        _workerText: task.worker_id ? `worker: ${task.worker_id}` : "",
         _depends: depends.length ? `\u4F9D\u8D56 ${depends.join(", ")}` : "",
         _worker: task.worker_id || "",
         _timing: formatDuration(task.duration_ms),
@@ -1508,7 +1525,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     msgClass(message) {
       return `msg-${message.role}`;
     },
-    sendDisabled() {
+    get sendDisabled() {
       return this.busy || this.paused || this.approvals.length > 0 || !this.prompt.trim();
     },
     isTab(name) {
@@ -1521,10 +1538,29 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         tools: name === "tools" ? "active" : "",
         timeline: name === "timeline" ? "active" : ""
       };
+      this.tabFlags = {
+        plan: name === "plan",
+        tools: name === "tools",
+        timeline: name === "timeline"
+      };
       if (open && this.inspectorCollapsed) this.inspectorCollapsed = false;
     },
     setSettingsTab(name) {
       this.settingsTab = name;
+      this.settingsTabFlags = {
+        appearance: name === "appearance",
+        models: name === "models",
+        workspace: name === "workspace",
+        diagnostics: name === "diagnostics",
+        advanced: name === "advanced"
+      };
+      this.settingsTabClasses = {
+        appearance: name === "appearance" ? "active" : "",
+        models: name === "models" ? "active" : "",
+        workspace: name === "workspace" ? "active" : "",
+        diagnostics: name === "diagnostics" ? "active" : "",
+        advanced: name === "advanced" ? "active" : ""
+      };
     },
     settingsTabClass(name) {
       return this.settingsTab === name ? "active" : "";
@@ -1555,14 +1591,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       if (this.capabilities.read_only) return "\u53EA\u8BFB";
       return this.accessMode === "write_auto" ? "\u81EA\u52A8\u5199" : "\u5BA1\u6279\u5199";
     },
-    accessDisabled() {
+    get accessDisabled() {
       return !this.capabilities.server_write_enabled;
     },
     usageText() {
       if (!this.usage.input && !this.usage.output) return "";
       return `${this.usage.input} in / ${this.usage.output} out`;
     },
-    usageTitle() {
+    get usageTitle() {
       const parts = [];
       if (this.usage.cost) parts.push(`\u8D39\u7528 $${this.usage.cost.toFixed(4)}`);
       if (this.usage.budget) {
@@ -1734,7 +1770,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           const state = item.state || (item.ok ? "\u5B8C\u6210" : "\u5931\u8D25");
           const cls2 = item.ok ? "tool-ok" : state === "\u5DF2\u62D2\u7EDD" ? "tool-rejected" : "tool-error";
           const text = [item.summary, item.preview].filter(Boolean).join("\n") || item.text || "";
-          this.messages.push({
+          const toolMessage = {
             id: ++this._msgSeq,
             role: "\u5DE5\u5177",
             phase: "tool",
@@ -1748,8 +1784,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
             text,
             done: true,
             _expanded: false,
-            _cls: `msg-tool ${cls2}`
-          });
+            _cls: `msg-tool ${cls2}`,
+            _longOutput: String(item.preview || "").length > 800
+          };
+          this.decorateMessage(toolMessage);
+          this.messages.push(toolMessage);
           continue;
         }
         const role = ["user", "system", "assistant"].includes(item.role) ? item.role : "assistant";
@@ -1758,7 +1797,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         if (role === "assistant") {
           cls = phase === "final" ? "msg-assistant msg-final" : phase === "process" ? "msg-assistant msg-process" : "msg-assistant msg-answer";
         }
-        this.messages.push({
+        const message = {
           id: ++this._msgSeq,
           role,
           phase,
@@ -1767,7 +1806,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           done: true,
           _expanded: false,
           _cls: cls
-        });
+        };
+        this.decorateMessage(message, phase);
+        this.messages.push(message);
       }
       this.moveFinalAnswerLast();
       this.$nextTick(() => {
@@ -1786,6 +1827,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           tags: Array.isArray(item.tags) ? item.tags : [],
           _title: item.title || item.thread_id,
           _meta: `${item.thread_id} \xB7 ${item.last_active || ""}` + (item.archived ? " \xB7 \u5DF2\u5F52\u6863" : "") + (item.interrupted ? " \xB7 \u5F02\u5E38\u4E2D\u65AD" : ""),
+          _pinLabel: item.pinned ? "\u53D6\u6D88\u7F6E\u9876" : "\u7F6E\u9876",
+          _archiveLabel: item.archived ? "\u53D6\u6D88\u5F52\u6863" : "\u5F52\u6863",
+          _hasTags: Array.isArray(item.tags) && item.tags.length > 0,
           _cls: item.thread_id === this.threadId ? "active" : ""
         }));
         this.filterSessions();
@@ -1799,6 +1843,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     setSessionFilter(name) {
       this.sessionFilter = name;
+      this.sessionFilterClasses = {
+        all: name === "all" ? "active" : "",
+        pinned: name === "pinned" ? "active" : "",
+        archived: name === "archived" ? "active" : ""
+      };
       this.filterSessions();
     },
     sessionFilterClass(name) {
@@ -1821,6 +1870,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           row.archived = Boolean(data.archived);
           row.tags = Array.isArray(data.tags) ? data.tags : [];
           row._meta = `${row.thread_id} \xB7 ${row.last_active || ""}` + (row.archived ? " \xB7 \u5DF2\u5F52\u6863" : "") + (row.interrupted ? " \xB7 \u5F02\u5E38\u4E2D\u65AD" : "");
+          row._pinLabel = row.pinned ? "\u53D6\u6D88\u7F6E\u9876" : "\u7F6E\u9876";
+          row._archiveLabel = row.archived ? "\u53D6\u6D88\u5F52\u6863" : "\u5F52\u6863";
+          row._hasTags = row.tags.length > 0;
         }
         this.filterSessions();
         return data;
@@ -2060,6 +2112,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.diffTruncated = false;
       this.diffExpanded = false;
       this.mainTab = "chat";
+      this.mainTabFlags = { chat: true, file: false, diff: false };
       this.editorTabs = [];
       this.activeEditorId = "";
       this.fileView = { path: "", size: 0, _text: "", _html: "" };
@@ -2216,10 +2269,31 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _expanded: false,
         _cls: `msg-${role}${role === "assistant" ? " msg-answer" : ""}`
       };
+      this.decorateMessage(message, resolvedPhase);
       this.messages.push(message);
       this.scrollBottom(role === "user" || resolvedPhase === "final");
       this.scheduleVirtualRange();
       this.$nextTick(() => this.decorateTranscript());
+      return message;
+    },
+    decorateMessage(message, phase) {
+      const resolved = phase || message.phase || message.role;
+      message._isUser = message.role === "user";
+      message._isTool = message.kind === "tool";
+      message._notTool = !message._isTool;
+      message._isFinal = message.role === "assistant" && resolved === "final";
+      message._label = message._isTool ? "\u5DE5\u5177" : message.role === "user" ? "\u4F60" : message.role === "system" ? "\u8FC7\u7A0B" : message.role === "assistant" ? resolved === "final" ? "\u6700\u7EC8\u56DE\u7B54" : resolved === "process" ? "\u5DE5\u4F5C\u4E2D" : "\u56DE\u7B54" : message.role || "";
+      const text = String(message.text || "");
+      message._longAnswer = !message._isTool && (text.length > 1200 || text.split("\n").length > 24);
+      message._hasToolText = Boolean(message.summary || message.preview);
+      message._badgeClass = `badge-${resolved}`;
+      message._hit = Boolean(message._hit);
+      message._renderClass = `${message._cls || ""}${message._hit ? " msg-hit" : ""}`;
+      message._timing = message._timing || "";
+      message._longOutput = Boolean(message._longOutput);
+      message._dotClass = (message._cls || "").includes("tool-ok") ? "dot-ok" : (message._cls || "").includes("tool-error") || (message._cls || "").includes("tool-rejected") ? "dot-bad" : "dot-run";
+      message._outputClass = !message._expanded && message._longOutput ? "is-collapsed" : "";
+      message._answerClass = !message._expanded && message._longAnswer ? "msg-collapsed" : "";
       return message;
     },
     messageLabel(m) {
@@ -2241,6 +2315,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           message.phase = "final";
           message.done = true;
           message._cls = "msg-assistant msg-final";
+          this.decorateMessage(message, "final");
           return message;
         }
       }
@@ -2374,6 +2449,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           _expanded: false,
           _cls: "msg-assistant msg-process"
         };
+        this.decorateMessage(this._currentMessage, "process");
         this.messages.push(this._currentMessage);
         tokenBuffers.set(this._currentMessage.id, "");
       }
@@ -2387,6 +2463,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         if (target) {
           target.text = raw;
           target.html = renderMarkdown(raw);
+          this.decorateMessage(target);
         }
         this.scrollBottom(false);
       }, 60));
@@ -2402,6 +2479,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       if (target && raw !== void 0) {
         target.text = raw;
         target.html = renderMarkdown(raw);
+        this.decorateMessage(target);
       }
       tokenBuffers.delete(id);
     },
@@ -2409,6 +2487,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       if (this._currentMessage) {
         this.flushAssistantToken(this._currentMessage.id);
         this._currentMessage.done = true;
+        this.decorateMessage(this._currentMessage);
       }
       this._currentMessage = null;
       this._currentNode = "";
@@ -2526,6 +2605,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.messageQuery = "";
       this.messageMatches = [];
       this.messageMatchIndex = 0;
+      for (const message of this.messages) {
+        message._hit = false;
+        message._renderClass = message._cls || "";
+      }
     },
     searchMessages(query) {
       this.messageQuery = query;
@@ -2538,6 +2621,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         `${message.text || ""} ${message.summary || ""} ${message.name || ""}`,
         query
       )).map((message) => message.id);
+      const matched = new Set(this.messageMatches);
+      for (const message of this.messages) {
+        message._hit = matched.has(message.id);
+        message._renderClass = `${message._cls || ""}${message._hit ? " msg-hit" : ""}`;
+      }
       this.messageMatchIndex = 0;
       this.scrollToMessageMatch();
     },
@@ -2580,7 +2668,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.messageMatchIndex = (this.messageMatchIndex + delta + this.messageMatches.length) % this.messageMatches.length;
       this.scrollToMessageMatch();
     },
-    messageMatchLabel() {
+    get messageMatchLabel() {
       if (!this.messageMatches.length) return this.messageQuery ? "0/0" : "";
       return `${this.messageMatchIndex + 1}/${this.messageMatches.length}`;
     }
@@ -2899,7 +2987,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           const node = event.node || "";
           let block = this.reasoningBlocks[this.reasoningBlocks.length - 1];
           if (!block || block.node !== node) {
-            block = { node, text: "" };
+            if (block) block._open = false;
+            block = { node, text: "", _open: true };
             this.reasoningBlocks.push(block);
           }
           block.text += event.text || "";
@@ -3203,6 +3292,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.refreshToolDetail(tool);
     },
     refreshToolDetail(tool) {
+      tool._hasToolText = Boolean(tool.summary || tool.preview);
       tool._detail = JSON.stringify({
         call_id: tool.call_id,
         name: tool.name,
@@ -3215,6 +3305,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     setToolFilter(name) {
       this.toolFilter = name;
+      this.toolFilterClasses = {
+        all: name === "all" ? "active" : "",
+        running: name === "running" ? "active" : "",
+        ok: name === "ok" ? "active" : "",
+        error: name === "error" ? "active" : ""
+      };
     },
     toolFilterClass(name) {
       return this.toolFilter === name ? "active" : "";
@@ -3239,7 +3335,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     upsertToolMessage(event) {
       const key = this.toolMessageKey(event);
       const existing = this.messages.find(
-        (message) => message.kind === "tool" && message.call_id === key
+        (message2) => message2.kind === "tool" && message2.call_id === key
       );
       if (existing) {
         existing.name = event.name || existing.name;
@@ -3248,7 +3344,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         return;
       }
       const summary = event.summary || "";
-      this.messages.push({
+      const message = {
         id: ++this._msgSeq,
         role: "\u5DE5\u5177",
         phase: "tool",
@@ -3262,8 +3358,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         text: summary,
         done: false,
         _expanded: false,
-        _cls: "msg-tool tool-running"
-      });
+        _cls: "msg-tool tool-running",
+        _timing: "",
+        _longOutput: false
+      };
+      this.decorateMessage(message, "tool");
+      this.messages.push(message);
       this.scrollBottom(false);
     },
     finishToolMessage(event) {
@@ -3286,6 +3386,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       message.done = true;
       message._cls = `msg-tool ${event.ok ? "tool-ok" : "tool-error"}`;
       if (event.rejected) message._cls = "msg-tool tool-rejected";
+      message._timing = event.duration_ms != null ? `${event.duration_ms}ms` : event.exit_code != null ? `exit ${event.exit_code}` : "";
+      message._longOutput = String(event.preview || "").length > 800;
+      this.decorateMessage(message, "tool");
       this.scrollBottom(false);
     },
     upsertWorker(event) {
@@ -3745,7 +3848,11 @@ ${paths}
         diffDisplay: display,
         diffTruncated: truncated,
         diffExpanded: !truncated,
-        diffPath: path
+        diffPath: path,
+        _isFile: false,
+        _isDiff: true,
+        _active: false,
+        _cls: ""
       };
       const existing = this.editorTabs.find((tab) => tab.id === id);
       if (existing) Object.assign(existing, payload);
@@ -3763,6 +3870,22 @@ ${paths}
     editorTabClass(id) {
       return this.mainTab !== "chat" && this.activeEditorId === id ? "active" : "";
     },
+    setMainTabFlags(name) {
+      this.mainTabFlags = {
+        chat: name === "chat",
+        file: name === "file",
+        diff: name === "diff"
+      };
+      this.mainTabClasses = {
+        chat: name === "chat" ? "active" : "",
+        file: name === "file" ? "active" : "",
+        diff: name === "diff" ? "active" : ""
+      };
+      for (const tab of this.editorTabs) {
+        tab._active = name !== "chat" && tab.id === this.activeEditorId;
+        tab._cls = tab._active ? "active" : "";
+      }
+    },
     activateEditorTab(id) {
       const tab = this.editorTabs.find((item) => item.id === id);
       if (!tab) return;
@@ -3770,6 +3893,7 @@ ${paths}
       if (tab.kind === "file") {
         this.fileView = tab.fileView;
         this.mainTab = "file";
+        this.setMainTabFlags("file");
         return;
       }
       this.diffText = tab.diffText;
@@ -3778,6 +3902,7 @@ ${paths}
       this.diffExpanded = tab.diffExpanded;
       this.diffPath = tab.diffPath;
       this.mainTab = "diff";
+      this.setMainTabFlags("diff");
     },
     syncActiveEditor() {
       const tab = this.editorTabs.find((item) => item.id === this.activeEditorId);
@@ -3809,6 +3934,7 @@ ${paths}
       }
       this.activeEditorId = "";
       this.mainTab = "chat";
+      this.setMainTabFlags("chat");
       this.fileView = { path: "", size: 0, _text: "", _html: "" };
       this.diffText = "";
       this.diffDisplay = "";
@@ -3832,6 +3958,7 @@ ${paths}
       this.editorTabs = [];
       this.activeEditorId = "";
       this.mainTab = "chat";
+      this.setMainTabFlags("chat");
       this.fileView = { path: "", size: 0, _text: "", _html: "" };
       this.diffText = "";
       this.diffDisplay = "";
@@ -3935,11 +4062,13 @@ ${paths}
         for (const entry of this.treeChildren[path] || []) {
           const expanded = Boolean(this.treeExpanded[entry.path]);
           const loading = Boolean(this.treeLoadingMap[entry.path]);
+          const indent = 8 + depth * 14;
           rows.push({
             ...entry,
             _depth: depth,
             _expanded: expanded,
-            _kind: entry.is_dir ? loading ? "\u2026" : expanded ? "\u25BE" : "\u25B8" : "\xB7"
+            _kind: entry.is_dir ? loading ? "\u2026" : expanded ? "\u25BE" : "\u25B8" : "\xB7",
+            _style: `padding-left:${indent}px`
           });
           if (entry.is_dir && expanded) walk(entry.path, depth + 1);
         }
@@ -3952,7 +4081,12 @@ ${paths}
       const all = [];
       const walk = (path) => {
         for (const entry of this.treeChildren[path] || []) {
-          all.push({ ...entry, _depth: 0, _kind: entry.is_dir ? "\u76EE\u5F55" : "\xB7" });
+          all.push({
+            ...entry,
+            _depth: 0,
+            _kind: entry.is_dir ? "\u76EE\u5F55" : "\xB7",
+            _style: "padding-left:8px"
+          });
           if (entry.is_dir) walk(entry.path);
         }
       };
@@ -4026,7 +4160,11 @@ ${paths}
             path: data.path || path,
             title: path,
             fileView,
-            stale: false
+            stale: false,
+            _isFile: true,
+            _isDiff: false,
+            _active: false,
+            _cls: ""
           }];
         }
         this.activateEditorTab(id);
@@ -4103,6 +4241,7 @@ ${paths}
     },
     showChat() {
       this.mainTab = "chat";
+      this.setMainTabFlags("chat");
     },
     closeFileTab() {
       this.closeActiveEditorTab();
@@ -4593,7 +4732,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.inspectorCollapsed = false;
       this.saveLayout();
     },
-    layoutStyle() {
+    get layoutStyle() {
       const sidebar = this.sidebarCollapsed ? 0 : this.sidebarWidth;
       const inspector = this.inspectorCollapsed ? 0 : this.inspectorWidth;
       return `--sidebar-width: ${sidebar}px; --inspector-width: ${inspector}px;`;
@@ -4639,10 +4778,14 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     applyViewClasses() {
       const next = {};
+      const flags = {};
       for (const name of Object.keys(VIEW_TITLES)) {
-        next[name] = this.view === name ? "active" : "";
+        const active = this.view === name;
+        next[name] = active ? "active" : "";
+        flags[name] = active;
       }
       this.viewClasses = next;
+      this.viewFlags = flags;
     },
     setView(name, load = true, reveal = true) {
       this.view = name;
@@ -4659,22 +4802,22 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       }
       if (reveal) this.saveLayout();
     },
-    viewTitle() {
+    get viewTitle() {
       return VIEW_TITLES[this.view] || "\u4F1A\u8BDD";
     },
-    currentSessionTitle() {
+    get currentSessionTitle() {
       const current = (this.sessions || []).find(
         (item) => item.thread_id === this.threadId
       );
       if (current) return current.title || current.thread_id;
       return this.threadId || "\u65B0\u4F1A\u8BDD";
     },
-    modelLabel() {
+    get modelLabel() {
       if (this.model) return this.model;
       if (this.provider) return this.provider;
       return "\u9ED8\u8BA4\u6A21\u578B";
     },
-    connectionClass() {
+    get connectionClass() {
       if (this.connectionState === "streaming" || this.connectionState === "reconnecting") {
         return "status-dot-warn";
       }
@@ -4894,7 +5037,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         kind: kind || "info",
         title: text,
         body: String(body || "").slice(0, 300),
-        time: (/* @__PURE__ */ new Date()).toLocaleTimeString()
+        time: (/* @__PURE__ */ new Date()).toLocaleTimeString(),
+        _cls: `notif-${kind || "info"}`
       };
       this.notifications = [item, ...this.notifications].slice(0, MAX_NOTIFICATIONS);
       if (this.notificationsOpen) this.unreadNotifications = 0;
@@ -4919,9 +5063,492 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     }
   };
 
+  // src/features/csp.ts
+  var cspMixin = {
+    onAction(event) {
+      const element = event && (event.currentTarget || event.target);
+      const data = element && element.dataset || {};
+      const action = data.action || "";
+      switch (action) {
+        case "view":
+          this.setView(data.view);
+          break;
+        case "session-filter":
+          this.setSessionFilter(data.filter);
+          break;
+        case "settings-tab":
+          this.setSettingsTab(data.tab);
+          break;
+        case "inspector-tab":
+          this.setTab(data.tab);
+          break;
+        case "tool-filter":
+          this.setToolFilter(data.filter);
+          break;
+        case "load-git":
+          this.loadGit(data.diff === "true");
+          break;
+        case "steer":
+          this.steer(data.steer);
+          break;
+        case "approval":
+          this.decide(data.allow === "true");
+          break;
+        case "consent":
+          this.decideConsent(data.id, data.allow === "true");
+          break;
+        case "session":
+          this.onSessionAction(data.op, data.id);
+          break;
+        case "editor-tab":
+          this.onEditorTabAction(data.op, data.id);
+          break;
+        case "file":
+          this.onFileAction(data.op, data.key, data.snapshot, data.path);
+          break;
+        case "checkpoint":
+          this.onCheckpointAction(data.op, data.id);
+          break;
+        case "revision":
+          this.onRevisionAction(data.op, data.id);
+          break;
+        case "profile":
+          this.onProfileAction(data.op, data.name);
+          break;
+        case "tree":
+          this.onTreeEntryAction(data.path, data.dir === "true");
+          break;
+        case "message":
+          this.onMessageAction(data.op, data.id);
+          break;
+        case "memory-forget":
+          this.forget(Number(data.index));
+          break;
+        case "command":
+          this.onCommandAction(Number(data.index));
+          break;
+        case "command-hover":
+          this.hoverCommand(Number(data.index));
+          break;
+        case "copy-tool":
+          this.copyToolDetail(data.key);
+          break;
+        case "copy-tool-text":
+          this.copyToolText(data.key);
+          break;
+        case "copy-path":
+          this.copyText(data.path);
+          break;
+        case "delete-upload":
+          this.deleteUpload(data.path);
+          break;
+        case "select-project":
+          this.selectProject(data.id);
+          break;
+        case "recovery":
+          this.onRecoveryAction(data.op, data.id);
+          break;
+        case "match":
+          this.nextMessageMatch(Number(data.delta));
+          break;
+        default:
+          break;
+      }
+    },
+    onSessionAction(op, id) {
+      const row = this.sessions.find((item) => item.thread_id === id);
+      if (op === "open") {
+        this.openSession(id);
+        return;
+      }
+      if (op === "delete") {
+        this.deleteSession(id);
+        return;
+      }
+      if (op === "rename") {
+        this.renameSession(id);
+        return;
+      }
+      if (op === "export") {
+        this.exportSession(id);
+        return;
+      }
+      if (!row) return;
+      if (op === "pin") this.toggleSessionPin(row);
+      if (op === "archive") this.toggleSessionArchive(row);
+      if (op === "tags") this.editSessionTags(row);
+    },
+    onEditorTabAction(op, id) {
+      if (op === "activate") this.activateEditorTab(id);
+      if (op === "close") this.closeEditorTab(id);
+    },
+    onFileAction(op, key, snapshot, path) {
+      if (op === "diff") {
+        this.loadDiff(snapshot, path);
+        return;
+      }
+      if (op === "reject") {
+        this.restoreSnapshot(snapshot, path);
+        return;
+      }
+      const file = this.files.find((item) => item._key === key);
+      if (op === "accept" && file) this.acceptFile(file);
+    },
+    onCheckpointAction(op, id) {
+      if (op === "fork") this.forkCheckpoint(id);
+      if (op === "rewind") this.rewindTo(id);
+    },
+    onRevisionAction(op, id) {
+      const revision = this.revisions.find((item) => item.revision_id === id);
+      if (!revision) return;
+      if (op === "rollback") this.rollbackRevision(revision);
+      if (op === "restore") this.restoreRevision(revision);
+      if (op === "pin") this.pinRevision(revision);
+    },
+    onProfileAction(op, name) {
+      const profile = this.profiles.find((item) => item.name === name);
+      if (!profile) return;
+      if (op === "edit") this.editProfile(profile);
+      if (op === "delete") this.deleteProfile(name);
+    },
+    onTreeEntryAction(path, isDir) {
+      this.openTreeEntry({ path, is_dir: isDir });
+    },
+    onMessageAction(op, id) {
+      const message = this.messages.find(
+        (item) => String(item.id) === String(id)
+      );
+      if (!message) return;
+      if (op === "edit") this.editMessage(message);
+      if (op === "expand") {
+        message._expanded = !message._expanded;
+        this.decorateMessage(message);
+      }
+      if (op === "copy") this.copyTranscriptMessage(message);
+    },
+    onCommandAction(index) {
+      const command = this.filteredCommands()[index];
+      if (command) this.runCommand(command);
+    },
+    onCommandHover(event) {
+      this.commandIndex = Number(event.currentTarget.dataset.index);
+    },
+    onCommandClick(event) {
+      this.onCommandAction(Number(event.currentTarget.dataset.index));
+    },
+    onRecoveryAction(op, id) {
+      if (op === "delete") {
+        this.deleteSession(id);
+        return;
+      }
+      const item = this.recoveryItems.find((row) => row.thread_id === id);
+      if (item) this.recoveryResume(item);
+    },
+    copyToolDetail(key) {
+      const tool = this.tools.find((item) => item.key === key);
+      if (tool) this.copyText(tool._detail);
+    },
+    copyToolText(key) {
+      const tool = this.tools.find((item) => item.key === key);
+      if (tool) this.copyText(tool.preview || tool.summary);
+    },
+    onStartResize(event) {
+      const side = event.currentTarget.dataset.side;
+      this.startResize(side, event);
+    },
+    onMessageSearchInput(event) {
+      this.searchMessages(event.target.value);
+    },
+    onSessionSearchInput(event) {
+      this.sessionQuery = event.target.value;
+      this.filterSessions();
+    },
+    onCommandInput(event) {
+      this.commandQuery = event.target.value;
+      this.onCommandQuery();
+    },
+    selectCurrentProject(event) {
+      this.selectProject(event.target.value);
+    },
+    openShortcuts() {
+      this.shortcutsOpen = true;
+    },
+    closeShortcuts() {
+      this.shortcutsOpen = false;
+    },
+    openNotifyUnread() {
+    },
+    onProjectDragOver() {
+      this.projectDropActive = true;
+    },
+    onProjectDragLeave() {
+      this.projectDropActive = false;
+    },
+    rejectAll() {
+      this.decideAll(false);
+    },
+    scrollLatest() {
+      this.scrollBottom(true);
+    },
+    nextMatchNext() {
+      this.nextMessageMatch(1);
+    },
+    nextMatchPrev() {
+      this.nextMessageMatch(-1);
+    },
+    copyActiveFilePath() {
+      this.copyText(this.fileView.path);
+    },
+    copyActiveFileContent() {
+      this.copyText(this.fileView._text);
+    },
+    copyActiveDiff() {
+      this.copyText(this.diffDisplay);
+    },
+    get bootVisible() {
+      return (!this.configLoaded || !this.versionChecked) && !this.configError && !this.versionError;
+    },
+    get bootText() {
+      return this.configLoaded ? "\u6B63\u5728\u6821\u9A8C\u524D\u540E\u7AEF\u7248\u672C\u2026" : "\u6B63\u5728\u52A0\u8F7D\u8FD0\u884C\u65F6\u914D\u7F6E\u2026";
+    },
+    get configErrorCodeText() {
+      return `\u9519\u8BEF\u7801\uFF1A${this.configErrorCode}`;
+    },
+    get versionErrorCodeText() {
+      return `\u9519\u8BEF\u7801\uFF1A${this.versionErrorCode}`;
+    },
+    get loginVisible() {
+      return this.ready === false && this.configLoaded && this.versionChecked && !this.configError && !this.versionError;
+    },
+    get authTokenVisible() {
+      return this.authMode !== "bff-cookie";
+    },
+    get authBffVisible() {
+      return this.authMode === "bff-cookie";
+    },
+    get authModeText() {
+      return `\u8BA4\u8BC1\u65B9\u5F0F\uFF1A${this.authModeLabel}`;
+    },
+    get sidebarExpanded() {
+      return this.sidebarCollapsed ? "false" : "true";
+    },
+    get inspectorExpanded() {
+      return this.inspectorCollapsed ? "false" : "true";
+    },
+    get hasUnreadNotifications() {
+      return this.unreadNotifications > 0;
+    },
+    get unreadNotificationsText() {
+      return `${this.unreadNotifications} \u6761\u672A\u8BFB`;
+    },
+    get workspaceDisplay() {
+      return this.workspace || "\u672A\u77E5";
+    },
+    get workspaceInputPlaceholder() {
+      return this.capabilities.host_mode ? "\u672C\u673A\u9879\u76EE\u7531\u5BA2\u6237\u7AEF\u9009\u62E9\u5E76\u767B\u8BB0" : "\u9009\u62E9\u9879\u76EE\u540E\u81EA\u52A8\u586B\u5165\u5DE5\u4F5C\u533A";
+    },
+    get noProjects() {
+      return this.projects.length === 0;
+    },
+    get noWorkspaceRegistry() {
+      return !this.capabilities.workspace_registry;
+    },
+    get applyModelDisabled() {
+      return !this.threadId || this.busy;
+    },
+    get createSessionDisabled() {
+      return this.busy || this.approvals.length > 0 || this.paused;
+    },
+    get sidebarVisible() {
+      return !this.sidebarCollapsed;
+    },
+    get inspectorVisible() {
+      return !this.inspectorCollapsed;
+    },
+    get messageSearchClosed() {
+      return !this.messageSearchOpen;
+    },
+    get virtualTopStyle() {
+      return `height:${this.virtualTop}px`;
+    },
+    get virtualBottomStyle() {
+      return `height:${this.virtualBottom}px`;
+    },
+    get pauseDisabled() {
+      return !this.busy;
+    },
+    get cancelDisabled() {
+      return !this.busy && !this.paused;
+    },
+    get resumeDisabled() {
+      return !this.paused;
+    },
+    get appendDisabled() {
+      return !this.busy;
+    },
+    get replanDisabled() {
+      return !this.busy;
+    },
+    get hasUploads() {
+      return this.uploads.length > 0;
+    },
+    get problemsCountText() {
+      return `${this.problems.length} \u4E2A\u95EE\u9898`;
+    },
+    get noSessions() {
+      return this.sessionRows.length === 0;
+    },
+    get filesEmptyState() {
+      return this.filesEmpty();
+    },
+    get treeLoadingText() {
+      return this.treeRootLoading() ? "\u52A0\u8F7D\u4E2D\u2026" : "";
+    },
+    get treeEmpty() {
+      return !this.treeRootLoading() && this.filteredTreeRows().length === 0;
+    },
+    get gitDiffTabOpen() {
+      return this.mainTab === "diff" && this.diffPath === "Git";
+    },
+    get noTasks() {
+      return this.tasks.length === 0;
+    },
+    get noMemory() {
+      return this.memory.length === 0;
+    },
+    get noAudit() {
+      return this.audit.length === 0;
+    },
+    get noProblems() {
+      return this.problems.length === 0;
+    },
+    get hasProblems() {
+      return this.problems.length > 0;
+    },
+    get noPlan() {
+      return this.planRows.length === 0;
+    },
+    get compactDisabled() {
+      return !this.threadId || this.busy;
+    },
+    get noTools() {
+      return this.filteredTools().length === 0;
+    },
+    get noTimeline() {
+      return this.timeline.length === 0;
+    },
+    get noCommands() {
+      return this.filteredCommands().length === 0 && !this.fileSearchLoading;
+    },
+    get noRecovery() {
+      return this.recoveryItems.length === 0;
+    },
+    get noNotifications() {
+      return this.notifications.length === 0;
+    },
+    get hasReasoning() {
+      return this.showReasoning && this.reasoningBlocks.length > 0;
+    },
+    get canRetry() {
+      return Boolean(this._lastPrompt) && !this.busy;
+    },
+    get updateAvailable() {
+      return Boolean(this.updateInfo && this.updateInfo.available);
+    },
+    get canPickWorkspace() {
+      return this.desktopAvailable && !this.capabilities.host_mode;
+    },
+    get showCancelProjectJob() {
+      return this.projectBusy && Boolean(this.projectJobId);
+    },
+    get showProjectProgress() {
+      return this.projectBusy || this.projectPercent > 0;
+    },
+    get activeEditorStale() {
+      const tab = this.activeEditorTab();
+      return Boolean(tab && tab.stale);
+    },
+    get diffPathLabel() {
+      return this.diffPath || "\u672C\u8F6E\u6539\u52A8";
+    },
+    get canExpandDiff() {
+      return this.diffTruncated && !this.diffExpanded;
+    },
+    get approvalLevelText() {
+      return this.approval ? this.approval.level : "";
+    },
+    get approvalCommandText() {
+      return this.approval ? this.approval.command : "";
+    },
+    get approvalReasonText() {
+      return this.approval ? this.approval.reason : "";
+    },
+    get approvalToolText() {
+      return this.approval ? `\u5DE5\u5177\uFF1A${this.approval.tool}` : "";
+    },
+    get usageLabel() {
+      if (!this.usage.input && !this.usage.output) return "";
+      return `${this.usage.input} in / ${this.usage.output} out`;
+    },
+    get fileInVscodeAvailable() {
+      return this.canOpenFileInVscode();
+    },
+    get connectionLabel() {
+      return this.connectionText();
+    },
+    get transcriptEmpty() {
+      return this.messages.length === 0 && this.consents.length === 0;
+    },
+    get filteredTreeResults() {
+      return this.filteredTreeRows();
+    },
+    get filteredToolResults() {
+      return this.filteredTools();
+    },
+    get filteredCommandResults() {
+      return this.filteredCommands().map((item, index) => ({
+        ...item,
+        _index: index,
+        _selected: index === this.commandIndex,
+        _cls: index === this.commandIndex ? "selected" : "",
+        _domId: `command-item-${index}`
+      }));
+    },
+    get shortcutRows() {
+      return this.shortcuts();
+    },
+    get profilesDisabled() {
+      return !this.profilesEnabled;
+    },
+    get noRevisions() {
+      return this.revisions.length === 0;
+    },
+    get projectUploadDisabled() {
+      return this.projectBusy || !this.projectFile;
+    },
+    get noDiagnosticsPath() {
+      return !this.diagnosticsPath;
+    },
+    get noThread() {
+      return !this.threadId;
+    },
+    get virtualMessageResults() {
+      return this.virtualMessages();
+    },
+    get diffResultRows() {
+      return this.diffRows();
+    },
+    get transcriptClassValue() {
+      return this.transcriptClass();
+    },
+    get currentEditorPath() {
+      return this.mainTab === "file" ? this.fileView.path : "";
+    }
+  };
+
   // src/app.ts
   var agentApp = () => {
-    return {
+    const app = {
       ready: false,
       configLoaded: false,
       configError: "",
@@ -5016,6 +5643,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       planDegraded: false,
       tools: [],
       toolFilter: "all",
+      toolFilterClasses: { all: "active", running: "", ok: "", error: "" },
       toolQuery: "",
       files: [],
       checkpoints: [],
@@ -5029,6 +5657,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       sessionRows: [],
       sessionQuery: "",
       sessionFilter: "all",
+      sessionFilterClasses: { all: "active", pinned: "", archived: "" },
       treeChildren: {},
       treeExpanded: {},
       treeLoadingMap: {},
@@ -5073,6 +5702,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       diffPath: "",
       view: "sessions",
       viewClasses: { sessions: "active", files: "", tree: "", git: "", tasks: "", memory: "", audit: "", problems: "" },
+      viewFlags: { sessions: true, files: false, tree: false, git: false, tasks: false, memory: false, audit: false, problems: false },
+      settingsTabFlags: { appearance: true, models: false, workspace: false, diagnostics: false, advanced: false },
+      settingsTabClasses: { appearance: "active", models: "", workspace: "", diagnostics: "", advanced: "" },
+      tabFlags: { plan: true, tools: false, timeline: false },
+      mainTabFlags: { chat: true, file: false, diff: false },
+      mainTabClasses: { chat: "active", file: "", diff: "" },
       problems: [],
       _problemSeq: 0,
       filesDirty: false,
@@ -5116,35 +5751,41 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       _compositionEndAt: 0,
       _consentTimer: null,
       consents: [],
-      consentSupported: true,
-      ...bootMixin,
-      ...authMixin,
-      ...settingsMixin,
-      ...workspaceMixin,
-      ...view_modelMixin,
-      ...systemMixin,
-      ...sessionsMixin,
-      ...transcriptMixin,
-      ...runMixin,
-      ...eventsMixin,
-      ...approvalsMixin,
-      ...steeringMixin,
-      ...uploadsMixin,
-      ...inspectorMixin,
-      ...recoveryMixin,
-      ...providersMixin,
-      ...desktopMixin,
-      ...memoryMixin,
-      ...keyboardMixin,
-      ...layoutMixin,
-      ...notificationsMixin
+      consentSupported: true
     };
+    const mixins = [
+      bootMixin,
+      authMixin,
+      settingsMixin,
+      workspaceMixin,
+      view_modelMixin,
+      systemMixin,
+      sessionsMixin,
+      transcriptMixin,
+      runMixin,
+      eventsMixin,
+      approvalsMixin,
+      steeringMixin,
+      uploadsMixin,
+      inspectorMixin,
+      recoveryMixin,
+      providersMixin,
+      desktopMixin,
+      memoryMixin,
+      keyboardMixin,
+      layoutMixin,
+      notificationsMixin,
+      cspMixin
+    ];
+    for (const mixin of mixins) {
+      Object.defineProperties(app, Object.getOwnPropertyDescriptors(mixin));
+    }
+    return app;
   };
   var registerAgentApp = () => {
     if (!window.Alpine) return;
     window.Alpine.data("agentApp", agentApp);
   };
-  window.agentAppData = agentApp();
   var startAlpine = window.__alpineStart;
   if (typeof startAlpine === "function") {
     registerAgentApp();

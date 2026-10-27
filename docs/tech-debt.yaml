@@ -167,23 +167,6 @@ items:
     due: 需要跨平台或网络盘工作区时
     do_not: 不要用字符串判断文件系统类型，也不要用 `/mnt` 或 `\\wsl$` 绕过
 
-  - id: TD-016
-    title: 前端改用标准 Alpine，CSP 需要 unsafe-eval
-    where: web/static/index.html, web/static/vendor/alpine.min.js, web/middleware.py
-    why_now: pywebview 探针确认 CSP 构建可通过 window.__alpineStart() 初始化，
-      属性绑定、x-show、x-for（含索引）和零参方法引用都可用；但它不支持
-      带参数的方法调用。当前模板有 82 处事件处理器依赖参数，另有 76 处
-      运算符/三元/对象字面量表达式。迁移需要 delegated actions 或逐项预绑定
-      回调，并把带参绑定改成 getter/预计算字段，不是单纯替换脚本
-    debt_type: 安全
-    severity: medium
-    workaround: 仅本机 loopback 桌面使用；HTML 仍经 DOMPurify/CSP 其他指令约束；
-      已用 test_frontend_workspace_ui 锁定 76 处表达式基线，防止范围继续增长。
-      迁移前先用探针脚本验证 pywebview 中的 CSP 初始化与事件路径
-    owner: 项目作者
-    due: 找到 CSP 构建兼容方案，或移除 Alpine 改用手写 DOM
-    do_not: 不要把带 unsafe-eval 的 CSP 直接用于公网多用户 Web 而不复核
-
 # ===========================================================================
 # 已还清（保留作历史，避免重复讨论）
 # ===========================================================================
