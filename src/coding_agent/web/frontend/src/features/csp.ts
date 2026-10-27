@@ -23,6 +23,8 @@ export const cspMixin = {
       case 'approval': this.decide(data.allow === 'true'); break;
       case 'consent': this.decideConsent(data.id, data.allow === 'true'); break;
       case 'session': this.onSessionAction(data.op, data.id); break;
+      case 'session-select': this.toggleSessionSelected(data.id); break;
+      case 'session-batch': this.batchSessionAction(data.op); break;
       case 'editor-tab': this.onEditorTabAction(data.op, data.id); break;
       case 'file': this.onFileAction(data.op, data.key, data.snapshot, data.path); break;
       case 'checkpoint': this.onCheckpointAction(data.op, data.id); break;
@@ -55,6 +57,7 @@ export const cspMixin = {
     if (op === 'pin') this.toggleSessionPin(row);
     if (op === 'archive') this.toggleSessionArchive(row);
     if (op === 'tags') this.editSessionTags(row);
+    if (op === 'unread') this.toggleSessionUnread(row);
   },
 
   onEditorTabAction(op, id) {
@@ -250,6 +253,10 @@ export const cspMixin = {
   get sidebarExpanded() { return this.sidebarCollapsed ? 'false' : 'true'; },
   get inspectorExpanded() { return this.inspectorCollapsed ? 'false' : 'true'; },
   get hasUnreadNotifications() { return this.unreadNotifications > 0; },
+  get hasSessionSelection() { return this.selectedSessionIds().length > 0; },
+  get sessionSelectionText() {
+    return `${this.selectedSessionIds().length} 条已选`;
+  },
   get hasApprovals() { return this.approvals.length > 0; },
   get commandActiveDescendant() { return `command-item-${this.commandIndex}`; },
   get unreadNotificationsText() {

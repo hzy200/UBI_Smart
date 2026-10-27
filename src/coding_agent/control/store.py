@@ -127,6 +127,8 @@ class ControlStore:
                     "pinned": bool(row.pinned),
                     "archived": bool(row.archived),
                     "tags": _tags_from_text(row.tags),
+                    "unread": bool(row.unread),
+                    "last_message": row.last_message,
                 }
             )
         return active, deleted
@@ -195,6 +197,12 @@ class ControlStore:
                     row.archived = bool(data.get("archived"))
                 if "tags" in data:
                     row.tags = _tags_to_text(data.get("tags"))
+                if "unread" in data:
+                    row.unread = bool(data.get("unread"))
+                if "last_message" in data:
+                    row.last_message = str(
+                        data.get("last_message") or ""
+                    )[:160]
                 row.deleted = False
                 row.updated_at = now
             for thread_id in deleted:

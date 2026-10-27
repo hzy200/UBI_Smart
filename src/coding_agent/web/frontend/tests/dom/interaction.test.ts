@@ -15,10 +15,48 @@ function keydown(window: any, init: any) {
   return event;
 }
 
-test('jsdom 交互：文件树、Problems、流式渲染与焦点陷阱', async (t) => {
+test('jsdom 交互：会话、文件树、Problems、流式渲染与焦点陷阱', async (t) => {
   const app = await startApp();
   const { window, document, data } = app;
   try {
+    await t.test('会话列表显示未读/摘要并支持批量选择', async () => {
+      await waitFor(
+        () => document.querySelectorAll('.session-item').length === 2,
+        '会话列表',
+      );
+      const first = document.querySelector('.session-item') as HTMLElement;
+      assert.ok(first.classList.contains('unread'));
+      assert.equal(
+        first.querySelector('.session-preview')?.textContent?.trim(),
+        '上一次运行的最后一条回答',
+      );
+      assert.match(
+        first.querySelector('.m')?.textContent || '',
+        /2 轮 · 3 次工具/,
+      );
+
+      const check = first.querySelector('.session-check') as HTMLInputElement;
+      check.click();
+      assert.equal(data.sessionSelected['thread-dom-test'], true);
+      assert.equal(data.hasSessionSelection, true);
+      await waitFor(
+        () => document.querySelector('.session-batch')?.style.display !== 'none',
+        '批量操作栏',
+      );
+
+      const clear = document.querySelector(
+        '.session-batch button[data-op="clear"]',
+      ) as HTMLElement;
+      clear.click();
+      assert.equal(data.hasSessionSelection, false);
+
+      data.markSessionRead('thread-dom-test');
+      await waitFor(
+        () => !first.classList.contains('unread'),
+        '标记已读',
+      );
+    });
+
     await t.test('文件树显示 Git M/A/D/U 标记与目录聚合', async () => {
       data.setView('tree');
       await waitFor(

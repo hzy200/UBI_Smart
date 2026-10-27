@@ -220,6 +220,7 @@ export const eventsMixin = {
           '等待审批',
           event.command || event.tool || '',
         );
+        this.noteSessionActivity();
         this.notify(
           'CodingAgent 需要审批',
           event.command || event.tool || '',
@@ -268,6 +269,7 @@ export const eventsMixin = {
         this.moveFinalAnswerLast();
         this.scrollBottom();
         this.pushTimeline('done', '运行完成', event.answer || '');
+        this.noteSessionActivity();
         void this.saveTranscript();
         this.notify(
           'CodingAgent 运行完成',
@@ -284,6 +286,7 @@ export const eventsMixin = {
         this.pushTimeline('error', '运行失败', event.message);
         this.clearProblemsByKind('run');
         this.addProblem('run', 'error', '运行失败', event.message);
+        this.noteSessionActivity();
         void this.saveTranscript();
         this.notify(
           'CodingAgent 运行失败',
@@ -294,6 +297,11 @@ export const eventsMixin = {
       default:
         break;
     }
+  },
+
+  noteSessionActivity() {
+    if (!this.threadId || !this.sessionHidden()) return;
+    void this.setSessionUnread(this.threadId, true);
   },
 
   verificationText(event) {

@@ -498,6 +498,8 @@ class SessionCatalog:
                     pinned=bool(row.get("pinned")),
                     archived=bool(row.get("archived")),
                     tags=list(row.get("tags") or []),
+                    unread=bool(row.get("unread")),
+                    last_message=str(row.get("last_message") or "")[:160],
                 )
                 existing = self.session_configs.get((user.name, thread))
                 if existing is None:
@@ -563,6 +565,8 @@ class SessionCatalog:
                     "pinned": bool(config.pinned),
                     "archived": bool(config.archived),
                     "tags": list(config.tags),
+                    "unread": bool(config.unread),
+                    "last_message": config.last_message,
                 }
                 for (owner, _), config in self.session_configs.items()
                 if owner == user.name

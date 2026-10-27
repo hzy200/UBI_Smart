@@ -24,7 +24,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-CONTROL_SCHEMA_VERSION = "7"
+CONTROL_SCHEMA_VERSION = "8"
 
 
 class Base(DeclarativeBase):
@@ -63,6 +63,10 @@ class ControlSession(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
     tags: Mapped[str] = mapped_column(Text, default="")
+    # 会话列表提示：后台完成/失败时置真，打开会话后清除。
+    unread: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 最近一条用户/助手消息的纯文本摘要，用于列表预览。
+    last_message: Mapped[str] = mapped_column(String(160), default="")
     # tombstone：列表隐藏，但审计/checkpoint 仍由 A3/A4 保留。
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[str] = mapped_column(String(32), default="")

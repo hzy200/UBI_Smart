@@ -116,8 +116,10 @@ web/static/vendor/*                                (直接由 A2 提供)
 活动栏切换侧栏视图；每个视图只渲染自己的内容：
 
 - **会话**：项目/工作区、文件权限、模型、创建会话、会话搜索与列表；
-  支持置顶、归档、标签与“全部/置顶/归档”筛选。归档只影响列表，
-  审计与 checkpoint 保留。
+  支持置顶、归档、标签与“全部/置顶/归档”筛选。列表显示最后一条消息
+  摘要、轮次/工具数与时间；未读会话有圆点与加粗标题，打开后自动已读，
+  也可手动标记已读/未读。勾选多个会话后可批量归档、取消归档或删除。
+  归档只影响列表，审计与 checkpoint 保留。
 - **文件改动**：快照、diff、检查点、逐文件/整轮接受与回滚。
 - **文件树**：host 工作区经 A2L 读取；sandbox 经 A3；按目录懒加载、
   可展开/折叠、刷新与收起全部；支持过滤已加载条目与复制相对路径；
@@ -450,10 +452,11 @@ python scripts/probe_frontend_csp.py
 覆盖点：构建产物包含项目/工作区流程；页面无构建链；静态资源可访问；
 安全头/CSP；SSE 事件流；审批/steering/恢复端点；工作区绑定与
 transcript 保存。`node test.mjs` 覆盖 diff 解析/split/词级标记、查询匹配/
-fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、增量 Markdown
-与焦点循环等纯函数。`node test-dom.mjs` 用 jsdom 真实加载 `static/index.html`、
-vendored Alpine CSP 与 `app.js`，桩掉后端 API 后验证文件树 Git 标记、
-Problems 折叠、流式渲染、模态焦点陷阱，并把 Alpine 表达式错误作为失败。
+fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、增量 Markdown、
+会话摘要与焦点循环等纯函数。`node test-dom.mjs` 用 jsdom 真实加载
+`static/index.html`、vendored Alpine CSP 与 `app.js`，桩掉后端 API 后验证
+会话未读/摘要/批量选择、文件树 Git 标记、Problems 折叠、流式渲染、
+模态焦点陷阱，并把 Alpine 表达式错误作为失败。
 
 分离改造实施后新增契约测试（设计冻结，锚点见验收 `REQ-202`–`REQ-212`）：
 
@@ -509,6 +512,7 @@ Problems 折叠、流式渲染、模态焦点陷阱，并把 Alpine 表达式错
 | `web/frontend/src/ui/problems.ts` | Problems 按文件/来源聚合 |
 | `web/frontend/src/ui/markdown.ts` | 流式 Markdown 稳定块切分与增量渲染 |
 | `web/frontend/src/ui/focus.ts` | 模态 Tab 循环计算 |
+| `web/frontend/src/ui/sessions.ts` | 会话列表摘要与元信息格式化 |
 | `web/frontend/src/features/focus.ts` | 模态焦点进入/陷阱/恢复 mixin |
 | `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |
 | `web/frontend/tests/dom/*` | jsdom 交互测试（`node test-dom.mjs`） |

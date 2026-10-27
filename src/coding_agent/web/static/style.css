@@ -733,6 +733,23 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 }
 .session-item .t > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .session-pin { color: var(--warn); font-size: 11px; flex: 0 0 auto; }
+.session-check { flex: 0 0 auto; margin: 0; }
+.session-unread-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); flex: 0 0 auto;
+}
+.session-item.unread .t { font-weight: 600; }
+.session-preview {
+  color: var(--muted); font-size: 11px; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.session-batch {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  margin-bottom: 8px; padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--muted); font-size: 11px;
+}
+.session-batch .danger { margin-left: auto; }
 .session-item .m { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .session-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
 .session-tag {

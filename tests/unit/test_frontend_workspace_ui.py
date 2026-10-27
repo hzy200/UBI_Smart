@@ -384,6 +384,63 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_m9_session_unread_preview_and_batch_are_guarded() -> None:
+    """会话未读、最后消息摘要、批量操作与 0008 迁移。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "session-check",
+        "session-unread-dot",
+        "session-preview",
+        "session-batch",
+        "sessionSelectionText",
+        'data-op="unread"',
+        'data-action="session-select"',
+        'data-action="session-batch"',
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "sessionPreviewText",
+        "sessionMetaText",
+        "toggleSessionSelected",
+        "batchSessionAction",
+        "markSessionRead",
+        "setSessionUnread",
+        "_unreadLabel",
+        "_selectTitle",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (
+        ".session-unread-dot",
+        ".session-preview",
+        ".session-batch",
+        ".session-check",
+    ):
+        assert marker in css, marker
+
+    root = ROOT / "src" / "coding_agent"
+    schema = (root / "control" / "schema.py").read_text(encoding="utf-8")
+    assert "unread" in schema
+    assert "last_message" in schema
+    migration = (
+        root
+        / "control"
+        / "migrations"
+        / "versions"
+        / "0008_session_unread_preview.py"
+    )
+    assert migration.is_file()
+    store = (root / "control" / "store.py").read_text(encoding="utf-8")
+    assert '"unread"' in store
+    assert '"last_message"' in store
+
+    frontend = root / "web" / "frontend"
+    assert (frontend / "tests" / "sessions.test.ts").is_file()
+
+
 def test_m8_git_problems_incremental_and_focus_are_guarded() -> None:
     """文件树 Git 标记、Problems 聚合、增量 Markdown、焦点陷阱与 jsdom 交互测试。"""
     import json

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -93,6 +97,92 @@ def _is_terminal_chunk(chunk: bytes) -> bool:
         or ('"type": "steering_applied"' in text and '"pause"' in text)
         or ('"type":"steering_applied"' in text and '"pause"' in text)
     )
+
+
+_TRANSCRIPT_MAX_MESSAGES = 500
+_TRANSCRIPT_MAX_CHARS = 4_000_000
+
+
+def _transcript_path(tenant: WebTenant, public_thread: str) -> Path:
+    name = re.sub(
+        r"[^A-Za-z0-9_.:-]+", "_", tenant.thread_id(public_thread)
+    )[:120]
+    return (
+        Path(tenant.settings.resolved_audit_dir)
+        / "transcripts"
+        / f"{name or 'thread'}.json"
+    )
+
+
+def _clean_transcript(
+    raw: Any,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="messages 必须是数组")
+    cleaned: list[dict[str, Any]] = []
+    total = 0
+    for item in raw[:_TRANSCRIPT_MAX_MESSAGES]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "")[:16]
+        if role not in {"user", "assistant", "system", "工具"}:
+            continue
+        text = str(item.get("text") or "")[:200_000]
+        summary = str(item.get("summary") or "")[:20_000]
+        preview = str(item.get("preview") or "")[:80_000]
+        total += len(text) + len(summary) + len(preview) + 256
+        if total > _TRANSCRIPT_MAX_CHARS:
+            break
+        cleaned.append(
+            {
+                "role": role,
+                "kind": str(item.get("kind") or "")[:16],
+                "phase": str(item.get("phase") or "")[:16],
+                "text": text,
+                "summary": summary,
+                "preview": preview,
+                "name": str(item.get("name") or "")[:64],
+                "level": str(item.get("level") or "")[:32],
+                "state": str(item.get("state") or "")[:16],
+                "call_id": str(item.get("call_id") or "")[:64],
+                "duration_ms": item.get("duration_ms"),
+                "exit_code": item.get("exit_code"),
+                "ok": item.get("ok"),
+            }
+        )
+    return cleaned
+
+
+def _load_transcript(
+    tenant: WebTenant, public_thread: str
+) -> list[dict[str, Any]]:
+    path = _transcript_path(tenant, public_thread)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return []
+    return [item for item in messages if isinstance(item, dict)]
+
+
+def _save_transcript(
+    tenant: WebTenant, public_thread: str, messages: list[dict[str, Any]]
+) -> None:
+    path = _transcript_path(tenant, public_thread)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(
+        json.dumps(
+            {"thread_id": public_thread, "messages": messages},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    os.replace(temp, path)
 
 
 def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
@@ -274,7 +364,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             config = deps.config_for(user, tenant, public_thread)
             if not config.title:
                 config.title = " ".join(request.prompt.split())[:120]
-                deps.set_config(user, tenant, config)
+            config.last_message = " ".join(request.prompt.split())[:160]
+            config.unread = False
+            deps.set_config(user, tenant, config)
             lease_id = _acquire_lease(
                 user, public_thread, idempotency_key
             )
@@ -310,6 +402,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         deps.stream_guard(key)
         tenant = deps.tenant(user)
         config = deps.config_for(user, tenant, public_thread)
+        config.last_message = " ".join(request.prompt.split())[:160]
+        config.unread = False
+        deps.set_config(user, tenant, config)
         runtime = deps.new_runtime(tenant, config)
         with deps.registry_lock:
             deps.runtimes.put(key, runtime)
@@ -628,9 +723,10 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         config = deps.config_for(
             user, tenant, public_thread, create=False
         )
+        transcript = _load_transcript(tenant, public_thread)
         if deps.agent_client is not None:
             try:
-                return await deps.agent_client.history(
+                data = await deps.agent_client.history(
                     deps.agent_context(user, tenant, config),
                     public_thread,
                     limit=limit,
@@ -638,6 +734,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 )
             except Exception as exc:  # noqa: BLE001
                 raise deps.agent_failure(exc) from exc
+            if isinstance(data, dict):
+                data["transcript"] = transcript
+            return data
         runtime = deps.ops_runtime(tenant, config)
         try:
             history = await runtime.history(
@@ -656,5 +755,49 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             "messages": [
                 {"role": message.role, "text": message.text}
                 for message in history
-            ]
+            ],
+            "transcript": transcript,
         }
+
+    @app.post("/api/thread/{thread_id}/transcript")
+    async def save_thread_transcript(
+        thread_id: str,
+        request: Request,
+        user: UserDep,
+    ) -> dict:
+        """保存桌面 UI 的完整对话轨迹（含工具卡片与过程中间态）。"""
+        deps.rate_limit(user)
+        public_thread = check_thread_id(thread_id)
+        deps.reject_deleted(user, public_thread)
+        tenant = deps.tenant(user)
+        try:
+            payload = await request.json()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="请求体不是 JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="请求体必须是对象")
+        messages = _clean_transcript(payload.get("messages"))
+        try:
+            _save_transcript(tenant, public_thread, messages)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503, detail=f"保存对话轨迹失败：{exc}"
+            ) from exc
+        preview = ""
+        for item in reversed(messages):
+            if item.get("kind") == "tool":
+                continue
+            text = " ".join(str(item.get("text") or "").split())
+            if text:
+                preview = text[:160]
+                break
+        config = deps.config_for(
+            user, tenant, public_thread, create=False
+        )
+        if config is not None:
+            if preview:
+                config.last_message = preview
+            if isinstance(payload.get("unread"), bool):
+                config.unread = bool(payload.get("unread"))
+            deps.set_config(user, tenant, config)
+        return {"ok": True, "count": len(messages)}

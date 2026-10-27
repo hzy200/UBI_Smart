@@ -139,6 +139,8 @@ const agentApp = () => {
   sessionQuery: '',
   sessionFilter: 'all',
   sessionFilterClasses: { all: 'active', pinned: '', archived: '' },
+  sessionSelected: {},
+  sessionBatchBusy: false,
   treeChildren: {},
   treeExpanded: {},
   treeLoadingMap: {},

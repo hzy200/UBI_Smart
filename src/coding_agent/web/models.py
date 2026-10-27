@@ -60,6 +60,7 @@ class SessionMetaRequest(BaseModel):
     pinned: bool | None = None
     archived: bool | None = None
     tags: list[str] | None = None
+    unread: bool | None = None
 
 
 @dataclass
@@ -81,4 +82,6 @@ class SessionConfig:
     pinned: bool = False
     archived: bool = False
     tags: list[str] = field(default_factory=list)
+    unread: bool = False
+    last_message: str = ""
     created_at: float = field(default_factory=time.monotonic)

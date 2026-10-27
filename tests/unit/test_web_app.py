@@ -688,6 +688,31 @@ def test_transcript_roundtrip_preserves_tool_cards(settings) -> None:
     assert saved["messages"][2]["phase"] == "final"
 
 
+def test_transcript_updates_session_preview_and_unread(settings) -> None:
+    """保存轨迹时顺带更新列表摘要与未读，不必再读整份 transcript。"""
+    client = TestClient(web.create_app(settings))
+    created = client.post(
+        "/api/sessions", json={"thread_id": "t1", "workspace": "/tmp/ws"}
+    )
+    assert created.status_code == 200
+    response = client.post(
+        "/api/thread/t1/transcript",
+        json={
+            "messages": [
+                {"role": "user", "text": "看看目录"},
+                {"role": "工具", "kind": "tool", "text": "a.txt"},
+                {"role": "assistant", "text": "目录里只有 a.txt"},
+            ],
+            "unread": True,
+        },
+    )
+    assert response.status_code == 200
+
+    row = client.get("/api/sessions").json()["sessions"][0]
+    assert row["last_message"] == "目录里只有 a.txt"
+    assert row["unread"] is True
+
+
 def test_importing_the_module_does_not_build_an_app() -> None:
     """A10：`web.app` 不应有模块级 `app = create_app()`。
 

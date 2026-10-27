@@ -14,6 +14,7 @@ import {
   tokenBuffers,
   toolMap,
 } from '../state/runtime';
+import { sessionMetaText, sessionPreviewText } from '../ui/sessions';
 
 export const sessionsMixin = {
   async saveTranscript() {
@@ -39,10 +40,14 @@ export const sessionsMixin = {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify({
+            messages,
+            unread: this.sessionHidden(),
+          }),
         },
       );
       await readJson(response, '保存对话轨迹失败');
+      if (this.sessionHidden()) this.applySessionUnread(this.threadId, true);
     } catch (err) {
       // 轨迹只是 UI 增强，保存失败不能打断运行。
     }
@@ -116,24 +121,44 @@ export const sessionsMixin = {
     });
   },
 
+  decorateSession(row) {
+    row.tags = Array.isArray(row.tags) ? row.tags : [];
+    row.unread = Boolean(row.unread);
+    row._title = row.title || row.thread_id;
+    row._preview = sessionPreviewText(row.last_message);
+    row._meta = sessionMetaText(row);
+    row._pinLabel = row.pinned ? '取消置顶' : '置顶';
+    row._archiveLabel = row.archived ? '取消归档' : '归档';
+    row._unreadLabel = row.unread ? '标记已读' : '标记未读';
+    row._hasTags = row.tags.length > 0;
+    row._selected = Boolean(this.sessionSelected[row.thread_id]);
+    row._selectTitle = row._selected ? '取消选择' : '选择会话';
+    const classes = [];
+    if (row.thread_id === this.threadId) classes.push('active');
+    if (row.unread) classes.push('unread');
+    row._cls = classes.join(' ');
+    return row;
+  },
+
   async loadSessions() {
     try {
       const response = await authFetch(
         '/api/sessions?limit=50&include_archived=true',
       );
       const data = await readJson(response, '无法读取会话');
-      this.sessions = (data.sessions || []).map((item) => ({
-        ...item,
-        tags: Array.isArray(item.tags) ? item.tags : [],
-        _title: item.title || item.thread_id,
-        _meta: `${item.thread_id} · ${item.last_active || ''}` +
-          (item.archived ? ' · 已归档' : '') +
-          (item.interrupted ? ' · 异常中断' : ''),
-        _pinLabel: item.pinned ? '取消置顶' : '置顶',
-        _archiveLabel: item.archived ? '取消归档' : '归档',
-        _hasTags: Array.isArray(item.tags) && item.tags.length > 0,
-        _cls: item.thread_id === this.threadId ? 'active' : '',
-      }));
+      const rows = (data.sessions || []).map((item) => (
+        this.decorateSession({
+          ...item,
+          tags: Array.isArray(item.tags) ? item.tags : [],
+        })
+      ));
+      const known = new Set(rows.map((row) => row.thread_id));
+      const selected = {};
+      for (const [id, active] of Object.entries(this.sessionSelected)) {
+        if (active && known.has(id)) selected[id] = true;
+      }
+      this.sessionSelected = selected;
+      this.sessions = rows;
       this.filterSessions();
     } catch (e) { /* ignore */ }
   },
@@ -174,12 +199,11 @@ export const sessionsMixin = {
         row.pinned = Boolean(data.pinned);
         row.archived = Boolean(data.archived);
         row.tags = Array.isArray(data.tags) ? data.tags : [];
-        row._meta = `${row.thread_id} · ${row.last_active || ''}` +
-          (row.archived ? ' · 已归档' : '') +
-          (row.interrupted ? ' · 异常中断' : '');
-        row._pinLabel = row.pinned ? '取消置顶' : '置顶';
-        row._archiveLabel = row.archived ? '取消归档' : '归档';
-        row._hasTags = row.tags.length > 0;
+        if (typeof data.unread === 'boolean') row.unread = data.unread;
+        if (typeof data.last_message === 'string') {
+          row.last_message = data.last_message;
+        }
+        this.decorateSession(row);
       }
       this.filterSessions();
       return data;
@@ -211,6 +235,102 @@ export const sessionsMixin = {
     await this.updateSessionMeta(row.thread_id, { tags });
   },
 
+  toggleSessionSelected(id) {
+    if (!id) return;
+    this.sessionSelected = {
+      ...this.sessionSelected,
+      [id]: !this.sessionSelected[id],
+    };
+    this.filterSessions();
+  },
+
+  clearSessionSelection() {
+    this.sessionSelected = {};
+    this.filterSessions();
+  },
+
+  selectedSessionIds() {
+    return Object.keys(this.sessionSelected).filter(
+      (id) => this.sessionSelected[id],
+    );
+  },
+
+  sessionHidden() {
+    return typeof document !== 'undefined'
+      && document.visibilityState !== 'visible';
+  },
+
+  applySessionUnread(id, unread) {
+    const row = this.sessions.find((item) => item.thread_id === id);
+    if (!row || row.unread === Boolean(unread)) return;
+    row.unread = Boolean(unread);
+    this.decorateSession(row);
+    this.filterSessions();
+  },
+
+  async setSessionUnread(id, unread) {
+    if (!id) return;
+    this.applySessionUnread(id, unread);
+    await this.updateSessionMeta(id, { unread: Boolean(unread) });
+  },
+
+  markSessionRead(id) {
+    const row = this.sessions.find((item) => item.thread_id === id);
+    if (!row || !row.unread) return;
+    void this.setSessionUnread(id, false);
+  },
+
+  async toggleSessionUnread(row) {
+    if (!row) return;
+    await this.setSessionUnread(row.thread_id, !row.unread);
+  },
+
+  async batchSessionAction(op) {
+    if (op === 'clear') {
+      this.clearSessionSelection();
+      return;
+    }
+    const ids = this.selectedSessionIds();
+    if (!ids.length || this.sessionBatchBusy) return;
+    if (
+      op === 'delete'
+      && !window.confirm(`删除选中的 ${ids.length} 个会话？审计与 checkpoint 会保留。`)
+    ) {
+      return;
+    }
+    this.sessionBatchBusy = true;
+    let ok = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const url = op === 'delete'
+          ? `/api/sessions/${encodeURIComponent(id)}`
+          : `/api/sessions/${encodeURIComponent(id)}/meta`;
+        const response = await authFetch(url, {
+          method: op === 'delete' ? 'DELETE' : 'POST',
+          headers: op === 'delete'
+            ? {}
+            : { 'Content-Type': 'application/json' },
+          body: op === 'delete'
+            ? undefined
+            : JSON.stringify({ archived: op === 'archive' }),
+        });
+        await readJson(response, '批量操作失败');
+        ok += 1;
+      } catch (err) {
+        failed += 1;
+      }
+    }
+    this.sessionBatchBusy = false;
+    this.sessionSelected = {};
+    await this.loadSessions();
+    this.toastMessage(
+      failed
+        ? `已完成 ${ok} 个，失败 ${failed} 个`
+        : `已完成 ${ok} 个会话`,
+    );
+  },
+
   sessionWorkspaceLabel(item) {
     const project = this.projects.find(
       (entry) => entry.workspace_id === item.workspace_id,
@@ -225,6 +345,7 @@ export const sessionsMixin = {
 
   filterSessions() {
     const q = this.sessionQuery.trim().toLowerCase();
+    for (const row of this.sessions) this.decorateSession(row);
     let base = this.sessions;
     if (this.sessionFilter === 'pinned') {
       base = base.filter((row) => row.pinned && !row.archived);
@@ -492,6 +613,7 @@ export const sessionsMixin = {
       return;
     }
     this.threadId = id;
+    this.markSessionRead(id);
     const row = this.sessions.find((item) => item.thread_id === id);
     this._boundProjectId = row && row.workspace_id ? row.workspace_id : '';
     if (row) {

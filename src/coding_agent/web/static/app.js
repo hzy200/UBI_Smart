@@ -1738,6 +1738,26 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
   var markdownCaches = /* @__PURE__ */ new Map();
   var messageHeights = /* @__PURE__ */ new Map();
 
+  // src/ui/sessions.ts
+  function sessionPreviewText(message, limit = 90) {
+    const text = String(message ?? "").replace(/\s+/g, " ").trim();
+    if (!text) return "";
+    const max = Math.max(1, Number(limit) || 90);
+    return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
+  }
+  function sessionMetaText(row) {
+    const parts = [];
+    const when = String(row && row.last_active || "").replace("T", " ").slice(0, 16);
+    if (when) parts.push(when);
+    const prompts = Number(row && row.prompts || 0);
+    const calls = Number(row && row.tool_calls || 0);
+    if (prompts) parts.push(`${prompts} \u8F6E`);
+    if (calls) parts.push(`${calls} \u6B21\u5DE5\u5177`);
+    if (row && row.archived) parts.push("\u5DF2\u5F52\u6863");
+    if (row && row.interrupted) parts.push("\u5F02\u5E38\u4E2D\u65AD");
+    return parts.join(" \xB7 ");
+  }
+
   // src/features/sessions.ts
   var sessionsMixin = {
     async saveTranscript() {
@@ -1763,10 +1783,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages })
+            body: JSON.stringify({
+              messages,
+              unread: this.sessionHidden()
+            })
           }
         );
         await readJson(response, "\u4FDD\u5B58\u5BF9\u8BDD\u8F68\u8FF9\u5931\u8D25");
+        if (this.sessionHidden()) this.applySessionUnread(this.threadId, true);
       } catch (err) {
       }
     },
@@ -1824,22 +1848,41 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.decorateTranscript();
       });
     },
+    decorateSession(row) {
+      row.tags = Array.isArray(row.tags) ? row.tags : [];
+      row.unread = Boolean(row.unread);
+      row._title = row.title || row.thread_id;
+      row._preview = sessionPreviewText(row.last_message);
+      row._meta = sessionMetaText(row);
+      row._pinLabel = row.pinned ? "\u53D6\u6D88\u7F6E\u9876" : "\u7F6E\u9876";
+      row._archiveLabel = row.archived ? "\u53D6\u6D88\u5F52\u6863" : "\u5F52\u6863";
+      row._unreadLabel = row.unread ? "\u6807\u8BB0\u5DF2\u8BFB" : "\u6807\u8BB0\u672A\u8BFB";
+      row._hasTags = row.tags.length > 0;
+      row._selected = Boolean(this.sessionSelected[row.thread_id]);
+      row._selectTitle = row._selected ? "\u53D6\u6D88\u9009\u62E9" : "\u9009\u62E9\u4F1A\u8BDD";
+      const classes = [];
+      if (row.thread_id === this.threadId) classes.push("active");
+      if (row.unread) classes.push("unread");
+      row._cls = classes.join(" ");
+      return row;
+    },
     async loadSessions() {
       try {
         const response = await authFetch(
           "/api/sessions?limit=50&include_archived=true"
         );
         const data = await readJson(response, "\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD");
-        this.sessions = (data.sessions || []).map((item) => ({
+        const rows = (data.sessions || []).map((item) => this.decorateSession({
           ...item,
-          tags: Array.isArray(item.tags) ? item.tags : [],
-          _title: item.title || item.thread_id,
-          _meta: `${item.thread_id} \xB7 ${item.last_active || ""}` + (item.archived ? " \xB7 \u5DF2\u5F52\u6863" : "") + (item.interrupted ? " \xB7 \u5F02\u5E38\u4E2D\u65AD" : ""),
-          _pinLabel: item.pinned ? "\u53D6\u6D88\u7F6E\u9876" : "\u7F6E\u9876",
-          _archiveLabel: item.archived ? "\u53D6\u6D88\u5F52\u6863" : "\u5F52\u6863",
-          _hasTags: Array.isArray(item.tags) && item.tags.length > 0,
-          _cls: item.thread_id === this.threadId ? "active" : ""
+          tags: Array.isArray(item.tags) ? item.tags : []
         }));
+        const known = new Set(rows.map((row) => row.thread_id));
+        const selected = {};
+        for (const [id, active] of Object.entries(this.sessionSelected)) {
+          if (active && known.has(id)) selected[id] = true;
+        }
+        this.sessionSelected = selected;
+        this.sessions = rows;
         this.filterSessions();
       } catch (e) {
       }
@@ -1877,10 +1920,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           row.pinned = Boolean(data.pinned);
           row.archived = Boolean(data.archived);
           row.tags = Array.isArray(data.tags) ? data.tags : [];
-          row._meta = `${row.thread_id} \xB7 ${row.last_active || ""}` + (row.archived ? " \xB7 \u5DF2\u5F52\u6863" : "") + (row.interrupted ? " \xB7 \u5F02\u5E38\u4E2D\u65AD" : "");
-          row._pinLabel = row.pinned ? "\u53D6\u6D88\u7F6E\u9876" : "\u7F6E\u9876";
-          row._archiveLabel = row.archived ? "\u53D6\u6D88\u5F52\u6863" : "\u5F52\u6863";
-          row._hasTags = row.tags.length > 0;
+          if (typeof data.unread === "boolean") row.unread = data.unread;
+          if (typeof data.last_message === "string") {
+            row.last_message = data.last_message;
+          }
+          this.decorateSession(row);
         }
         this.filterSessions();
         return data;
@@ -1905,6 +1949,81 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       const tags = value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean);
       await this.updateSessionMeta(row.thread_id, { tags });
     },
+    toggleSessionSelected(id) {
+      if (!id) return;
+      this.sessionSelected = {
+        ...this.sessionSelected,
+        [id]: !this.sessionSelected[id]
+      };
+      this.filterSessions();
+    },
+    clearSessionSelection() {
+      this.sessionSelected = {};
+      this.filterSessions();
+    },
+    selectedSessionIds() {
+      return Object.keys(this.sessionSelected).filter(
+        (id) => this.sessionSelected[id]
+      );
+    },
+    sessionHidden() {
+      return typeof document !== "undefined" && document.visibilityState !== "visible";
+    },
+    applySessionUnread(id, unread) {
+      const row = this.sessions.find((item) => item.thread_id === id);
+      if (!row || row.unread === Boolean(unread)) return;
+      row.unread = Boolean(unread);
+      this.decorateSession(row);
+      this.filterSessions();
+    },
+    async setSessionUnread(id, unread) {
+      if (!id) return;
+      this.applySessionUnread(id, unread);
+      await this.updateSessionMeta(id, { unread: Boolean(unread) });
+    },
+    markSessionRead(id) {
+      const row = this.sessions.find((item) => item.thread_id === id);
+      if (!row || !row.unread) return;
+      void this.setSessionUnread(id, false);
+    },
+    async toggleSessionUnread(row) {
+      if (!row) return;
+      await this.setSessionUnread(row.thread_id, !row.unread);
+    },
+    async batchSessionAction(op) {
+      if (op === "clear") {
+        this.clearSessionSelection();
+        return;
+      }
+      const ids = this.selectedSessionIds();
+      if (!ids.length || this.sessionBatchBusy) return;
+      if (op === "delete" && !window.confirm(`\u5220\u9664\u9009\u4E2D\u7684 ${ids.length} \u4E2A\u4F1A\u8BDD\uFF1F\u5BA1\u8BA1\u4E0E checkpoint \u4F1A\u4FDD\u7559\u3002`)) {
+        return;
+      }
+      this.sessionBatchBusy = true;
+      let ok = 0;
+      let failed = 0;
+      for (const id of ids) {
+        try {
+          const url = op === "delete" ? `/api/sessions/${encodeURIComponent(id)}` : `/api/sessions/${encodeURIComponent(id)}/meta`;
+          const response = await authFetch(url, {
+            method: op === "delete" ? "DELETE" : "POST",
+            headers: op === "delete" ? {} : { "Content-Type": "application/json" },
+            body: op === "delete" ? void 0 : JSON.stringify({ archived: op === "archive" })
+          });
+          await readJson(response, "\u6279\u91CF\u64CD\u4F5C\u5931\u8D25");
+          ok += 1;
+        } catch (err) {
+          failed += 1;
+        }
+      }
+      this.sessionBatchBusy = false;
+      this.sessionSelected = {};
+      await this.loadSessions();
+      this.toastMessage(
+        failed ? `\u5DF2\u5B8C\u6210 ${ok} \u4E2A\uFF0C\u5931\u8D25 ${failed} \u4E2A` : `\u5DF2\u5B8C\u6210 ${ok} \u4E2A\u4F1A\u8BDD`
+      );
+    },
     sessionWorkspaceLabel(item) {
       const project = this.projects.find(
         (entry) => entry.workspace_id === item.workspace_id
@@ -1918,6 +2037,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     filterSessions() {
       const q = this.sessionQuery.trim().toLowerCase();
+      for (const row of this.sessions) this.decorateSession(row);
       let base = this.sessions;
       if (this.sessionFilter === "pinned") {
         base = base.filter((row) => row.pinned && !row.archived);
@@ -2170,6 +2290,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         return;
       }
       this.threadId = id;
+      this.markSessionRead(id);
       const row = this.sessions.find((item) => item.thread_id === id);
       this._boundProjectId = row && row.workspace_id ? row.workspace_id : "";
       if (row) {
@@ -3262,6 +3383,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
             "\u7B49\u5F85\u5BA1\u6279",
             event.command || event.tool || ""
           );
+          this.noteSessionActivity();
           this.notify(
             "CodingAgent \u9700\u8981\u5BA1\u6279",
             event.command || event.tool || "",
@@ -3304,6 +3426,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.moveFinalAnswerLast();
           this.scrollBottom();
           this.pushTimeline("done", "\u8FD0\u884C\u5B8C\u6210", event.answer || "");
+          this.noteSessionActivity();
           void this.saveTranscript();
           this.notify(
             "CodingAgent \u8FD0\u884C\u5B8C\u6210",
@@ -3320,6 +3443,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.pushTimeline("error", "\u8FD0\u884C\u5931\u8D25", event.message);
           this.clearProblemsByKind("run");
           this.addProblem("run", "error", "\u8FD0\u884C\u5931\u8D25", event.message);
+          this.noteSessionActivity();
           void this.saveTranscript();
           this.notify(
             "CodingAgent \u8FD0\u884C\u5931\u8D25",
@@ -3330,6 +3454,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         default:
           break;
       }
+    },
+    noteSessionActivity() {
+      if (!this.threadId || !this.sessionHidden()) return;
+      void this.setSessionUnread(this.threadId, true);
     },
     verificationText(event) {
       if (event.ok === true) return `\u9A8C\u8BC1\u901A\u8FC7\uFF1A${event.summary}`;
@@ -5833,6 +5961,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         case "session":
           this.onSessionAction(data.op, data.id);
           break;
+        case "session-select":
+          this.toggleSessionSelected(data.id);
+          break;
+        case "session-batch":
+          this.batchSessionAction(data.op);
+          break;
         case "editor-tab":
           this.onEditorTabAction(data.op, data.id);
           break;
@@ -5913,6 +6047,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (op === "pin") this.toggleSessionPin(row);
       if (op === "archive") this.toggleSessionArchive(row);
       if (op === "tags") this.editSessionTags(row);
+      if (op === "unread") this.toggleSessionUnread(row);
     },
     onEditorTabAction(op, id) {
       if (op === "activate") this.activateEditorTab(id);
@@ -6121,6 +6256,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     get hasUnreadNotifications() {
       return this.unreadNotifications > 0;
+    },
+    get hasSessionSelection() {
+      return this.selectedSessionIds().length > 0;
+    },
+    get sessionSelectionText() {
+      return `${this.selectedSessionIds().length} \u6761\u5DF2\u9009`;
     },
     get hasApprovals() {
       return this.approvals.length > 0;
@@ -6461,6 +6602,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       sessionQuery: "",
       sessionFilter: "all",
       sessionFilterClasses: { all: "active", pinned: "", archived: "" },
+      sessionSelected: {},
+      sessionBatchBusy: false,
       treeChildren: {},
       treeExpanded: {},
       treeLoadingMap: {},

@@ -21,7 +21,7 @@ from coding_agent.control.migrate import (  # noqa: E402
 )
 from coding_agent.control.store import ControlStore  # noqa: E402
 
-REVISION = "0007_session_meta"
+REVISION = "0008_session_unread_preview"
 
 
 def _url(tmp_path: Path) -> str:
@@ -37,6 +37,8 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
     assert has_table(url, "workspaces")
     assert has_table(url, "workspace_revisions")
     assert has_column(url, "control_sessions", "workspace_id")
+    assert has_column(url, "control_sessions", "unread")
+    assert has_column(url, "control_sessions", "last_message")
     assert has_column(url, "control_sessions", "workspace_kind")
     assert has_column(url, "control_sessions", "a2l_id")
     assert has_column(url, "control_sessions", "root_handle")
@@ -62,6 +64,8 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
             "pinned": True,
             "archived": True,
             "tags": ["重要", "前端"],
+            "unread": True,
+            "last_message": "最后一条消息",
         }],
         set(),
     )
@@ -70,6 +74,8 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
     assert rows[0]["pinned"] is True
     assert rows[0]["archived"] is True
     assert rows[0]["tags"] == ["重要", "前端"]
+    assert rows[0]["unread"] is True
+    assert rows[0]["last_message"] == "最后一条消息"
     assert deleted == set()
     store.close()
 

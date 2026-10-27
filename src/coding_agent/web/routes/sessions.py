@@ -64,6 +64,8 @@ def _row(config: Any, tenant: WebTenant, deps: SessionDeps, **extra: Any) -> dic
         "pinned": bool(config.pinned),
         "archived": bool(config.archived),
         "tags": list(config.tags),
+        "unread": bool(config.unread),
+        "last_message": config.last_message,
         **extra,
     }
 
@@ -121,6 +123,12 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                         "pinned": bool(config.pinned) if config else False,
                         "archived": bool(config.archived) if config else False,
                         "tags": list(config.tags) if config else [],
+                        "unread": bool(config.unread) if config else False,
+                        "last_message": (
+                            config.last_message
+                            if config
+                            else str(item.get("last_message") or "")
+                        ),
                     }
                 )
         else:
@@ -154,6 +162,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                         "pinned": bool(config.pinned) if config else False,
                         "archived": bool(config.archived) if config else False,
                         "tags": list(config.tags) if config else [],
+                        "unread": bool(config.unread) if config else False,
+                        "last_message": config.last_message if config else "",
                     }
                 )
             deps.load_configs(user, tenant)
@@ -190,6 +200,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 if query in str(row.get("title", "")).lower()
                 or query in row["thread_id"].lower()
                 or query in str(row.get("workspace", "")).lower()
+                or query in str(row.get("last_message", "")).lower()
                 or query in " ".join(row.get("tags") or []).lower()
             ]
         # 稳定排序：置顶优先，其余保持最近活跃顺序。
@@ -351,7 +362,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         request: SessionMetaRequest,
         user: UserDep,
     ) -> dict:
-        """更新会话展示元数据：置顶、归档、标签。"""
+        """更新会话展示元数据：置顶、归档、标签、未读。"""
         deps.reject_db_degraded()
         public_thread = check_thread_id(thread_id)
         deps.reject_deleted(user, public_thread)
@@ -365,6 +376,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             config.pinned = bool(request.pinned)
         if request.archived is not None:
             config.archived = bool(request.archived)
+        if request.unread is not None:
+            config.unread = bool(request.unread)
         if request.tags is not None:
             tags: list[str] = []
             for raw in request.tags:
@@ -379,6 +392,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             "pinned": bool(config.pinned),
             "archived": bool(config.archived),
             "tags": list(config.tags),
+            "unread": bool(config.unread),
+            "last_message": config.last_message,
         }
 
     @app.delete("/api/sessions/{thread_id}")

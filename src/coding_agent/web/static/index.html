@@ -284,6 +284,13 @@
         <button :class="sessionFilterClasses.pinned" data-action="session-filter" data-filter="pinned" @click="onAction">置顶</button>
         <button :class="sessionFilterClasses.archived" data-action="session-filter" data-filter="archived" @click="onAction">归档</button>
       </div>
+      <div class="session-batch" x-show="hasSessionSelection">
+        <span x-text="sessionSelectionText"></span>
+        <button data-action="session-batch" data-op="archive" @click="onAction">归档</button>
+        <button data-action="session-batch" data-op="unarchive" @click="onAction">取消归档</button>
+        <button class="danger" data-action="session-batch" data-op="delete" @click="onAction">删除</button>
+        <button data-action="session-batch" data-op="clear" @click="onAction">取消</button>
+      </div>
       <div class="session-list">
         <template x-for="s in sessionRows" :key="s.thread_id">
           <div class="session-entry">
@@ -291,9 +298,14 @@
                  x-text="s._groupLabel"></div>
             <div class="session-item" :class="s._cls" data-action="session" data-op="open" :data-id="s.thread_id" @click="onAction">
               <div class="t">
+                <input type="checkbox" class="session-check" :checked="s._selected"
+                       :aria-label="s._selectTitle"
+                       data-action="session-select" :data-id="s.thread_id" @click.stop="onAction">
+                <span class="session-unread-dot" x-show="s.unread" title="未读"></span>
                 <span class="session-pin" x-show="s.pinned" title="已置顶">★</span>
                 <span x-text="s._title"></span>
               </div>
+              <div class="session-preview" x-show="s._preview" x-text="s._preview"></div>
               <div class="session-tags" x-show="s._hasTags">
                 <template x-for="tag in s.tags" :key="tag">
                   <span class="session-tag" x-text="tag"></span>
@@ -305,6 +317,8 @@
                         x-text="s._pinLabel"></button>
                 <button data-action="session" data-op="archive" :data-id="s.thread_id" @click.stop="onAction"
                         x-text="s._archiveLabel"></button>
+                <button data-action="session" data-op="unread" :data-id="s.thread_id" @click.stop="onAction"
+                        x-text="s._unreadLabel"></button>
                 <button data-action="session" data-op="tags" :data-id="s.thread_id" @click.stop="onAction">标签</button>
                 <button data-action="session" data-op="rename" :data-id="s.thread_id" @click.stop="onAction">改名</button>
                 <button data-action="session" data-op="export" :data-id="s.thread_id" @click.stop="onAction">导出</button>
