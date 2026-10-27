@@ -1767,17 +1767,73 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     async loadSessions() {
       try {
-        const response = await authFetch("/api/sessions?limit=50");
+        const response = await authFetch(
+          "/api/sessions?limit=50&include_archived=true"
+        );
         const data = await readJson(response, "\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD");
         this.sessions = (data.sessions || []).map((item) => ({
           ...item,
+          tags: Array.isArray(item.tags) ? item.tags : [],
           _title: item.title || item.thread_id,
-          _meta: `${item.thread_id} \xB7 ${item.last_active || ""}` + (item.interrupted ? " \xB7 \u5F02\u5E38\u4E2D\u65AD" : ""),
+          _meta: `${item.thread_id} \xB7 ${item.last_active || ""}` + (item.archived ? " \xB7 \u5DF2\u5F52\u6863" : "") + (item.interrupted ? " \xB7 \u5F02\u5E38\u4E2D\u65AD" : ""),
           _cls: item.thread_id === this.threadId ? "active" : ""
         }));
         this.filterSessions();
       } catch (e) {
       }
+    },
+    currentSession() {
+      return this.sessions.find(
+        (item) => item.thread_id === this.threadId
+      ) || null;
+    },
+    setSessionFilter(name) {
+      this.sessionFilter = name;
+      this.filterSessions();
+    },
+    sessionFilterClass(name) {
+      return this.sessionFilter === name ? "active" : "";
+    },
+    async updateSessionMeta(id, payload) {
+      try {
+        const response = await authFetch(
+          `/api/sessions/${encodeURIComponent(id)}/meta`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          }
+        );
+        const data = await readJson(response, "\u66F4\u65B0\u4F1A\u8BDD\u5931\u8D25");
+        const row = this.sessions.find((item) => item.thread_id === id);
+        if (row) {
+          row.pinned = Boolean(data.pinned);
+          row.archived = Boolean(data.archived);
+          row.tags = Array.isArray(data.tags) ? data.tags : [];
+          row._meta = `${row.thread_id} \xB7 ${row.last_active || ""}` + (row.archived ? " \xB7 \u5DF2\u5F52\u6863" : "") + (row.interrupted ? " \xB7 \u5F02\u5E38\u4E2D\u65AD" : "");
+        }
+        this.filterSessions();
+        return data;
+      } catch (err) {
+        this.toastMessage(String(err));
+        return null;
+      }
+    },
+    async toggleSessionPin(row) {
+      if (!row) return;
+      await this.updateSessionMeta(row.thread_id, { pinned: !row.pinned });
+    },
+    async toggleSessionArchive(row) {
+      if (!row) return;
+      await this.updateSessionMeta(row.thread_id, { archived: !row.archived });
+    },
+    async editSessionTags(row) {
+      if (!row) return;
+      const current = (row.tags || []).join(", ");
+      const value = window.prompt("\u6807\u7B7E\uFF08\u9017\u53F7\u5206\u9694\uFF0C\u6700\u591A 8 \u4E2A\uFF09\uFF1A", current);
+      if (value === null) return;
+      const tags = value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean);
+      await this.updateSessionMeta(row.thread_id, { tags });
     },
     sessionWorkspaceLabel(item) {
       const project = this.projects.find(
@@ -1792,7 +1848,15 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     filterSessions() {
       const q = this.sessionQuery.trim().toLowerCase();
-      const filtered = q ? this.sessions.filter((row) => row._title.toLowerCase().includes(q) || row.thread_id.toLowerCase().includes(q) || String(row.workspace || "").toLowerCase().includes(q) || this.sessionWorkspaceLabel(row).toLowerCase().includes(q)) : this.sessions.slice();
+      let base = this.sessions;
+      if (this.sessionFilter === "pinned") {
+        base = base.filter((row) => row.pinned && !row.archived);
+      } else if (this.sessionFilter === "archived") {
+        base = base.filter((row) => row.archived);
+      } else {
+        base = base.filter((row) => !row.archived);
+      }
+      const filtered = q ? base.filter((row) => row._title.toLowerCase().includes(q) || row.thread_id.toLowerCase().includes(q) || String(row.workspace || "").toLowerCase().includes(q) || (row.tags || []).join(" ").toLowerCase().includes(q) || this.sessionWorkspaceLabel(row).toLowerCase().includes(q)) : base.slice();
       filtered.forEach((row) => {
         row._groupLabel = this.sessionWorkspaceLabel(row);
       });
@@ -1810,9 +1874,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       });
       const rows = [];
       for (const group of groups) {
-        const items = filtered.filter((row) => row._groupLabel === group).sort((a, b) => String(b.last_active || "").localeCompare(
-          String(a.last_active || "")
-        ));
+        const items = filtered.filter((row) => row._groupLabel === group).sort((a, b) => {
+          const pin = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+          if (pin !== 0) return pin;
+          return String(b.last_active || "").localeCompare(
+            String(a.last_active || "")
+          );
+        });
         items.forEach((row, index) => {
           row._showGroup = index === 0;
           rows.push(row);
@@ -4604,6 +4672,27 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           run: () => this.compactContext()
         });
       }
+      const current = this.currentSession();
+      if (current) {
+        items.push({
+          id: "pin-session",
+          title: current.pinned ? "\u53D6\u6D88\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD" : "\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD",
+          hint: "\u4F1A\u8BDD",
+          run: () => this.toggleSessionPin(current)
+        });
+        items.push({
+          id: "archive-session",
+          title: current.archived ? "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD" : "\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD",
+          hint: "\u4F1A\u8BDD",
+          run: () => this.toggleSessionArchive(current)
+        });
+        items.push({
+          id: "tag-session",
+          title: "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E",
+          hint: "\u4F1A\u8BDD",
+          run: () => this.editSessionTags(current)
+        });
+      }
       for (const session of (this.sessions || []).slice(0, 20)) {
         items.push({
           id: `session:${session.thread_id}`,
@@ -4808,6 +4897,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       sessions: [],
       sessionRows: [],
       sessionQuery: "",
+      sessionFilter: "all",
       treeChildren: {},
       treeExpanded: {},
       treeLoadingMap: {},

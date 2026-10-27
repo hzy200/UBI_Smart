@@ -279,16 +279,34 @@
         <button class="primary" @click="createSession()" :disabled="busy || approvals.length || paused">创建会话</button>
       </div>
       <input class="session-search" x-model="sessionQuery" @input="filterSessions()"
-             placeholder="搜索会话…">
+             placeholder="搜索会话或标签…">
+      <div class="session-filters">
+        <button :class="sessionFilterClass('all')" @click="setSessionFilter('all')">全部</button>
+        <button :class="sessionFilterClass('pinned')" @click="setSessionFilter('pinned')">置顶</button>
+        <button :class="sessionFilterClass('archived')" @click="setSessionFilter('archived')">归档</button>
+      </div>
       <div class="session-list">
         <template x-for="s in sessionRows" :key="s.thread_id">
           <div class="session-entry">
             <div class="session-group" x-show="s._showGroup"
                  x-text="s._groupLabel"></div>
             <div class="session-item" :class="s._cls" @click="openSession(s.thread_id)">
-              <div class="t" x-text="s._title"></div>
+              <div class="t">
+                <span class="session-pin" x-show="s.pinned" title="已置顶">★</span>
+                <span x-text="s._title"></span>
+              </div>
+              <div class="session-tags" x-show="s.tags && s.tags.length">
+                <template x-for="tag in s.tags" :key="tag">
+                  <span class="session-tag" x-text="tag"></span>
+                </template>
+              </div>
               <div class="m" x-text="s._meta"></div>
               <div class="session-actions">
+                <button @click.stop="toggleSessionPin(s)"
+                        x-text="s.pinned ? '取消置顶' : '置顶'"></button>
+                <button @click.stop="toggleSessionArchive(s)"
+                        x-text="s.archived ? '取消归档' : '归档'"></button>
+                <button @click.stop="editSessionTags(s)">标签</button>
                 <button @click.stop="renameSession(s.thread_id)">改名</button>
                 <button @click.stop="exportSession(s.thread_id)">导出</button>
                 <button class="danger" @click.stop="deleteSession(s.thread_id)">删除</button>

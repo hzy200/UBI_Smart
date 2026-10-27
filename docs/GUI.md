@@ -4,11 +4,14 @@ doc_id: gui
 title: 桌面 GUI
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-26
 review_cadence: GUI 能力、权限模型或 API 变动时
 ---
 
 # 桌面 GUI
+
+> 前端功能、消息呈现、工作区绑定、对话内授权、视觉规范与 UI 约束
+> 见 [FRONTEND.md](FRONTEND.md)。本文保留桌面壳、接口、权限与部署说明。
 
 桌面 GUI 是 `cli/`、`tui/`、`web/` 之外的第四个前端：
 
@@ -48,8 +51,9 @@ WSL 模式下端口由 server 自动分配并通过握手返回；`--port` 只�
   不进入服务端日志。
 - 使用 `WorkspaceLock` 做单实例锁；同一工作区已有 GUI 时会拒绝启动。
 - 桌面与 Web 共用同一套后端；`agent web` 仍然可用。
-- 关闭窗口时先调用 `/api/desktop/cancel_all` 协作式取消运行（最多等 5 秒），
-  再停止本地服务并释放锁；超时仍允许关闭，checkpoint 保留，可从 CLI/TUI 恢复。
+- 关闭窗口时关闭事件立即返回；取消运行与 A2/A3/A2L 停止在**后台并行**执行，
+  短等待后强制 kill。窗口不会被进程清理阻塞（避免 Windows“未响应”），
+  checkpoint 仍保留，可从 CLI/TUI 恢复。
 
 ---
 
@@ -66,8 +70,10 @@ WSL 模式下端口由 server 自动分配并通过握手返回；`--port` 只�
 
 - 换工作区请新建会话或 fork，避免 checkpoint 里的 `cwd` 与工具路径校验错位。
 - 同一工作区仍受单写者锁约束，同时只能有一个运行中的会话。
-- 会话配置持久化在租户审计目录的 `gui-sessions.json`，进程重启后可恢复；
-  创建但尚未运行的会话也会出现在侧栏。
+- 会话配置持久化在控制面数据库 `control_sessions`；`gui-sessions.json` 只作
+  无数据库时的兜底。创建但尚未运行的会话也会出现在侧栏。
+- host 会话的 `workspace_kind/a2l_id/root_handle` 随会话落库（迁移 0006），
+  本地 catalog 丢失时从 `workspaces` 表恢复；会话工作区不可改绑。
 - 由 CLI/TUI 创建、没有 GUI 配置的旧会话，会从审计的 `run_start.workspace`
   恢复工作区，避免快照/回滚/resume 落到错误的目录。
 - Web 多用户模式只允许选择 `workspaces_root/<user>` 下的目录；桌面单用户
@@ -96,8 +102,8 @@ WSL 模式下端口由 server 自动分配并通过握手返回；`--port` 只�
 
 ### 2.2 会话、文件与 Git（Phase 4）
 
-- 会话栏支持搜索、改名、删除与导出 Markdown；删除是 tombstone，审计与
-  checkpoint 保留，列表不再出现。
+- 会话栏支持搜索、改名、删除、导出 Markdown、置顶、归档与标签；
+  归档只影响列表；删除是 tombstone，审计与 checkpoint 保留，列表不再出现。
 - “文件树”标签逐层浏览工作区（跳过 `.git`/`__pycache__`/`node_modules`），
   点击文件只读查看；单文件最多 256 KB，二进制只显示提示。
 - “Git”标签只读展示分支、ahead/behind、未提交改动、最近提交与 diff；
@@ -159,6 +165,8 @@ LSP）；`symbol_search` 强制退回 AST，`code_intel` 跳过。允许宿主�
   `POST /api/resume_steering/{thread}`。
 - 暂停状态下取消：GUI 会先提交 cancel，再自动调用 resume_steering；
   否则指令只会留在队列里，任务永久暂停。
+- host 工作区的本机文件授权不再弹独立窗口，而是在对话输出区显示
+  “允许本次 / 拒绝”卡片；细节见 [FRONTEND.md](FRONTEND.md) 第 6 节。
 
 ---
 
@@ -172,6 +180,9 @@ LSP）；`symbol_search` 强制退回 AST，`code_intel` 跳过。允许宿主�
 - checkpoint 回退/分叉：`POST /api/rewind/{thread}`、
   `POST /api/fork/{thread}`；历史不会删除。
 - `ContextTrimmed` 会显示裁剪条数与 token 变化。
+- 桌面端每轮结束把完整 UI 轨迹（含工具卡片、过程与最终回答）保存到
+  `transcripts/<thread>.json`，重开会话时优先恢复；见
+  [FRONTEND.md](FRONTEND.md) 第 5.3 节。
 - “压缩并分叉”：`POST /api/context/{thread}/compact` 用确定性摘要 + 最近
   若干轮纯文本消息创建一个新 thread；原 thread 保留，不原地删除消息，
   也不会复制 `tool_calls` / `ToolMessage`，因此不破坏配对。
@@ -265,7 +276,8 @@ GET    /api/audit
 - **密钥只进密钥环**：前端只看到 `has_key`，不返回明文。
 - **上传不执行**：上传目录在 `.agent/uploads`，不由 Agent 自动运行。
 - **XSS**：模型输出经 `marked + DOMPurify` 清洗；前端依赖全部本地 vendored，
-  CSP 为 `default-src 'self'`。Alpine 使用 CSP 构建，避免 `unsafe-eval`。
+  CSP 为 `default-src 'self'`。当前使用标准 Alpine，`script-src` 需要
+  `'unsafe-eval'`（TD-016，公网部署前复核）。
 - **本地服务**：只绑 loopback、随机 token、`TrustedHostMiddleware` 限制 Host，
   无 CORS、无 `/docs`；无 Content-Length 的 chunked 写请求直接拒绝。
 - **Provider 测试直连**：`trust_env=False`，不使用环境 HTTP(S)_PROXY，避免把

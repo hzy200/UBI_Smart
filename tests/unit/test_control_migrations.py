@@ -21,7 +21,7 @@ from coding_agent.control.migrate import (  # noqa: E402
 )
 from coding_agent.control.store import ControlStore  # noqa: E402
 
-REVISION = "0004_leases_idempotency"
+REVISION = "0007_session_meta"
 
 
 def _url(tmp_path: Path) -> str:
@@ -37,7 +37,15 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
     assert has_table(url, "workspaces")
     assert has_table(url, "workspace_revisions")
     assert has_column(url, "control_sessions", "workspace_id")
+    assert has_column(url, "control_sessions", "workspace_kind")
+    assert has_column(url, "control_sessions", "a2l_id")
+    assert has_column(url, "control_sessions", "root_handle")
+    assert has_column(url, "control_sessions", "pinned")
+    assert has_column(url, "control_sessions", "archived")
+    assert has_column(url, "control_sessions", "tags")
     assert has_column(url, "workspace_revisions", "pinned")
+    assert has_column(url, "workspaces", "kind")
+    assert has_column(url, "workspaces", "root_handle")
     assert has_table(url, "run_leases")
     assert has_table(url, "idempotency_keys")
     assert current_revision(url) == REVISION
@@ -47,10 +55,21 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
 
     store = ControlStore(url, auto_create=False)
     store.save_sessions(
-        "local", [{"thread_id": "t1", "title": "迁移后"}], set()
+        "local",
+        [{
+            "thread_id": "t1",
+            "title": "迁移后",
+            "pinned": True,
+            "archived": True,
+            "tags": ["重要", "前端"],
+        }],
+        set(),
     )
     rows, deleted = store.load_sessions("local")
     assert rows[0]["title"] == "迁移后"
+    assert rows[0]["pinned"] is True
+    assert rows[0]["archived"] is True
+    assert rows[0]["tags"] == ["重要", "前端"]
     assert deleted == set()
     store.close()
 
@@ -87,7 +106,15 @@ def test_phase_b_baseline_is_upgraded_incrementally(tmp_path) -> None:
     assert current_revision(url) == REVISION
     assert has_table(url, "workspaces")
     assert has_column(url, "control_sessions", "workspace_id")
+    assert has_column(url, "control_sessions", "workspace_kind")
+    assert has_column(url, "control_sessions", "a2l_id")
+    assert has_column(url, "control_sessions", "root_handle")
+    assert has_column(url, "control_sessions", "pinned")
+    assert has_column(url, "control_sessions", "archived")
+    assert has_column(url, "control_sessions", "tags")
     assert has_column(url, "workspace_revisions", "pinned")
+    assert has_column(url, "workspaces", "kind")
+    assert has_column(url, "workspaces", "root_handle")
     assert has_table(url, "run_leases")
     assert has_table(url, "idempotency_keys")
 

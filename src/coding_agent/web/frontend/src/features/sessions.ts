@@ -108,17 +108,86 @@ export const sessionsMixin = {
 
   async loadSessions() {
     try {
-      const response = await authFetch('/api/sessions?limit=50');
+      const response = await authFetch(
+        '/api/sessions?limit=50&include_archived=true',
+      );
       const data = await readJson(response, '无法读取会话');
       this.sessions = (data.sessions || []).map((item) => ({
         ...item,
+        tags: Array.isArray(item.tags) ? item.tags : [],
         _title: item.title || item.thread_id,
         _meta: `${item.thread_id} · ${item.last_active || ''}` +
+          (item.archived ? ' · 已归档' : '') +
           (item.interrupted ? ' · 异常中断' : ''),
         _cls: item.thread_id === this.threadId ? 'active' : '',
       }));
       this.filterSessions();
     } catch (e) { /* ignore */ }
+  },
+
+  currentSession() {
+    return this.sessions.find(
+      (item) => item.thread_id === this.threadId,
+    ) || null;
+  },
+
+  setSessionFilter(name) {
+    this.sessionFilter = name;
+    this.filterSessions();
+  },
+
+  sessionFilterClass(name) {
+    return this.sessionFilter === name ? 'active' : '';
+  },
+
+  async updateSessionMeta(id, payload) {
+    try {
+      const response = await authFetch(
+        `/api/sessions/${encodeURIComponent(id)}/meta`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+      const data = await readJson(response, '更新会话失败');
+      const row = this.sessions.find((item) => item.thread_id === id);
+      if (row) {
+        row.pinned = Boolean(data.pinned);
+        row.archived = Boolean(data.archived);
+        row.tags = Array.isArray(data.tags) ? data.tags : [];
+        row._meta = `${row.thread_id} · ${row.last_active || ''}` +
+          (row.archived ? ' · 已归档' : '') +
+          (row.interrupted ? ' · 异常中断' : '');
+      }
+      this.filterSessions();
+      return data;
+    } catch (err) {
+      this.toastMessage(String(err));
+      return null;
+    }
+  },
+
+  async toggleSessionPin(row) {
+    if (!row) return;
+    await this.updateSessionMeta(row.thread_id, { pinned: !row.pinned });
+  },
+
+  async toggleSessionArchive(row) {
+    if (!row) return;
+    await this.updateSessionMeta(row.thread_id, { archived: !row.archived });
+  },
+
+  async editSessionTags(row) {
+    if (!row) return;
+    const current = (row.tags || []).join(', ');
+    const value = window.prompt('标签（逗号分隔，最多 8 个）：', current);
+    if (value === null) return;
+    const tags = value
+      .split(/[,，]/)
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    await this.updateSessionMeta(row.thread_id, { tags });
   },
 
   sessionWorkspaceLabel(item) {
@@ -135,13 +204,22 @@ export const sessionsMixin = {
 
   filterSessions() {
     const q = this.sessionQuery.trim().toLowerCase();
+    let base = this.sessions;
+    if (this.sessionFilter === 'pinned') {
+      base = base.filter((row) => row.pinned && !row.archived);
+    } else if (this.sessionFilter === 'archived') {
+      base = base.filter((row) => row.archived);
+    } else {
+      base = base.filter((row) => !row.archived);
+    }
     const filtered = q
-      ? this.sessions.filter((row) =>
+      ? base.filter((row) =>
           row._title.toLowerCase().includes(q) ||
           row.thread_id.toLowerCase().includes(q) ||
           String(row.workspace || '').toLowerCase().includes(q) ||
+          (row.tags || []).join(' ').toLowerCase().includes(q) ||
           this.sessionWorkspaceLabel(row).toLowerCase().includes(q))
-      : this.sessions.slice();
+      : base.slice();
     filtered.forEach((row) => {
       row._groupLabel = this.sessionWorkspaceLabel(row);
     });
@@ -161,10 +239,13 @@ export const sessionsMixin = {
     for (const group of groups) {
       const items = filtered
         .filter((row) => row._groupLabel === group)
-        .sort((a, b) =>
-          String(b.last_active || '').localeCompare(
+        .sort((a, b) => {
+          const pin = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+          if (pin !== 0) return pin;
+          return String(b.last_active || '').localeCompare(
             String(a.last_active || ''),
-          ));
+          );
+        });
       items.forEach((row, index) => {
         row._showGroup = index === 0;
         rows.push(row);

@@ -291,6 +291,27 @@ export const layoutMixin = {
         run: () => this.compactContext(),
       });
     }
+    const current = this.currentSession();
+    if (current) {
+      items.push({
+        id: 'pin-session',
+        title: current.pinned ? '取消置顶当前会话' : '置顶当前会话',
+        hint: '会话',
+        run: () => this.toggleSessionPin(current),
+      });
+      items.push({
+        id: 'archive-session',
+        title: current.archived ? '取消归档当前会话' : '归档当前会话',
+        hint: '会话',
+        run: () => this.toggleSessionArchive(current),
+      });
+      items.push({
+        id: 'tag-session',
+        title: '编辑当前会话标签',
+        hint: '会话',
+        run: () => this.editSessionTags(current),
+      });
+    }
     for (const session of (this.sessions || []).slice(0, 20)) {
       items.push({
         id: `session:${session.thread_id}`,

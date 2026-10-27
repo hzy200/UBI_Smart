@@ -56,16 +56,29 @@ class RenameRequest(BaseModel):
     title: str = Field(default="", max_length=120)
 
 
+class SessionMetaRequest(BaseModel):
+    pinned: bool | None = None
+    archived: bool | None = None
+    tags: list[str] | None = None
+
+
 @dataclass
 class SessionConfig:
     thread_id: str
     workspace: str
     # 注册表开启时绑定；关闭时为空，保持旧语义。
     workspace_id: str = ""
+    workspace_kind: str = "sandbox"
+    a2l_id: str = ""
+    root_handle: str = ""
     access_mode: str = ACCESS_READ_ONLY
     model: str = ""
     provider: str = ""
     uploaded_bytes: int = 0
     # GUI 重命名；空 = 使用首条提示词生成的标题。
     title: str = ""
+    # 会话目录展示状态；仅影响列表，不影响审计/checkpoint。
+    pinned: bool = False
+    archived: bool = False
+    tags: list[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.monotonic)

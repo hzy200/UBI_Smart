@@ -635,10 +635,35 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .session-item { padding: 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
 .session-item:hover { background: var(--panel-2); }
 .session-item.active { border-color: var(--accent); background: var(--panel-2); }
-.session-item .t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-item .t {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-item .t > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.session-pin { color: var(--warn); font-size: 11px; flex: 0 0 auto; }
 .session-item .m { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.session-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.session-tag {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9px;
+}
 .session-search { margin-bottom: 8px; }
-.session-actions { display: none; gap: 4px; margin-top: 4px; }
+.session-filters { display: flex; gap: 4px; margin-bottom: 8px; }
+.session-filters button { font-size: 11px; padding: 2px 8px; }
+.session-filters button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.session-actions { display: none; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 .session-item:hover .session-actions,
 .session-item.active .session-actions { display: flex; }
 .session-actions button { font-size: 10px; padding: 2px 6px; }

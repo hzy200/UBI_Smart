@@ -130,6 +130,7 @@ const agentApp = () => {
   sessions: [],
   sessionRows: [],
   sessionQuery: '',
+  sessionFilter: 'all',
   treeChildren: {},
   treeExpanded: {},
   treeLoadingMap: {},

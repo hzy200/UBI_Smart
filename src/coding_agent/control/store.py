@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,11 +20,33 @@ from coding_agent.control.schema import (
     ControlAuditIndex,
     ControlMeta,
     ControlSession,
+    Workspace,
 )
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _tags_from_text(value: str) -> list[str]:
+    try:
+        data = json.loads(value or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(item) for item in data if str(item).strip()][:8]
+
+
+def _tags_to_text(tags: Any) -> str:
+    if not isinstance(tags, list):
+        return "[]"
+    clean: list[str] = []
+    for item in tags:
+        text = " ".join(str(item or "").split())[:24]
+        if text and text not in clean:
+            clean.append(text)
+    return json.dumps(clean[:8], ensure_ascii=False)
 
 
 class ControlStore:
@@ -93,14 +116,39 @@ class ControlStore:
                     "thread_id": row.thread_id,
                     "workspace": row.workspace,
                     "workspace_id": row.workspace_id,
+                    "workspace_kind": row.workspace_kind,
+                    "a2l_id": row.a2l_id,
+                    "root_handle": row.root_handle,
                     "access_mode": row.access_mode,
                     "model": row.model,
                     "provider": row.provider,
                     "uploaded_bytes": int(row.uploaded_bytes or 0),
                     "title": row.title,
+                    "pinned": bool(row.pinned),
+                    "archived": bool(row.archived),
+                    "tags": _tags_from_text(row.tags),
                 }
             )
         return active, deleted
+
+    def get_workspace(self, workspace_id: str) -> dict[str, Any] | None:
+        """读取工作区元数据；会话配置重建时用它恢复 host 绑定。"""
+        key = str(workspace_id or "")
+        if not key:
+            return None
+        with Session(self.engine) as session:
+            row = session.get(Workspace, key)
+            if row is None:
+                return None
+            return {
+                "workspace_id": row.workspace_id,
+                "display_name": row.display_name,
+                "kind": row.kind,
+                "a2l_id": row.a2l_id,
+                "root_handle": row.root_handle,
+                "root_path": row.root_path,
+                "status": row.status,
+            }
 
     def save_sessions(
         self,
@@ -127,6 +175,13 @@ class ControlStore:
                 row.workspace_id = str(
                     data.get("workspace_id") or ""
                 )[:36]
+                row.workspace_kind = str(
+                    data.get("workspace_kind") or ""
+                )[:16]
+                row.a2l_id = str(data.get("a2l_id") or "")[:64]
+                row.root_handle = str(
+                    data.get("root_handle") or ""
+                )[:128]
                 row.access_mode = str(
                     data.get("access_mode") or "read_only"
                 )
@@ -134,6 +189,12 @@ class ControlStore:
                 row.provider = str(data.get("provider") or "")
                 row.uploaded_bytes = int(data.get("uploaded_bytes") or 0)
                 row.title = str(data.get("title") or "")
+                if "pinned" in data:
+                    row.pinned = bool(data.get("pinned"))
+                if "archived" in data:
+                    row.archived = bool(data.get("archived"))
+                if "tags" in data:
+                    row.tags = _tags_to_text(data.get("tags"))
                 row.deleted = False
                 row.updated_at = now
             for thread_id in deleted:

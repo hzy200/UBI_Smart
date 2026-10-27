@@ -69,6 +69,27 @@ def test_session_rename_search_export_and_delete(settings, monkeypatch) -> None:
     rows = client.get("/api/sessions", params={"q": "登录"}).json()["sessions"]
     assert [row["thread_id"] for row in rows] == [thread]
 
+    meta = client.post(
+        f"/api/sessions/{thread}/meta",
+        json={"pinned": True, "tags": ["重要", "UI"]},
+    )
+    assert meta.status_code == 200
+    assert meta.json()["pinned"] is True
+    assert meta.json()["tags"] == ["重要", "UI"]
+
+    archived = client.post(
+        f"/api/sessions/{thread}/meta", json={"archived": True}
+    )
+    assert archived.status_code == 200
+    assert archived.json()["archived"] is True
+    assert client.get("/api/sessions").json()["sessions"] == []
+    archived_rows = client.get(
+        "/api/sessions",
+        params={"include_archived": "true", "q": "重要"},
+    ).json()["sessions"]
+    assert [row["thread_id"] for row in archived_rows] == [thread]
+    client.post(f"/api/sessions/{thread}/meta", json={"archived": False})
+
     exported = client.get(
         f"/api/sessions/{thread}/export", params={"format": "markdown"}
     ).json()

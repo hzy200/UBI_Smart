@@ -25,6 +25,7 @@ from coding_agent.provider_profiles import (
     merge_provider_items,
 )
 from coding_agent.secrets_store import SecretStore
+from coding_agent.sse_stream import sse_headers, with_heartbeat_bytes
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.models import SessionConfig
@@ -251,13 +252,56 @@ class AgentGateway:
         *,
         include_keys: bool = False,
     ) -> AgentContext:
+        settings = self.providers.settings
+        # 只对“还没有会话配置”或“明确指向默认 host 项目”的会话套用
+        # 启动默认值。旧 sandbox 会话的 workspace_id 为空，但不能被
+        # 强行改成本机默认目录，否则历史会话会读错工作区。
+        host_default = (
+            settings.workspace_kind_default == "host"
+            and bool(settings.host_workspace_id)
+            and bool(settings.host_root_handle)
+            and (
+                config is None
+                or (
+                    config.workspace_kind == "host"
+                    and config.workspace_id in {
+                        "",
+                        settings.host_workspace_id,
+                    }
+                )
+            )
+        )
+        kind = (
+            "host"
+            if host_default
+            else (
+                config.workspace_kind
+                if config and config.workspace_kind
+                else "sandbox"
+            )
+        )
         return AgentContext(
             tenant=tenant.user,
             user=user.name,
             workspace=(
                 config.workspace if config else tenant.workspace
             ),
-            workspace_id=config.workspace_id if config else "",
+            workspace_id=(
+                settings.host_workspace_id
+                if host_default
+                else (config.workspace_id if config else "")
+            ),
+            workspace_kind=kind,
+            a2l_id=(
+                settings.host_a2l_id
+                if host_default
+                else (config.a2l_id if config else "")
+            ),
+            root_handle=(
+                settings.host_root_handle
+                if host_default
+                else (config.root_handle if config else "")
+            ),
             access_mode=self.effective_access(config),
             model=config.model if config else "",
             provider=config.provider if config else "",
@@ -297,17 +341,11 @@ class AgentGateway:
                         fired = True
                         on_terminal()
 
-        headers = {
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        }
-        if public_thread:
-            headers["X-Thread-Id"] = public_thread
         return StreamingResponse(
-            body(),
+            with_heartbeat_bytes(body()),
             status_code=int(stream.status_code),
             media_type="text/event-stream",
-            headers=headers,
+            headers=sse_headers(public_thread),
         )
 
     async def json(
@@ -408,6 +446,7 @@ class SessionCatalog:
         rows: list[dict[str, Any]],
         deleted: set[str] | None = None,
     ) -> None:
+        changed = False
         with self.registry_lock:
             for thread in deleted or ():
                 self.deleted_sessions.add((user.name, thread))
@@ -418,23 +457,58 @@ class SessionCatalog:
                 if row.get("deleted"):
                     self.deleted_sessions.add((user.name, thread))
                     continue
-                self.session_configs.setdefault(
-                    (user.name, thread),
-                    SessionConfig(
-                        thread_id=thread,
-                        workspace=str(
-                            row.get("workspace") or tenant.workspace
-                        ),
-                        workspace_id=str(row.get("workspace_id") or ""),
-                        access_mode=normalize_access_mode(
-                            row.get("access_mode")
-                        ),
-                        model=str(row.get("model") or ""),
-                        provider=str(row.get("provider") or ""),
-                        uploaded_bytes=int(row.get("uploaded_bytes") or 0),
-                        title=str(row.get("title") or ""),
-                    ),
+                workspace_id = str(row.get("workspace_id") or "")
+                kind = str(row.get("workspace_kind") or "")
+                a2l_id = str(row.get("a2l_id") or "")
+                root_handle = str(row.get("root_handle") or "")
+                workspace = str(
+                    row.get("workspace") or tenant.workspace
                 )
+                # 工作区表是 host 绑定的权威来源：本地 catalog 丢失或
+                # 旧行没有 kind 时，从这里恢复，绝不把 host 会话退回 sandbox。
+                wrow = None
+                if workspace_id and self.control_store is not None:
+                    try:
+                        wrow = self.control_store.get_workspace(workspace_id)
+                    except Exception:  # noqa: BLE001 - 读不到就保留旧值
+                        wrow = None
+                if wrow is not None:
+                    kind = str(wrow.get("kind") or kind or "sandbox")
+                    a2l_id = str(wrow.get("a2l_id") or a2l_id)
+                    root_handle = str(
+                        wrow.get("root_handle") or root_handle
+                    )
+                    if kind == "host":
+                        workspace = str(wrow.get("root_path") or "")
+                    changed = True
+                config = SessionConfig(
+                    thread_id=thread,
+                    workspace=workspace,
+                    workspace_id=workspace_id,
+                    workspace_kind=kind or "sandbox",
+                    a2l_id=a2l_id,
+                    root_handle=root_handle,
+                    access_mode=normalize_access_mode(
+                        row.get("access_mode")
+                    ),
+                    model=str(row.get("model") or ""),
+                    provider=str(row.get("provider") or ""),
+                    uploaded_bytes=int(row.get("uploaded_bytes") or 0),
+                    title=str(row.get("title") or ""),
+                    pinned=bool(row.get("pinned")),
+                    archived=bool(row.get("archived")),
+                    tags=list(row.get("tags") or []),
+                )
+                existing = self.session_configs.get((user.name, thread))
+                if existing is None:
+                    self.session_configs[(user.name, thread)] = config
+                elif wrow is not None:
+                    # 旧内存配置缺少 host 绑定时就地修正。
+                    self.session_configs[(user.name, thread)] = config
+        if changed:
+            # 把恢复出来的 kind/a2l/handle 写回会话表，重启后不再依赖
+            # 一次性修复。
+            self.persist(user, tenant)
 
     def load(self, user: AuthUser, tenant: WebTenant) -> None:
         with self.registry_lock:
@@ -478,11 +552,17 @@ class SessionCatalog:
                     "thread_id": config.thread_id,
                     "workspace": config.workspace,
                     "workspace_id": config.workspace_id,
+                    "workspace_kind": config.workspace_kind,
+                    "a2l_id": config.a2l_id,
+                    "root_handle": config.root_handle,
                     "access_mode": config.access_mode,
                     "model": config.model,
                     "provider": config.provider,
                     "uploaded_bytes": config.uploaded_bytes,
                     "title": config.title,
+                    "pinned": bool(config.pinned),
+                    "archived": bool(config.archived),
+                    "tags": list(config.tags),
                 }
                 for (owner, _), config in self.session_configs.items()
                 if owner == user.name

@@ -299,3 +299,32 @@ def test_m6_editor_tabs_tree_and_problems_are_guarded() -> None:
     css = (STATIC / "style.css").read_text(encoding="utf-8")
     for marker in (".activity-badge", ".problem-card", ".problem-detail"):
         assert marker in css, marker
+
+
+def test_m7_session_management_is_guarded() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "sessionFilter",
+        "session-filters",
+        "toggleSessionPin(s)",
+        "toggleSessionArchive(s)",
+        "editSessionTags(s)",
+        "session-pin",
+        "session-tag",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "updateSessionMeta",
+        "toggleSessionPin",
+        "toggleSessionArchive",
+        "editSessionTags",
+        "sessionFilterClass",
+        "include_archived=true",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".session-filters", ".session-pin", ".session-tag"):
+        assert marker in css, marker

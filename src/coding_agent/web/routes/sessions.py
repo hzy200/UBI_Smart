@@ -17,6 +17,7 @@ from coding_agent.web.models import (
     ModelRequest,
     RenameRequest,
     SessionConfig,
+    SessionMetaRequest,
     SessionRequest,
 )
 from coding_agent.web.validation import check_thread_id
@@ -60,6 +61,9 @@ def _row(config: Any, tenant: WebTenant, deps: SessionDeps, **extra: Any) -> dic
         "access_mode": deps.effective_access(config),
         "model": config.model,
         "provider": config.provider,
+        "pinned": bool(config.pinned),
+        "archived": bool(config.archived),
+        "tags": list(config.tags),
         **extra,
     }
 
@@ -70,6 +74,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         user: UserDep,
         limit: int = 20,
         q: str = "",
+        include_archived: bool = False,
     ) -> dict:
         await deps.sweep_expired()
         tenant = deps.tenant(user)
@@ -113,6 +118,9 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                         "provider": config.provider if config else "",
                         "run_count": item.get("runs", 0),
                         "interrupted": bool(item.get("interrupted")),
+                        "pinned": bool(config.pinned) if config else False,
+                        "archived": bool(config.archived) if config else False,
+                        "tags": list(config.tags) if config else [],
                     }
                 )
         else:
@@ -143,6 +151,9 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                         "provider": config.provider if config else "",
                         "run_count": info.runs,
                         "interrupted": bool(info.interrupted),
+                        "pinned": bool(config.pinned) if config else False,
+                        "archived": bool(config.archived) if config else False,
+                        "tags": list(config.tags) if config else [],
                     }
                 )
             deps.load_configs(user, tenant)
@@ -169,6 +180,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 )
             )
 
+        if not include_archived:
+            rows = [row for row in rows if not row.get("archived")]
         query = q.strip().lower()
         if query:
             rows = [
@@ -177,7 +190,10 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 if query in str(row.get("title", "")).lower()
                 or query in row["thread_id"].lower()
                 or query in str(row.get("workspace", "")).lower()
+                or query in " ".join(row.get("tags") or []).lower()
             ]
+        # 稳定排序：置顶优先，其余保持最近活跃顺序。
+        rows.sort(key=lambda row: 0 if row.get("pinned") else 1)
         return {"sessions": rows[: max(1, limit)]}
 
     @app.post("/api/sessions")
@@ -223,10 +239,16 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
 
         tenant = deps.tenant(user)
         workspace_id = ""
+        workspace_kind = "sandbox"
+        a2l_id = ""
+        root_handle = ""
         if request.workspace_id and deps.registry_enabled:
             row = deps.bind_workspace(user, request.workspace_id)
             workspace = str(row["root_path"])
             workspace_id = str(row["workspace_id"])
+            workspace_kind = str(row.get("kind") or "sandbox")
+            a2l_id = str(row.get("a2l_id") or "")
+            root_handle = str(row.get("root_handle") or "")
         elif deps.registry_enabled:
             raise HTTPException(
                 status_code=400,
@@ -254,6 +276,9 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             thread_id=public_thread,
             workspace=workspace,
             workspace_id=workspace_id,
+            workspace_kind=workspace_kind,
+            a2l_id=a2l_id,
+            root_handle=root_handle,
             access_mode=access_mode,
             model=request.model,
             provider=request.provider,
@@ -318,6 +343,42 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             "ok": True,
             "thread_id": public_thread,
             "title": config.title,
+        }
+
+    @app.post("/api/sessions/{thread_id}/meta")
+    async def update_session_meta(
+        thread_id: str,
+        request: SessionMetaRequest,
+        user: UserDep,
+    ) -> dict:
+        """更新会话展示元数据：置顶、归档、标签。"""
+        deps.reject_db_degraded()
+        public_thread = check_thread_id(thread_id)
+        deps.reject_deleted(user, public_thread)
+        tenant = deps.tenant(user)
+        config = deps.config_for(
+            user, tenant, public_thread, create=False
+        )
+        if config is None:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        if request.pinned is not None:
+            config.pinned = bool(request.pinned)
+        if request.archived is not None:
+            config.archived = bool(request.archived)
+        if request.tags is not None:
+            tags: list[str] = []
+            for raw in request.tags:
+                clean = " ".join(str(raw or "").split())[:24]
+                if clean and clean not in tags:
+                    tags.append(clean)
+            config.tags = tags[:8]
+        deps.set_config(user, tenant, config)
+        return {
+            "ok": True,
+            "thread_id": public_thread,
+            "pinned": bool(config.pinned),
+            "archived": bool(config.archived),
+            "tags": list(config.tags),
         }
 
     @app.delete("/api/sessions/{thread_id}")

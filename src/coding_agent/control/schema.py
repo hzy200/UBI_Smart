@@ -24,7 +24,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-CONTROL_SCHEMA_VERSION = "4"
+CONTROL_SCHEMA_VERSION = "7"
 
 
 class Base(DeclarativeBase):
@@ -49,11 +49,20 @@ class ControlSession(Base):
     # RFC-0001：业务身份用 workspace_id；workspace 是运行时解析结果。
     # 旧行默认空串，由回填脚本幂等补齐。
     workspace_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    # 会话一旦创建就固定绑定；host 会话必须持久化这三个字段，
+    # 否则目录丢失/重启后会退回 sandbox 路径，读错工作区。
+    workspace_kind: Mapped[str] = mapped_column(String(16), default="")
+    a2l_id: Mapped[str] = mapped_column(String(64), default="")
+    root_handle: Mapped[str] = mapped_column(String(128), default="")
     access_mode: Mapped[str] = mapped_column(String(16), default="read_only")
     model: Mapped[str] = mapped_column(String(128), default="")
     provider: Mapped[str] = mapped_column(String(128), default="")
     uploaded_bytes: Mapped[int] = mapped_column(Integer, default=0)
     title: Mapped[str] = mapped_column(String(120), default="")
+    # 会话目录展示状态；只影响列表，不影响审计/checkpoint。
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    tags: Mapped[str] = mapped_column(Text, default="")
     # tombstone：列表隐藏，但审计/checkpoint 仍由 A3/A4 保留。
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[str] = mapped_column(String(32), default="")
@@ -187,8 +196,12 @@ class Workspace(Base):
     slug: Mapped[str] = mapped_column(String(64), default="")
     display_name: Mapped[str] = mapped_column(String(120), default="")
     source: Mapped[str] = mapped_column(String(24), default="upload")
+    # host | sandbox：host 的字节在客户端，A2 只存 handle。
+    kind: Mapped[str] = mapped_column(String(16), default="sandbox")
+    a2l_id: Mapped[str] = mapped_column(String(64), default="")
+    root_handle: Mapped[str] = mapped_column(String(128), default="")
     root_path: Mapped[str] = mapped_column(Text, default="")
-    # ext4 | mount；mount 表示显式降级（性能/隔离更弱）。
+    # ext4 | mount | ntfs；mount 表示显式降级（性能/隔离更弱）。
     root_kind: Mapped[str] = mapped_column(String(16), default="ext4")
     # provisioning | active | archived | failed | deleted
     status: Mapped[str] = mapped_column(String(16), default="provisioning")
