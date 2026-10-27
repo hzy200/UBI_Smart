@@ -166,88 +166,88 @@
 </svg>
 
 <header x-show="ready" x-cloak>
-  <button class="icon-btn" @click="toggleSidebar" aria-label="切换侧栏"
+  <button class="icon-btn" @click="toggleSidebar" :aria-label="i18n.header.toggleSidebar"
           :aria-expanded="sidebarExpanded" aria-controls="sidebar-panel"
-          title="切换侧栏（Ctrl+B）">
+          :title="i18n.header.toggleSidebarHint">
     <svg class="icon" aria-hidden="true"><use href="#i-panel-left"></use></svg>
   </button>
   <span class="name">CodingAgent</span>
-  <button class="command-trigger" @click="openCommandPalette" aria-label="搜索或运行命令">
+  <button class="command-trigger" @click="openCommandPalette" :aria-label="i18n.header.command">
     <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
-    <span>搜索或运行命令</span>
+    <span x-text="i18n.header.command"></span>
     <kbd>Ctrl Shift P</kbd>
   </button>
   <span class="meta workspace" x-text="workspaceLabel"></span>
   <span class="spacer"></span>
-  <button class="icon-btn" @click="toggleInspector" aria-label="切换检查器"
+  <button class="icon-btn" @click="toggleInspector" :aria-label="i18n.header.toggleInspector"
           :aria-expanded="inspectorExpanded" aria-controls="inspector-panel"
-          title="切换检查器（Ctrl+J）">
+          :title="i18n.header.toggleInspectorHint">
     <svg class="icon" aria-hidden="true"><use href="#i-panel-right"></use></svg>
   </button>
-  <button class="icon-btn notification-btn" @click.stop="toggleNotifications" aria-label="通知中心" title="通知中心">
+  <button class="icon-btn notification-btn" @click.stop="toggleNotifications" :aria-label="i18n.header.notifications" :title="i18n.header.notifications">
     <svg class="icon" aria-hidden="true"><use href="#i-bell"></use></svg>
     <span class="activity-dot" x-show="hasUnreadNotifications" aria-hidden="true"></span>
   </button>
-  <button class="icon-btn" @click="openRecovery" aria-label="打开恢复中心" title="恢复中心">
+  <button class="icon-btn" @click="openRecovery" :aria-label="i18n.header.recovery" :title="i18n.header.recovery">
     <svg class="icon" aria-hidden="true"><use href="#i-recovery"></use></svg>
   </button>
-  <button class="icon-btn" @click="openShortcuts" aria-label="查看快捷键" title="快捷键">
+  <button class="icon-btn" @click="openShortcuts" :aria-label="i18n.header.shortcuts" :title="i18n.header.shortcuts">
     <svg class="icon" aria-hidden="true"><use href="#i-keyboard"></use></svg>
   </button>
-  <button class="icon-btn" @click="toggleSettings" aria-label="打开设置" title="设置">
+  <button class="icon-btn" @click="toggleSettings" :aria-label="i18n.header.settings" :title="i18n.header.settings">
     <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
   </button>
 </header>
 
 <div id="app" x-show="ready" x-cloak :style="layoutStyle">
-<nav class="activitybar" aria-label="主导航">
+<nav class="activitybar" :aria-label="i18n.sidebar.mainNav">
   <div class="activity-group">
     <button class="activity-item" :class="viewClasses.sessions" data-action="view" data-view="sessions" @click="onAction"
             :aria-pressed="viewFlags.sessions"
-            title="会话" aria-label="会话">
+            :title="i18n.nav.sessions" :aria-label="i18n.nav.sessions">
       <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.files" data-action="view" data-view="files" @click="onAction"
             :aria-pressed="viewFlags.files"
-            title="文件改动" aria-label="文件改动">
+            :title="i18n.nav.files" :aria-label="i18n.nav.files">
       <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
       <span class="activity-dot" x-show="filesDirty" aria-hidden="true"></span>
     </button>
     <button class="activity-item" :class="viewClasses.tree" data-action="view" data-view="tree" @click="onAction"
             :aria-pressed="viewFlags.tree"
-            title="文件树" aria-label="文件树">
+            :title="i18n.nav.tree" :aria-label="i18n.nav.tree">
       <svg class="icon" aria-hidden="true"><use href="#i-tree"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.git" data-action="view" data-view="git" @click="onAction"
             :aria-pressed="viewFlags.git"
-            title="Git" aria-label="Git">
+            :title="i18n.nav.git" :aria-label="i18n.nav.git">
       <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.tasks" data-action="view" data-view="tasks" @click="onAction"
             :aria-pressed="viewFlags.tasks"
-            title="任务" aria-label="任务">
+            :title="i18n.nav.tasks" :aria-label="i18n.nav.tasks">
       <svg class="icon" aria-hidden="true"><use href="#i-tasks"></use></svg>
       <span class="activity-dot" x-show="tasksDirty" aria-hidden="true"></span>
     </button>
     <button class="activity-item" :class="viewClasses.memory" data-action="view" data-view="memory" @click="onAction"
             :aria-pressed="viewFlags.memory"
-            title="记忆" aria-label="记忆">
+            :title="i18n.nav.memory" :aria-label="i18n.nav.memory">
       <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.audit" data-action="view" data-view="audit" @click="onAction"
             :aria-pressed="viewFlags.audit"
-            title="审计" aria-label="审计">
+            :title="i18n.nav.audit" :aria-label="i18n.nav.audit">
       <svg class="icon" aria-hidden="true"><use href="#i-audit"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.problems" data-action="view" data-view="problems" @click="onAction"
             :aria-pressed="viewFlags.problems"
-            title="问题" aria-label="问题">
+            :title="i18n.nav.problems" :aria-label="i18n.nav.problems">
       <svg class="icon" aria-hidden="true"><use href="#i-alert"></use></svg>
       <span class="activity-badge" x-show="hasProblems" x-text="problems.length"></span>
     </button>
   </div>
   <span class="spacer"></span>
-  <button class="activity-item" @click="toggleSettings" title="设置" aria-label="设置">
+  <button class="activity-item" @click="toggleSettings" :title="i18n.nav.settings" :aria-label="i18n.nav.settings">
     <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
   </button>
 </nav>
@@ -257,10 +257,10 @@
     <h3 x-text="viewTitle">会话</h3>
     <div class="row">
       <button class="icon-btn" x-show="viewFlags.sessions" @click="newSession"
-              title="新会话" aria-label="新会话">
+              :title="i18n.sidebar.newSession" :aria-label="i18n.sidebar.newSession">
         <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
       </button>
-      <button class="icon-btn" @click="toggleSidebar" title="收起侧栏" aria-label="收起侧栏">
+      <button class="icon-btn" @click="toggleSidebar" :title="i18n.sidebar.collapse" :aria-label="i18n.sidebar.collapse">
         <svg class="icon" aria-hidden="true"><use href="#i-panel-left"></use></svg>
       </button>
     </div>
@@ -270,59 +270,55 @@
     <div class="view" x-show="viewFlags.sessions">
       <div class="session-form">
         <div x-show="capabilities.workspace_registry">
-          <label>项目</label>
+          <label x-text="i18n.sidebar.project"></label>
           <div class="row">
             <select x-model="projectId" @change="selectCurrentProject"
-                    aria-label="选择项目">
-              <option value="">选择项目…</option>
+                    :aria-label="i18n.sidebar.chooseProject">
+              <option value="" x-text="i18n.sidebar.chooseProject"></option>
               <template x-for="p in projects" :key="p.workspace_id">
                 <option :value="p.workspace_id" x-text="p._label"></option>
               </template>
             </select>
             <button @click="registerHostWorkspace" :disabled="projectBusy"
-                    title="选择一个本机文件夹作为工作区">+ 本机</button>
+                    :title="i18n.sidebar.localHint" x-text="i18n.sidebar.local"></button>
           </div>
-          <div class="note" x-show="noProjects">
-            还没有项目；在设置里导入文件夹或上传归档。
-          </div>
-          <div class="note">
-            切换项目后，发送时会自动新建会话（已有会话的工作区不可改绑）。
-          </div>
+          <div class="note" x-show="noProjects" x-text="i18n.sidebar.noProjects"></div>
+          <div class="note" x-text="i18n.sidebar.switchProjectNote"></div>
           <div class="note note-ok" x-show="threadId">
-            当前会话绑定：<span x-text="workspaceDisplay"></span>（不可更改）
+            <span x-text="i18n.sidebar.boundLabel"></span><span x-text="workspaceDisplay"></span><span x-text="i18n.sidebar.immutable"></span>
           </div>
           <input x-model="workspaceInput" readonly
                  :placeholder="workspaceInputPlaceholder">
         </div>
         <div x-show="noWorkspaceRegistry">
-          <label>工作区</label>
+          <label x-text="i18n.sidebar.workspace"></label>
           <div class="row">
-            <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
-            <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace">选择…</button>
+            <input x-model="workspaceInput" :placeholder="i18n.sidebar.workspacePlaceholder">
+            <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace" x-text="i18n.sidebar.choose"></button>
           </div>
         </div>
-        <label>文件权限</label>
+        <label x-text="i18n.sidebar.access"></label>
         <select x-model="accessMode" :disabled="accessDisabled">
-          <option value="read_only">只读（不可运行）</option>
-          <option value="write_ask" x-show="capabilities.server_write_enabled">审批写</option>
-          <option value="write_auto" x-show="capabilities.server_write_enabled">自动写</option>
+          <option value="read_only" x-text="i18n.sidebar.readOnly"></option>
+          <option value="write_ask" x-show="capabilities.server_write_enabled" x-text="i18n.sidebar.writeAsk"></option>
+          <option value="write_auto" x-show="capabilities.server_write_enabled" x-text="i18n.sidebar.writeAuto"></option>
         </select>
-        <label>模型</label>
+        <label x-text="i18n.sidebar.model"></label>
         <select x-model="model" @change="syncModel">
-          <option value="">默认模型</option>
+          <option value="" x-text="i18n.sidebar.defaultModel"></option>
           <template x-for="p in providers" :key="p._key">
             <option :value="p.model" x-text="p._label"></option>
           </template>
         </select>
-        <button @click="switchModel" :disabled="applyModelDisabled">应用到当前会话</button>
-        <button class="primary" @click="createSession" :disabled="createSessionDisabled">创建会话</button>
+        <button @click="switchModel" :disabled="applyModelDisabled" x-text="i18n.sidebar.applyModel"></button>
+        <button class="primary" @click="createSession" :disabled="createSessionDisabled" x-text="i18n.sidebar.createSession"></button>
       </div>
       <input class="session-search" x-model="sessionQuery" @input="onSessionSearchInput"
-             placeholder="搜索会话或标签…">
+             :placeholder="i18n.sidebar.searchSessions">
       <div class="session-filters">
-        <button :class="sessionFilterClasses.all" data-action="session-filter" data-filter="all" @click="onAction">全部</button>
-        <button :class="sessionFilterClasses.pinned" data-action="session-filter" data-filter="pinned" @click="onAction">置顶</button>
-        <button :class="sessionFilterClasses.archived" data-action="session-filter" data-filter="archived" @click="onAction">归档</button>
+        <button :class="sessionFilterClasses.all" data-action="session-filter" data-filter="all" @click="onAction" x-text="i18n.sidebar.all"></button>
+        <button :class="sessionFilterClasses.pinned" data-action="session-filter" data-filter="pinned" @click="onAction" x-text="i18n.sidebar.pinned"></button>
+        <button :class="sessionFilterClasses.archived" data-action="session-filter" data-filter="archived" @click="onAction" x-text="i18n.sidebar.archived"></button>
       </div>
       <div class="skeleton-list" x-show="sessionsSkeletonVisible" aria-hidden="true">
         <div class="skeleton skeleton-row"></div>
@@ -555,15 +551,15 @@
   <main class="main" id="main" tabindex="-1">
     <div class="error-banner" role="alert" x-show="uiError">
       <span class="error-text" x-text="uiError"></span>
-      <button x-show="_errorRetryKind" @click="retryLastError">重试</button>
-      <button @click="dismissError">关闭</button>
+      <button x-show="_errorRetryKind" @click="retryLastError" x-text="i18n.common.retry"></button>
+      <button @click="dismissError" x-text="i18n.common.close"></button>
     </div>
-    <div class="main-tabs" role="tablist" aria-label="主区标签">
+    <div class="main-tabs" role="tablist" :aria-label="i18n.main.mainTabs">
       <div class="main-tab-list" role="presentation" @keydown="onMainTabKeydown">
         <button class="main-tab" role="tab" :class="mainTabClasses.chat"
                 :aria-selected="mainTabFlags.chat" :tabindex="chatTabIndex" @click="showChat">
           <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
-          <span>对话</span>
+          <span x-text="i18n.main.chat"></span>
         </button>
         <template x-for="tab in editorTabs" :key="tab.id">
           <button class="main-tab" role="tab" :class="tab._cls"
@@ -572,8 +568,8 @@
             <svg class="icon" aria-hidden="true" x-show="tab._isFile"><use href="#i-files"></use></svg>
             <svg class="icon" aria-hidden="true" x-show="tab._isDiff"><use href="#i-git"></use></svg>
             <span class="main-tab-label" x-text="tab.title"></span>
-            <span class="tab-dirty" x-show="tab.stale" title="文件已变化"></span>
-            <span class="tab-close" role="button" data-action="editor-tab" data-op="close" :data-id="tab.id" @click.stop="onAction" title="关闭标签">×</span>
+            <span class="tab-dirty" x-show="tab.stale" :title="i18n.main.fileChanged"></span>
+            <span class="tab-close" role="button" data-action="editor-tab" data-op="close" :data-id="tab.id" @click.stop="onAction" :title="i18n.common.close">×</span>
           </button>
         </template>
       </div>
@@ -583,20 +579,20 @@
                @input="onMessageSearchInput"
                @keydown.enter.prevent="nextMatchNext"
                @keydown.escape="closeMessageSearch"
-               placeholder="搜索对话…" aria-label="搜索对话">
+               :placeholder="i18n.main.searchPlaceholder" :aria-label="i18n.main.searchPlaceholder">
         <span class="note" x-text="messageMatchLabel"></span>
-        <button @click="nextMatchPrev" title="上一个">↑</button>
-        <button @click="nextMatchNext" title="下一个">↓</button>
-        <button @click="closeMessageSearch" title="关闭搜索">×</button>
+        <button @click="nextMatchPrev" title="↑">↑</button>
+        <button @click="nextMatchNext" title="↓">↓</button>
+        <button @click="closeMessageSearch" :title="i18n.common.close">×</button>
       </div>
       <span class="main-tab-title" x-show="messageSearchClosed" x-text="currentSessionTitle"></span>
       <span class="spacer"></span>
       <span class="main-tab-state" x-show="messageSearchClosed" x-text="stateText"></span>
       <button class="icon-btn" x-show="messageSearchClosed" @click="openMessageSearch"
-              title="搜索对话（Ctrl+Shift+F）" aria-label="搜索对话">
+              :title="i18n.main.searchHint" :aria-label="i18n.main.searchPlaceholder">
         <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
       </button>
-      <button class="icon-btn" @click="openCommandPalette" title="命令面板" aria-label="命令面板">
+      <button class="icon-btn" @click="openCommandPalette" :title="i18n.main.commandPanel" :aria-label="i18n.main.commandPanel">
         <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       </button>
     </div>
@@ -745,14 +741,14 @@
       <template x-for="c in consents" :key="c.id">
         <div class="consent-card" role="alert">
           <div class="consent-head">
-            <span class="consent-title">本机文件访问授权</span>
+            <span class="consent-title" x-text="i18n.main.consentTitle"></span>
             <span class="consent-sensitive" x-show="c.sensitive">敏感路径</span>
           </div>
           <div class="consent-row">
-            <span>操作</span><span x-text="c._verbsText"></span>
+            <span x-text="i18n.main.consentAction"></span><span x-text="c._verbsText"></span>
           </div>
           <div class="consent-row" x-show="c.reason">
-            <span>原因</span><span x-text="c.reason"></span>
+            <span x-text="i18n.main.consentReason"></span><span x-text="c.reason"></span>
           </div>
           <div class="consent-scope">
             <template x-for="s in c.scope" :key="s">
@@ -760,37 +756,33 @@
             </template>
           </div>
           <div class="consent-actions">
-            <button class="danger" data-action="consent" :data-id="c.id" data-allow="false" @click="onAction">拒绝</button>
-            <button class="primary" data-action="consent" :data-id="c.id" data-allow="true" @click="onAction">允许本次</button>
+            <button class="danger" data-action="consent" :data-id="c.id" data-allow="false" @click="onAction" x-text="i18n.main.consentDeny"></button>
+            <button class="primary" data-action="consent" :data-id="c.id" data-allow="true" @click="onAction" x-text="i18n.main.consentAllow"></button>
           </div>
         </div>
       </template>
-      <div class="empty" x-show="transcriptEmpty">
-        输入任务开始。默认只读：Agent 只能读取文件，不能运行命令或测试。
-      </div>
+      <div class="empty" x-show="transcriptEmpty" x-text="i18n.main.emptyHint"></div>
     </div>
 
-    <button class="jump-latest" x-show="showJumpLatest" @click="scrollLatest">
-      跳到最新 ↓
-    </button>
+    <button class="jump-latest" x-show="showJumpLatest" @click="scrollLatest" x-text="i18n.main.jumpLatest"></button>
 
     <div class="composer" @dragover.prevent @drop.prevent="dropFiles">
       <textarea :value="prompt" @keydown="onEnter" @input="onPromptInput"
                 @compositionstart="onCompositionStart"
                 @compositionend="onCompositionEnd"
-                aria-label="任务输入"
-                placeholder="输入任务，Enter 发送，Shift+Enter 换行"></textarea>
+                :aria-label="i18n.main.taskInput"
+                :placeholder="i18n.composer.placeholder"></textarea>
       <div class="composer-actions">
-        <button @click="send" :disabled="sendDisabled">发送</button>
-        <button data-action="steer" data-steer="pause" @click="onAction" :disabled="pauseDisabled">暂停</button>
-        <button data-action="steer" data-steer="cancel" @click="onAction" :disabled="cancelDisabled">取消</button>
-        <button @click="resumeSteering" :disabled="resumeDisabled">继续</button>
-        <button @click="reconnect" x-show="canReconnect">重连事件流</button>
-        <button @click="retry" x-show="canRetry">重试上一条</button>
-        <button @click="openNewSettings" :disabled="appendDisabled">追加任务</button>
-        <button @click="replan" :disabled="replanDisabled">重规划</button>
+        <button @click="send" :disabled="sendDisabled" x-text="i18n.composer.send"></button>
+        <button data-action="steer" data-steer="pause" @click="onAction" :disabled="pauseDisabled" x-text="i18n.composer.pause"></button>
+        <button data-action="steer" data-steer="cancel" @click="onAction" :disabled="cancelDisabled" x-text="i18n.composer.cancel"></button>
+        <button @click="resumeSteering" :disabled="resumeDisabled" x-text="i18n.composer.resume"></button>
+        <button @click="reconnect" x-show="canReconnect" x-text="i18n.composer.reconnect"></button>
+        <button @click="retry" x-show="canRetry" x-text="i18n.composer.retry"></button>
+        <button @click="openNewSettings" :disabled="appendDisabled" x-text="i18n.composer.append"></button>
+        <button @click="replan" :disabled="replanDisabled" x-text="i18n.composer.replan"></button>
         <label class="upload-label">
-          上传文件
+          <span x-text="i18n.composer.upload"></span>
           <input type="file" multiple @change="uploadFiles">
         </label>
       </div>
@@ -817,9 +809,9 @@
         <span class="split-pane-title" x-text="splitTitle"></span>
         <span class="note" x-text="splitStatusText"></span>
         <span class="spacer"></span>
-        <button @click="refreshSplit">重连/刷新</button>
-        <button @click="openSplitInMain">在主区打开</button>
-        <button class="icon-btn" @click="closeSplit" aria-label="关闭分屏">×</button>
+        <button @click="refreshSplit" x-text="i18n.split.refresh"></button>
+        <button @click="openSplitInMain" x-text="i18n.split.openInMain"></button>
+        <button class="icon-btn" @click="closeSplit" :aria-label="i18n.split.close">×</button>
       </header>
       <div class="split-pane-body">
         <div class="skeleton-list" x-show="splitLoading" aria-hidden="true">
@@ -829,8 +821,8 @@
         </div>
         <div class="note note-bad" x-show="splitError" x-text="splitError"></div>
         <div class="note note-bad" x-show="splitHasApprovals">
-          该会话有待审批，请切到主区处理。
-          <button @click="openSplitInMain">切到主区</button>
+          <span x-text="i18n.split.hasApprovals"></span>
+          <button @click="openSplitInMain" x-text="i18n.split.switchToMain"></button>
         </div>
         <template x-for="m in splitPaneMessages" :key="m.id">
           <div class="split-msg" :class="m._renderClass">
@@ -843,14 +835,14 @@
             </template>
           </div>
         </template>
-        <div class="empty" x-show="splitEmpty">这个会话还没有消息</div>
+        <div class="empty" x-show="splitEmpty" x-text="i18n.split.empty"></div>
       </div>
       <div class="split-composer">
         <textarea :value="splitInput" @keydown.enter.prevent="sendSplit"
                   @input="onSplitInput"
-                  placeholder="在该会话中发送任务，Enter 发送"
-                  aria-label="分屏输入"></textarea>
-        <button @click="sendSplit" :disabled="splitSendDisabled">发送</button>
+                  :placeholder="i18n.composer.splitPlaceholder"
+                  :aria-label="i18n.composer.splitPlaceholder"></textarea>
+        <button @click="sendSplit" :disabled="splitSendDisabled" x-text="i18n.split.send"></button>
       </div>
     </section>
   </main>
@@ -1022,85 +1014,90 @@
      role="dialog" aria-modal="true" aria-labelledby="settings-title">
   <div class="modal-box settings-shell">
     <div class="settings-head">
-      <h3 id="settings-title">设置</h3>
-      <button class="icon-btn" @click="toggleSettings" aria-label="关闭设置">×</button>
+      <h3 id="settings-title" x-text="i18n.settings.title"></h3>
+      <button class="icon-btn" @click="toggleSettings" :aria-label="i18n.common.close">×</button>
     </div>
     <div class="settings-search">
-      <input x-model="settingsQuery" placeholder="搜索设置，例如：主题、模型、上传…"
-             aria-label="搜索设置">
+      <input x-model="settingsQuery" :placeholder="i18n.settings.searchPlaceholder"
+             :aria-label="i18n.settings.searchPlaceholder">
       <span class="note" x-show="settingsQuery" x-text="settingsSearchLabel"></span>
     </div>
     <div class="settings-body">
-      <nav class="settings-nav" role="tablist" aria-label="设置分类">
+      <nav class="settings-nav" role="tablist" :aria-label="i18n.settings.title">
         <button role="tab" :aria-selected="settingsTabFlags.appearance"
-                :class="settingsTabClasses.appearance" data-action="settings-tab" data-tab="appearance" @click="onAction">外观</button>
+                :class="settingsTabClasses.appearance" data-action="settings-tab" data-tab="appearance" @click="onAction" x-text="i18n.settings.appearance"></button>
         <button role="tab" :aria-selected="settingsTabFlags.models"
-                :class="settingsTabClasses.models" data-action="settings-tab" data-tab="models" @click="onAction">模型</button>
+                :class="settingsTabClasses.models" data-action="settings-tab" data-tab="models" @click="onAction" x-text="i18n.settings.models"></button>
         <button role="tab" :aria-selected="settingsTabFlags.workspace"
-                :class="settingsTabClasses.workspace" data-action="settings-tab" data-tab="workspace" @click="onAction">工作区</button>
+                :class="settingsTabClasses.workspace" data-action="settings-tab" data-tab="workspace" @click="onAction" x-text="i18n.settings.workspace"></button>
         <button role="tab" :aria-selected="settingsTabFlags.diagnostics"
-                :class="settingsTabClasses.diagnostics" data-action="settings-tab" data-tab="diagnostics" @click="onAction">诊断</button>
+                :class="settingsTabClasses.diagnostics" data-action="settings-tab" data-tab="diagnostics" @click="onAction" x-text="i18n.settings.diagnostics"></button>
         <button role="tab" :aria-selected="settingsTabFlags.advanced"
-                :class="settingsTabClasses.advanced" data-action="settings-tab" data-tab="advanced" @click="onAction">高级</button>
+                :class="settingsTabClasses.advanced" data-action="settings-tab" data-tab="advanced" @click="onAction" x-text="i18n.settings.advanced"></button>
       </nav>
       <div class="settings-content">
-        <div class="empty" x-show="settingsNoResults">没有匹配的设置</div>
+        <div class="empty" x-show="settingsNoResults" x-text="i18n.settings.noResults"></div>
         <section class="settings-view" x-show="settingsViewVisible.appearance">
-          <h4>外观</h4>
-          <label>主题</label>
+          <h4 x-text="i18n.settings.appearance"></h4>
+          <label x-text="i18n.settings.theme"></label>
           <select x-model="theme" @change="saveSettings">
-            <option value="dark">深色</option>
-            <option value="light">浅色</option>
-            <option value="auto">跟随系统</option>
+            <option value="dark" x-text="i18n.settings.themeDark"></option>
+            <option value="light" x-text="i18n.settings.themeLight"></option>
+            <option value="auto" x-text="i18n.settings.themeAuto"></option>
           </select>
-          <label>字体</label>
+          <label x-text="i18n.settings.language"></label>
+          <select :value="locale" @change="changeLocale">
+            <option value="zh-CN" x-text="i18n.settings.languageZh"></option>
+            <option value="en-US" x-text="i18n.settings.languageEn"></option>
+          </select>
+          <label x-text="i18n.settings.fontFamily"></label>
           <select x-model="fontFamily" @change="saveSettings">
-            <option value="system">系统无衬线</option>
-            <option value="serif">衬线</option>
-            <option value="mono">等宽</option>
+            <option value="system" x-text="i18n.settings.fontSystem"></option>
+            <option value="serif" x-text="i18n.settings.fontSerif"></option>
+            <option value="mono" x-text="i18n.settings.fontMono"></option>
           </select>
-          <label>字号</label>
+          <label x-text="i18n.settings.fontSize"></label>
           <select x-model="fontSize" @change="saveSettings">
-            <option value="small">小</option>
-            <option value="normal">中</option>
-            <option value="large">大</option>
+            <option value="small" x-text="i18n.settings.sizeSmall"></option>
+            <option value="normal" x-text="i18n.settings.sizeNormal"></option>
+            <option value="large" x-text="i18n.settings.sizeLarge"></option>
           </select>
-          <label>密度</label>
+          <label x-text="i18n.settings.density"></label>
           <select x-model="density" @change="saveSettings">
-            <option value="compact">紧凑</option>
-            <option value="normal">标准</option>
+            <option value="compact" x-text="i18n.settings.densityCompact"></option>
+            <option value="normal" x-text="i18n.settings.densityNormal"></option>
           </select>
-          <label>对比度</label>
+          <label x-text="i18n.settings.contrast"></label>
           <select x-model="contrast" @change="saveSettings">
-            <option value="normal">标准</option>
-            <option value="high">高对比度</option>
+            <option value="normal" x-text="i18n.settings.contrastNormal"></option>
+            <option value="high" x-text="i18n.settings.contrastHigh"></option>
           </select>
-          <label>强调色</label>
+          <label x-text="i18n.settings.accent"></label>
           <select x-model="accent" @change="saveSettings">
-            <option value="blue">蓝色</option>
-            <option value="violet">紫色</option>
-            <option value="green">绿色</option>
-            <option value="amber">琥珀</option>
-            <option value="rose">玫红</option>
+            <option value="blue" x-text="i18n.settings.accentBlue"></option>
+            <option value="violet" x-text="i18n.settings.accentViolet"></option>
+            <option value="green" x-text="i18n.settings.accentGreen"></option>
+            <option value="amber" x-text="i18n.settings.accentAmber"></option>
+            <option value="rose" x-text="i18n.settings.accentRose"></option>
           </select>
-          <label>代码字号</label>
+          <label x-text="i18n.settings.codeFontSize"></label>
           <select x-model="codeFontSize" @change="saveSettings">
-            <option value="small">小</option>
-            <option value="normal">中</option>
-            <option value="large">大</option>
+            <option value="small" x-text="i18n.settings.sizeSmall"></option>
+            <option value="normal" x-text="i18n.settings.sizeNormal"></option>
+            <option value="large" x-text="i18n.settings.sizeLarge"></option>
           </select>
-          <label>代码行高</label>
+          <label x-text="i18n.settings.codeLineHeight"></label>
           <select x-model="codeLineHeight" @change="saveSettings">
-            <option value="compact">紧凑</option>
-            <option value="normal">标准</option>
-            <option value="relaxed">宽松</option>
+            <option value="compact" x-text="i18n.settings.lhCompact"></option>
+            <option value="normal" x-text="i18n.settings.lhNormal"></option>
+            <option value="relaxed" x-text="i18n.settings.lhRelaxed"></option>
           </select>
           <div class="panel-actions">
-            <button @click="resetLayout">重置侧栏/检查器宽度</button>
+            <button @click="resetLayout" x-text="i18n.settings.resetLayout"></button>
           </div>
           <label>
             <input type="checkbox" :checked="showReasoning" @change="toggleReasoning" style="width:auto">
-            显示模型推理（默认关闭；只影响界面展示）
+            <span x-text="i18n.settings.showReasoning"></span>
           </label>
         </section>
 
@@ -1284,15 +1281,15 @@
 </div>
 
 <div class="notification-panel" x-show="notificationsOpen" x-cloak
-     @click.outside="closeNotifications" role="dialog" aria-label="通知中心">
+     @click.outside="closeNotifications" role="dialog" :aria-label="i18n.notifications.title">
   <div class="notification-head">
-    <h3>通知</h3>
+    <h3 x-text="i18n.notifications.title"></h3>
     <span class="notification-unread" x-show="hasUnreadNotifications"
           x-text="unreadNotificationsText"></span>
-    <button class="icon-btn" @click="markNotificationsRead" title="全部已读" aria-label="全部已读">
+    <button class="icon-btn" @click="markNotificationsRead" :title="i18n.notifications.markAllRead" :aria-label="i18n.notifications.markAllRead">
       <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
     </button>
-    <button class="icon-btn" @click="clearNotifications" title="清空通知" aria-label="清空通知">
+    <button class="icon-btn" @click="clearNotifications" :title="i18n.notifications.clear" :aria-label="i18n.notifications.clear">
       <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
     </button>
   </div>
@@ -1305,7 +1302,7 @@
         <div class="notification-time" x-text="item.time"></div>
       </div>
     </template>
-    <div class="empty" x-show="noNotifications">还没有通知</div>
+    <div class="empty" x-show="noNotifications" x-text="i18n.notifications.empty"></div>
   </div>
 </div>
 

@@ -21,14 +21,14 @@ function clamp(value: number, min: number, max: number) {
 }
 
 const VIEW_TITLES: Record<string, string> = {
-  sessions: '会话',
-  files: '文件改动',
-  tree: '文件树',
-  git: 'Git',
-  tasks: '任务',
-  memory: '记忆',
-  audit: '审计',
-  problems: '问题',
+  sessions: 'nav.sessions',
+  files: 'nav.files',
+  tree: 'nav.tree',
+  git: 'nav.git',
+  tasks: 'nav.tasks',
+  memory: 'nav.memory',
+  audit: 'nav.audit',
+  problems: 'nav.problems',
 };
 
 export const layoutMixin = {
@@ -172,7 +172,7 @@ export const layoutMixin = {
   },
 
   get viewTitle() {
-    return VIEW_TITLES[this.view] || '会话';
+    return this.t(VIEW_TITLES[this.view] || 'nav.sessions');
   },
 
   get currentSessionTitle() {
@@ -180,13 +180,13 @@ export const layoutMixin = {
       (item) => item.thread_id === this.threadId,
     );
     if (current) return current.title || current.thread_id;
-    return this.threadId || '新会话';
+    return this.threadId || this.t('common.newSession');
   },
 
   get modelLabel() {
     if (this.model) return this.model;
     if (this.provider) return this.provider;
-    return '默认模型';
+    return this.t('sidebar.defaultModel');
   },
 
   get connectionClass() {

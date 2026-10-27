@@ -21,7 +21,16 @@ export const settingsMixin = {
       }
       if (saved.workspace) this.workspaceInput = saved.workspace;
       if (saved.notify) this.notifyEnabled = true;
-    } catch (e) { /* ignore */ }
+      this.setLocale(saved.locale || 'zh-CN');
+    } catch (e) {
+      this.setLocale('zh-CN');
+    }
+  },
+
+  changeLocale(event) {
+    const value = event && event.target ? event.target.value : 'zh-CN';
+    this.setLocale(value);
+    this.saveSettings();
   },
 
   saveSettings() {
@@ -37,6 +46,7 @@ export const settingsMixin = {
       showReasoning: this.showReasoning,
       workspace: this.workspaceInput,
       notify: this.notifyEnabled,
+      locale: this.locale,
     }));
     this.applyBodyClasses();
   },

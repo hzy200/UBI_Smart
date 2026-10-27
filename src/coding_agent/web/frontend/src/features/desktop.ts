@@ -72,15 +72,18 @@ export const desktopMixin = {
     this.saveSettings();
   },
 
-  notify(title, body, meta: any = {}) {
-    const kind = title.includes('失败')
-      ? 'error'
-      : title.includes('审批')
-        ? 'warning'
-        : title.includes('完成')
-          ? 'success'
-          : 'info';
-    this.pushNotification(kind, title, body, meta);
+  notify(title, body = '', meta: any = {}, kind = '') {
+    // 标题可能已被本地化，不能再用中文字符串推断类型。
+    const resolvedKind = kind || (
+      title.includes('失败')
+        ? 'error'
+        : title.includes('审批')
+          ? 'warning'
+          : title.includes('完成')
+            ? 'success'
+            : 'info'
+    );
+    this.pushNotification(resolvedKind, title, body, meta);
     const supported = 'Notification' in window;
     if (!shouldSystemNotify({
       enabled: Boolean(this.notifyEnabled),

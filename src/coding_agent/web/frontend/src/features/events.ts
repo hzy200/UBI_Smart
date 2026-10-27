@@ -238,9 +238,10 @@ export const eventsMixin = {
         );
         this.noteSessionActivity();
         this.notify(
-          'CodingAgent 需要审批',
+          this.t('notifications.approval'),
           event.command || event.tool || '',
           { sessionId: this.threadId },
+          'warning',
         );
         break;
       case 'steering_applied':
@@ -291,9 +292,10 @@ export const eventsMixin = {
         this.noteSessionActivity();
         void this.saveTranscript();
         this.notify(
-          'CodingAgent 运行完成',
+          this.t('notifications.runFinished'),
           event.answer || '',
           { sessionId: this.threadId },
+          'success',
         );
         break;
       case 'run_failed':
@@ -309,9 +311,10 @@ export const eventsMixin = {
         this.noteSessionActivity();
         void this.saveTranscript();
         this.notify(
-          'CodingAgent 运行失败',
+          this.t('notifications.runFailed'),
           event.message || '',
           { sessionId: this.threadId },
+          'error',
         );
         break;
       default:

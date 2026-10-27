@@ -5,6 +5,7 @@
  */
 
 import { bootMixin } from './features/boot';
+import { i18nMixin } from './features/i18n';
 import { authMixin } from './features/auth';
 import { settingsMixin } from './features/settings';
 import { workspaceMixin } from './features/workspace';
@@ -230,6 +231,7 @@ const agentApp = () => {
   });
   const mixins = [
     bootMixin,
+    i18nMixin,
     authMixin,
     sessionViewMixin,
     draftsMixin,

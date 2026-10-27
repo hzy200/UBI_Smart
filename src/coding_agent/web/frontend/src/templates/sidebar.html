@@ -1,51 +1,51 @@
-<nav class="activitybar" aria-label="主导航">
+<nav class="activitybar" :aria-label="i18n.sidebar.mainNav">
   <div class="activity-group">
     <button class="activity-item" :class="viewClasses.sessions" data-action="view" data-view="sessions" @click="onAction"
             :aria-pressed="viewFlags.sessions"
-            title="会话" aria-label="会话">
+            :title="i18n.nav.sessions" :aria-label="i18n.nav.sessions">
       <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.files" data-action="view" data-view="files" @click="onAction"
             :aria-pressed="viewFlags.files"
-            title="文件改动" aria-label="文件改动">
+            :title="i18n.nav.files" :aria-label="i18n.nav.files">
       <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
       <span class="activity-dot" x-show="filesDirty" aria-hidden="true"></span>
     </button>
     <button class="activity-item" :class="viewClasses.tree" data-action="view" data-view="tree" @click="onAction"
             :aria-pressed="viewFlags.tree"
-            title="文件树" aria-label="文件树">
+            :title="i18n.nav.tree" :aria-label="i18n.nav.tree">
       <svg class="icon" aria-hidden="true"><use href="#i-tree"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.git" data-action="view" data-view="git" @click="onAction"
             :aria-pressed="viewFlags.git"
-            title="Git" aria-label="Git">
+            :title="i18n.nav.git" :aria-label="i18n.nav.git">
       <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.tasks" data-action="view" data-view="tasks" @click="onAction"
             :aria-pressed="viewFlags.tasks"
-            title="任务" aria-label="任务">
+            :title="i18n.nav.tasks" :aria-label="i18n.nav.tasks">
       <svg class="icon" aria-hidden="true"><use href="#i-tasks"></use></svg>
       <span class="activity-dot" x-show="tasksDirty" aria-hidden="true"></span>
     </button>
     <button class="activity-item" :class="viewClasses.memory" data-action="view" data-view="memory" @click="onAction"
             :aria-pressed="viewFlags.memory"
-            title="记忆" aria-label="记忆">
+            :title="i18n.nav.memory" :aria-label="i18n.nav.memory">
       <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.audit" data-action="view" data-view="audit" @click="onAction"
             :aria-pressed="viewFlags.audit"
-            title="审计" aria-label="审计">
+            :title="i18n.nav.audit" :aria-label="i18n.nav.audit">
       <svg class="icon" aria-hidden="true"><use href="#i-audit"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.problems" data-action="view" data-view="problems" @click="onAction"
             :aria-pressed="viewFlags.problems"
-            title="问题" aria-label="问题">
+            :title="i18n.nav.problems" :aria-label="i18n.nav.problems">
       <svg class="icon" aria-hidden="true"><use href="#i-alert"></use></svg>
       <span class="activity-badge" x-show="hasProblems" x-text="problems.length"></span>
     </button>
   </div>
   <span class="spacer"></span>
-  <button class="activity-item" @click="toggleSettings" title="设置" aria-label="设置">
+  <button class="activity-item" @click="toggleSettings" :title="i18n.nav.settings" :aria-label="i18n.nav.settings">
     <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
   </button>
 </nav>
@@ -55,10 +55,10 @@
     <h3 x-text="viewTitle">会话</h3>
     <div class="row">
       <button class="icon-btn" x-show="viewFlags.sessions" @click="newSession"
-              title="新会话" aria-label="新会话">
+              :title="i18n.sidebar.newSession" :aria-label="i18n.sidebar.newSession">
         <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
       </button>
-      <button class="icon-btn" @click="toggleSidebar" title="收起侧栏" aria-label="收起侧栏">
+      <button class="icon-btn" @click="toggleSidebar" :title="i18n.sidebar.collapse" :aria-label="i18n.sidebar.collapse">
         <svg class="icon" aria-hidden="true"><use href="#i-panel-left"></use></svg>
       </button>
     </div>
@@ -68,59 +68,55 @@
     <div class="view" x-show="viewFlags.sessions">
       <div class="session-form">
         <div x-show="capabilities.workspace_registry">
-          <label>项目</label>
+          <label x-text="i18n.sidebar.project"></label>
           <div class="row">
             <select x-model="projectId" @change="selectCurrentProject"
-                    aria-label="选择项目">
-              <option value="">选择项目…</option>
+                    :aria-label="i18n.sidebar.chooseProject">
+              <option value="" x-text="i18n.sidebar.chooseProject"></option>
               <template x-for="p in projects" :key="p.workspace_id">
                 <option :value="p.workspace_id" x-text="p._label"></option>
               </template>
             </select>
             <button @click="registerHostWorkspace" :disabled="projectBusy"
-                    title="选择一个本机文件夹作为工作区">+ 本机</button>
+                    :title="i18n.sidebar.localHint" x-text="i18n.sidebar.local"></button>
           </div>
-          <div class="note" x-show="noProjects">
-            还没有项目；在设置里导入文件夹或上传归档。
-          </div>
-          <div class="note">
-            切换项目后，发送时会自动新建会话（已有会话的工作区不可改绑）。
-          </div>
+          <div class="note" x-show="noProjects" x-text="i18n.sidebar.noProjects"></div>
+          <div class="note" x-text="i18n.sidebar.switchProjectNote"></div>
           <div class="note note-ok" x-show="threadId">
-            当前会话绑定：<span x-text="workspaceDisplay"></span>（不可更改）
+            <span x-text="i18n.sidebar.boundLabel"></span><span x-text="workspaceDisplay"></span><span x-text="i18n.sidebar.immutable"></span>
           </div>
           <input x-model="workspaceInput" readonly
                  :placeholder="workspaceInputPlaceholder">
         </div>
         <div x-show="noWorkspaceRegistry">
-          <label>工作区</label>
+          <label x-text="i18n.sidebar.workspace"></label>
           <div class="row">
-            <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
-            <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace">选择…</button>
+            <input x-model="workspaceInput" :placeholder="i18n.sidebar.workspacePlaceholder">
+            <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace" x-text="i18n.sidebar.choose"></button>
           </div>
         </div>
-        <label>文件权限</label>
+        <label x-text="i18n.sidebar.access"></label>
         <select x-model="accessMode" :disabled="accessDisabled">
-          <option value="read_only">只读（不可运行）</option>
-          <option value="write_ask" x-show="capabilities.server_write_enabled">审批写</option>
-          <option value="write_auto" x-show="capabilities.server_write_enabled">自动写</option>
+          <option value="read_only" x-text="i18n.sidebar.readOnly"></option>
+          <option value="write_ask" x-show="capabilities.server_write_enabled" x-text="i18n.sidebar.writeAsk"></option>
+          <option value="write_auto" x-show="capabilities.server_write_enabled" x-text="i18n.sidebar.writeAuto"></option>
         </select>
-        <label>模型</label>
+        <label x-text="i18n.sidebar.model"></label>
         <select x-model="model" @change="syncModel">
-          <option value="">默认模型</option>
+          <option value="" x-text="i18n.sidebar.defaultModel"></option>
           <template x-for="p in providers" :key="p._key">
             <option :value="p.model" x-text="p._label"></option>
           </template>
         </select>
-        <button @click="switchModel" :disabled="applyModelDisabled">应用到当前会话</button>
-        <button class="primary" @click="createSession" :disabled="createSessionDisabled">创建会话</button>
+        <button @click="switchModel" :disabled="applyModelDisabled" x-text="i18n.sidebar.applyModel"></button>
+        <button class="primary" @click="createSession" :disabled="createSessionDisabled" x-text="i18n.sidebar.createSession"></button>
       </div>
       <input class="session-search" x-model="sessionQuery" @input="onSessionSearchInput"
-             placeholder="搜索会话或标签…">
+             :placeholder="i18n.sidebar.searchSessions">
       <div class="session-filters">
-        <button :class="sessionFilterClasses.all" data-action="session-filter" data-filter="all" @click="onAction">全部</button>
-        <button :class="sessionFilterClasses.pinned" data-action="session-filter" data-filter="pinned" @click="onAction">置顶</button>
-        <button :class="sessionFilterClasses.archived" data-action="session-filter" data-filter="archived" @click="onAction">归档</button>
+        <button :class="sessionFilterClasses.all" data-action="session-filter" data-filter="all" @click="onAction" x-text="i18n.sidebar.all"></button>
+        <button :class="sessionFilterClasses.pinned" data-action="session-filter" data-filter="pinned" @click="onAction" x-text="i18n.sidebar.pinned"></button>
+        <button :class="sessionFilterClasses.archived" data-action="session-filter" data-filter="archived" @click="onAction" x-text="i18n.sidebar.archived"></button>
       </div>
       <div class="skeleton-list" x-show="sessionsSkeletonVisible" aria-hidden="true">
         <div class="skeleton skeleton-row"></div>

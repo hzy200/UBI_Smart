@@ -77,85 +77,90 @@
      role="dialog" aria-modal="true" aria-labelledby="settings-title">
   <div class="modal-box settings-shell">
     <div class="settings-head">
-      <h3 id="settings-title">设置</h3>
-      <button class="icon-btn" @click="toggleSettings" aria-label="关闭设置">×</button>
+      <h3 id="settings-title" x-text="i18n.settings.title"></h3>
+      <button class="icon-btn" @click="toggleSettings" :aria-label="i18n.common.close">×</button>
     </div>
     <div class="settings-search">
-      <input x-model="settingsQuery" placeholder="搜索设置，例如：主题、模型、上传…"
-             aria-label="搜索设置">
+      <input x-model="settingsQuery" :placeholder="i18n.settings.searchPlaceholder"
+             :aria-label="i18n.settings.searchPlaceholder">
       <span class="note" x-show="settingsQuery" x-text="settingsSearchLabel"></span>
     </div>
     <div class="settings-body">
-      <nav class="settings-nav" role="tablist" aria-label="设置分类">
+      <nav class="settings-nav" role="tablist" :aria-label="i18n.settings.title">
         <button role="tab" :aria-selected="settingsTabFlags.appearance"
-                :class="settingsTabClasses.appearance" data-action="settings-tab" data-tab="appearance" @click="onAction">外观</button>
+                :class="settingsTabClasses.appearance" data-action="settings-tab" data-tab="appearance" @click="onAction" x-text="i18n.settings.appearance"></button>
         <button role="tab" :aria-selected="settingsTabFlags.models"
-                :class="settingsTabClasses.models" data-action="settings-tab" data-tab="models" @click="onAction">模型</button>
+                :class="settingsTabClasses.models" data-action="settings-tab" data-tab="models" @click="onAction" x-text="i18n.settings.models"></button>
         <button role="tab" :aria-selected="settingsTabFlags.workspace"
-                :class="settingsTabClasses.workspace" data-action="settings-tab" data-tab="workspace" @click="onAction">工作区</button>
+                :class="settingsTabClasses.workspace" data-action="settings-tab" data-tab="workspace" @click="onAction" x-text="i18n.settings.workspace"></button>
         <button role="tab" :aria-selected="settingsTabFlags.diagnostics"
-                :class="settingsTabClasses.diagnostics" data-action="settings-tab" data-tab="diagnostics" @click="onAction">诊断</button>
+                :class="settingsTabClasses.diagnostics" data-action="settings-tab" data-tab="diagnostics" @click="onAction" x-text="i18n.settings.diagnostics"></button>
         <button role="tab" :aria-selected="settingsTabFlags.advanced"
-                :class="settingsTabClasses.advanced" data-action="settings-tab" data-tab="advanced" @click="onAction">高级</button>
+                :class="settingsTabClasses.advanced" data-action="settings-tab" data-tab="advanced" @click="onAction" x-text="i18n.settings.advanced"></button>
       </nav>
       <div class="settings-content">
-        <div class="empty" x-show="settingsNoResults">没有匹配的设置</div>
+        <div class="empty" x-show="settingsNoResults" x-text="i18n.settings.noResults"></div>
         <section class="settings-view" x-show="settingsViewVisible.appearance">
-          <h4>外观</h4>
-          <label>主题</label>
+          <h4 x-text="i18n.settings.appearance"></h4>
+          <label x-text="i18n.settings.theme"></label>
           <select x-model="theme" @change="saveSettings">
-            <option value="dark">深色</option>
-            <option value="light">浅色</option>
-            <option value="auto">跟随系统</option>
+            <option value="dark" x-text="i18n.settings.themeDark"></option>
+            <option value="light" x-text="i18n.settings.themeLight"></option>
+            <option value="auto" x-text="i18n.settings.themeAuto"></option>
           </select>
-          <label>字体</label>
+          <label x-text="i18n.settings.language"></label>
+          <select :value="locale" @change="changeLocale">
+            <option value="zh-CN" x-text="i18n.settings.languageZh"></option>
+            <option value="en-US" x-text="i18n.settings.languageEn"></option>
+          </select>
+          <label x-text="i18n.settings.fontFamily"></label>
           <select x-model="fontFamily" @change="saveSettings">
-            <option value="system">系统无衬线</option>
-            <option value="serif">衬线</option>
-            <option value="mono">等宽</option>
+            <option value="system" x-text="i18n.settings.fontSystem"></option>
+            <option value="serif" x-text="i18n.settings.fontSerif"></option>
+            <option value="mono" x-text="i18n.settings.fontMono"></option>
           </select>
-          <label>字号</label>
+          <label x-text="i18n.settings.fontSize"></label>
           <select x-model="fontSize" @change="saveSettings">
-            <option value="small">小</option>
-            <option value="normal">中</option>
-            <option value="large">大</option>
+            <option value="small" x-text="i18n.settings.sizeSmall"></option>
+            <option value="normal" x-text="i18n.settings.sizeNormal"></option>
+            <option value="large" x-text="i18n.settings.sizeLarge"></option>
           </select>
-          <label>密度</label>
+          <label x-text="i18n.settings.density"></label>
           <select x-model="density" @change="saveSettings">
-            <option value="compact">紧凑</option>
-            <option value="normal">标准</option>
+            <option value="compact" x-text="i18n.settings.densityCompact"></option>
+            <option value="normal" x-text="i18n.settings.densityNormal"></option>
           </select>
-          <label>对比度</label>
+          <label x-text="i18n.settings.contrast"></label>
           <select x-model="contrast" @change="saveSettings">
-            <option value="normal">标准</option>
-            <option value="high">高对比度</option>
+            <option value="normal" x-text="i18n.settings.contrastNormal"></option>
+            <option value="high" x-text="i18n.settings.contrastHigh"></option>
           </select>
-          <label>强调色</label>
+          <label x-text="i18n.settings.accent"></label>
           <select x-model="accent" @change="saveSettings">
-            <option value="blue">蓝色</option>
-            <option value="violet">紫色</option>
-            <option value="green">绿色</option>
-            <option value="amber">琥珀</option>
-            <option value="rose">玫红</option>
+            <option value="blue" x-text="i18n.settings.accentBlue"></option>
+            <option value="violet" x-text="i18n.settings.accentViolet"></option>
+            <option value="green" x-text="i18n.settings.accentGreen"></option>
+            <option value="amber" x-text="i18n.settings.accentAmber"></option>
+            <option value="rose" x-text="i18n.settings.accentRose"></option>
           </select>
-          <label>代码字号</label>
+          <label x-text="i18n.settings.codeFontSize"></label>
           <select x-model="codeFontSize" @change="saveSettings">
-            <option value="small">小</option>
-            <option value="normal">中</option>
-            <option value="large">大</option>
+            <option value="small" x-text="i18n.settings.sizeSmall"></option>
+            <option value="normal" x-text="i18n.settings.sizeNormal"></option>
+            <option value="large" x-text="i18n.settings.sizeLarge"></option>
           </select>
-          <label>代码行高</label>
+          <label x-text="i18n.settings.codeLineHeight"></label>
           <select x-model="codeLineHeight" @change="saveSettings">
-            <option value="compact">紧凑</option>
-            <option value="normal">标准</option>
-            <option value="relaxed">宽松</option>
+            <option value="compact" x-text="i18n.settings.lhCompact"></option>
+            <option value="normal" x-text="i18n.settings.lhNormal"></option>
+            <option value="relaxed" x-text="i18n.settings.lhRelaxed"></option>
           </select>
           <div class="panel-actions">
-            <button @click="resetLayout">重置侧栏/检查器宽度</button>
+            <button @click="resetLayout" x-text="i18n.settings.resetLayout"></button>
           </div>
           <label>
             <input type="checkbox" :checked="showReasoning" @change="toggleReasoning" style="width:auto">
-            显示模型推理（默认关闭；只影响界面展示）
+            <span x-text="i18n.settings.showReasoning"></span>
           </label>
         </section>
 

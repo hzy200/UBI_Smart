@@ -431,7 +431,7 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
 
     await t.test('设置搜索按关键词过滤分节', async () => {
       const opener = document.querySelector(
-        'header .icon-btn[aria-label="打开设置"]',
+        'header .icon-btn[aria-label="设置"]',
       ) as HTMLElement;
       opener.focus();
       opener.click();
@@ -488,7 +488,7 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
 
     await t.test('设置模态焦点进入、Tab 循环、Esc 关闭并恢复', async () => {
       const opener = document.querySelector(
-        'header .icon-btn[aria-label="打开设置"]',
+        'header .icon-btn[aria-label="设置"]',
       ) as HTMLElement;
       assert.ok(opener);
       opener.focus();
@@ -934,6 +934,35 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       } else {
         delete (document as any).visibilityState;
       }
+    });
+
+    await t.test('语言切换更新壳层文案并持久化', async () => {
+      data.setView('sessions');
+      data.changeLocale({ target: { value: 'en-US' } });
+      await waitFor(
+        () => document.querySelector('header button[aria-label="Settings"]') !== null,
+        '英文壳层',
+      );
+      assert.equal(document.documentElement.lang, 'en-US');
+      assert.equal(
+        document.querySelector('.sidebar-head h3')?.textContent?.trim(),
+        'Sessions',
+      );
+      assert.equal(
+        document.querySelector('#settings-title')?.textContent?.trim(),
+        'Settings',
+      );
+      const saved = JSON.parse(
+        window.localStorage.getItem('codingagent.settings') || '{}',
+      );
+      assert.equal(saved.locale, 'en-US');
+
+      data.changeLocale({ target: { value: 'zh-CN' } });
+      await waitFor(
+        () => document.querySelector('header button[aria-label="设置"]') !== null,
+        '中文壳层',
+      );
+      assert.equal(document.documentElement.lang, 'zh-CN');
     });
 
     await t.test('没有 Alpine CSP 表达式错误', () => {

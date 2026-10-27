@@ -727,6 +727,363 @@
     }
   };
 
+  // src/i18n/zh-CN.ts
+  var zhCN = {
+    common: {
+      retry: "\u91CD\u8BD5",
+      close: "\u5173\u95ED",
+      unknown: "\u672A\u77E5",
+      newSession: "\u65B0\u4F1A\u8BDD"
+    },
+    header: {
+      toggleSidebar: "\u5207\u6362\u4FA7\u680F",
+      toggleSidebarHint: "\u5207\u6362\u4FA7\u680F\uFF08Ctrl+B\uFF09",
+      command: "\u641C\u7D22\u6216\u8FD0\u884C\u547D\u4EE4",
+      toggleInspector: "\u5207\u6362\u68C0\u67E5\u5668",
+      toggleInspectorHint: "\u5207\u6362\u68C0\u67E5\u5668\uFF08Ctrl+J\uFF09",
+      notifications: "\u901A\u77E5\u4E2D\u5FC3",
+      recovery: "\u6062\u590D\u4E2D\u5FC3",
+      shortcuts: "\u5FEB\u6377\u952E",
+      settings: "\u8BBE\u7F6E"
+    },
+    nav: {
+      sessions: "\u4F1A\u8BDD",
+      files: "\u6587\u4EF6\u6539\u52A8",
+      tree: "\u6587\u4EF6\u6811",
+      git: "Git",
+      tasks: "\u4EFB\u52A1",
+      memory: "\u8BB0\u5FC6",
+      audit: "\u5BA1\u8BA1",
+      problems: "\u95EE\u9898",
+      settings: "\u8BBE\u7F6E"
+    },
+    sidebar: {
+      mainNav: "\u4E3B\u5BFC\u822A",
+      newSession: "\u65B0\u4F1A\u8BDD",
+      collapse: "\u6536\u8D77\u4FA7\u680F",
+      project: "\u9879\u76EE",
+      chooseProject: "\u9009\u62E9\u9879\u76EE\u2026",
+      local: "+ \u672C\u673A",
+      localHint: "\u9009\u62E9\u4E00\u4E2A\u672C\u673A\u6587\u4EF6\u5939\u4F5C\u4E3A\u5DE5\u4F5C\u533A",
+      noProjects: "\u8FD8\u6CA1\u6709\u9879\u76EE\uFF1B\u5728\u8BBE\u7F6E\u91CC\u5BFC\u5165\u6587\u4EF6\u5939\u6216\u4E0A\u4F20\u5F52\u6863\u3002",
+      switchProjectNote: "\u5207\u6362\u9879\u76EE\u540E\uFF0C\u53D1\u9001\u65F6\u4F1A\u81EA\u52A8\u65B0\u5EFA\u4F1A\u8BDD\uFF08\u5DF2\u6709\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u533A\u4E0D\u53EF\u6539\u7ED1\uFF09\u3002",
+      boundLabel: "\u5F53\u524D\u4F1A\u8BDD\u7ED1\u5B9A\uFF1A",
+      immutable: "\uFF08\u4E0D\u53EF\u66F4\u6539\uFF09",
+      workspace: "\u5DE5\u4F5C\u533A",
+      workspacePlaceholder: "D:\\proj \u6216 wsl:/home/u/proj",
+      choose: "\u9009\u62E9\u2026",
+      hostWorkspace: "\u672C\u673A\u9879\u76EE\u7531\u5BA2\u6237\u7AEF\u9009\u62E9\u5E76\u767B\u8BB0",
+      projectWorkspace: "\u9009\u62E9\u9879\u76EE\u540E\u81EA\u52A8\u586B\u5165\u5DE5\u4F5C\u533A",
+      access: "\u6587\u4EF6\u6743\u9650",
+      readOnly: "\u53EA\u8BFB\uFF08\u4E0D\u53EF\u8FD0\u884C\uFF09",
+      writeAsk: "\u5BA1\u6279\u5199",
+      writeAuto: "\u81EA\u52A8\u5199",
+      model: "\u6A21\u578B",
+      defaultModel: "\u9ED8\u8BA4\u6A21\u578B",
+      applyModel: "\u5E94\u7528\u5230\u5F53\u524D\u4F1A\u8BDD",
+      createSession: "\u521B\u5EFA\u4F1A\u8BDD",
+      searchSessions: "\u641C\u7D22\u4F1A\u8BDD\u6216\u6807\u7B7E\u2026",
+      all: "\u5168\u90E8",
+      pinned: "\u7F6E\u9876",
+      archived: "\u5F52\u6863",
+      selected: "{count} \u6761\u5DF2\u9009"
+    },
+    composer: {
+      placeholder: "\u8F93\u5165\u4EFB\u52A1\uFF0CEnter \u53D1\u9001\uFF0CShift+Enter \u6362\u884C",
+      send: "\u53D1\u9001",
+      pause: "\u6682\u505C",
+      cancel: "\u53D6\u6D88",
+      resume: "\u7EE7\u7EED",
+      reconnect: "\u91CD\u8FDE\u4E8B\u4EF6\u6D41",
+      retry: "\u91CD\u8BD5\u4E0A\u4E00\u6761",
+      append: "\u8FFD\u52A0\u4EFB\u52A1",
+      replan: "\u91CD\u89C4\u5212",
+      upload: "\u4E0A\u4F20\u6587\u4EF6",
+      splitPlaceholder: "\u5728\u8BE5\u4F1A\u8BDD\u4E2D\u53D1\u9001\u4EFB\u52A1\uFF0CEnter \u53D1\u9001",
+      messageSearch: "\u641C\u7D22\u5BF9\u8BDD\u2026"
+    },
+    main: {
+      mainTabs: "\u4E3B\u533A\u6807\u7B7E",
+      chat: "\u5BF9\u8BDD",
+      searchPlaceholder: "\u641C\u7D22\u5BF9\u8BDD\u2026",
+      searchHint: "\u641C\u7D22\u5BF9\u8BDD\uFF08Ctrl+Shift+F\uFF09",
+      commandPanel: "\u547D\u4EE4\u9762\u677F",
+      emptyHint: "\u8F93\u5165\u4EFB\u52A1\u5F00\u59CB\u3002\u9ED8\u8BA4\u53EA\u8BFB\uFF1AAgent \u53EA\u80FD\u8BFB\u53D6\u6587\u4EF6\uFF0C\u4E0D\u80FD\u8FD0\u884C\u547D\u4EE4\u6216\u6D4B\u8BD5\u3002",
+      jumpLatest: "\u8DF3\u5230\u6700\u65B0 \u2193",
+      taskInput: "\u4EFB\u52A1\u8F93\u5165",
+      consentTitle: "\u672C\u673A\u6587\u4EF6\u8BBF\u95EE\u6388\u6743",
+      consentAction: "\u64CD\u4F5C",
+      consentReason: "\u539F\u56E0",
+      consentDeny: "\u62D2\u7EDD",
+      consentAllow: "\u5141\u8BB8\u672C\u6B21",
+      fileChanged: "\u6587\u4EF6\u5DF2\u53D8\u5316",
+      expandAll: "\u5C55\u5F00\u5168\u90E8",
+      copy: "\u590D\u5236"
+    },
+    split: {
+      close: "\u5173\u95ED\u5206\u5C4F",
+      refresh: "\u91CD\u8FDE/\u5237\u65B0",
+      openInMain: "\u5728\u4E3B\u533A\u6253\u5F00",
+      hasApprovals: "\u8BE5\u4F1A\u8BDD\u6709\u5F85\u5BA1\u6279\uFF0C\u8BF7\u5207\u5230\u4E3B\u533A\u5904\u7406\u3002",
+      switchToMain: "\u5207\u5230\u4E3B\u533A",
+      empty: "\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u6D88\u606F",
+      send: "\u53D1\u9001"
+    },
+    settings: {
+      title: "\u8BBE\u7F6E",
+      searchPlaceholder: "\u641C\u7D22\u8BBE\u7F6E\uFF0C\u4F8B\u5982\uFF1A\u4E3B\u9898\u3001\u6A21\u578B\u3001\u4E0A\u4F20\u2026",
+      appearance: "\u5916\u89C2",
+      models: "\u6A21\u578B",
+      workspace: "\u5DE5\u4F5C\u533A",
+      diagnostics: "\u8BCA\u65AD",
+      advanced: "\u9AD8\u7EA7",
+      theme: "\u4E3B\u9898",
+      themeDark: "\u6DF1\u8272",
+      themeLight: "\u6D45\u8272",
+      themeAuto: "\u8DDF\u968F\u7CFB\u7EDF",
+      language: "\u8BED\u8A00",
+      languageZh: "\u7B80\u4F53\u4E2D\u6587",
+      languageEn: "English",
+      fontFamily: "\u5B57\u4F53",
+      fontSystem: "\u7CFB\u7EDF\u65E0\u886C\u7EBF",
+      fontSerif: "\u886C\u7EBF",
+      fontMono: "\u7B49\u5BBD",
+      fontSize: "\u5B57\u53F7",
+      sizeSmall: "\u5C0F",
+      sizeNormal: "\u4E2D",
+      sizeLarge: "\u5927",
+      density: "\u5BC6\u5EA6",
+      densityCompact: "\u7D27\u51D1",
+      densityNormal: "\u6807\u51C6",
+      contrast: "\u5BF9\u6BD4\u5EA6",
+      contrastNormal: "\u6807\u51C6",
+      contrastHigh: "\u9AD8\u5BF9\u6BD4\u5EA6",
+      accent: "\u5F3A\u8C03\u8272",
+      accentBlue: "\u84DD\u8272",
+      accentViolet: "\u7D2B\u8272",
+      accentGreen: "\u7EFF\u8272",
+      accentAmber: "\u7425\u73C0",
+      accentRose: "\u73AB\u7EA2",
+      codeFontSize: "\u4EE3\u7801\u5B57\u53F7",
+      codeLineHeight: "\u4EE3\u7801\u884C\u9AD8",
+      lhCompact: "\u7D27\u51D1",
+      lhNormal: "\u6807\u51C6",
+      lhRelaxed: "\u5BBD\u677E",
+      resetLayout: "\u91CD\u7F6E\u4FA7\u680F/\u68C0\u67E5\u5668\u5BBD\u5EA6",
+      showReasoning: "\u663E\u793A\u6A21\u578B\u63A8\u7406\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF1B\u53EA\u5F71\u54CD\u754C\u9762\u5C55\u793A\uFF09",
+      matches: "\u627E\u5230 {count} \u4E2A\u5206\u7C7B",
+      noResults: "\u6CA1\u6709\u5339\u914D\u7684\u8BBE\u7F6E"
+    },
+    notifications: {
+      title: "\u901A\u77E5",
+      markAllRead: "\u5168\u90E8\u5DF2\u8BFB",
+      clear: "\u6E05\u7A7A\u901A\u77E5",
+      empty: "\u8FD8\u6CA1\u6709\u901A\u77E5",
+      unread: "{count} \u6761\u672A\u8BFB",
+      runFinished: "CodingAgent \u8FD0\u884C\u5B8C\u6210",
+      runFailed: "CodingAgent \u8FD0\u884C\u5931\u8D25",
+      approval: "CodingAgent \u9700\u8981\u5BA1\u6279"
+    }
+  };
+
+  // src/i18n/en-US.ts
+  var enUS = {
+    common: {
+      retry: "Retry",
+      close: "Close",
+      unknown: "Unknown",
+      newSession: "New session"
+    },
+    header: {
+      toggleSidebar: "Toggle sidebar",
+      toggleSidebarHint: "Toggle sidebar (Ctrl+B)",
+      command: "Search or run a command",
+      toggleInspector: "Toggle inspector",
+      toggleInspectorHint: "Toggle inspector (Ctrl+J)",
+      notifications: "Notification center",
+      recovery: "Recovery center",
+      shortcuts: "Keyboard shortcuts",
+      settings: "Settings"
+    },
+    nav: {
+      sessions: "Sessions",
+      files: "File changes",
+      tree: "File tree",
+      git: "Git",
+      tasks: "Tasks",
+      memory: "Memory",
+      audit: "Audit",
+      problems: "Problems",
+      settings: "Settings"
+    },
+    sidebar: {
+      mainNav: "Main navigation",
+      newSession: "New session",
+      collapse: "Collapse sidebar",
+      project: "Project",
+      chooseProject: "Choose a project\u2026",
+      local: "+ Local",
+      localHint: "Choose a local folder as the workspace",
+      noProjects: "No projects yet. Import a folder or upload an archive in Settings.",
+      switchProjectNote: "Sending after switching projects creates a new session; an existing session cannot be rebound.",
+      boundLabel: "Bound to: ",
+      immutable: " (cannot be changed)",
+      workspace: "Workspace",
+      workspacePlaceholder: "D:\\proj or wsl:/home/u/proj",
+      choose: "Choose\u2026",
+      hostWorkspace: "The desktop client selects and registers local projects",
+      projectWorkspace: "Filled automatically after choosing a project",
+      access: "File access",
+      readOnly: "Read-only (cannot run)",
+      writeAsk: "Write with approval",
+      writeAuto: "Write automatically",
+      model: "Model",
+      defaultModel: "Default model",
+      applyModel: "Apply to current session",
+      createSession: "Create session",
+      searchSessions: "Search sessions or tags\u2026",
+      all: "All",
+      pinned: "Pinned",
+      archived: "Archived",
+      selected: "{count} selected"
+    },
+    composer: {
+      placeholder: "Enter a task. Enter to send, Shift+Enter for a new line",
+      send: "Send",
+      pause: "Pause",
+      cancel: "Cancel",
+      resume: "Resume",
+      reconnect: "Reconnect stream",
+      retry: "Retry last",
+      append: "Append task",
+      replan: "Replan",
+      upload: "Upload files",
+      splitPlaceholder: "Send a task in this session. Enter to send",
+      messageSearch: "Search conversation\u2026"
+    },
+    main: {
+      mainTabs: "Main tabs",
+      chat: "Chat",
+      searchPlaceholder: "Search conversation\u2026",
+      searchHint: "Search conversation (Ctrl+Shift+F)",
+      commandPanel: "Command palette",
+      emptyHint: "Enter a task to start. Read-only by default: the agent can read files but cannot run commands or tests.",
+      jumpLatest: "Jump to latest \u2193",
+      taskInput: "Task input",
+      consentTitle: "Local file access approval",
+      consentAction: "Action",
+      consentReason: "Reason",
+      consentDeny: "Deny",
+      consentAllow: "Allow once",
+      fileChanged: "File changed",
+      expandAll: "Expand all",
+      copy: "Copy"
+    },
+    split: {
+      close: "Close split pane",
+      refresh: "Reconnect / refresh",
+      openInMain: "Open in main pane",
+      hasApprovals: "This session has pending approvals. Switch to the main pane to handle them.",
+      switchToMain: "Switch to main",
+      empty: "This session has no messages yet",
+      send: "Send"
+    },
+    settings: {
+      title: "Settings",
+      searchPlaceholder: "Search settings, e.g. theme, model, upload\u2026",
+      appearance: "Appearance",
+      models: "Models",
+      workspace: "Workspace",
+      diagnostics: "Diagnostics",
+      advanced: "Advanced",
+      theme: "Theme",
+      themeDark: "Dark",
+      themeLight: "Light",
+      themeAuto: "Follow system",
+      language: "Language",
+      languageZh: "\u7B80\u4F53\u4E2D\u6587",
+      languageEn: "English",
+      fontFamily: "Font family",
+      fontSystem: "System sans-serif",
+      fontSerif: "Serif",
+      fontMono: "Monospace",
+      fontSize: "Font size",
+      sizeSmall: "Small",
+      sizeNormal: "Medium",
+      sizeLarge: "Large",
+      density: "Density",
+      densityCompact: "Compact",
+      densityNormal: "Normal",
+      contrast: "Contrast",
+      contrastNormal: "Normal",
+      contrastHigh: "High contrast",
+      accent: "Accent color",
+      accentBlue: "Blue",
+      accentViolet: "Violet",
+      accentGreen: "Green",
+      accentAmber: "Amber",
+      accentRose: "Rose",
+      codeFontSize: "Code font size",
+      codeLineHeight: "Code line height",
+      lhCompact: "Compact",
+      lhNormal: "Normal",
+      lhRelaxed: "Relaxed",
+      resetLayout: "Reset sidebar/inspector widths",
+      showReasoning: "Show model reasoning (off by default; display only)",
+      matches: "{count} matching sections",
+      noResults: "No matching settings"
+    },
+    notifications: {
+      title: "Notifications",
+      markAllRead: "Mark all as read",
+      clear: "Clear notifications",
+      empty: "No notifications yet",
+      unread: "{count} unread",
+      runFinished: "CodingAgent run finished",
+      runFailed: "CodingAgent run failed",
+      approval: "CodingAgent needs approval"
+    }
+  };
+
+  // src/i18n/index.ts
+  var DEFAULT_LOCALE = "zh-CN";
+  var MESSAGES = {
+    "zh-CN": zhCN,
+    "en-US": enUS
+  };
+  function normalizeLocale(value) {
+    return String(value || "") === "en-US" ? "en-US" : DEFAULT_LOCALE;
+  }
+  function lookup(messages, key) {
+    let node = messages;
+    for (const part of String(key || "").split(".")) {
+      if (!part || !node || typeof node !== "object") return "";
+      node = node[part];
+    }
+    return typeof node === "string" ? node : "";
+  }
+  function translate(locale, key, params = {}) {
+    const value = lookup(MESSAGES[locale], key) || lookup(MESSAGES[DEFAULT_LOCALE], key) || key;
+    return value.replace(/\{(\w+)\}/g, (match, name) => Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match);
+  }
+
+  // src/features/i18n.ts
+  var i18nMixin = {
+    locale: DEFAULT_LOCALE,
+    i18n: MESSAGES[DEFAULT_LOCALE],
+    t(key, params = {}) {
+      return translate(this.locale, key, params);
+    },
+    setLocale(value) {
+      const locale = normalizeLocale(value);
+      this.locale = locale;
+      this.i18n = MESSAGES[locale];
+      if (typeof document !== "undefined" && document.documentElement) {
+        document.documentElement.lang = locale;
+      }
+    }
+  };
+
   // src/state/history-cache.ts
   var DB_NAME = "codingagent-cache";
   var DB_VERSION = 1;
@@ -1024,8 +1381,15 @@
         }
         if (saved.workspace) this.workspaceInput = saved.workspace;
         if (saved.notify) this.notifyEnabled = true;
+        this.setLocale(saved.locale || "zh-CN");
       } catch (e) {
+        this.setLocale("zh-CN");
       }
+    },
+    changeLocale(event) {
+      const value = event && event.target ? event.target.value : "zh-CN";
+      this.setLocale(value);
+      this.saveSettings();
     },
     saveSettings() {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify({
@@ -1039,7 +1403,8 @@
         codeLineHeight: this.codeLineHeight,
         showReasoning: this.showReasoning,
         workspace: this.workspaceInput,
-        notify: this.notifyEnabled
+        notify: this.notifyEnabled,
+        locale: this.locale
       }));
       this.applyBodyClasses();
     },
@@ -4019,9 +4384,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           );
           this.noteSessionActivity();
           this.notify(
-            "CodingAgent \u9700\u8981\u5BA1\u6279",
+            this.t("notifications.approval"),
             event.command || event.tool || "",
-            { sessionId: this.threadId }
+            { sessionId: this.threadId },
+            "warning"
           );
           break;
         case "steering_applied":
@@ -4066,9 +4432,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.noteSessionActivity();
           void this.saveTranscript();
           this.notify(
-            "CodingAgent \u8FD0\u884C\u5B8C\u6210",
+            this.t("notifications.runFinished"),
             event.answer || "",
-            { sessionId: this.threadId }
+            { sessionId: this.threadId },
+            "success"
           );
           break;
         case "run_failed":
@@ -4084,9 +4451,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.noteSessionActivity();
           void this.saveTranscript();
           this.notify(
-            "CodingAgent \u8FD0\u884C\u5931\u8D25",
+            this.t("notifications.runFailed"),
             event.message || "",
-            { sessionId: this.threadId }
+            { sessionId: this.threadId },
+            "error"
           );
           break;
         default:
@@ -5981,9 +6349,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       }
       this.saveSettings();
     },
-    notify(title, body, meta = {}) {
-      const kind = title.includes("\u5931\u8D25") ? "error" : title.includes("\u5BA1\u6279") ? "warning" : title.includes("\u5B8C\u6210") ? "success" : "info";
-      this.pushNotification(kind, title, body, meta);
+    notify(title, body = "", meta = {}, kind = "") {
+      const resolvedKind = kind || (title.includes("\u5931\u8D25") ? "error" : title.includes("\u5BA1\u6279") ? "warning" : title.includes("\u5B8C\u6210") ? "success" : "info");
+      this.pushNotification(resolvedKind, title, body, meta);
       const supported = "Notification" in window;
       if (!shouldSystemNotify({
         enabled: Boolean(this.notifyEnabled),
@@ -6346,14 +6714,14 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     return Math.min(max, Math.max(min, value));
   }
   var VIEW_TITLES = {
-    sessions: "\u4F1A\u8BDD",
-    files: "\u6587\u4EF6\u6539\u52A8",
-    tree: "\u6587\u4EF6\u6811",
-    git: "Git",
-    tasks: "\u4EFB\u52A1",
-    memory: "\u8BB0\u5FC6",
-    audit: "\u5BA1\u8BA1",
-    problems: "\u95EE\u9898"
+    sessions: "nav.sessions",
+    files: "nav.files",
+    tree: "nav.tree",
+    git: "nav.git",
+    tasks: "nav.tasks",
+    memory: "nav.memory",
+    audit: "nav.audit",
+    problems: "nav.problems"
   };
   var layoutMixin = {
     initLayout() {
@@ -6481,19 +6849,19 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (reveal) this.saveLayout();
     },
     get viewTitle() {
-      return VIEW_TITLES[this.view] || "\u4F1A\u8BDD";
+      return this.t(VIEW_TITLES[this.view] || "nav.sessions");
     },
     get currentSessionTitle() {
       const current = (this.sessions || []).find(
         (item) => item.thread_id === this.threadId
       );
       if (current) return current.title || current.thread_id;
-      return this.threadId || "\u65B0\u4F1A\u8BDD";
+      return this.threadId || this.t("common.newSession");
     },
     get modelLabel() {
       if (this.model) return this.model;
       if (this.provider) return this.provider;
-      return "\u9ED8\u8BA4\u6A21\u578B";
+      return this.t("sidebar.defaultModel");
     },
     get connectionClass() {
       if (this.connectionState === "streaming" || this.connectionState === "reconnecting") {
@@ -7364,7 +7732,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     get settingsSearchLabel() {
       if (!String(this.settingsQuery || "").trim()) return "";
       const count = this.settingsMatchCount;
-      return count ? `\u627E\u5230 ${count} \u4E2A\u5206\u7C7B` : "\u6CA1\u6709\u5339\u914D\u7684\u8BBE\u7F6E";
+      return count ? this.t("settings.matches", { count }) : this.t("settings.noResults");
     },
     get settingsNoResults() {
       return Boolean(String(this.settingsQuery || "").trim()) && this.settingsMatchCount === 0;
@@ -7403,7 +7771,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       return this.selectedSessionIds().length > 0;
     },
     get sessionSelectionText() {
-      return `${this.selectedSessionIds().length} \u6761\u5DF2\u9009`;
+      return this.t("sidebar.selected", {
+        count: this.selectedSessionIds().length
+      });
     },
     get hasApprovals() {
       return this.approvals.length > 0;
@@ -7412,13 +7782,15 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       return `command-item-${this.commandIndex}`;
     },
     get unreadNotificationsText() {
-      return `${this.unreadNotifications} \u6761\u672A\u8BFB`;
+      return this.t("notifications.unread", {
+        count: this.unreadNotifications
+      });
     },
     get workspaceDisplay() {
-      return this.workspace || "\u672A\u77E5";
+      return this.workspace || this.t("common.unknown");
     },
     get workspaceInputPlaceholder() {
-      return this.capabilities.host_mode ? "\u672C\u673A\u9879\u76EE\u7531\u5BA2\u6237\u7AEF\u9009\u62E9\u5E76\u767B\u8BB0" : "\u9009\u62E9\u9879\u76EE\u540E\u81EA\u52A8\u586B\u5165\u5DE5\u4F5C\u533A";
+      return this.capabilities.host_mode ? this.t("sidebar.hostWorkspace") : this.t("sidebar.projectWorkspace");
     },
     get noProjects() {
       return this.projects.length === 0;
@@ -8212,6 +8584,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     };
     const mixins = [
       bootMixin,
+      i18nMixin,
       authMixin,
       sessionViewMixin,
       draftsMixin,

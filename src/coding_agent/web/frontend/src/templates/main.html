@@ -1,15 +1,15 @@
   <main class="main" id="main" tabindex="-1">
     <div class="error-banner" role="alert" x-show="uiError">
       <span class="error-text" x-text="uiError"></span>
-      <button x-show="_errorRetryKind" @click="retryLastError">重试</button>
-      <button @click="dismissError">关闭</button>
+      <button x-show="_errorRetryKind" @click="retryLastError" x-text="i18n.common.retry"></button>
+      <button @click="dismissError" x-text="i18n.common.close"></button>
     </div>
-    <div class="main-tabs" role="tablist" aria-label="主区标签">
+    <div class="main-tabs" role="tablist" :aria-label="i18n.main.mainTabs">
       <div class="main-tab-list" role="presentation" @keydown="onMainTabKeydown">
         <button class="main-tab" role="tab" :class="mainTabClasses.chat"
                 :aria-selected="mainTabFlags.chat" :tabindex="chatTabIndex" @click="showChat">
           <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
-          <span>对话</span>
+          <span x-text="i18n.main.chat"></span>
         </button>
         <template x-for="tab in editorTabs" :key="tab.id">
           <button class="main-tab" role="tab" :class="tab._cls"
@@ -18,8 +18,8 @@
             <svg class="icon" aria-hidden="true" x-show="tab._isFile"><use href="#i-files"></use></svg>
             <svg class="icon" aria-hidden="true" x-show="tab._isDiff"><use href="#i-git"></use></svg>
             <span class="main-tab-label" x-text="tab.title"></span>
-            <span class="tab-dirty" x-show="tab.stale" title="文件已变化"></span>
-            <span class="tab-close" role="button" data-action="editor-tab" data-op="close" :data-id="tab.id" @click.stop="onAction" title="关闭标签">×</span>
+            <span class="tab-dirty" x-show="tab.stale" :title="i18n.main.fileChanged"></span>
+            <span class="tab-close" role="button" data-action="editor-tab" data-op="close" :data-id="tab.id" @click.stop="onAction" :title="i18n.common.close">×</span>
           </button>
         </template>
       </div>
@@ -29,20 +29,20 @@
                @input="onMessageSearchInput"
                @keydown.enter.prevent="nextMatchNext"
                @keydown.escape="closeMessageSearch"
-               placeholder="搜索对话…" aria-label="搜索对话">
+               :placeholder="i18n.main.searchPlaceholder" :aria-label="i18n.main.searchPlaceholder">
         <span class="note" x-text="messageMatchLabel"></span>
-        <button @click="nextMatchPrev" title="上一个">↑</button>
-        <button @click="nextMatchNext" title="下一个">↓</button>
-        <button @click="closeMessageSearch" title="关闭搜索">×</button>
+        <button @click="nextMatchPrev" title="↑">↑</button>
+        <button @click="nextMatchNext" title="↓">↓</button>
+        <button @click="closeMessageSearch" :title="i18n.common.close">×</button>
       </div>
       <span class="main-tab-title" x-show="messageSearchClosed" x-text="currentSessionTitle"></span>
       <span class="spacer"></span>
       <span class="main-tab-state" x-show="messageSearchClosed" x-text="stateText"></span>
       <button class="icon-btn" x-show="messageSearchClosed" @click="openMessageSearch"
-              title="搜索对话（Ctrl+Shift+F）" aria-label="搜索对话">
+              :title="i18n.main.searchHint" :aria-label="i18n.main.searchPlaceholder">
         <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
       </button>
-      <button class="icon-btn" @click="openCommandPalette" title="命令面板" aria-label="命令面板">
+      <button class="icon-btn" @click="openCommandPalette" :title="i18n.main.commandPanel" :aria-label="i18n.main.commandPanel">
         <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       </button>
     </div>
@@ -191,14 +191,14 @@
       <template x-for="c in consents" :key="c.id">
         <div class="consent-card" role="alert">
           <div class="consent-head">
-            <span class="consent-title">本机文件访问授权</span>
+            <span class="consent-title" x-text="i18n.main.consentTitle"></span>
             <span class="consent-sensitive" x-show="c.sensitive">敏感路径</span>
           </div>
           <div class="consent-row">
-            <span>操作</span><span x-text="c._verbsText"></span>
+            <span x-text="i18n.main.consentAction"></span><span x-text="c._verbsText"></span>
           </div>
           <div class="consent-row" x-show="c.reason">
-            <span>原因</span><span x-text="c.reason"></span>
+            <span x-text="i18n.main.consentReason"></span><span x-text="c.reason"></span>
           </div>
           <div class="consent-scope">
             <template x-for="s in c.scope" :key="s">
@@ -206,37 +206,33 @@
             </template>
           </div>
           <div class="consent-actions">
-            <button class="danger" data-action="consent" :data-id="c.id" data-allow="false" @click="onAction">拒绝</button>
-            <button class="primary" data-action="consent" :data-id="c.id" data-allow="true" @click="onAction">允许本次</button>
+            <button class="danger" data-action="consent" :data-id="c.id" data-allow="false" @click="onAction" x-text="i18n.main.consentDeny"></button>
+            <button class="primary" data-action="consent" :data-id="c.id" data-allow="true" @click="onAction" x-text="i18n.main.consentAllow"></button>
           </div>
         </div>
       </template>
-      <div class="empty" x-show="transcriptEmpty">
-        输入任务开始。默认只读：Agent 只能读取文件，不能运行命令或测试。
-      </div>
+      <div class="empty" x-show="transcriptEmpty" x-text="i18n.main.emptyHint"></div>
     </div>
 
-    <button class="jump-latest" x-show="showJumpLatest" @click="scrollLatest">
-      跳到最新 ↓
-    </button>
+    <button class="jump-latest" x-show="showJumpLatest" @click="scrollLatest" x-text="i18n.main.jumpLatest"></button>
 
     <div class="composer" @dragover.prevent @drop.prevent="dropFiles">
       <textarea :value="prompt" @keydown="onEnter" @input="onPromptInput"
                 @compositionstart="onCompositionStart"
                 @compositionend="onCompositionEnd"
-                aria-label="任务输入"
-                placeholder="输入任务，Enter 发送，Shift+Enter 换行"></textarea>
+                :aria-label="i18n.main.taskInput"
+                :placeholder="i18n.composer.placeholder"></textarea>
       <div class="composer-actions">
-        <button @click="send" :disabled="sendDisabled">发送</button>
-        <button data-action="steer" data-steer="pause" @click="onAction" :disabled="pauseDisabled">暂停</button>
-        <button data-action="steer" data-steer="cancel" @click="onAction" :disabled="cancelDisabled">取消</button>
-        <button @click="resumeSteering" :disabled="resumeDisabled">继续</button>
-        <button @click="reconnect" x-show="canReconnect">重连事件流</button>
-        <button @click="retry" x-show="canRetry">重试上一条</button>
-        <button @click="openNewSettings" :disabled="appendDisabled">追加任务</button>
-        <button @click="replan" :disabled="replanDisabled">重规划</button>
+        <button @click="send" :disabled="sendDisabled" x-text="i18n.composer.send"></button>
+        <button data-action="steer" data-steer="pause" @click="onAction" :disabled="pauseDisabled" x-text="i18n.composer.pause"></button>
+        <button data-action="steer" data-steer="cancel" @click="onAction" :disabled="cancelDisabled" x-text="i18n.composer.cancel"></button>
+        <button @click="resumeSteering" :disabled="resumeDisabled" x-text="i18n.composer.resume"></button>
+        <button @click="reconnect" x-show="canReconnect" x-text="i18n.composer.reconnect"></button>
+        <button @click="retry" x-show="canRetry" x-text="i18n.composer.retry"></button>
+        <button @click="openNewSettings" :disabled="appendDisabled" x-text="i18n.composer.append"></button>
+        <button @click="replan" :disabled="replanDisabled" x-text="i18n.composer.replan"></button>
         <label class="upload-label">
-          上传文件
+          <span x-text="i18n.composer.upload"></span>
           <input type="file" multiple @change="uploadFiles">
         </label>
       </div>
@@ -263,9 +259,9 @@
         <span class="split-pane-title" x-text="splitTitle"></span>
         <span class="note" x-text="splitStatusText"></span>
         <span class="spacer"></span>
-        <button @click="refreshSplit">重连/刷新</button>
-        <button @click="openSplitInMain">在主区打开</button>
-        <button class="icon-btn" @click="closeSplit" aria-label="关闭分屏">×</button>
+        <button @click="refreshSplit" x-text="i18n.split.refresh"></button>
+        <button @click="openSplitInMain" x-text="i18n.split.openInMain"></button>
+        <button class="icon-btn" @click="closeSplit" :aria-label="i18n.split.close">×</button>
       </header>
       <div class="split-pane-body">
         <div class="skeleton-list" x-show="splitLoading" aria-hidden="true">
@@ -275,8 +271,8 @@
         </div>
         <div class="note note-bad" x-show="splitError" x-text="splitError"></div>
         <div class="note note-bad" x-show="splitHasApprovals">
-          该会话有待审批，请切到主区处理。
-          <button @click="openSplitInMain">切到主区</button>
+          <span x-text="i18n.split.hasApprovals"></span>
+          <button @click="openSplitInMain" x-text="i18n.split.switchToMain"></button>
         </div>
         <template x-for="m in splitPaneMessages" :key="m.id">
           <div class="split-msg" :class="m._renderClass">
@@ -289,14 +285,14 @@
             </template>
           </div>
         </template>
-        <div class="empty" x-show="splitEmpty">这个会话还没有消息</div>
+        <div class="empty" x-show="splitEmpty" x-text="i18n.split.empty"></div>
       </div>
       <div class="split-composer">
         <textarea :value="splitInput" @keydown.enter.prevent="sendSplit"
                   @input="onSplitInput"
-                  placeholder="在该会话中发送任务，Enter 发送"
-                  aria-label="分屏输入"></textarea>
-        <button @click="sendSplit" :disabled="splitSendDisabled">发送</button>
+                  :placeholder="i18n.composer.splitPlaceholder"
+                  :aria-label="i18n.composer.splitPlaceholder"></textarea>
+        <button @click="sendSplit" :disabled="splitSendDisabled" x-text="i18n.split.send"></button>
       </div>
     </section>
   </main>

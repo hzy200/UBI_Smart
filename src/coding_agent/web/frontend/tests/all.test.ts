@@ -4,6 +4,7 @@ import './file-icons.test';
 import './focus.test';
 import './git.test';
 import './history-cache.test';
+import './i18n.test';
 import './markdown.test';
 import './memo.test';
 import './notifications.test';

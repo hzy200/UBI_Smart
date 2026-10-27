@@ -271,7 +271,9 @@ export const cspMixin = {
   get settingsSearchLabel() {
     if (!String(this.settingsQuery || '').trim()) return '';
     const count = this.settingsMatchCount;
-    return count ? `找到 ${count} 个分类` : '没有匹配的设置';
+    return count
+      ? this.t('settings.matches', { count })
+      : this.t('settings.noResults');
   },
   get settingsNoResults() {
     return Boolean(String(this.settingsQuery || '').trim())
@@ -306,18 +308,24 @@ export const cspMixin = {
   get hasUnreadNotifications() { return this.unreadNotifications > 0; },
   get hasSessionSelection() { return this.selectedSessionIds().length > 0; },
   get sessionSelectionText() {
-    return `${this.selectedSessionIds().length} 条已选`;
+    return this.t('sidebar.selected', {
+      count: this.selectedSessionIds().length,
+    });
   },
   get hasApprovals() { return this.approvals.length > 0; },
   get commandActiveDescendant() { return `command-item-${this.commandIndex}`; },
   get unreadNotificationsText() {
-    return `${this.unreadNotifications} 条未读`;
+    return this.t('notifications.unread', {
+      count: this.unreadNotifications,
+    });
   },
-  get workspaceDisplay() { return this.workspace || '未知'; },
+  get workspaceDisplay() {
+    return this.workspace || this.t('common.unknown');
+  },
   get workspaceInputPlaceholder() {
     return this.capabilities.host_mode
-      ? '本机项目由客户端选择并登记'
-      : '选择项目后自动填入工作区';
+      ? this.t('sidebar.hostWorkspace')
+      : this.t('sidebar.projectWorkspace');
   },
   get noProjects() { return this.projects.length === 0; },
   get noWorkspaceRegistry() { return !this.capabilities.workspace_registry; },
