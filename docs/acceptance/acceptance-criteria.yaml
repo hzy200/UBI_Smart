@@ -8,7 +8,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-26
 review_cadence: 需求或测试变动时
 convention:
   id_prefix: REQ
@@ -1684,3 +1684,271 @@ criteria:
     status: implemented
     tests: [tests/unit/test_workspace_archive.py::test_safe_extract_reports_progress, tests/unit/test_workspace_upload_a3.py::test_upload_success_activates_and_cleans, tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow, tests/unit/test_frontend_workspace_ui.py::test_index_contains_registry_section]
     see: docs/PHASE_G.md
+
+  # ---------------------------------------------------------------- A2L（Phase 1 planned）
+  - id: REQ-188
+    title: A2L 只主动外连，断线降级 sandbox
+    given: A2L 已握手且长连接正常
+    when: A2L 断开
+    then: A4 不再接受 host 请求，返回 GATEWAY_OFFLINE 并降级 sandbox；
+          不阻塞运行，不把 host 请求静默改到 WSL
+    status: planned
+    see: docs/adr/0015-host-capability-broker.md
+
+  - id: REQ-189
+    title: host/sandbox 工作区按 kind 路由
+    given: WorkspaceRef.kind=host 且 target=auto
+    when: A4 收到只读执行请求
+    then: 请求路由到 A2L；target 与 kind 冲突时返回 TARGET_KIND_MISMATCH，
+          不静默改道
+    status: implemented
+    tests: [tests/unit/test_host_backend.py::test_service_routes_by_workspace_kind, tests/unit/test_host_backend.py::test_service_rejects_target_kind_mismatch]
+    see: docs/PHASE_A2L.md
+
+  - id: REQ-190
+    title: ZX 优先于任何 grant
+    given: grant.scope 覆盖某路径，但该路径命中 ZX
+    when: 请求读取或写入
+    then: 返回 DENIED_ZX；文件未被读取/修改；审计记录拒绝原因
+    status: implemented
+    tests: [tests/unit/test_host_policy.py::test_zx_wins_over_grant, tests/unit/test_host_broker_ops.py::test_zx_wins_over_grant]
+    see: docs/adr/0015-host-capability-broker.md
+
+  - id: REQ-191
+    title: 工具链只暴露能力摘要
+    given: A2L 探测到本机编译器
+    when: 模型查询可用工具链
+    then: 只返回 id/kind/version/output_roots，不返回绝对路径；
+          调用必须经 ToolchainRef + 受控参数
+    status: implemented
+    tests: [tests/unit/test_host_toolchain_registry.py::test_summary_has_no_absolute_path]
+    see: docs/PHASE_A2L.md
+
+  - id: REQ-192
+    title: 安全档不得虚报
+    given: AGENT_HOST_BROKER_SECURITY_TIER=user-t1
+    when: A2L 握手或 UI 展示安全等级
+    then: 明确标注 threat_model=T1；不得宣称 T2 或“绝对禁止”
+    status: planned
+    see: docs/THREAT_MODEL.md
+
+  - id: REQ-193
+    title: A2L 生命周期绑定客户端
+    given: 客户端启动或退出
+    when: 客户端拉起或关闭
+    then: A2L 随之启动/终止；客户端运行期间单实例、心跳不断、托盘可见并可
+          暂停/离线；不注册系统服务、不独立常驻；不得以 LocalSystem/root 运行
+    status: partial
+    tests: [tests/unit/test_host_broker_lifecycle.py::test_start_stop_and_single_instance, tests/unit/test_host_broker_lifecycle.py::test_pause_resume_and_offline]
+    see: docs/PHASE_A2L.md
+
+  - id: REQ-194
+    title: host 绝对路径不离开客户端
+    given: 客户端注册 host 工作区
+    when: A2 保存工作区、A3 发起执行请求
+    then: A2 只保存 workspace_id + root_handle + a2l_id；A3 只传 handle；
+          绝对路径只在 A2L 本地 SQLite 中解析
+    status: implemented
+    tests: [tests/unit/test_workspace_kind.py::test_host_workspace_stores_handle_not_path]
+    see: docs/adr/0015-host-capability-broker.md
+
+  - id: REQ-195
+    title: Phase 1 只读工具范围
+    given: host 工作区与只读 grant
+    when: 模型调用 file_read/list_dir/find_files
+    then: 经 A2L 只读通道执行；search_code、shell、写、编译、安装返回
+          OP_NOT_ENABLED_IN_PHASE1
+    status: implemented
+    tests: [tests/integration/test_host_broker_readonly.py::test_windows_host_readonly_e2e, tests/unit/test_host_broker_channel.py::test_unknown_or_write_op_is_not_enabled]
+    see: docs/PHASE_A2L.md
+
+  - id: REQ-196
+    title: grant 本地闭环
+    given: A3 请求无 grant 的 host op
+    when: A2L 返回 GRANT_REQUIRED
+    then: A3 发 grant.request → A2L 本地 UI → grant.pending →
+          grant.granted/denied；A1 不能代批准；撤销发 grant.revoke
+    status: implemented
+    tests: [tests/unit/test_host_broker_channel.py::test_grant_request_uses_local_consent, tests/unit/test_host_broker_channel.py::test_grant_request_can_be_denied, tests/integration/test_host_broker_readonly.py::test_acceptor_handshake_and_local_grant]
+    see: docs/PHASE_A2L.md
+
+  - id: REQ-197
+    title: HostFs/FileAccess 只读抽象
+    given: host 或 sandbox 工作区
+    when: 模型调用 file_read/list_dir/find_files
+    then: 经同一 FileAccess 接口路由；host 侧不启动 shell；
+          search_code/shell/写仍不可用
+    status: implemented
+    tests: [tests/unit/test_file_access.py::test_sandbox_adapter_matches_protocol, tests/integration/test_host_broker_readonly.py::test_windows_host_readonly_e2e]
+    see: docs/PHASE_A2L.md
+
+  - id: REQ-198
+    title: op_journal 防盲目重放
+    given: A2L 在 host 操作中途重启
+    when: A3 恢复请求
+    then: op_journal 返回 unknown；写/执行不盲目重放；只读可安全重试
+    status: implemented
+    tests: [tests/unit/test_host_op_journal.py::test_recover_marks_started_as_unknown]
+    see: docs/PHASE_A2L.md
+
+  - id: REQ-199
+    title: host 根目录只接受本地固定 NTFS
+    given: 用户选择 OneDrive、网络盘、UNC、reparse 或云占位目录
+    when: A2L 注册 host 工作区
+    then: 拒绝注册，不生成 root_handle；只接受本地固定 NTFS
+    status: implemented
+    tests: [tests/unit/test_host_paths.py::test_validate_root_rejects_file_missing_and_home, tests/unit/test_host_paths.py::test_child_rejects_windows_ads_and_reserved_names]
+    see: docs/PHASE_A2L.md
+
+  - id: REQ-200
+    title: 敏感根逐次确认
+    given: grant scope 命中 Documents/Desktop/OneDrive/浏览器 profile/.ssh
+    when: 请求读取
+    then: 必须 sensitive=True 且逐次本地确认；长 TTL 或宽 scope 被拒绝
+    status: implemented
+    tests: [tests/unit/test_host_policy.py::test_sensitive_root_needs_ack_or_sensitive_grant]
+    see: docs/THREAT_MODEL.md
+
+  - id: REQ-201
+    title: 本机工作区注册只回传 handle
+    given: 用户在前端点击“添加本机工作区”
+    when: A2 请求 A3，A2L 在本机选择目录
+    then: A2L 保存绝对路径并返回 workspace_id + root_handle + a2l_id；
+          A2 只落元数据；前端刷新项目列表
+    status: implemented
+    tests: [tests/unit/test_host_workspace_registrar.py::test_register_returns_handle_and_stores_root, tests/unit/test_agent_server_host_register.py::test_host_workspace_register_route]
+    see: docs/PHASE_A2L.md
+
+  # ------------------------------------------------- 前后端分离（设计冻结，planned）
+  - id: REQ-202
+    title: 一份产物支持四种部署拓扑
+    given: 同一份前端构建产物
+    when: 分别以桌面、同域反代、独立源站、BFF 配置启动
+    then: 仅通过运行时配置切换 apiBaseUrl/authMode；桌面与同域相对基址
+          零配置；静态资源与 API 均可达，且不改源码
+    status: partial
+    note: 第 1 步已实现运行时配置、基址注入与 /config.json；四拓扑浏览器 smoke 待后续。
+    tests: [tests/unit/test_web_app.py::test_runtime_config_is_public_and_same_origin, tests/unit/test_web_app.py::test_runtime_config_marks_desktop_mode, tests/unit/test_web_app.py::test_runtime_config_stays_public_when_auth_is_enabled, tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow]
+    see: docs/rfc/0003-frontend-backend-separation.md
+
+  - id: REQ-203
+    title: 运行时配置非法时失败关闭
+    given: config.json 缺失、schemaVersion 不支持、apiBaseUrl 非法或 authMode 未知
+    when: 前端启动
+    then: 显示配置错误阻断页与错误码 config.invalid；不显示登录页，
+          不向任何基址发送业务请求
+    status: partial
+    note: 前端校验、阻断页与启动门控已实现；浏览器级失败关闭用例待补。
+    tests: [tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow, tests/unit/test_frontend_workspace_ui.py::test_index_contains_registry_section]
+    see: docs/adr/0016-frontend-backend-topology-and-runtime-config.md
+
+  - id: REQ-204
+    title: 前后端版本不兼容时阻断
+    given: /healthz 返回 api_version 与 min_frontend_version
+    when: 前端主版本低于最低要求
+    then: 显示 version.frontend_too_old 阻断页；不发业务请求；
+          版本兼容时请求携带 X-Frontend-Version
+    status: partial
+    note: /healthz 版本字段、前端握手/阻断页、请求头与服务端 426 已实现；
+          浏览器级不兼容用例待补。
+    tests: [tests/unit/test_web_app.py::test_healthz_reports_frontend_version_contract, tests/unit/test_web_app.py::test_capabilities_reports_capabilities_version, tests/unit/test_web_app.py::test_old_or_invalid_frontend_version_is_rejected, tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow, tests/unit/test_frontend_workspace_ui.py::test_index_contains_registry_section]
+    see: docs/rfc/0003-frontend-backend-separation.md
+
+  - id: REQ-205
+    title: 认证模式按部署形态分档
+    given: authMode 为 desktop-token、bearer 或 bff-cookie
+    when: 前端发起 API/SSE/上传请求
+    then: 桌面用一次性 loopback token；Bearer 只驻内存；BFF 用 httpOnly
+          Cookie；不得写 localStorage，不得把 token 放 URL query
+    status: partial
+    note: 前端认证适配已实现（桌面 sessionStorage 仅作 reload 兜底、Bearer 仅内存、
+          BFF Cookie + CSRF）；BFF 服务本体由部署侧提供，浏览器级用例待补。
+    tests: [tests/unit/test_web_app.py::test_runtime_config_marks_desktop_mode, tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow, tests/unit/test_frontend_workspace_ui.py::test_index_contains_registry_section]
+    see: docs/adr/0017-auth-model-for-separated-deployment.md
+
+  - id: REQ-206
+    title: 凭证刷新、注销与单飞
+    given: Bearer 模式 access token 过期
+    when: 并发请求收到 auth.token_expired
+    then: 只触发一次刷新；成功后重放一次且复用 Idempotency-Key；
+          注销后服务端吊销、前端清空凭证并关闭 SSE；403 不触发刷新
+    status: partial
+    note: 单飞刷新、401 触发、注销清理与 Bearer access_token 刷新契约已实现；
+          稳定错误码与 BFF 端到端用例待第 4 步/后续补齐。
+    tests: [tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow]
+    see: docs/adr/0017-auth-model-for-separated-deployment.md
+
+  - id: REQ-207
+    title: CORS 精确允许列表与错误响应
+    given: 独立源站形态与允许列表
+    when: 浏览器发起预检、失败请求或 SSE 请求
+    then: |
+      允许列表精确匹配且带 Vary: Origin；禁止 * 与 null；凭证仅 Cookie 模式；
+      401/403/413/429/5xx 也带 CORS 头；预检 204 且不鉴权
+    status: partial
+    note: 允许列表解析、预检 204、凭证关闭、错误响应带头与 request id 已实现并测试；
+          跨域 SSE/上传的浏览器级 E2E 待第 6–7 步补齐。
+    tests: [tests/unit/test_web_cors.py::test_parse_allowed_origins_normalizes_and_dedupes, tests/unit/test_web_cors.py::test_parse_allowed_origins_rejects_invalid_entries, tests/unit/test_web_cors.py::test_invalid_cors_config_fails_app_startup, tests/unit/test_web_cors.py::test_preflight_allows_exact_origin_and_headers, tests/unit/test_web_cors.py::test_upload_preflight_allows_authorization_and_idempotency, tests/unit/test_web_cors.py::test_simple_request_and_disallowed_origin, tests/unit/test_web_cors.py::test_cors_headers_survive_auth_and_version_errors, tests/unit/test_web_cors.py::test_cors_headers_survive_body_limit_errors, tests/unit/test_web_cors.py::test_no_cors_headers_when_allowlist_is_empty, tests/unit/test_web_app.py::test_cors_headers_are_present_on_sse]
+    see: docs/rfc/0003-frontend-backend-separation.md
+
+  - id: REQ-208
+    title: SSE 穿过反代保持流式与可重连
+    given: SSE 经过真实反向代理
+    when: 空闲超过心跳间隔后继续接收，或连接中断后重连
+    then: 事件逐条到达、不被压缩/缓冲；心跳维持连接；after/Last-Event-ID
+          不重复不丢事件；代理不自动重试已发送的流
+    status: partial
+    note: 服务端注释帧心跳、SSE 响应头、A2 代理流心跳、前端空闲看门狗与
+          SSE CORS 头已实现并测试；真实反向代理 E2E 待在部署环境验证。
+    tests: [tests/unit/test_sse_stream.py::test_sse_headers_disable_buffering_and_transforms, tests/unit/test_sse_stream.py::test_heartbeat_is_emitted_during_silence, tests/unit/test_sse_stream.py::test_byte_heartbeat_for_proxied_streams, tests/unit/test_sse_stream.py::test_heartbeat_propagates_source_errors, tests/unit/test_web_app.py::test_cors_headers_are_present_on_sse, tests/unit/test_web_app.py::test_run_streams_domain_events]
+    see: docs/rfc/0003-frontend-backend-separation.md
+
+  - id: REQ-209
+    title: 上传预检、限额与幂等
+    given: 跨域或经反代上传文件/项目归档
+    when: 发起上传或超过限额
+    then: 预检允许 Authorization 与 Idempotency-Key；413/429 带 CORS 与
+          request_id；重试复用幂等键；解压前完成扫描
+    status: partial
+    note: 会话上传幂等（控制面 DB 可用时）、单文件/数量/累计限额、稳定 413 错误码、
+          请求体上限对齐与前端 Idempotency-Key 已实现并测试；
+          对象存储直传与真实上传后的扫描 E2E 待部署环境验证。
+    tests: [tests/unit/test_web_cors.py::test_upload_preflight_allows_authorization_and_idempotency, tests/unit/test_web_gui_api.py::test_upload_file_limit_reports_stable_code_and_details, tests/unit/test_web_gui_api.py::test_upload_file_count_limit, tests/unit/test_web_gui_api.py::test_session_upload_is_idempotent_with_control_db, tests/unit/test_web_gui_api.py::test_upload_goes_to_agent_uploads, tests/unit/test_workspace_upload_proxy.py::test_upload_size_limit_is_413, tests/unit/test_web_app.py::test_oversized_body_is_rejected]
+    see: docs/rfc/0003-frontend-backend-separation.md
+
+  - id: REQ-210
+    title: 桌面桥只对本地页面开放
+    given: pywebview 注入 js_api
+    when: 远程 URL、非预期 origin 或嵌套 iframe 尝试调用桥
+    then: 调用被拒绝并写本地审计；浏览器模式桌面专属端点返回 403；
+          更新包必须验签，诊断包脱敏
+    status: partial
+    note: origin 精确匹配、loopback 限定、非顶层 iframe 拒绝、拒绝日志、
+          浏览器模式 403 与诊断脱敏已实现并测试；更新仍只打开下载页、
+          不执行安装包，签名安装链未实现；真实 pywebview E2E 需手工验证。
+    tests: [tests/unit/test_desktop_api.py::test_bridge_rejects_untrusted_or_unknown_origin, tests/unit/test_desktop_api.py::test_bridge_rejects_non_loopback_allowed_origin, tests/unit/test_desktop_api.py::test_bridge_denial_is_logged, tests/unit/test_desktop_api.py::test_origin_helpers_normalize_and_validate, tests/unit/test_web_app.py::test_desktop_endpoints_reject_browser_mode, tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow]
+    see: docs/adr/0018-desktop-bridge-boundary.md
+
+  - id: REQ-211
+    title: 稳定错误码与端到端 request ID
+    given: API、边缘或代理产生错误
+    when: 前端收到响应
+    then: 使用 application/problem+json，含 code/request_id/retryable；
+          X-Request-ID 透传 A2 到 A3 与日志；401/403/429/5xx 行为按 code 区分
+    status: partial
+    note: 错误封装、request id 生成/回写/日志、A2→A3 透传与前端解析已实现；
+          浏览器错误展示与 403 分档用例待补。
+    tests: [tests/unit/test_web_app.py::test_http_errors_use_problem_json_and_request_id, tests/unit/test_web_app.py::test_request_id_is_echoed_only_when_valid, tests/unit/test_web_app.py::test_run_rejects_empty_prompt, tests/unit/test_web_app.py::test_chunked_body_is_rejected, tests/unit/test_web_app.py::test_oversized_body_is_rejected, tests/unit/test_web_app.py::test_rate_limit_is_per_user, tests/unit/test_request_context.py::test_agent_client_propagates_request_id, tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow]
+    see: docs/rfc/0003-frontend-backend-separation.md
+
+  - id: REQ-212
+    title: 前后端独立发版与契约测试
+    given: 前端与 API 独立构建和部署
+    when: 任一侧发版
+    then: 版本兼容矩阵与契约测试通过；静态资源可独立回滚；保留一个版本的
+          API 托管回退入口；失败可仅靠配置/路由回滚
+    status: partial
+    note: 版本同步/运行时契约/API 托管回退测试、CI frontend-static artifact 与
+          RELEASING.md 回滚步骤已落地；真实独立部署与回滚演练待部署环境验证。
+    tests: [tests/unit/test_frontend_release_contract.py::test_versions_are_in_sync, tests/unit/test_frontend_release_contract.py::test_runtime_config_and_healthz_agree, tests/unit/test_frontend_release_contract.py::test_api_hosted_frontend_fallback_remains, tests/unit/test_web_app.py::test_index_has_no_build_chain]
+    see: docs/RELEASING.md

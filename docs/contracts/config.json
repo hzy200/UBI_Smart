@@ -9,7 +9,7 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 194,
+  "count": 216,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
@@ -36,12 +36,14 @@
     "AGENT_CONCURRENCY_WSL_RESERVE",
     "AGENT_CONCURRENCY_WSL_TARGET_MS",
     "AGENT_CONCURRENCY_WSL_TIMEOUT_S",
+    "AGENT_CONSENT_TOKEN",
     "AGENT_CONTEXT_KEEP_RECENT",
     "AGENT_CONTEXT_MAX_CHARS",
     "AGENT_CONTEXT_MAX_TOKENS",
     "AGENT_CONTEXT_TOOL_CHARS",
     "AGENT_CONTROL_DB_AUTO_CREATE",
     "AGENT_CONTROL_DB_URL",
+    "AGENT_CORS_ALLOWED_ORIGINS",
     "AGENT_COST_ALERT_RATIO",
     "AGENT_DELEGATE_LARGE_CALLS",
     "AGENT_DELEGATE_LARGE_FILES",
@@ -59,6 +61,25 @@
     "AGENT_EXPLORE_MAX_REPORT_CHARS",
     "AGENT_EXPLORE_MAX_ROUNDS",
     "AGENT_EXPLORE_TIMEOUT",
+    "AGENT_GRANTS_ENABLED",
+    "AGENT_HOST_A2L_ID",
+    "AGENT_HOST_BROKER_ACCOUNT",
+    "AGENT_HOST_BROKER_AUTOSTART",
+    "AGENT_HOST_BROKER_DEVICE_CERT",
+    "AGENT_HOST_BROKER_ENABLED",
+    "AGENT_HOST_BROKER_HEARTBEAT_S",
+    "AGENT_HOST_BROKER_LISTEN_HOST",
+    "AGENT_HOST_BROKER_LISTEN_PORT",
+    "AGENT_HOST_BROKER_PAUSED",
+    "AGENT_HOST_BROKER_SECURITY_TIER",
+    "AGENT_HOST_BROKER_STORE",
+    "AGENT_HOST_BROKER_URL",
+    "AGENT_HOST_DENY_ROOTS",
+    "AGENT_HOST_ROOT_HANDLE",
+    "AGENT_HOST_ROOT_POLICY",
+    "AGENT_HOST_SENSITIVE_ROOTS",
+    "AGENT_HOST_TOOLCHAIN_ROOTS",
+    "AGENT_HOST_WORKSPACE_ID",
     "AGENT_IDEMPOTENCY_TTL_S",
     "AGENT_INSTRUCTIONS_ENABLED",
     "AGENT_INTERNAL_HMAC_KEY",
@@ -181,6 +202,7 @@
     "AGENT_WORKSPACE_EXTRACT_MAX_RATIO",
     "AGENT_WORKSPACE_IMPORT_MODE",
     "AGENT_WORKSPACE_JOB_RETENTION_DAYS",
+    "AGENT_WORKSPACE_KIND_DEFAULT",
     "AGENT_WORKSPACE_LOCK",
     "AGENT_WORKSPACE_MOUNT_ROOTS",
     "AGENT_WORKSPACE_REGISTRY",
@@ -408,6 +430,14 @@
       "doc": ""
     },
     {
+      "name": "consent_bridge_token",
+      "env": "AGENT_CONSENT_TOKEN",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "桌面端本机授权桥：A2L 把 grant.request 发到 A2，由聊天界面按钮决定。"
+    },
+    {
       "name": "context_keep_recent",
       "env": "AGENT_CONTEXT_KEEP_RECENT",
       "type": "int",
@@ -454,6 +484,14 @@
       "default": "",
       "section": "通用",
       "doc": "---------- A2 控制面（Phase B，可选） ---------- 空 = 继续用 gui-sessions.json / 本地文件（Standalone 与旧部署）。 例：mysql+pymysql://user:pass@127.0.0.1/coding_agent"
+    },
+    {
+      "name": "web_cors_allowed_origins",
+      "env": "AGENT_CORS_ALLOWED_ORIGINS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "独立源站前端允许的精确 origin（逗号分隔）；空 = 不启用 CORS。 只允许 scheme://host[:port]，不接受路径、通配符或 null。"
     },
     {
       "name": "cost_alert_ratio",
@@ -590,6 +628,158 @@
       "default": 120,
       "section": "通用",
       "doc": "整个子智能体的墙钟上限（秒）"
+    },
+    {
+      "name": "grants_enabled",
+      "env": "AGENT_GRANTS_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_a2l_id",
+      "env": "AGENT_HOST_A2L_ID",
+      "type": "str",
+      "default": "a2l-local",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_account",
+      "env": "AGENT_HOST_BROKER_ACCOUNT",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_autostart",
+      "env": "AGENT_HOST_BROKER_AUTOSTART",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_device_cert",
+      "env": "AGENT_HOST_BROKER_DEVICE_CERT",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_enabled",
+      "env": "AGENT_HOST_BROKER_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "---------- A2L 宿主能力代理（Phase 1，默认关闭） ---------- A2L 绑定客户端生命周期：随客户端启动/退出，不注册系统服务。"
+    },
+    {
+      "name": "host_broker_heartbeat_s",
+      "env": "AGENT_HOST_BROKER_HEARTBEAT_S",
+      "type": "int",
+      "default": 15,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_listen_host",
+      "env": "AGENT_HOST_BROKER_LISTEN_HOST",
+      "type": "str",
+      "default": "127.0.0.1",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_listen_port",
+      "env": "AGENT_HOST_BROKER_LISTEN_PORT",
+      "type": "int",
+      "default": 8791,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_paused",
+      "env": "AGENT_HOST_BROKER_PAUSED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_security_tier",
+      "env": "AGENT_HOST_BROKER_SECURITY_TIER",
+      "type": "str",
+      "default": "lowpriv",
+      "section": "通用",
+      "doc": "lowpriv 是 P1 默认；appcontainer 仅受限只读；user-t1 仅 local-dev。"
+    },
+    {
+      "name": "host_broker_store",
+      "env": "AGENT_HOST_BROKER_STORE",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_url",
+      "env": "AGENT_HOST_BROKER_URL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_deny_roots",
+      "env": "AGENT_HOST_DENY_ROOTS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_root_handle",
+      "env": "AGENT_HOST_ROOT_HANDLE",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_root_policy",
+      "env": "AGENT_HOST_ROOT_POLICY",
+      "type": "str",
+      "default": "local_ntfs_only",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_sensitive_roots",
+      "env": "AGENT_HOST_SENSITIVE_ROOTS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_toolchain_roots",
+      "env": "AGENT_HOST_TOOLCHAIN_ROOTS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_workspace_id",
+      "env": "AGENT_HOST_WORKSPACE_ID",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
     },
     {
       "name": "idempotency_ttl_s",
@@ -1566,6 +1756,14 @@
       "default": 7,
       "section": "通用",
       "doc": "A3 导入/上传任务状态保留天数；超期的终态文件在下次启动时清理。"
+    },
+    {
+      "name": "workspace_kind_default",
+      "env": "AGENT_WORKSPACE_KIND_DEFAULT",
+      "type": "str",
+      "default": "sandbox",
+      "section": "通用",
+      "doc": "默认 sandbox 保持旧行为；桌面启动器显式设为 host。"
     },
     {
       "name": "workspace_lock_enabled",

@@ -9,7 +9,7 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **194** 个配置项。
+共 **216** 个配置项。
 
 ## 通用
 
@@ -40,12 +40,14 @@
 | `AGENT_CONCURRENCY_WSL_RESERVE` | `concurrency_wsl_reserve` | `int` | `1` | 给健康探针/短探测保留的 WSL 槽位；普通命令不能用。 |
 | `AGENT_CONCURRENCY_WSL_TARGET_MS` | `concurrency_wsl_target_ms` | `int` | `1500` |  |
 | `AGENT_CONCURRENCY_WSL_TIMEOUT_S` | `concurrency_wsl_timeout_s` | `float` | `30.0` |  |
+| `AGENT_CONSENT_TOKEN` | `consent_bridge_token` | `str` | `""` | 桌面端本机授权桥：A2L 把 grant.request 发到 A2，由聊天界面按钮决定。 |
 | `AGENT_CONTEXT_KEEP_RECENT` | `context_keep_recent` | `int` | `12` |  |
 | `AGENT_CONTEXT_MAX_CHARS` | `context_max_chars` | `int` | `60000` | ---------- 上下文裁剪 ---------- 0 表示不裁剪；这些值作用于发给模型的历史，不改写会话状态 |
 | `AGENT_CONTEXT_MAX_TOKENS` | `context_max_tokens` | `int` | `0` |  |
 | `AGENT_CONTEXT_TOOL_CHARS` | `context_tool_chars` | `int` | `1500` |  |
 | `AGENT_CONTROL_DB_AUTO_CREATE` | `control_db_auto_create` | `bool` | `true` | SQLite/开发环境自动建表；MySQL 生产迁移用 alembic upgrade 或 control_server --migrate（迁移前自动备份）。 |
 | `AGENT_CONTROL_DB_URL` | `control_db_url` | `str` | `""` | ---------- A2 控制面（Phase B，可选） ---------- 空 = 继续用 gui-sessions.json / 本地文件（Standalone 与旧部署）。 例：mysql+pymysql://user:pass@127.0.0.1/coding_agent |
+| `AGENT_CORS_ALLOWED_ORIGINS` | `web_cors_allowed_origins` | `str` | `""` | 独立源站前端允许的精确 origin（逗号分隔）；空 = 不启用 CORS。 只允许 scheme://host[:port]，不接受路径、通配符或 null。 |
 | `AGENT_COST_ALERT_RATIO` | `cost_alert_ratio` | `float` | `0.8` | 达到预算的该比例时发出告警（0~1） |
 | `AGENT_DELEGATE_LARGE_CALLS` | `delegate_large_calls` | `int` | `4` |  |
 | `AGENT_DELEGATE_LARGE_FILES` | `delegate_large_files` | `int` | `300` |  |
@@ -63,6 +65,25 @@
 | `AGENT_EXPLORE_MAX_REPORT_CHARS` | `explore_max_report_chars` | `int` | `4000` | 返回给主模型的摘要上限（字符） |
 | `AGENT_EXPLORE_MAX_ROUNDS` | `explore_max_rounds` | `int` | `8` | 子智能体最多几轮「模型 → 工具」；到顶后强制生成报告，状态记 partial。 定位一个跨文件功能通常需要 6–10 轮只读检索；6 轮实测会频繁 partial。 |
 | `AGENT_EXPLORE_TIMEOUT` | `explore_timeout` | `int` | `120` | 整个子智能体的墙钟上限（秒） |
+| `AGENT_GRANTS_ENABLED` | `grants_enabled` | `bool` | `false` |  |
+| `AGENT_HOST_A2L_ID` | `host_a2l_id` | `str` | `"a2l-local"` |  |
+| `AGENT_HOST_BROKER_ACCOUNT` | `host_broker_account` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_AUTOSTART` | `host_broker_autostart` | `bool` | `true` |  |
+| `AGENT_HOST_BROKER_DEVICE_CERT` | `host_broker_device_cert` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_ENABLED` | `host_broker_enabled` | `bool` | `false` | ---------- A2L 宿主能力代理（Phase 1，默认关闭） ---------- A2L 绑定客户端生命周期：随客户端启动/退出，不注册系统服务。 |
+| `AGENT_HOST_BROKER_HEARTBEAT_S` | `host_broker_heartbeat_s` | `int` | `15` |  |
+| `AGENT_HOST_BROKER_LISTEN_HOST` | `host_broker_listen_host` | `str` | `"127.0.0.1"` |  |
+| `AGENT_HOST_BROKER_LISTEN_PORT` | `host_broker_listen_port` | `int` | `8791` |  |
+| `AGENT_HOST_BROKER_PAUSED` | `host_broker_paused` | `bool` | `false` |  |
+| `AGENT_HOST_BROKER_SECURITY_TIER` | `host_broker_security_tier` | `str` | `"lowpriv"` | lowpriv 是 P1 默认；appcontainer 仅受限只读；user-t1 仅 local-dev。 |
+| `AGENT_HOST_BROKER_STORE` | `host_broker_store` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_URL` | `host_broker_url` | `str` | `""` |  |
+| `AGENT_HOST_DENY_ROOTS` | `host_deny_roots` | `str` | `""` |  |
+| `AGENT_HOST_ROOT_HANDLE` | `host_root_handle` | `str` | `""` |  |
+| `AGENT_HOST_ROOT_POLICY` | `host_root_policy` | `str` | `"local_ntfs_only"` |  |
+| `AGENT_HOST_SENSITIVE_ROOTS` | `host_sensitive_roots` | `str` | `""` |  |
+| `AGENT_HOST_TOOLCHAIN_ROOTS` | `host_toolchain_roots` | `str` | `""` |  |
+| `AGENT_HOST_WORKSPACE_ID` | `host_workspace_id` | `str` | `""` |  |
 | `AGENT_IDEMPOTENCY_TTL_S` | `idempotency_ttl_s` | `int` | `600` | 幂等键保留时间。 |
 | `AGENT_INSTRUCTIONS_ENABLED` | `instructions_enabled` | `bool` | `true` | 是否发现并注入仓库内的 AGENTS.md / CLAUDE.md（分层项目指令）。 |
 | `AGENT_INTERNAL_HMAC_KEY` | `agent_internal_hmac_key` | `str` | `""` | 空 = 只依赖内部 Bearer token（兼容旧部署）； 非空 = A2 对 X-Agent-Context 做 HMAC，A3 验签。 |
@@ -185,6 +206,7 @@
 | `AGENT_WORKSPACE_EXTRACT_MAX_RATIO` | `workspace_extract_max_ratio` | `int` | `200` | 解压比上限：解压后总字节 / 归档字节，防止 zip bomb。 |
 | `AGENT_WORKSPACE_IMPORT_MODE` | `workspace_import_mode` | `str` | `"copy"` | copy = 桌面默认复制到 ext4；mount = 显式降级，需二次确认。 |
 | `AGENT_WORKSPACE_JOB_RETENTION_DAYS` | `workspace_job_retention_days` | `int` | `7` | A3 导入/上传任务状态保留天数；超期的终态文件在下次启动时清理。 |
+| `AGENT_WORKSPACE_KIND_DEFAULT` | `workspace_kind_default` | `str` | `"sandbox"` | 默认 sandbox 保持旧行为；桌面启动器显式设为 host。 |
 | `AGENT_WORKSPACE_LOCK` | `workspace_lock_enabled` | `bool` | `true` | 同一工作区只允许一个 runtime 运行；锁文件在审计目录下。 |
 | `AGENT_WORKSPACE_MOUNT_ROOTS` | `workspace_mount_roots` | `str` | `""` | 允许的 /mnt 挂载根，逗号分隔；空 = 禁止任何挂载工作区。 |
 | `AGENT_WORKSPACE_REGISTRY` | `workspace_registry` | `bool` | `false` | ---------- 工作区注册表（RFC-0001，默认关闭） ---------- false = 继续使用 control_sessions.workspace 裸路径，行为与旧部署一致。 |

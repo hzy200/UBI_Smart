@@ -4,7 +4,7 @@ doc_id: rfc-index
 title: RFC 索引与流程
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-26
 review_cadence: 新增或状态变更时
 ---
 
@@ -55,6 +55,8 @@ draft ──批准──▶ accepted ──实现完成──▶ implemented
 | 编号 | 标题 | 状态 | Owner | 关联 ADR |
 |---|---|---|---|---|
 | [0001](0001-workspace-registry.md) | 工作区注册表与托管存储 | accepted | 项目作者 | 0012、0013 |
+| [0002](0002-native-execution-domain-and-grant-model.md) | 客户端执行域、授权凭证模型与 A2L 宿主能力代理（五层） | accepted | 项目作者 | 0015 |
+| [0003](0003-frontend-backend-separation.md) | 前后端分离的运行时契约、错误协议与传输矩阵 | accepted | 项目作者 | 0016、0017、0018 |
 
 ## 模板
 
