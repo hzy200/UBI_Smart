@@ -34,6 +34,7 @@ import { createSessionView } from './state/session-view';
 const agentApp = () => {
   const app: Record<string, any> = ({
   activeView: createSessionView(''),
+  sessionViews: {},
   ready: false,
   configLoaded: false,
   configError: '',

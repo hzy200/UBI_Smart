@@ -490,7 +490,7 @@ export const sessionsMixin = {
       body: JSON.stringify(body),
     });
     const data = await readJson(response, '创建会话失败');
-    this.activateSessionView(data.thread_id);
+    this.activateSessionView(data.thread_id, true);
     this._boundProjectId = data.workspace_id || '';
     if (data.workspace_id) this.projectId = data.workspace_id;
     const project = this.selectedProject();
@@ -556,8 +556,9 @@ export const sessionsMixin = {
         { method: 'DELETE' },
       );
       await readJson(response, '删除失败');
-      if (this.threadId === id) {
-        this.activateSessionView('');
+      const wasActive = this.threadId === id;
+      this.disposeSessionView(id);
+      if (wasActive) {
         this._boundProjectId = '';
         this.resetConversation();
       }
@@ -596,43 +597,27 @@ export const sessionsMixin = {
       this.toastMessage('当前任务运行中或挂起中，先处理审批/暂停');
       return;
     }
-    this.activateSessionView('');
+    this.activateSessionView('', true);
     this._boundProjectId = '';
     this.resetConversation();
     await this.loadSessions();
     this.toastMessage('已切换到新会话');
   },
 
-  resetConversation() {
-    this.messages = [];
-    this.reasoningBlocks = [];
-    this.lastSeq = 0;
-    this.canReconnect = false;
-    this.connectionState = 'idle';
-    this._terminal = false;
-    this._suspended = false;
-    this._retryCount = 0;
-    this.plan = [];
-    this.kinds = [];
-    this.planRows = [];
-    this.timeline = [];
-    this.problems = [];
-    this.problemExpanded = {};
-    this.stepIdx = -1;
-    this.planDegraded = false;
-    this.tools = [];
-    this.toolFilter = 'all';
-    this.toolQuery = '';
+  resetSessionUi() {
     this.treeQuery = '';
-    toolMap.clear();
-    renderTimers.forEach((timer) => clearTimeout(timer));
-    renderTimers.clear();
-    tokenBuffers.clear();
-    markdownCaches.clear();
-    clearDerivedCaches();
-    this._toolsVersion = 0;
-    this.files = [];
-    this.checkpoints = [];
+    this.treeChildren = {};
+    this.treeExpanded = {};
+    this.treeLoadingMap = {};
+    this.treeGit = {};
+    this.treeGitState = '';
+    this.treeActivePath = '';
+    this._treeGitLoaded = false;
+    this.gitInfo = {
+      is_repo: false, _state: '', _branch: '',
+      _changes: [], _commits: [],
+    };
+    this.gitDiffText = '';
     this.diffText = '';
     this.diffDisplay = '';
     this.diffPath = '';
@@ -646,6 +631,7 @@ export const sessionsMixin = {
     this.fileLineInput = '';
     this.mainTab = 'chat';
     this.mainTabFlags = { chat: true, file: false, diff: false };
+    this.mainTabClasses = { chat: 'active', file: '', diff: '' };
     this.editorTabs = [];
     this.activeEditorId = '';
     this.fileView = {
@@ -654,15 +640,51 @@ export const sessionsMixin = {
       _isImage: false, _isText: true, _imageNote: '',
       data_url: '', mime: '',
     };
-    this.tasks = [];
+  },
+
+  resetConversation() {
+    this.messages = [];
+    this.reasoningBlocks = [];
+    this.lastSeq = 0;
+    this.canReconnect = false;
+    this.connectionState = 'idle';
+    this._terminal = false;
+    this._suspended = false;
+    this._retryCount = 0;
+    this._retryTimer = null;
+    this._lastPrompt = '';
+    this._currentMessage = null;
+    this._currentNode = '';
+    this.prompt = '';
+    this.plan = [];
+    this.kinds = [];
+    this.planRows = [];
+    this.timeline = [];
+    this.problems = [];
+    this.problemExpanded = {};
+    this.stepIdx = -1;
+    this.planDegraded = false;
+    this.tools = [];
+    this.toolFilter = 'all';
+    this.toolFilterClasses = {
+      all: 'active', running: '', ok: '', error: '',
+    };
+    this.toolQuery = '';
     this.audit = [];
+    this.files = [];
+    this.filesDirty = false;
+    this.checkpoints = [];
+    this.tasks = [];
+    this.tasksDirty = false;
     this.uploads = [];
+    this.uploadQuota = '';
     this.approvals = [];
     this.approval = null;
+    this.approvalPosition = '';
     this.decisions = {};
     this.costText = '';
     this.usage = { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 };
-    messageHeights.clear();
+    this._toolsVersion = 0;
     if (this._virtualRaf) cancelAnimationFrame(this._virtualRaf);
     this._virtualRaf = 0;
     this.virtualStart = 0;
@@ -676,14 +698,24 @@ export const sessionsMixin = {
     this.showJumpLatest = false;
     this.paused = false;
     this.stateText = '就绪';
+    if (this.activeView) this.activeView.loaded = false;
+    this.resetSessionUi();
+    toolMap.clear();
+    renderTimers.forEach((timer) => clearTimeout(timer));
+    renderTimers.clear();
+    tokenBuffers.clear();
+    markdownCaches.clear();
+    clearDerivedCaches();
+    messageHeights.clear();
   },
 
   async openSession(id) {
+    // 阶段 4 之前的流仍绑定 activeView，忙/待审批时禁止切换。
     if (this.busy || this.approvals.length || this.paused) {
       this.toastMessage('当前任务运行中或挂起中，先处理审批/暂停');
       return;
     }
-    this.activateSessionView(id);
+    const view = this.activateSessionView(id);
     this.markSessionRead(id);
     const row = this.sessions.find((item) => item.thread_id === id);
     this._boundProjectId = row && row.workspace_id ? row.workspace_id : '';
@@ -706,8 +738,18 @@ export const sessionsMixin = {
       if (row.model) this.model = row.model;
       if (row.provider) this.provider = row.provider;
     }
-    this.resetConversation();
+    this.resetSessionUi();
     await this.loadCapabilities();
+    if (!view.loaded) {
+      const loaded = await this.loadSessionHistory(id);
+      if (loaded) view.loaded = true;
+    }
+    await this.loadUploads();
+    await this.loadApprovals();
+    await this.loadSessions();
+  },
+
+  async loadSessionHistory(id) {
     try {
       const response = await authFetch(`/api/thread/${encodeURIComponent(id)}`);
       const data = await readJson(response, '读取历史失败');
@@ -719,29 +761,11 @@ export const sessionsMixin = {
           this.pushMessage(item.role, item.text, true);
         }
       }
+      return true;
     } catch (e) {
       this.toastMessage(String(e));
+      return false;
     }
-    await this.loadUploads();
-    await this.loadApprovals();
-    this.treeChildren = {};
-    this.treeExpanded = {};
-    this.treeLoadingMap = {};
-    this.treeGit = {};
-    this.treeGitState = '';
-    this._treeGitLoaded = false;
-    this.fileView = {
-      path: '', size: 0, _text: '', _html: '',
-      _lang: '', _size: '', _lineNumbers: '', _crumb: '',
-      _isImage: false, _isText: true, _imageNote: '',
-      data_url: '', mime: '',
-    };
-    this.gitInfo = {
-      is_repo: false, _state: '', _branch: '',
-      _changes: [], _commits: [],
-    };
-    this.gitDiffText = '';
-    await this.loadSessions();
   },
 
   async loadApprovals() {

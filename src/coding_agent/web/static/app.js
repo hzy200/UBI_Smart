@@ -720,7 +720,7 @@
       }
       setToken("");
       this.tokenInput = "";
-      this.activateSessionView("");
+      this.resetSessionViews();
       this._boundProjectId = "";
       this.resetConversation();
       this.ready = false;
@@ -1038,7 +1038,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.rememberWorkspace();
       }
       if (changed) {
-        this.activateSessionView("");
+        this.resetSessionViews();
         this._boundProjectId = "";
         this.resetConversation();
         this.toastMessage("\u5DF2\u5207\u6362\u9879\u76EE\uFF1B\u53D1\u9001\u65F6\u4F1A\u65B0\u5EFA\u4F1A\u8BDD");
@@ -2203,7 +2203,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         body: JSON.stringify(body)
       });
       const data = await readJson(response, "\u521B\u5EFA\u4F1A\u8BDD\u5931\u8D25");
-      this.activateSessionView(data.thread_id);
+      this.activateSessionView(data.thread_id, true);
       this._boundProjectId = data.workspace_id || "";
       if (data.workspace_id) this.projectId = data.workspace_id;
       const project = this.selectedProject();
@@ -2264,8 +2264,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           { method: "DELETE" }
         );
         await readJson(response, "\u5220\u9664\u5931\u8D25");
-        if (this.threadId === id) {
-          this.activateSessionView("");
+        const wasActive = this.threadId === id;
+        this.disposeSessionView(id);
+        if (wasActive) {
           this._boundProjectId = "";
           this.resetConversation();
         }
@@ -2301,42 +2302,29 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.toastMessage("\u5F53\u524D\u4EFB\u52A1\u8FD0\u884C\u4E2D\u6216\u6302\u8D77\u4E2D\uFF0C\u5148\u5904\u7406\u5BA1\u6279/\u6682\u505C");
         return;
       }
-      this.activateSessionView("");
+      this.activateSessionView("", true);
       this._boundProjectId = "";
       this.resetConversation();
       await this.loadSessions();
       this.toastMessage("\u5DF2\u5207\u6362\u5230\u65B0\u4F1A\u8BDD");
     },
-    resetConversation() {
-      this.messages = [];
-      this.reasoningBlocks = [];
-      this.lastSeq = 0;
-      this.canReconnect = false;
-      this.connectionState = "idle";
-      this._terminal = false;
-      this._suspended = false;
-      this._retryCount = 0;
-      this.plan = [];
-      this.kinds = [];
-      this.planRows = [];
-      this.timeline = [];
-      this.problems = [];
-      this.problemExpanded = {};
-      this.stepIdx = -1;
-      this.planDegraded = false;
-      this.tools = [];
-      this.toolFilter = "all";
-      this.toolQuery = "";
+    resetSessionUi() {
       this.treeQuery = "";
-      toolMap.clear();
-      renderTimers.forEach((timer) => clearTimeout(timer));
-      renderTimers.clear();
-      tokenBuffers.clear();
-      markdownCaches.clear();
-      clearDerivedCaches();
-      this._toolsVersion = 0;
-      this.files = [];
-      this.checkpoints = [];
+      this.treeChildren = {};
+      this.treeExpanded = {};
+      this.treeLoadingMap = {};
+      this.treeGit = {};
+      this.treeGitState = "";
+      this.treeActivePath = "";
+      this._treeGitLoaded = false;
+      this.gitInfo = {
+        is_repo: false,
+        _state: "",
+        _branch: "",
+        _changes: [],
+        _commits: []
+      };
+      this.gitDiffText = "";
       this.diffText = "";
       this.diffDisplay = "";
       this.diffPath = "";
@@ -2350,6 +2338,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.fileLineInput = "";
       this.mainTab = "chat";
       this.mainTabFlags = { chat: true, file: false, diff: false };
+      this.mainTabClasses = { chat: "active", file: "", diff: "" };
       this.editorTabs = [];
       this.activeEditorId = "";
       this.fileView = {
@@ -2367,15 +2356,53 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         data_url: "",
         mime: ""
       };
-      this.tasks = [];
+    },
+    resetConversation() {
+      this.messages = [];
+      this.reasoningBlocks = [];
+      this.lastSeq = 0;
+      this.canReconnect = false;
+      this.connectionState = "idle";
+      this._terminal = false;
+      this._suspended = false;
+      this._retryCount = 0;
+      this._retryTimer = null;
+      this._lastPrompt = "";
+      this._currentMessage = null;
+      this._currentNode = "";
+      this.prompt = "";
+      this.plan = [];
+      this.kinds = [];
+      this.planRows = [];
+      this.timeline = [];
+      this.problems = [];
+      this.problemExpanded = {};
+      this.stepIdx = -1;
+      this.planDegraded = false;
+      this.tools = [];
+      this.toolFilter = "all";
+      this.toolFilterClasses = {
+        all: "active",
+        running: "",
+        ok: "",
+        error: ""
+      };
+      this.toolQuery = "";
       this.audit = [];
+      this.files = [];
+      this.filesDirty = false;
+      this.checkpoints = [];
+      this.tasks = [];
+      this.tasksDirty = false;
       this.uploads = [];
+      this.uploadQuota = "";
       this.approvals = [];
       this.approval = null;
+      this.approvalPosition = "";
       this.decisions = {};
       this.costText = "";
       this.usage = { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 };
-      messageHeights.clear();
+      this._toolsVersion = 0;
       if (this._virtualRaf) cancelAnimationFrame(this._virtualRaf);
       this._virtualRaf = 0;
       this.virtualStart = 0;
@@ -2389,13 +2416,22 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.showJumpLatest = false;
       this.paused = false;
       this.stateText = "\u5C31\u7EEA";
+      if (this.activeView) this.activeView.loaded = false;
+      this.resetSessionUi();
+      toolMap.clear();
+      renderTimers.forEach((timer) => clearTimeout(timer));
+      renderTimers.clear();
+      tokenBuffers.clear();
+      markdownCaches.clear();
+      clearDerivedCaches();
+      messageHeights.clear();
     },
     async openSession(id) {
       if (this.busy || this.approvals.length || this.paused) {
         this.toastMessage("\u5F53\u524D\u4EFB\u52A1\u8FD0\u884C\u4E2D\u6216\u6302\u8D77\u4E2D\uFF0C\u5148\u5904\u7406\u5BA1\u6279/\u6682\u505C");
         return;
       }
-      this.activateSessionView(id);
+      const view = this.activateSessionView(id);
       this.markSessionRead(id);
       const row = this.sessions.find((item) => item.thread_id === id);
       this._boundProjectId = row && row.workspace_id ? row.workspace_id : "";
@@ -2411,8 +2447,17 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         if (row.model) this.model = row.model;
         if (row.provider) this.provider = row.provider;
       }
-      this.resetConversation();
+      this.resetSessionUi();
       await this.loadCapabilities();
+      if (!view.loaded) {
+        const loaded = await this.loadSessionHistory(id);
+        if (loaded) view.loaded = true;
+      }
+      await this.loadUploads();
+      await this.loadApprovals();
+      await this.loadSessions();
+    },
+    async loadSessionHistory(id) {
       try {
         const response = await authFetch(`/api/thread/${encodeURIComponent(id)}`);
         const data = await readJson(response, "\u8BFB\u53D6\u5386\u53F2\u5931\u8D25");
@@ -2423,41 +2468,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
             this.pushMessage(item.role, item.text, true);
           }
         }
+        return true;
       } catch (e) {
         this.toastMessage(String(e));
+        return false;
       }
-      await this.loadUploads();
-      await this.loadApprovals();
-      this.treeChildren = {};
-      this.treeExpanded = {};
-      this.treeLoadingMap = {};
-      this.treeGit = {};
-      this.treeGitState = "";
-      this._treeGitLoaded = false;
-      this.fileView = {
-        path: "",
-        size: 0,
-        _text: "",
-        _html: "",
-        _lang: "",
-        _size: "",
-        _lineNumbers: "",
-        _crumb: "",
-        _isImage: false,
-        _isText: true,
-        _imageNote: "",
-        data_url: "",
-        mime: ""
-      };
-      this.gitInfo = {
-        is_repo: false,
-        _state: "",
-        _branch: "",
-        _changes: [],
-        _commits: []
-      };
-      this.gitDiffText = "";
-      await this.loadSessions();
     },
     async loadApprovals() {
       if (!this.threadId) return;
@@ -7032,6 +7047,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   function createSessionView(threadId = "") {
     return {
       threadId,
+      loaded: false,
+      lastActiveAt: 0,
       stateText: "\u5C31\u7EEA",
       costText: "",
       usage: { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 },
@@ -7141,12 +7158,46 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     "problems",
     "problemExpanded"
   ];
+  var MAX_SESSION_VIEWS = 6;
   var mixin = {
-    activateSessionView(threadId = "") {
-      this.activeView = createSessionView(String(threadId || ""));
+    activateSessionView(threadId = "", fresh = false) {
+      const key = String(threadId || "");
+      if (fresh || !this.sessionViews[key]) {
+        this.sessionViews = {
+          ...this.sessionViews,
+          [key]: createSessionView(key)
+        };
+      }
+      const view = this.sessionViews[key];
+      view.lastActiveAt = Date.now();
+      this.activeView = view;
+      this.pruneSessionViews(key);
+      return view;
     },
     createSessionView(threadId = "") {
       return createSessionView(String(threadId || ""));
+    },
+    disposeSessionView(threadId = "") {
+      const key = String(threadId || "");
+      const active = this.activeView && this.activeView.threadId === key;
+      const next = { ...this.sessionViews };
+      delete next[key];
+      this.sessionViews = next;
+      if (active) this.activateSessionView("", true);
+    },
+    resetSessionViews() {
+      this.sessionViews = {};
+      this.activeView = createSessionView("");
+    },
+    pruneSessionViews(keepId = "") {
+      const keys = Object.keys(this.sessionViews);
+      if (keys.length <= MAX_SESSION_VIEWS) return;
+      const removable = keys.filter((key) => key !== keepId).sort((a, b) => Number(this.sessionViews[a].lastActiveAt || 0) - Number(this.sessionViews[b].lastActiveAt || 0));
+      const next = { ...this.sessionViews };
+      while (Object.keys(next).length > MAX_SESSION_VIEWS && removable.length) {
+        delete next[removable.shift()];
+      }
+      this.sessionViews = next;
     },
     applyEvent(view, event) {
       if (!view || !event) return;
@@ -7177,6 +7228,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   var agentApp = () => {
     const app = {
       activeView: createSessionView(""),
+      sessionViews: {},
       ready: false,
       configLoaded: false,
       configError: "",

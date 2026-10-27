@@ -386,11 +386,11 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 
 ## 9. 状态、持久化与边界
 
-会话运行态（消息、计划、工具、审批、用量、流式游标等）归属 `activeView`
-（`state/session-view.ts`）。当前仍是单 active view：`app.ts` 用 facade getter/setter
-保持模板兼容，事件经 `applyEvent(view, event)` 进入，内部临时切换 activeView 后
-再还原；异步 token 定时器已捕获所属 view。阶段 3 会引入按 threadId 的 SessionStore
-与每会话 SSE，去掉临时切换。
+会话运行态（消息、计划、工具、审批、用量、流式游标等）归属 `SessionView`
+（`state/session-view.ts`）。`sessionViews[threadId]` 复用视图：重复打开会话不会
+重置消息、计划、审批或草稿，只刷新工作区相关 UI；最近最多保留 6 个视图，删除会话
+会释放对应视图。事件经 `applyEvent(view, event)` 进入，异步 token 定时器捕获所属
+view。当前仍是单 SSE：忙/待审批时禁止切换，阶段 4 才引入每会话流并解除该限制。
 
 | 状态 | 位置 | 说明 |
 |---|---|---|
@@ -487,7 +487,8 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 会话未读/摘要/批量选择、文件树 Git 标记与键盘导航、Problems 折叠、流式渲染、
 大工具输出分页与派生缓存、阶段播报、主题设置、模态焦点陷阱、审批批准/全部拒绝、
 侧栏/检查器拖拽与宽度持久化、图片预览与只读会话分屏、两个 SessionView 的
-事件状态隔离，并把 Alpine 表达式错误作为失败。
+事件状态隔离、SessionStore 视图复用/LRU/重复打开不重置，并把 Alpine 表达式错误
+作为失败。
 
 分离改造实施后新增契约测试（设计冻结，锚点见验收 `REQ-202`–`REQ-212`）：
 

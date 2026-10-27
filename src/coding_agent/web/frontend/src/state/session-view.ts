@@ -8,6 +8,8 @@
 export function createSessionView(threadId = '') {
   return {
     threadId,
+    loaded: false,
+    lastActiveAt: 0,
     stateText: '就绪',
     costText: '',
     usage: { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 },

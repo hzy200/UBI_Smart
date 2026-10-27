@@ -241,7 +241,7 @@ export const workspaceMixin = {
       this.rememberWorkspace();
     }
     if (changed) {
-      this.activateSessionView('');
+      this.resetSessionViews();
       this._boundProjectId = '';
       this.resetConversation();
       this.toastMessage('已切换项目；发送时会新建会话');

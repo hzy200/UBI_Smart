@@ -147,6 +147,13 @@ const BASE_STUBS: Record<string, any> = {
     ],
     transcript: [],
   },
+  '/api/thread/thread-dom-test': {
+    messages: [
+      { role: 'user', text: '历史问题' },
+      { role: 'assistant', text: '历史回答' },
+    ],
+    transcript: [],
+  },
 };
 
 function jsonStub(pathname: string, search: URLSearchParams): any {

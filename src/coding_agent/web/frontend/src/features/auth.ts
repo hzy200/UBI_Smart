@@ -88,7 +88,7 @@ export const authMixin = {
     }
     setToken('');
     this.tokenInput = '';
-    this.activateSessionView('');
+    this.resetSessionViews();
     this._boundProjectId = '';
     this.resetConversation();
     this.ready = false;

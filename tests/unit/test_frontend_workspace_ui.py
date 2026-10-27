@@ -384,6 +384,39 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_stage3_session_store_is_guarded() -> None:
+    """阶段 3：按 threadId 复用视图、LRU 上限与不重置缓存视图。"""
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "sessionViews",
+        "activateSessionView",
+        "disposeSessionView",
+        "resetSessionViews",
+        "pruneSessionViews",
+        "lastActiveAt",
+        "loaded: false",
+    ):
+        assert marker in app, marker
+
+    interaction = (
+        ROOT
+        / "src"
+        / "coding_agent"
+        / "web"
+        / "frontend"
+        / "tests"
+        / "dom"
+        / "interaction.test.ts"
+    ).read_text(encoding="utf-8")
+    for marker in (
+        "SessionStore 复用视图",
+        "SessionStore 限制保留",
+        "重复打开会话不重置",
+        "阶段 4 前边界",
+    ):
+        assert marker in interaction, marker
+
+
 def test_stage1_session_view_facade_is_guarded() -> None:
     """阶段 1：会话状态归属 activeView，事件入口为 applyEvent。"""
     app = (STATIC / "app.js").read_text(encoding="utf-8")

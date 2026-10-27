@@ -631,6 +631,71 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       assert.equal(previous.messages.length > 1, true);
     });
 
+    await t.test('SessionStore 复用视图并保留会话状态', () => {
+      data.resetSessionViews();
+      data.activateSessionView('store-a', true);
+      data.pushMessage('assistant', 'A 状态', true, 'final');
+      data.approvals = [{
+        request_id: 'store-req',
+        command: 'ls',
+        level: '读',
+      }];
+      data.showNextApproval();
+
+      data.activateSessionView('store-b', true);
+      data.pushMessage('assistant', 'B 状态', true, 'final');
+
+      const again = data.activateSessionView('store-a');
+      assert.equal(again, data.activeView);
+      assert.equal(data.messages.length, 1);
+      assert.equal(data.messages[0].text, 'A 状态');
+      assert.equal(data.approvals.length, 1);
+      assert.equal(data.approval.request_id, 'store-req');
+
+      data.disposeSessionView('store-a');
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(data.sessionViews, 'store-a'),
+        false,
+      );
+      assert.equal(data.threadId, '');
+    });
+
+    await t.test('SessionStore 限制保留的视图数量', () => {
+      data.resetSessionViews();
+      for (let index = 0; index < 9; index += 1) {
+        data.activateSessionView(`cap-${index}`, true);
+      }
+      assert.equal(Object.keys(data.sessionViews).length <= 6, true);
+      assert.equal(data.sessionViews['cap-8'] !== undefined, true);
+    });
+
+    await t.test('重复打开会话不重置已缓存视图', async () => {
+      data.resetSessionViews();
+      await data.openSession('thread-dom-test');
+      await waitFor(
+        () => data.messages.length === 2
+          && data.messages[1].text === '历史回答',
+        '首次加载历史',
+      );
+      data.pushMessage('assistant', '临时状态', true, 'final');
+
+      await data.openSession('thread-dom-other');
+      await waitFor(() => data.threadId === 'thread-dom-other', '切换到 B');
+      await data.openSession('thread-dom-test');
+      await waitFor(() => data.threadId === 'thread-dom-test', '切回 A');
+
+      assert.equal(data.messages.length, 3);
+      assert.equal(data.messages[2].text, '临时状态');
+      assert.equal(data.sessionViews['thread-dom-test'].loaded, true);
+    });
+
+    await t.test('忙或待审批时仍阻止切换（阶段 4 前边界）', async () => {
+      data.busy = true;
+      await data.openSession('thread-dom-other');
+      assert.equal(data.threadId, 'thread-dom-test');
+      data.busy = false;
+    });
+
     await t.test('没有 Alpine CSP 表达式错误', () => {
       const errors = app.warnings.filter(
         (line) => line.includes('unable to interpret'),

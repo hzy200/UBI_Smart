@@ -62,13 +62,59 @@ export const SESSION_VIEW_FIELDS = [
   'problemExpanded',
 ];
 
+const MAX_SESSION_VIEWS = 6;
+
 const mixin: Record<string, any> = {
-  activateSessionView(threadId = '') {
-    this.activeView = createSessionView(String(threadId || ''));
+  activateSessionView(threadId = '', fresh = false) {
+    const key = String(threadId || '');
+    if (fresh || !this.sessionViews[key]) {
+      this.sessionViews = {
+        ...this.sessionViews,
+        [key]: createSessionView(key),
+      };
+    }
+    const view = this.sessionViews[key];
+    view.lastActiveAt = Date.now();
+    this.activeView = view;
+    this.pruneSessionViews(key);
+    return view;
   },
 
   createSessionView(threadId = '') {
     return createSessionView(String(threadId || ''));
+  },
+
+  disposeSessionView(threadId = '') {
+    const key = String(threadId || '');
+    const active = this.activeView && this.activeView.threadId === key;
+    const next = { ...this.sessionViews };
+    delete next[key];
+    this.sessionViews = next;
+    if (active) this.activateSessionView('', true);
+  },
+
+  resetSessionViews() {
+    this.sessionViews = {};
+    this.activeView = createSessionView('');
+  },
+
+  pruneSessionViews(keepId = '') {
+    const keys = Object.keys(this.sessionViews);
+    if (keys.length <= MAX_SESSION_VIEWS) return;
+    const removable = keys
+      .filter((key) => key !== keepId)
+      .sort((a, b) => (
+        Number(this.sessionViews[a].lastActiveAt || 0)
+        - Number(this.sessionViews[b].lastActiveAt || 0)
+      ));
+    const next = { ...this.sessionViews };
+    while (
+      Object.keys(next).length > MAX_SESSION_VIEWS
+      && removable.length
+    ) {
+      delete next[removable.shift()];
+    }
+    this.sessionViews = next;
   },
 
   applyEvent(view, event) {
