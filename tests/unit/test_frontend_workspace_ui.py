@@ -384,6 +384,40 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_m11_tool_output_paging_and_memo_are_guarded() -> None:
+    """大工具输出分页与派生列表缓存。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "m._outputText",
+        "m._outputMore",
+        'data-op="more-output"',
+        "more-tool-preview",
+        "t._previewText",
+        'class="output-actions"',
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "outputPage",
+        "memoize",
+        "filteredToolsSlot",
+        "virtualMessagesSlot",
+        "clearDerivedCaches",
+        "moreToolOutput",
+        "moreToolPreview",
+        "_outputLimit",
+        "_previewLimit",
+    ):
+        assert marker in app, marker
+
+    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    assert (frontend / "src" / "ui" / "output.ts").is_file()
+    assert (frontend / "src" / "ui" / "memo.ts").is_file()
+    assert (frontend / "tests" / "output.test.ts").is_file()
+    assert (frontend / "tests" / "memo.test.ts").is_file()
+
+
 def test_m10_keyboard_nav_and_live_region_are_guarded() -> None:
     """文件树/主区标签键盘导航与独立阶段播报区。"""
     html = (STATIC / "index.html").read_text(encoding="utf-8")

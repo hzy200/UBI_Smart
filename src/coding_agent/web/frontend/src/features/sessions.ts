@@ -8,6 +8,7 @@ import {
   renderMarkdown,
 } from '../ui/format';
 import {
+  clearDerivedCaches,
   markdownCaches,
   messageHeights,
   renderTimers,
@@ -562,6 +563,8 @@ export const sessionsMixin = {
     renderTimers.clear();
     tokenBuffers.clear();
     markdownCaches.clear();
+    clearDerivedCaches();
+    this._toolsVersion = 0;
     this.files = [];
     this.checkpoints = [];
     this.diffText = '';

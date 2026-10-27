@@ -2,6 +2,8 @@ import './diff.test';
 import './focus.test';
 import './git.test';
 import './markdown.test';
+import './memo.test';
+import './output.test';
 import './problems.test';
 import './search.test';
 import './sessions.test';

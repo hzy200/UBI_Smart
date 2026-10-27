@@ -4,11 +4,14 @@ import {
   renderMarkdown,
 } from '../ui/format';
 import { renderMarkdownIncremental } from '../ui/markdown';
+import { outputPage } from '../ui/output';
+import { memoize } from '../ui/memo';
 import {
   markdownCaches,
   messageHeights,
   renderTimers,
   tokenBuffers,
+  virtualMessagesSlot,
 } from '../state/runtime';
 import { includesQuery } from '../ui/search';
 import { computeVirtualRange } from '../ui/virtual';
@@ -72,6 +75,19 @@ export const transcriptMixin = {
     message._longAnswer = !message._isTool
       && (text.length > 1200 || text.split('\n').length > 24);
     message._hasToolText = Boolean(message.summary || message.preview);
+    if (message._isTool) {
+      const page = outputPage(
+        message.preview || '',
+        message._outputLimit || 40,
+      );
+      message._outputText = page.text;
+      message._outputHint = page.hint;
+      message._outputHidden = page.hidden;
+      message._outputMore = page.truncated;
+      message._outputMoreLabel = page.truncated
+        ? `加载更多（剩余 ${page.hidden} 行）`
+        : '';
+    }
     message._badgeClass = `badge-${resolved}`;
     message._hit = Boolean(message._hit);
     message._renderClass = `${message._cls || ''}${message._hit ? ' msg-hit' : ''}`;
@@ -346,11 +362,20 @@ export const transcriptMixin = {
   },
 
   virtualMessages() {
-    if (!this.virtualEnabled()) return this.messages;
-    if (!this.virtualEnd) {
-      return this.messages.slice(Math.max(0, this.messages.length - 80));
-    }
-    return this.messages.slice(this.virtualStart, this.virtualEnd);
+    const key = [
+      this._msgSeq,
+      this.virtualStart,
+      this.virtualEnd,
+      this.virtualTop,
+      this.messages.length,
+    ].join(':');
+    return memoize(virtualMessagesSlot, key, () => {
+      if (!this.virtualEnabled()) return this.messages;
+      if (!this.virtualEnd) {
+        return this.messages.slice(Math.max(0, this.messages.length - 80));
+      }
+      return this.messages.slice(this.virtualStart, this.virtualEnd);
+    });
   },
 
   scheduleVirtualRange() {

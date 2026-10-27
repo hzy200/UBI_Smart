@@ -126,6 +126,7 @@ const agentApp = () => {
   toolFilter: 'all',
   toolFilterClasses: { all: 'active', running: '', ok: '', error: '' },
   toolQuery: '',
+  _toolsVersion: 0,
   files: [],
   checkpoints: [],
   diffText: '',

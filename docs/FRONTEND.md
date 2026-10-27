@@ -413,6 +413,10 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 - 流式 Markdown 做块级增量渲染：缓存空行分隔的稳定块，只重渲染尾部；
   未闭合代码围栏、列表/引用/表格等跨空行语法保守留在尾部，保证正确性。
 - 长消息/工具输出默认折叠；`content-visibility: auto` 降低长列表成本。
+- 工具输出按行分页：首次只渲染前 40 行，点“加载更多”每次增加 200 行，
+  工具面板与 transcript 都不会把超大输出一次性塞进 DOM。
+- `filteredTools()` 与 `virtualMessages()` 使用单槽缓存，只在版本/查询/窗口
+  变化时重算；切换会话时清空缓存，避免逐 token 重复过滤。
 - 会话列表最多加载 50 条；会话按工作区分组，避免一次渲染过多。
 - 代码高亮只做一次；复制按钮/代码按钮不重复装饰。
 - 长会话使用变量高度虚拟列表（实测高度 + overscan），只渲染视口附近消息；
@@ -459,8 +463,9 @@ transcript 保存。`node test.mjs` 覆盖 diff 解析/split/词级标记、查�
 fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、增量 Markdown、
 会话摘要与焦点循环等纯函数。`node test-dom.mjs` 用 jsdom 真实加载
 `static/index.html`、vendored Alpine CSP 与 `app.js`，桩掉后端 API 后验证
-会话未读/摘要/批量选择、文件树 Git 标记、Problems 折叠、流式渲染、
-模态焦点陷阱，并把 Alpine 表达式错误作为失败。
+会话未读/摘要/批量选择、文件树 Git 标记与键盘导航、Problems 折叠、流式渲染、
+大工具输出分页与派生缓存、阶段播报、模态焦点陷阱，并把 Alpine 表达式错误
+作为失败。
 
 分离改造实施后新增契约测试（设计冻结，锚点见验收 `REQ-202`–`REQ-212`）：
 
@@ -517,6 +522,8 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | `web/frontend/src/ui/markdown.ts` | 流式 Markdown 稳定块切分与增量渲染 |
 | `web/frontend/src/ui/focus.ts` | 模态 Tab 循环计算 |
 | `web/frontend/src/ui/sessions.ts` | 会话列表摘要与元信息格式化 |
+| `web/frontend/src/ui/output.ts` | 大工具输出按行分页 |
+| `web/frontend/src/ui/memo.ts` | 派生列表单槽缓存 |
 | `web/frontend/src/features/focus.ts` | 模态焦点进入/陷阱/恢复 mixin |
 | `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |
 | `web/frontend/tests/dom/*` | jsdom 交互测试（`node test-dom.mjs`） |

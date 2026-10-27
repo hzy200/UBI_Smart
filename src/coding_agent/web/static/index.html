@@ -638,13 +638,20 @@
               <div class="inline-tool-cmd" x-show="m.summary"
                    x-text="m.summary"></div>
               <pre class="inline-tool-out" x-show="m.preview"
-                   x-text="m.preview"
+                   x-text="m._outputText"
                    :class="m._outputClass"></pre>
-              <button class="msg-toggle"
-                      x-show="m._longOutput"
-                      data-action="message" data-op="expand" :data-id="m.id" @click="onAction">
-                展开/收起
-              </button>
+              <div class="output-actions">
+                <button class="msg-toggle"
+                        x-show="m._longOutput"
+                        data-action="message" data-op="expand" :data-id="m.id" @click="onAction">
+                  展开/收起
+                </button>
+                <button class="msg-toggle"
+                        x-show="m._outputMore"
+                        data-action="message" data-op="more-output" :data-id="m.id" @click="onAction"
+                        x-text="m._outputMoreLabel"></button>
+                <span class="note" x-show="m._outputHint" x-text="m._outputHint"></span>
+              </div>
             </div>
           </template>
           <template x-if="m._notTool">
@@ -778,7 +785,13 @@
                   data-action="copy-tool-text" :data-key="t.key" @click="onAction">复制</button>
         </div>
         <div class="tool-summary" x-text="t.summary"></div>
-        <div class="tool-preview" x-show="t.preview" x-text="t.preview"></div>
+        <div class="tool-preview" x-show="t.preview" x-text="t._previewText"></div>
+        <div class="output-actions" x-show="t._previewMore">
+          <button class="tool-copy" x-show="t._previewMore"
+                  data-action="more-tool-preview" :data-key="t.key" @click="onAction"
+                  x-text="t._previewMoreLabel"></button>
+          <span class="note" x-show="t._previewHint" x-text="t._previewHint"></span>
+        </div>
         <details class="tool-detail">
           <summary>详情</summary>
           <pre x-text="t._detail"></pre>

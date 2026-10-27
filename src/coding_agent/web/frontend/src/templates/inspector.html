@@ -46,7 +46,13 @@
                   data-action="copy-tool-text" :data-key="t.key" @click="onAction">复制</button>
         </div>
         <div class="tool-summary" x-text="t.summary"></div>
-        <div class="tool-preview" x-show="t.preview" x-text="t.preview"></div>
+        <div class="tool-preview" x-show="t.preview" x-text="t._previewText"></div>
+        <div class="output-actions" x-show="t._previewMore">
+          <button class="tool-copy" x-show="t._previewMore"
+                  data-action="more-tool-preview" :data-key="t.key" @click="onAction"
+                  x-text="t._previewMoreLabel"></button>
+          <span class="note" x-show="t._previewHint" x-text="t._previewHint"></span>
+        </div>
         <details class="tool-detail">
           <summary>详情</summary>
           <pre x-text="t._detail"></pre>

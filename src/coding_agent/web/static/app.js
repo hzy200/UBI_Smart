@@ -1736,6 +1736,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
   var renderTimers = /* @__PURE__ */ new Map();
   var tokenBuffers = /* @__PURE__ */ new Map();
   var markdownCaches = /* @__PURE__ */ new Map();
+  var filteredToolsSlot = { key: "", value: [] };
+  var virtualMessagesSlot = { key: "", value: [] };
+  function clearDerivedCaches() {
+    filteredToolsSlot.key = "";
+    filteredToolsSlot.value = [];
+    virtualMessagesSlot.key = "";
+    virtualMessagesSlot.value = [];
+  }
   var messageHeights = /* @__PURE__ */ new Map();
 
   // src/ui/sessions.ts
@@ -2234,6 +2242,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       renderTimers.clear();
       tokenBuffers.clear();
       markdownCaches.clear();
+      clearDerivedCaches();
+      this._toolsVersion = 0;
       this.files = [];
       this.checkpoints = [];
       this.diffText = "";
@@ -2419,6 +2429,40 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     return tail ? html + renderFn(tail) : html;
   }
 
+  // src/ui/output.ts
+  function outputPage(text, limitLines = 40) {
+    const source = String(text ?? "");
+    const lines = source.split("\n");
+    const limit = Math.max(1, Number(limitLines) || 40);
+    if (lines.length <= limit) {
+      return {
+        text: source,
+        total: lines.length,
+        shown: lines.length,
+        hidden: 0,
+        truncated: false,
+        hint: ""
+      };
+    }
+    return {
+      text: lines.slice(0, limit).join("\n"),
+      total: lines.length,
+      shown: limit,
+      hidden: lines.length - limit,
+      truncated: true,
+      hint: `\u663E\u793A ${limit}/${lines.length} \u884C`
+    };
+  }
+
+  // src/ui/memo.ts
+  function memoize(slot, key, compute) {
+    if (slot.key !== key) {
+      slot.value = compute();
+      slot.key = key;
+    }
+    return slot.value;
+  }
+
   // src/ui/search.ts
   function includesQuery(haystack, query) {
     const needle = String(query || "").trim().toLowerCase();
@@ -2522,6 +2566,17 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       const text = String(message.text || "");
       message._longAnswer = !message._isTool && (text.length > 1200 || text.split("\n").length > 24);
       message._hasToolText = Boolean(message.summary || message.preview);
+      if (message._isTool) {
+        const page = outputPage(
+          message.preview || "",
+          message._outputLimit || 40
+        );
+        message._outputText = page.text;
+        message._outputHint = page.hint;
+        message._outputHidden = page.hidden;
+        message._outputMore = page.truncated;
+        message._outputMoreLabel = page.truncated ? `\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 ${page.hidden} \u884C\uFF09` : "";
+      }
       message._badgeClass = `badge-${resolved}`;
       message._hit = Boolean(message._hit);
       message._renderClass = `${message._cls || ""}${message._hit ? " msg-hit" : ""}`;
@@ -2758,11 +2813,20 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return this.messages.map((message) => (messageHeights.get(message.id) || this.estimateMessageHeight(message)) + MESSAGE_GAP);
     },
     virtualMessages() {
-      if (!this.virtualEnabled()) return this.messages;
-      if (!this.virtualEnd) {
-        return this.messages.slice(Math.max(0, this.messages.length - 80));
-      }
-      return this.messages.slice(this.virtualStart, this.virtualEnd);
+      const key = [
+        this._msgSeq,
+        this.virtualStart,
+        this.virtualEnd,
+        this.virtualTop,
+        this.messages.length
+      ].join(":");
+      return memoize(virtualMessagesSlot, key, () => {
+        if (!this.virtualEnabled()) return this.messages;
+        if (!this.virtualEnd) {
+          return this.messages.slice(Math.max(0, this.messages.length - 80));
+        }
+        return this.messages.slice(this.virtualStart, this.virtualEnd);
+      });
     },
     scheduleVirtualRange() {
       if (!this.virtualEnabled() || this._virtualRaf) return;
@@ -3509,6 +3573,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           args: event.args || existing._start && existing._start.args || {}
         };
         this.refreshToolDetail(existing);
+        this._toolsVersion += 1;
         return;
       }
       const tool = {
@@ -3533,6 +3598,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.refreshToolDetail(tool);
       toolMap.set(key, tool);
       this.tools.unshift(tool);
+      this._toolsVersion += 1;
     },
     finishTool(event) {
       const key = event.call_id || event.name || "";
@@ -3571,9 +3637,18 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         preview: String(event.preview || "").slice(0, 4e3)
       };
       this.refreshToolDetail(tool);
+      this._toolsVersion += 1;
     },
     refreshToolDetail(tool) {
       tool._hasToolText = Boolean(tool.summary || tool.preview);
+      const page = outputPage(
+        tool.preview || "",
+        tool._previewLimit || 40
+      );
+      tool._previewText = page.text;
+      tool._previewHint = page.hint;
+      tool._previewMore = page.truncated;
+      tool._previewMoreLabel = page.truncated ? `\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 ${page.hidden} \u884C\uFF09` : "";
       tool._detail = JSON.stringify({
         call_id: tool.call_id,
         name: tool.name,
@@ -3597,7 +3672,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return this.toolFilter === name ? "active" : "";
     },
     filteredTools() {
-      return this.tools.filter((tool) => {
+      const key = `${this._toolsVersion}|${this.toolFilter}|${this.toolQuery}`;
+      return memoize(filteredToolsSlot, key, () => this.tools.filter((tool) => {
         const state = tool.state || "running";
         if (this.toolFilter === "running" && state !== "running") return false;
         if (this.toolFilter === "ok" && state !== "ok") return false;
@@ -3608,7 +3684,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           `${tool.name} ${tool.summary} ${tool.preview}`,
           this.toolQuery
         );
-      });
+      }));
+    },
+    moreToolPreview(key) {
+      const tool = this.tools.find((item) => item.key === key);
+      if (!tool) return;
+      tool._previewLimit = (tool._previewLimit || 40) + 200;
+      this.refreshToolDetail(tool);
+      this._toolsVersion += 1;
     },
     toolMessageKey(event) {
       return event.call_id || event.name || "";
@@ -3641,11 +3724,17 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _expanded: false,
         _cls: "msg-tool tool-running",
         _timing: "",
-        _longOutput: false
+        _longOutput: false,
+        _outputLimit: 40
       };
       this.decorateMessage(message, "tool");
       this.messages.push(message);
       this.scrollBottom(false);
+    },
+    moreToolOutput(message) {
+      if (!message) return;
+      message._outputLimit = (message._outputLimit || 40) + 200;
+      this.decorateMessage(message, "tool");
     },
     finishToolMessage(event) {
       const key = this.toolMessageKey(event);
@@ -6143,6 +6232,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         case "copy-tool-text":
           this.copyToolText(data.key);
           break;
+        case "more-tool-preview":
+          this.moreToolPreview(data.key);
+          break;
         case "copy-path":
           this.copyText(data.path);
           break;
@@ -6237,6 +6329,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         this.decorateMessage(message);
       }
       if (op === "copy") this.copyTranscriptMessage(message);
+      if (op === "more-output") this.moreToolOutput(message);
     },
     onCommandAction(index) {
       const command = this.filteredCommands()[index];
@@ -6733,6 +6826,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       toolFilter: "all",
       toolFilterClasses: { all: "active", running: "", ok: "", error: "" },
       toolQuery: "",
+      _toolsVersion: 0,
       files: [],
       checkpoints: [],
       diffText: "",

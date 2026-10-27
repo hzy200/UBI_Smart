@@ -5,8 +5,11 @@ import {
   formatTokens,
 } from '../ui/format';
 import {
+  filteredToolsSlot,
   toolMap,
 } from '../state/runtime';
+import { memoize } from '../ui/memo';
+import { outputPage } from '../ui/output';
 import type {
   AgentEvent,
 } from '../contracts';
@@ -352,6 +355,7 @@ export const eventsMixin = {
         args: event.args || (existing._start && existing._start.args) || {},
       };
       this.refreshToolDetail(existing);
+      this._toolsVersion += 1;
       return;
     }
     const tool = {
@@ -376,6 +380,7 @@ export const eventsMixin = {
     this.refreshToolDetail(tool);
     toolMap.set(key, tool);
     this.tools.unshift(tool);
+    this._toolsVersion += 1;
   },
 
   finishTool(event) {
@@ -415,10 +420,21 @@ export const eventsMixin = {
       preview: String(event.preview || '').slice(0, 4000),
     };
     this.refreshToolDetail(tool);
+    this._toolsVersion += 1;
   },
 
   refreshToolDetail(tool) {
     tool._hasToolText = Boolean(tool.summary || tool.preview);
+    const page = outputPage(
+      tool.preview || '',
+      tool._previewLimit || 40,
+    );
+    tool._previewText = page.text;
+    tool._previewHint = page.hint;
+    tool._previewMore = page.truncated;
+    tool._previewMoreLabel = page.truncated
+      ? `加载更多（剩余 ${page.hidden} 行）`
+      : '';
     tool._detail = JSON.stringify({
       call_id: tool.call_id,
       name: tool.name,
@@ -445,21 +461,32 @@ export const eventsMixin = {
   },
 
   filteredTools() {
-    return this.tools.filter((tool) => {
-      const state = tool.state || 'running';
-      if (this.toolFilter === 'running' && state !== 'running') return false;
-      if (this.toolFilter === 'ok' && state !== 'ok') return false;
-      if (
-        this.toolFilter === 'error'
-        && !['error', 'rejected', 'interrupted'].includes(state)
-      ) {
-        return false;
-      }
-      return includesQuery(
-        `${tool.name} ${tool.summary} ${tool.preview}`,
-        this.toolQuery,
-      );
-    });
+    const key = `${this._toolsVersion}|${this.toolFilter}|${this.toolQuery}`;
+    return memoize(filteredToolsSlot, key, () => (
+      this.tools.filter((tool) => {
+        const state = tool.state || 'running';
+        if (this.toolFilter === 'running' && state !== 'running') return false;
+        if (this.toolFilter === 'ok' && state !== 'ok') return false;
+        if (
+          this.toolFilter === 'error'
+          && !['error', 'rejected', 'interrupted'].includes(state)
+        ) {
+          return false;
+        }
+        return includesQuery(
+          `${tool.name} ${tool.summary} ${tool.preview}`,
+          this.toolQuery,
+        );
+      })
+    ));
+  },
+
+  moreToolPreview(key) {
+    const tool = this.tools.find((item) => item.key === key);
+    if (!tool) return;
+    tool._previewLimit = (tool._previewLimit || 40) + 200;
+    this.refreshToolDetail(tool);
+    this._toolsVersion += 1;
   },
 
   toolMessageKey(event) {
@@ -495,10 +522,17 @@ export const eventsMixin = {
       _cls: 'msg-tool tool-running',
       _timing: '',
       _longOutput: false,
+      _outputLimit: 40,
     };
     this.decorateMessage(message, 'tool');
     this.messages.push(message);
     this.scrollBottom(false);
+  },
+
+  moreToolOutput(message) {
+    if (!message) return;
+    message._outputLimit = (message._outputLimit || 40) + 200;
+    this.decorateMessage(message, 'tool');
   },
 
   finishToolMessage(event) {

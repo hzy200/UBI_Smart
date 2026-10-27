@@ -37,6 +37,7 @@ export const cspMixin = {
       case 'command-hover': this.hoverCommand(Number(data.index)); break;
       case 'copy-tool': this.copyToolDetail(data.key); break;
       case 'copy-tool-text': this.copyToolText(data.key); break;
+      case 'more-tool-preview': this.moreToolPreview(data.key); break;
       case 'copy-path': this.copyText(data.path); break;
       case 'delete-upload': this.deleteUpload(data.path); break;
       case 'select-project': this.selectProject(data.id); break;
@@ -108,6 +109,7 @@ export const cspMixin = {
       this.decorateMessage(message);
     }
     if (op === 'copy') this.copyTranscriptMessage(message);
+    if (op === 'more-output') this.moreToolOutput(message);
   },
 
   onCommandAction(index) {

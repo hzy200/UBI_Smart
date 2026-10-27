@@ -141,13 +141,20 @@
               <div class="inline-tool-cmd" x-show="m.summary"
                    x-text="m.summary"></div>
               <pre class="inline-tool-out" x-show="m.preview"
-                   x-text="m.preview"
+                   x-text="m._outputText"
                    :class="m._outputClass"></pre>
-              <button class="msg-toggle"
-                      x-show="m._longOutput"
-                      data-action="message" data-op="expand" :data-id="m.id" @click="onAction">
-                展开/收起
-              </button>
+              <div class="output-actions">
+                <button class="msg-toggle"
+                        x-show="m._longOutput"
+                        data-action="message" data-op="expand" :data-id="m.id" @click="onAction">
+                  展开/收起
+                </button>
+                <button class="msg-toggle"
+                        x-show="m._outputMore"
+                        data-action="message" data-op="more-output" :data-id="m.id" @click="onAction"
+                        x-text="m._outputMoreLabel"></button>
+                <span class="note" x-show="m._outputHint" x-text="m._outputHint"></span>
+              </div>
             </div>
           </template>
           <template x-if="m._notTool">

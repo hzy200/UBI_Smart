@@ -197,6 +197,50 @@ test('jsdom 交互：会话、文件树、Problems、流式渲染与焦点陷阱
       data.finishAssistant();
     });
 
+    await t.test('大工具输出分页渲染且派生列表复用缓存', async () => {
+      const preview = Array.from(
+        { length: 300 },
+        (_, index) => `line ${index}`,
+      ).join('\n');
+      data.handleEvent({
+        type: 'tool_call_started',
+        call_id: 'big',
+        name: 'run',
+        summary: 'big output',
+        level: '执行',
+      });
+      data.handleEvent({
+        type: 'tool_call_finished',
+        call_id: 'big',
+        name: 'run',
+        ok: true,
+        preview,
+      });
+      const message = data.messages.find((m) => m.call_id === 'big');
+      assert.ok(message);
+      assert.equal(message._outputText.split('\n').length, 40);
+      assert.equal(message._outputMore, true);
+      assert.match(message._outputMoreLabel, /剩余 260 行/);
+
+      const first = data.filteredTools();
+      const second = data.filteredTools();
+      assert.equal(first, second);
+      data.setToolFilter('ok');
+      assert.notEqual(data.filteredTools(), first);
+      data.setToolFilter('all');
+
+      data.moreToolOutput(message);
+      assert.equal(message._outputText.split('\n').length, 240);
+      assert.match(message._outputMoreLabel, /剩余 60 行/);
+
+      await waitFor(
+        () => Boolean(document.querySelector('.inline-tool-out')),
+        '工具输出渲染',
+      );
+      const pre = document.querySelector('.inline-tool-out') as HTMLElement;
+      assert.equal(pre.textContent.trim().split('\n').length, 240);
+    });
+
     await t.test('阶段变化写入独立播报区而非 transcript', async () => {
       const transcript = document.querySelector('.transcript') as HTMLElement;
       assert.equal(transcript.getAttribute('aria-live'), 'off');

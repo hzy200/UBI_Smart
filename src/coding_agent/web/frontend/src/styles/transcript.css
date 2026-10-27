@@ -89,6 +89,9 @@
   align-self: flex-start; font-size: 11px; padding: 2px 9px;
   color: var(--accent);
 }
+.output-actions {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+}
 .inline-tool {
   border: 1px solid var(--border); border-left: 3px solid var(--accent);
   border-radius: 10px; background: var(--panel-2);
