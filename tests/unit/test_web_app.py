@@ -627,7 +627,32 @@ def test_thread_history_empty(monkeypatch, settings) -> None:
     assert client.get("/api/thread/none").json() == {
         "messages": [],
         "transcript": [],
+        "transcript_has_more": False,
     }
+
+
+def test_transcript_paginates_from_newest(monkeypatch, settings) -> None:
+    """长轨迹按最新一页往前翻，offset 表示已加载的最新条目数。"""
+    client = _client(monkeypatch, settings)
+    messages = [
+        {"role": "user", "text": f"m{index}"} for index in range(5)
+    ]
+    saved = client.post(
+        "/api/thread/t1/transcript", json={"messages": messages}
+    )
+    assert saved.status_code == 200
+
+    first = client.get("/api/thread/t1?limit=2&offset=0").json()
+    assert [item["text"] for item in first["transcript"]] == ["m3", "m4"]
+    assert first["transcript_has_more"] is True
+
+    second = client.get("/api/thread/t1?limit=2&offset=2").json()
+    assert [item["text"] for item in second["transcript"]] == ["m1", "m2"]
+    assert second["transcript_has_more"] is True
+
+    last = client.get("/api/thread/t1?limit=2&offset=4").json()
+    assert [item["text"] for item in last["transcript"]] == ["m0"]
+    assert last["transcript_has_more"] is False
 
 
 def test_thread_history_reports_unavailable(monkeypatch, settings) -> None:

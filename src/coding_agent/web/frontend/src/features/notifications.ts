@@ -69,6 +69,14 @@ export const notificationsMixin = {
     if (this.notificationsOpen) this.unreadNotifications = 0;
     else this.unreadNotifications += 1;
     this.persistNotifications();
+    this.broadcastNotifications();
+  },
+
+  broadcastNotifications() {
+    this.broadcastSync('notifications', {
+      notifications: this.notifications,
+      unread: this.unreadNotifications,
+    });
   },
 
   openNotification(event) {
@@ -94,12 +102,15 @@ export const notificationsMixin = {
 
   markNotificationsRead() {
     this.unreadNotifications = 0;
+    this.persistNotifications();
+    this.broadcastNotifications();
   },
 
   clearNotifications() {
     this.notifications = [];
     this.unreadNotifications = 0;
     this.persistNotifications();
+    this.broadcastNotifications();
   },
 
   notificationClass(item) {

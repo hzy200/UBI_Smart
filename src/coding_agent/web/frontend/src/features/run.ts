@@ -234,6 +234,7 @@ export const runMixin = {
     if (view.stateText === '运行中…') view.stateText = '就绪';
     view.canReconnect = false;
     await this.loadSessions(true);
+    this.broadcastSync('sessions');
   },
 
   failRun(err, view = this.activeView) {

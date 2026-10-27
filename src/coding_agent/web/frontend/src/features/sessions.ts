@@ -25,6 +25,7 @@ import {
   tokenBuffers,
   toolMap,
 } from '../state/runtime';
+import { prependOlder } from '../ui/history';
 import { sessionMetaText, sessionPreviewText } from '../ui/sessions';
 
 export const sessionsMixin = {
@@ -49,6 +50,12 @@ export const sessionsMixin = {
     }));
     // 先写本地缓存：即使服务端保存失败，下次打开仍能立即看到最近轨迹。
     void writeCachedTranscript(threadId, { transcript: messages });
+    const view = this.sessionViews[threadId];
+    if (view) {
+      // 当前视图已经包含新消息；不要再用旧的 offset 去拼接更早的一页。
+      view._historyItems = messages;
+      view.historyHasMore = false;
+    }
     try {
       const response = await authFetch(
         `/api/thread/${encodeURIComponent(threadId)}/transcript`,
@@ -311,6 +318,7 @@ export const sessionsMixin = {
       }
       invalidateGet('/api/sessions');
       this.filterSessions();
+      this.broadcastSync('sessions');
       return data;
     } catch (err) {
       this.toastMessage(String(err));
@@ -430,6 +438,7 @@ export const sessionsMixin = {
     this.sessionSelected = {};
     invalidateGet('/api/sessions');
     await this.loadSessions(true);
+    this.broadcastSync('sessions');
     this.toastMessage(
       failed
         ? `已完成 ${ok} 个，失败 ${failed} 个`
@@ -551,6 +560,7 @@ export const sessionsMixin = {
     this.restoreDraft(data.thread_id);
     invalidateGet('/api/sessions');
     await this.loadSessions(true);
+    this.broadcastSync('sessions');
     this.syncUrlState();
     this.toastMessage(`会话已创建：${data.thread_id}`);
     return data.thread_id;
@@ -592,6 +602,7 @@ export const sessionsMixin = {
       await readJson(response, '重命名失败');
       invalidateGet('/api/sessions');
       await this.loadSessions(true);
+      this.broadcastSync('sessions');
     } catch (err) {
       this.toastMessage(String(err));
     }
@@ -618,6 +629,7 @@ export const sessionsMixin = {
       }
       invalidateGet('/api/sessions');
       await this.loadSessions(true);
+      this.broadcastSync('sessions');
       this.syncUrlState();
       this.toastMessage('会话已删除');
     } catch (err) {
@@ -834,13 +846,25 @@ export const sessionsMixin = {
     const cached = await readCachedTranscript(id);
     if (cached) {
       this.withView(view, () => this.applyHistoryPayload(cached));
+      view._historyItems = Array.isArray(cached.transcript)
+        ? cached.transcript
+        : [];
+      view._historyOffset = view._historyItems.length;
+      view.historyHasMore = Boolean(cached.transcript_has_more);
       cacheApplied = true;
     }
     try {
-      const response = await authFetch(`/api/thread/${encodeURIComponent(id)}`);
+      const response = await authFetch(
+        `/api/thread/${encodeURIComponent(id)}?limit=200&offset=0`,
+      );
       const data = await readJson(response, '读取历史失败');
       this.withView(view, () => this.applyHistoryPayload(data));
       view._cacheOnly = false;
+      view._historyItems = Array.isArray(data.transcript)
+        ? data.transcript
+        : [];
+      view._historyOffset = view._historyItems.length;
+      view.historyHasMore = Boolean(data.transcript_has_more);
       void writeCachedTranscript(id, data);
       return true;
     } catch (e) {
@@ -851,6 +875,43 @@ export const sessionsMixin = {
       }
       this.toastMessage(String(e));
       return false;
+    }
+  },
+
+  async loadOlderHistory() {
+    const view = this.activeView;
+    if (!view || !view.threadId || view.historyLoading || !view.historyHasMore) {
+      return;
+    }
+    view.historyLoading = true;
+    const scroller = document.querySelector('.transcript') as HTMLElement | null;
+    const beforeHeight = scroller ? scroller.scrollHeight : 0;
+    try {
+      const offset = Number(view._historyOffset || 0);
+      const response = await authFetch(
+        `/api/thread/${encodeURIComponent(view.threadId)}` +
+        `?limit=200&offset=${offset}`,
+      );
+      const data = await readJson(response, '读取更早历史失败');
+      const older = Array.isArray(data.transcript) ? data.transcript : [];
+      if (!older.length) {
+        view.historyHasMore = false;
+        return;
+      }
+      view._historyItems = prependOlder(older, view._historyItems || []);
+      view._historyOffset = offset + older.length;
+      view.historyHasMore = Boolean(data.transcript_has_more);
+      this.withView(view, () => this.applyHistoryPayload({
+        transcript: view._historyItems,
+      }));
+      this.$nextTick(() => {
+        if (!scroller) return;
+        scroller.scrollTop = scroller.scrollHeight - beforeHeight;
+      });
+    } catch (err) {
+      this.toastMessage(String(err));
+    } finally {
+      view.historyLoading = false;
     }
   },
 

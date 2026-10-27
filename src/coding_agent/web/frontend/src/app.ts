@@ -6,6 +6,7 @@
 
 import { bootMixin } from './features/boot';
 import { i18nMixin } from './features/i18n';
+import { multiTabMixin } from './features/multi-tab';
 import { authMixin } from './features/auth';
 import { settingsMixin } from './features/settings';
 import { workspaceMixin } from './features/workspace';
@@ -202,6 +203,12 @@ const agentApp = () => {
   settingsQuery: '',
   sessionsLoading: false,
   fileLoading: false,
+  uploadBusy: false,
+  uploadPercent: 0,
+  uploadText: '',
+  uploadFailed: false,
+  _uploadAbort: null,
+  _lastUploadFiles: [],
   uiError: '',
   _errorRetryKind: '',
   _errorRetryPayload: '',
@@ -232,6 +239,7 @@ const agentApp = () => {
   const mixins = [
     bootMixin,
     i18nMixin,
+    multiTabMixin,
     authMixin,
     sessionViewMixin,
     draftsMixin,

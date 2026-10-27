@@ -275,6 +275,7 @@ export async function startApp() {
       };
       window.fetch = makeFetch();
       window.Headers = globalThis.Headers;
+      window.Response = globalThis.Response;
       window.TextDecoder = globalThis.TextDecoder;
       window.TextEncoder = globalThis.TextEncoder;
       window.structuredClone = globalThis.structuredClone;

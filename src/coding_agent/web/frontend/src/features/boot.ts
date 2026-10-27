@@ -65,6 +65,7 @@ export const bootMixin = {
     this.initLayout();
     this.loadRecentCommands();
     this.loadNotifications();
+    this.initMultiTab();
     this.applyBodyClasses();
     this.refreshBadgeClass();
     window.addEventListener('keydown', (event) => this.onGlobalKeydown(event));
@@ -73,7 +74,19 @@ export const bootMixin = {
     });
     // 离开页面前把 debounce 中的草稿落盘。
     window.addEventListener('pagehide', () => this.flushDraft());
+    this.registerServiceWorker();
     void this.bootstrap();
+  },
+
+  registerServiceWorker() {
+    if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+    const register = () => {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
+        // 非 HTTPS、权限策略或浏览器不支持时静默降级。
+      });
+    };
+    if (document.readyState === 'complete') register();
+    else window.addEventListener('load', register, { once: true });
   },
 
   async bootstrap() {

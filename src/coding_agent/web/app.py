@@ -24,7 +24,12 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -877,6 +882,25 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    @app.get("/sw.js", include_in_schema=False)
+    async def service_worker() -> FileResponse:
+        """Service Worker 必须从根路径提供，才能控制 `/` 与应用外壳。"""
+        return FileResponse(
+            STATIC_DIR / "sw.js",
+            media_type="application/javascript",
+            headers={
+                "Service-Worker-Allowed": "/",
+                "Cache-Control": "no-cache",
+            },
+        )
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    async def manifest() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "manifest.webmanifest",
+            media_type="application/manifest+json",
+        )
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

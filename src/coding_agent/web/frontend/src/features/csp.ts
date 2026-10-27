@@ -343,6 +343,14 @@ export const cspMixin = {
   get resumeDisabled() { return !this.paused; },
   get appendDisabled() { return !this.busy; },
   get replanDisabled() { return !this.busy; },
+  get historyMoreLabel() {
+    return this.historyLoading
+      ? this.t('main.loadingOlder')
+      : this.t('main.loadOlder');
+  },
+  get uploadRetryVisible() {
+    return Boolean(this.uploadFailed) && !this.uploadBusy;
+  },
   get hasUploads() { return this.uploads.length > 0; },
   get problemGroups() { return groupProblems(this.problems, this.problemExpanded); },
   get problemsCountText() {

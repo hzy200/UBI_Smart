@@ -936,6 +936,94 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       }
     });
 
+    await t.test('上传显示进度并在成功后刷新列表', async () => {
+      const calls: Array<{ method: string; url: string }> = [];
+      class FakeXHR {
+        upload: any = {};
+        status = 200;
+        responseText = '';
+        withCredentials = false;
+        onload: any = null;
+        onerror: any = null;
+        onabort: any = null;
+        open(method: string, url: string) {
+          calls.push({ method, url });
+        }
+        setRequestHeader() {}
+        getResponseHeader(name: string) {
+          return name.toLowerCase() === 'content-type'
+            ? 'application/json'
+            : null;
+        }
+        send() {
+          this.upload.onprogress?.({
+            lengthComputable: true,
+            loaded: 50,
+            total: 100,
+          });
+          setTimeout(() => {
+            this.responseText = JSON.stringify({
+              uploads: [{ relative_path: 'note.txt', bytes: 4 }],
+            });
+            this.onload?.();
+          }, 10);
+        }
+        abort() {
+          this.onabort?.();
+        }
+      }
+      const original = (window as any).XMLHttpRequest;
+      (window as any).XMLHttpRequest = FakeXHR;
+      try {
+        data.threadId = 'thread-dom-test';
+        const file = new window.File(['data'], 'note.txt', {
+          type: 'text/plain',
+        });
+        await data.uploadFileList([file]);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].method, 'POST');
+        assert.match(calls[0].url, /\/api\/sessions\/thread-dom-test\/uploads$/);
+        assert.equal(data.uploadBusy, false);
+        assert.equal(data.uploadPercent, 100);
+        assert.equal(data.uploadFailed, false);
+      } finally {
+        (window as any).XMLHttpRequest = original;
+      }
+    });
+
+    await t.test('多标签同步应用通知与设置', () => {
+      const beforeTheme = data.theme;
+      const beforeLocale = data.locale;
+      const beforeNotifications = data.notifications;
+      const beforeUnread = data.unreadNotifications;
+
+      data.onSyncMessage({
+        type: 'notifications',
+        notifications: [{
+          id: 1,
+          kind: 'info',
+          title: '同步通知',
+          body: '',
+          time: '',
+          _cls: 'notif-info',
+        }],
+        unread: 2,
+      });
+      assert.equal(data.notifications[0].title, '同步通知');
+      assert.equal(data.unreadNotifications, 2);
+
+      data.onSyncMessage({
+        type: 'settings',
+        settings: { theme: 'light', locale: 'en-US' },
+      });
+      assert.equal(data.theme, 'light');
+      assert.equal(data.locale, 'en-US');
+
+      data.notifications = beforeNotifications;
+      data.unreadNotifications = beforeUnread;
+      data.applyRemoteSettings({ theme: beforeTheme, locale: beforeLocale });
+    });
+
     await t.test('语言切换更新壳层文案并持久化', async () => {
       data.setView('sessions');
       data.changeLocale({ target: { value: 'en-US' } });

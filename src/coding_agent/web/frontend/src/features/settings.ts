@@ -8,23 +8,31 @@ export const settingsMixin = {
   loadSettings() {
     try {
       const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-      if (saved.theme) this.theme = saved.theme;
-      if (saved.density) this.density = saved.density;
-      if (saved.fontSize) this.fontSize = saved.fontSize;
-      if (saved.fontFamily) this.fontFamily = saved.fontFamily;
-      if (saved.contrast) this.contrast = saved.contrast;
-      if (saved.accent) this.accent = saved.accent;
-      if (saved.codeFontSize) this.codeFontSize = saved.codeFontSize;
-      if (saved.codeLineHeight) this.codeLineHeight = saved.codeLineHeight;
-      if (typeof saved.showReasoning === 'boolean') {
-        this.showReasoning = saved.showReasoning;
-      }
       if (saved.workspace) this.workspaceInput = saved.workspace;
-      if (saved.notify) this.notifyEnabled = true;
-      this.setLocale(saved.locale || 'zh-CN');
+      this.applyRemoteSettings(saved);
     } catch (e) {
       this.setLocale('zh-CN');
     }
+  },
+
+  applyRemoteSettings(saved) {
+    if (!saved || typeof saved !== 'object') return;
+    if (saved.theme) this.theme = saved.theme;
+    if (saved.density) this.density = saved.density;
+    if (saved.fontSize) this.fontSize = saved.fontSize;
+    if (saved.fontFamily) this.fontFamily = saved.fontFamily;
+    if (saved.contrast) this.contrast = saved.contrast;
+    if (saved.accent) this.accent = saved.accent;
+    if (saved.codeFontSize) this.codeFontSize = saved.codeFontSize;
+    if (saved.codeLineHeight) this.codeLineHeight = saved.codeLineHeight;
+    if (typeof saved.showReasoning === 'boolean') {
+      this.showReasoning = saved.showReasoning;
+    }
+    if (typeof saved.notify === 'boolean') {
+      this.notifyEnabled = saved.notify;
+    }
+    this.setLocale(saved.locale || 'zh-CN');
+    this.applyBodyClasses();
   },
 
   changeLocale(event) {
@@ -34,7 +42,7 @@ export const settingsMixin = {
   },
 
   saveSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    const payload = {
       theme: this.theme,
       density: this.density,
       fontSize: this.fontSize,
@@ -47,7 +55,9 @@ export const settingsMixin = {
       workspace: this.workspaceInput,
       notify: this.notifyEnabled,
       locale: this.locale,
-    }));
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
+    this.broadcastSync('settings', { settings: payload });
     this.applyBodyClasses();
   },
 

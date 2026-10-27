@@ -267,6 +267,55 @@ export async function cachedJson<T = any>(
   );
 }
 
+export interface UploadProgress {
+  loaded: number;
+  total: number;
+}
+
+export function uploadForm(
+  url: string,
+  form: FormData,
+  options: {
+    headers?: Record<string, string>;
+    onProgress?: (progress: UploadProgress) => void;
+    signal?: AbortSignal;
+  } = {},
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiUrl(url));
+    const headers = new Headers(options.headers || {});
+    applyAuthHeaders(headers, 'POST');
+    headers.forEach((value, key) => xhr.setRequestHeader(key, value));
+    xhr.withCredentials = currentRuntimeConfig()?.authMode === 'bff-cookie';
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || !options.onProgress) return;
+      options.onProgress({ loaded: event.loaded, total: event.total });
+    };
+    xhr.onerror = () => reject(new Error('上传失败：网络错误'));
+    xhr.onabort = () => reject(new DOMException('上传已取消', 'AbortError'));
+    xhr.onload = () => {
+      const responseHeaders = new Headers();
+      const contentType = xhr.getResponseHeader('content-type');
+      if (contentType) responseHeaders.set('content-type', contentType);
+      const requestId = xhr.getResponseHeader('X-Request-ID');
+      if (requestId) responseHeaders.set('X-Request-ID', requestId);
+      resolve(new Response(xhr.responseText, {
+        status: xhr.status,
+        headers: responseHeaders,
+      }));
+    };
+    if (options.signal) {
+      if (options.signal.aborted) {
+        xhr.abort();
+        return;
+      }
+      options.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+    }
+    xhr.send(form);
+  });
+}
+
 export function invalidateGet(prefix = ''): void {
   responseCache.invalidate(prefix);
 }

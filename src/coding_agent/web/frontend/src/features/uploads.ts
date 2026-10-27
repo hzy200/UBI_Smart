@@ -4,7 +4,9 @@ import {
   authFetch,
   newIdempotencyKey,
   readJson,
+  uploadForm,
 } from '../api/http';
+import { uploadPercent } from '../ui/upload';
 
 export const uploadsMixin = {
   async uploadFiles(event) {
@@ -14,27 +16,68 @@ export const uploadsMixin = {
   },
 
   async uploadFileList(files) {
-    if (!files.length) return;
+    if (!files.length || this.uploadBusy) return;
     try {
       if (!this.threadId) await this.createSession();
-      const form = new FormData();
-      for (const file of files) form.append('files', file);
-      const response = await authFetch(
+    } catch (err) {
+      this.toastMessage(String(err));
+      return;
+    }
+    if (!this.threadId) return;
+    const form = new FormData();
+    for (const file of files) form.append('files', file);
+    this._lastUploadFiles = files;
+    this.uploadBusy = true;
+    this.uploadFailed = false;
+    this.uploadPercent = 0;
+    this.uploadText = this.t('composer.uploading');
+    const controller = new AbortController();
+    this._uploadAbort = controller;
+    try {
+      const response = await uploadForm(
         `/api/sessions/${encodeURIComponent(this.threadId)}/uploads`,
+        form,
         {
-          method: 'POST',
-          body: form,
           headers: { 'Idempotency-Key': newIdempotencyKey() },
+          signal: controller.signal,
+          onProgress: ({ loaded, total }) => {
+            const percent = uploadPercent(loaded, total);
+            this.uploadPercent = percent;
+            this.uploadText = this.t('composer.uploadProgress', { percent });
+          },
         },
       );
       const data = await readJson(response, '上传失败');
-      const paths = (data.uploads || []).map((item) => item.relative_path).join('\n');
-      this.pushMessage('system', `已上传到工作区：\n${paths}`);
-      this.toastMessage(`已上传 ${data.uploads.length} 个文件`);
+      const uploaded = Array.isArray(data.uploads) ? data.uploads : [];
+      const paths = uploaded.map((item) => item.relative_path).join('\n');
+      this.pushMessage('system', `${this.t('composer.uploadedTo')}\n${paths}`);
+      this.toastMessage(
+        this.t('composer.uploadedCount', { count: uploaded.length }),
+      );
+      this.uploadPercent = 100;
       await this.loadUploads();
     } catch (err) {
-      this.toastMessage(String(err));
+      if (err && err.name === 'AbortError') {
+        this.toastMessage(this.t('composer.uploadCancelled'));
+      } else {
+        this.uploadFailed = true;
+        this.toastMessage(String(err));
+      }
+    } finally {
+      this.uploadBusy = false;
+      this.uploadText = '';
+      if (this._uploadAbort === controller) this._uploadAbort = null;
     }
+  },
+
+  cancelUpload() {
+    if (this._uploadAbort) this._uploadAbort.abort();
+  },
+
+  retryUpload() {
+    if (this.uploadBusy) return;
+    const files = this._lastUploadFiles || [];
+    if (files.length) void this.uploadFileList(files);
   },
 
   async loadUploads() {

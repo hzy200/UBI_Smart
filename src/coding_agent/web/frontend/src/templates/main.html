@@ -129,6 +129,10 @@
     </div>
     <div class="sr-only live-region" role="status" aria-live="polite"
          aria-atomic="true" x-text="liveAnnouncement"></div>
+    <div class="history-more" x-show="historyHasMore">
+      <button @click="loadOlderHistory" :disabled="historyLoading"
+              x-text="historyMoreLabel"></button>
+    </div>
     <div class="transcript" :class="transcriptClassValue" x-ref="transcript" role="log"
          aria-live="off" :aria-busy="busy" aria-label="对话记录" @scroll="onTranscriptScroll">
       <div class="virtual-spacer" :style="virtualTopStyle"></div>
@@ -233,8 +237,17 @@
         <button @click="replan" :disabled="replanDisabled" x-text="i18n.composer.replan"></button>
         <label class="upload-label">
           <span x-text="i18n.composer.upload"></span>
-          <input type="file" multiple @change="uploadFiles">
+          <input type="file" multiple @change="uploadFiles" :disabled="uploadBusy">
         </label>
+      </div>
+      <div class="upload-progress" x-show="uploadBusy" role="status" aria-live="polite">
+        <progress max="100" :value="uploadPercent"></progress>
+        <span x-text="uploadText"></span>
+        <button @click="cancelUpload" x-text="i18n.composer.cancelUpload"></button>
+      </div>
+      <div class="upload-progress upload-error" x-show="uploadRetryVisible" role="alert">
+        <span x-text="i18n.composer.uploadFailed"></span>
+        <button @click="retryUpload" x-text="i18n.composer.retryUpload"></button>
       </div>
       <div class="upload-list" x-show="hasUploads">
         <template x-for="u in uploads" :key="u.relative_path">

@@ -51,6 +51,9 @@ jobs:
             src/coding_agent/web/static/app.js
             src/coding_agent/web/static/index.html
             src/coding_agent/web/static/style.css
+            src/coding_agent/web/static/manifest.webmanifest
+            src/coding_agent/web/static/icon.svg
+            src/coding_agent/web/static/sw.js
             src/coding_agent/web/static/vendor
           retention-days: 14
       - name: 测试 + 覆盖率

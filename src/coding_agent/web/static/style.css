@@ -1309,6 +1309,25 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 }
 .tree-row:hover .tree-copy { display: inline-flex; }
 
+.upload-progress {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.upload-progress progress { flex: 1; height: 6px; }
+.upload-progress button { padding: 1px 8px; font-size: 11px; }
+.upload-progress.upload-error { color: var(--bad); }
+
+.history-more {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+}
+.history-more button { font-size: 12px; }
+
 .tabs { display: flex; gap: 4px; padding: 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .tabs button { font-size: 12px; }
 .tabs button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }

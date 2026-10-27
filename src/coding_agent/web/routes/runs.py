@@ -154,19 +154,34 @@ def _clean_transcript(
 
 
 def _load_transcript(
-    tenant: WebTenant, public_thread: str
-) -> list[dict[str, Any]]:
+    tenant: WebTenant,
+    public_thread: str,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], bool]:
+    """按“从最新往回”分页读取桌面轨迹。
+
+    `offset` 表示已经加载过的最新条目数；返回紧邻其前的一页。
+    未指定 limit（或 <=0）时保持旧行为，返回完整轨迹。
+    """
     path = _transcript_path(tenant, public_thread)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return []
+        return [], False
     if not isinstance(payload, dict):
-        return []
+        return [], False
     messages = payload.get("messages")
     if not isinstance(messages, list):
-        return []
-    return [item for item in messages if isinstance(item, dict)]
+        return [], False
+    items = [item for item in messages if isinstance(item, dict)]
+    if limit is None or limit <= 0:
+        return items, False
+    total = len(items)
+    end = max(0, total - max(0, int(offset)))
+    start = max(0, end - int(limit))
+    return items[start:end], start > 0
 
 
 def _save_transcript(
@@ -723,7 +738,12 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         config = deps.config_for(
             user, tenant, public_thread, create=False
         )
-        transcript = _load_transcript(tenant, public_thread)
+        transcript, transcript_has_more = _load_transcript(
+            tenant,
+            public_thread,
+            limit=limit,
+            offset=offset,
+        )
         if deps.agent_client is not None:
             try:
                 data = await deps.agent_client.history(
@@ -736,6 +756,7 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 raise deps.agent_failure(exc) from exc
             if isinstance(data, dict):
                 data["transcript"] = transcript
+                data["transcript_has_more"] = transcript_has_more
             return data
         runtime = deps.ops_runtime(tenant, config)
         try:
@@ -757,6 +778,7 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 for message in history
             ],
             "transcript": transcript,
+            "transcript_has_more": transcript_has_more,
         }
 
     @app.post("/api/thread/{thread_id}/transcript")

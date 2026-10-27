@@ -506,6 +506,41 @@
       options
     );
   }
+  function uploadForm(url, form, options = {}) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", apiUrl(url));
+      const headers = new Headers(options.headers || {});
+      applyAuthHeaders(headers, "POST");
+      headers.forEach((value, key) => xhr.setRequestHeader(key, value));
+      xhr.withCredentials = currentRuntimeConfig()?.authMode === "bff-cookie";
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable || !options.onProgress) return;
+        options.onProgress({ loaded: event.loaded, total: event.total });
+      };
+      xhr.onerror = () => reject(new Error("\u4E0A\u4F20\u5931\u8D25\uFF1A\u7F51\u7EDC\u9519\u8BEF"));
+      xhr.onabort = () => reject(new DOMException("\u4E0A\u4F20\u5DF2\u53D6\u6D88", "AbortError"));
+      xhr.onload = () => {
+        const responseHeaders = new Headers();
+        const contentType = xhr.getResponseHeader("content-type");
+        if (contentType) responseHeaders.set("content-type", contentType);
+        const requestId = xhr.getResponseHeader("X-Request-ID");
+        if (requestId) responseHeaders.set("X-Request-ID", requestId);
+        resolve(new Response(xhr.responseText, {
+          status: xhr.status,
+          headers: responseHeaders
+        }));
+      };
+      if (options.signal) {
+        if (options.signal.aborted) {
+          xhr.abort();
+          return;
+        }
+        options.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+      }
+      xhr.send(form);
+    });
+  }
   function invalidateGet(prefix = "") {
     responseCache.invalidate(prefix);
   }
@@ -556,6 +591,7 @@
       this.initLayout();
       this.loadRecentCommands();
       this.loadNotifications();
+      this.initMultiTab();
       this.applyBodyClasses();
       this.refreshBadgeClass();
       window.addEventListener("keydown", (event) => this.onGlobalKeydown(event));
@@ -563,7 +599,17 @@
         this.handleAuthFailure();
       });
       window.addEventListener("pagehide", () => this.flushDraft());
+      this.registerServiceWorker();
       void this.bootstrap();
+    },
+    registerServiceWorker() {
+      if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+      const register = () => {
+        navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
+        });
+      };
+      if (document.readyState === "complete") register();
+      else window.addEventListener("load", register, { once: true });
     },
     async bootstrap() {
       if (!this.configLoaded) {
@@ -800,7 +846,15 @@
       replan: "\u91CD\u89C4\u5212",
       upload: "\u4E0A\u4F20\u6587\u4EF6",
       splitPlaceholder: "\u5728\u8BE5\u4F1A\u8BDD\u4E2D\u53D1\u9001\u4EFB\u52A1\uFF0CEnter \u53D1\u9001",
-      messageSearch: "\u641C\u7D22\u5BF9\u8BDD\u2026"
+      messageSearch: "\u641C\u7D22\u5BF9\u8BDD\u2026",
+      uploading: "\u4E0A\u4F20\u4E2D\u2026",
+      uploadProgress: "\u4E0A\u4F20\u4E2D {percent}%",
+      uploadCancelled: "\u4E0A\u4F20\u5DF2\u53D6\u6D88",
+      uploadFailed: "\u4E0A\u4F20\u5931\u8D25",
+      cancelUpload: "\u53D6\u6D88\u4E0A\u4F20",
+      retryUpload: "\u91CD\u8BD5\u4E0A\u4F20",
+      uploadedTo: "\u5DF2\u4E0A\u4F20\u5230\u5DE5\u4F5C\u533A\uFF1A",
+      uploadedCount: "\u5DF2\u4E0A\u4F20 {count} \u4E2A\u6587\u4EF6"
     },
     main: {
       mainTabs: "\u4E3B\u533A\u6807\u7B7E",
@@ -810,6 +864,8 @@
       commandPanel: "\u547D\u4EE4\u9762\u677F",
       emptyHint: "\u8F93\u5165\u4EFB\u52A1\u5F00\u59CB\u3002\u9ED8\u8BA4\u53EA\u8BFB\uFF1AAgent \u53EA\u80FD\u8BFB\u53D6\u6587\u4EF6\uFF0C\u4E0D\u80FD\u8FD0\u884C\u547D\u4EE4\u6216\u6D4B\u8BD5\u3002",
       jumpLatest: "\u8DF3\u5230\u6700\u65B0 \u2193",
+      loadOlder: "\u52A0\u8F7D\u66F4\u65E9\u7684\u6D88\u606F",
+      loadingOlder: "\u52A0\u8F7D\u4E2D\u2026",
       taskInput: "\u4EFB\u52A1\u8F93\u5165",
       consentTitle: "\u672C\u673A\u6587\u4EF6\u8BBF\u95EE\u6388\u6743",
       consentAction: "\u64CD\u4F5C",
@@ -959,7 +1015,15 @@
       replan: "Replan",
       upload: "Upload files",
       splitPlaceholder: "Send a task in this session. Enter to send",
-      messageSearch: "Search conversation\u2026"
+      messageSearch: "Search conversation\u2026",
+      uploading: "Uploading\u2026",
+      uploadProgress: "Uploading {percent}%",
+      uploadCancelled: "Upload cancelled",
+      uploadFailed: "Upload failed",
+      cancelUpload: "Cancel upload",
+      retryUpload: "Retry upload",
+      uploadedTo: "Uploaded to workspace:",
+      uploadedCount: "Uploaded {count} file(s)"
     },
     main: {
       mainTabs: "Main tabs",
@@ -969,6 +1033,8 @@
       commandPanel: "Command palette",
       emptyHint: "Enter a task to start. Read-only by default: the agent can read files but cannot run commands or tests.",
       jumpLatest: "Jump to latest \u2193",
+      loadOlder: "Load older messages",
+      loadingOlder: "Loading\u2026",
       taskInput: "Task input",
       consentTitle: "Local file access approval",
       consentAction: "Action",
@@ -1080,6 +1146,62 @@
       this.i18n = MESSAGES[locale];
       if (typeof document !== "undefined" && document.documentElement) {
         document.documentElement.lang = locale;
+      }
+    }
+  };
+
+  // src/ui/multi-tab.ts
+  function parseSyncMessage(raw) {
+    let value = raw;
+    if (typeof raw === "string") {
+      try {
+        value = JSON.parse(raw);
+      } catch (err) {
+        return null;
+      }
+    }
+    if (!value || typeof value !== "object") return null;
+    if (typeof value.type !== "string" || !value.type) return null;
+    return value;
+  }
+
+  // src/features/multi-tab.ts
+  var CHANNEL = "codingagent.sync";
+  var multiTabMixin = {
+    _syncChannel: null,
+    initMultiTab() {
+      if (typeof BroadcastChannel === "undefined") return;
+      try {
+        this._syncChannel = new BroadcastChannel(CHANNEL);
+        this._syncChannel.onmessage = (event) => {
+          this.onSyncMessage(parseSyncMessage(event.data));
+        };
+      } catch (err) {
+        this._syncChannel = null;
+      }
+    },
+    broadcastSync(type, payload = {}) {
+      if (!this._syncChannel) return;
+      try {
+        this._syncChannel.postMessage({ type, ...payload });
+      } catch (err) {
+      }
+    },
+    onSyncMessage(message) {
+      if (!message) return;
+      if (message.type === "sessions") {
+        void this.loadSessions(true);
+        return;
+      }
+      if (message.type === "notifications") {
+        this.notifications = Array.isArray(message.notifications) ? message.notifications : [];
+        this.unreadNotifications = Number(message.unread || 0);
+        return;
+      }
+      if (message.type === "settings") {
+        this.applyRemoteSettings(
+          message.settings && typeof message.settings === "object" ? message.settings : {}
+        );
       }
     }
   };
@@ -1368,23 +1490,30 @@
     loadSettings() {
       try {
         const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-        if (saved.theme) this.theme = saved.theme;
-        if (saved.density) this.density = saved.density;
-        if (saved.fontSize) this.fontSize = saved.fontSize;
-        if (saved.fontFamily) this.fontFamily = saved.fontFamily;
-        if (saved.contrast) this.contrast = saved.contrast;
-        if (saved.accent) this.accent = saved.accent;
-        if (saved.codeFontSize) this.codeFontSize = saved.codeFontSize;
-        if (saved.codeLineHeight) this.codeLineHeight = saved.codeLineHeight;
-        if (typeof saved.showReasoning === "boolean") {
-          this.showReasoning = saved.showReasoning;
-        }
         if (saved.workspace) this.workspaceInput = saved.workspace;
-        if (saved.notify) this.notifyEnabled = true;
-        this.setLocale(saved.locale || "zh-CN");
+        this.applyRemoteSettings(saved);
       } catch (e) {
         this.setLocale("zh-CN");
       }
+    },
+    applyRemoteSettings(saved) {
+      if (!saved || typeof saved !== "object") return;
+      if (saved.theme) this.theme = saved.theme;
+      if (saved.density) this.density = saved.density;
+      if (saved.fontSize) this.fontSize = saved.fontSize;
+      if (saved.fontFamily) this.fontFamily = saved.fontFamily;
+      if (saved.contrast) this.contrast = saved.contrast;
+      if (saved.accent) this.accent = saved.accent;
+      if (saved.codeFontSize) this.codeFontSize = saved.codeFontSize;
+      if (saved.codeLineHeight) this.codeLineHeight = saved.codeLineHeight;
+      if (typeof saved.showReasoning === "boolean") {
+        this.showReasoning = saved.showReasoning;
+      }
+      if (typeof saved.notify === "boolean") {
+        this.notifyEnabled = saved.notify;
+      }
+      this.setLocale(saved.locale || "zh-CN");
+      this.applyBodyClasses();
     },
     changeLocale(event) {
       const value = event && event.target ? event.target.value : "zh-CN";
@@ -1392,7 +1521,7 @@
       this.saveSettings();
     },
     saveSettings() {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      const payload = {
         theme: this.theme,
         density: this.density,
         fontSize: this.fontSize,
@@ -1405,7 +1534,9 @@
         workspace: this.workspaceInput,
         notify: this.notifyEnabled,
         locale: this.locale
-      }));
+      };
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
+      this.broadcastSync("settings", { settings: payload });
       this.applyBodyClasses();
     },
     rememberWorkspace() {
@@ -2443,6 +2574,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
   }
   var messageHeights = /* @__PURE__ */ new Map();
 
+  // src/ui/history.ts
+  function prependOlder(older, current) {
+    return [...older || [], ...current || []];
+  }
+
   // src/ui/sessions.ts
   function sessionPreviewText(message, limit = 90) {
     const text = String(message ?? "").replace(/\s+/g, " ").trim();
@@ -2485,6 +2621,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         ok: message.ok ?? null
       }));
       void writeCachedTranscript(threadId, { transcript: messages });
+      const view = this.sessionViews[threadId];
+      if (view) {
+        view._historyItems = messages;
+        view.historyHasMore = false;
+      }
       try {
         const response = await authFetch(
           `/api/thread/${encodeURIComponent(threadId)}/transcript`,
@@ -2718,6 +2859,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         }
         invalidateGet("/api/sessions");
         this.filterSessions();
+        this.broadcastSync("sessions");
         return data;
       } catch (err) {
         this.toastMessage(String(err));
@@ -2812,6 +2954,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.sessionSelected = {};
       invalidateGet("/api/sessions");
       await this.loadSessions(true);
+      this.broadcastSync("sessions");
       this.toastMessage(
         failed ? `\u5DF2\u5B8C\u6210 ${ok} \u4E2A\uFF0C\u5931\u8D25 ${failed} \u4E2A` : `\u5DF2\u5B8C\u6210 ${ok} \u4E2A\u4F1A\u8BDD`
       );
@@ -2915,6 +3058,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.restoreDraft(data.thread_id);
       invalidateGet("/api/sessions");
       await this.loadSessions(true);
+      this.broadcastSync("sessions");
       this.syncUrlState();
       this.toastMessage(`\u4F1A\u8BDD\u5DF2\u521B\u5EFA\uFF1A${data.thread_id}`);
       return data.thread_id;
@@ -2954,6 +3098,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         await readJson(response, "\u91CD\u547D\u540D\u5931\u8D25");
         invalidateGet("/api/sessions");
         await this.loadSessions(true);
+        this.broadcastSync("sessions");
       } catch (err) {
         this.toastMessage(String(err));
       }
@@ -2979,6 +3124,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         }
         invalidateGet("/api/sessions");
         await this.loadSessions(true);
+        this.broadcastSync("sessions");
         this.syncUrlState();
         this.toastMessage("\u4F1A\u8BDD\u5DF2\u5220\u9664");
       } catch (err) {
@@ -3193,13 +3339,21 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       const cached = await readCachedTranscript(id);
       if (cached) {
         this.withView(view, () => this.applyHistoryPayload(cached));
+        view._historyItems = Array.isArray(cached.transcript) ? cached.transcript : [];
+        view._historyOffset = view._historyItems.length;
+        view.historyHasMore = Boolean(cached.transcript_has_more);
         cacheApplied = true;
       }
       try {
-        const response = await authFetch(`/api/thread/${encodeURIComponent(id)}`);
+        const response = await authFetch(
+          `/api/thread/${encodeURIComponent(id)}?limit=200&offset=0`
+        );
         const data = await readJson(response, "\u8BFB\u53D6\u5386\u53F2\u5931\u8D25");
         this.withView(view, () => this.applyHistoryPayload(data));
         view._cacheOnly = false;
+        view._historyItems = Array.isArray(data.transcript) ? data.transcript : [];
+        view._historyOffset = view._historyItems.length;
+        view.historyHasMore = Boolean(data.transcript_has_more);
         void writeCachedTranscript(id, data);
         return true;
       } catch (e) {
@@ -3210,6 +3364,41 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         }
         this.toastMessage(String(e));
         return false;
+      }
+    },
+    async loadOlderHistory() {
+      const view = this.activeView;
+      if (!view || !view.threadId || view.historyLoading || !view.historyHasMore) {
+        return;
+      }
+      view.historyLoading = true;
+      const scroller = document.querySelector(".transcript");
+      const beforeHeight = scroller ? scroller.scrollHeight : 0;
+      try {
+        const offset = Number(view._historyOffset || 0);
+        const response = await authFetch(
+          `/api/thread/${encodeURIComponent(view.threadId)}?limit=200&offset=${offset}`
+        );
+        const data = await readJson(response, "\u8BFB\u53D6\u66F4\u65E9\u5386\u53F2\u5931\u8D25");
+        const older = Array.isArray(data.transcript) ? data.transcript : [];
+        if (!older.length) {
+          view.historyHasMore = false;
+          return;
+        }
+        view._historyItems = prependOlder(older, view._historyItems || []);
+        view._historyOffset = offset + older.length;
+        view.historyHasMore = Boolean(data.transcript_has_more);
+        this.withView(view, () => this.applyHistoryPayload({
+          transcript: view._historyItems
+        }));
+        this.$nextTick(() => {
+          if (!scroller) return;
+          scroller.scrollTop = scroller.scrollHeight - beforeHeight;
+        });
+      } catch (err) {
+        this.toastMessage(String(err));
+      } finally {
+        view.historyLoading = false;
       }
     },
     async loadApprovals() {
@@ -4151,6 +4340,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       if (view.stateText === "\u8FD0\u884C\u4E2D\u2026") view.stateText = "\u5C31\u7EEA";
       view.canReconnect = false;
       await this.loadSessions(true);
+      this.broadcastSync("sessions");
     },
     failRun(err, view = this.activeView) {
       view.busy = false;
@@ -4903,6 +5093,14 @@ ${detail || ""}`;
     }
   };
 
+  // src/ui/upload.ts
+  function uploadPercent(loaded, total) {
+    const size = Number(total);
+    if (!Number.isFinite(size) || size <= 0) return 0;
+    const percent = Math.round(Number(loaded) / size * 100);
+    return Math.max(0, Math.min(100, percent));
+  }
+
   // src/features/uploads.ts
   var uploadsMixin = {
     async uploadFiles(event) {
@@ -4911,28 +5109,67 @@ ${detail || ""}`;
       await this.uploadFileList(files);
     },
     async uploadFileList(files) {
-      if (!files.length) return;
+      if (!files.length || this.uploadBusy) return;
       try {
         if (!this.threadId) await this.createSession();
-        const form = new FormData();
-        for (const file of files) form.append("files", file);
-        const response = await authFetch(
+      } catch (err) {
+        this.toastMessage(String(err));
+        return;
+      }
+      if (!this.threadId) return;
+      const form = new FormData();
+      for (const file of files) form.append("files", file);
+      this._lastUploadFiles = files;
+      this.uploadBusy = true;
+      this.uploadFailed = false;
+      this.uploadPercent = 0;
+      this.uploadText = this.t("composer.uploading");
+      const controller = new AbortController();
+      this._uploadAbort = controller;
+      try {
+        const response = await uploadForm(
           `/api/sessions/${encodeURIComponent(this.threadId)}/uploads`,
+          form,
           {
-            method: "POST",
-            body: form,
-            headers: { "Idempotency-Key": newIdempotencyKey() }
+            headers: { "Idempotency-Key": newIdempotencyKey() },
+            signal: controller.signal,
+            onProgress: ({ loaded, total }) => {
+              const percent = uploadPercent(loaded, total);
+              this.uploadPercent = percent;
+              this.uploadText = this.t("composer.uploadProgress", { percent });
+            }
           }
         );
         const data = await readJson(response, "\u4E0A\u4F20\u5931\u8D25");
-        const paths = (data.uploads || []).map((item) => item.relative_path).join("\n");
-        this.pushMessage("system", `\u5DF2\u4E0A\u4F20\u5230\u5DE5\u4F5C\u533A\uFF1A
+        const uploaded = Array.isArray(data.uploads) ? data.uploads : [];
+        const paths = uploaded.map((item) => item.relative_path).join("\n");
+        this.pushMessage("system", `${this.t("composer.uploadedTo")}
 ${paths}`);
-        this.toastMessage(`\u5DF2\u4E0A\u4F20 ${data.uploads.length} \u4E2A\u6587\u4EF6`);
+        this.toastMessage(
+          this.t("composer.uploadedCount", { count: uploaded.length })
+        );
+        this.uploadPercent = 100;
         await this.loadUploads();
       } catch (err) {
-        this.toastMessage(String(err));
+        if (err && err.name === "AbortError") {
+          this.toastMessage(this.t("composer.uploadCancelled"));
+        } else {
+          this.uploadFailed = true;
+          this.toastMessage(String(err));
+        }
+      } finally {
+        this.uploadBusy = false;
+        this.uploadText = "";
+        if (this._uploadAbort === controller) this._uploadAbort = null;
       }
+    },
+    cancelUpload() {
+      if (this._uploadAbort) this._uploadAbort.abort();
+    },
+    retryUpload() {
+      if (this.uploadBusy) return;
+      const files = this._lastUploadFiles || [];
+      if (files.length) void this.uploadFileList(files);
     },
     async loadUploads() {
       if (!this.threadId) {
@@ -7179,6 +7416,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (this.notificationsOpen) this.unreadNotifications = 0;
       else this.unreadNotifications += 1;
       this.persistNotifications();
+      this.broadcastNotifications();
+    },
+    broadcastNotifications() {
+      this.broadcastSync("notifications", {
+        notifications: this.notifications,
+        unread: this.unreadNotifications
+      });
     },
     openNotification(event) {
       const id = Number(event.currentTarget.dataset.id);
@@ -7200,11 +7444,14 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     markNotificationsRead() {
       this.unreadNotifications = 0;
+      this.persistNotifications();
+      this.broadcastNotifications();
     },
     clearNotifications() {
       this.notifications = [];
       this.unreadNotifications = 0;
       this.persistNotifications();
+      this.broadcastNotifications();
     },
     notificationClass(item) {
       return `notif-${item && item.kind ? item.kind : "info"}`;
@@ -7834,6 +8081,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     get replanDisabled() {
       return !this.busy;
     },
+    get historyMoreLabel() {
+      return this.historyLoading ? this.t("main.loadingOlder") : this.t("main.loadOlder");
+    },
+    get uploadRetryVisible() {
+      return Boolean(this.uploadFailed) && !this.uploadBusy;
+    },
     get hasUploads() {
       return this.uploads.length > 0;
     },
@@ -8010,6 +8263,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       threadId,
       loaded: false,
       _cacheOnly: false,
+      historyHasMore: false,
+      historyLoading: false,
+      _historyItems: [],
+      _historyOffset: 0,
       lastActiveAt: 0,
       _abort: null,
       stateText: "\u5C31\u7EEA",
@@ -8070,6 +8327,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   // src/features/session-view.ts
   var SESSION_VIEW_FIELDS = [
     "threadId",
+    "historyHasMore",
+    "historyLoading",
     "stateText",
     "costText",
     "usage",
@@ -8555,6 +8814,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       settingsQuery: "",
       sessionsLoading: false,
       fileLoading: false,
+      uploadBusy: false,
+      uploadPercent: 0,
+      uploadText: "",
+      uploadFailed: false,
+      _uploadAbort: null,
+      _lastUploadFiles: [],
       uiError: "",
       _errorRetryKind: "",
       _errorRetryPayload: "",
@@ -8585,6 +8850,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     const mixins = [
       bootMixin,
       i18nMixin,
+      multiTabMixin,
       authMixin,
       sessionViewMixin,
       draftsMixin,

@@ -17,6 +17,8 @@ import {
 
 export const SESSION_VIEW_FIELDS = [
   'threadId',
+  'historyHasMore',
+  'historyLoading',
   'stateText',
   'costText',
   'usage',
