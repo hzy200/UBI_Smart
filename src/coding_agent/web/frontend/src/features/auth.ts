@@ -68,9 +68,11 @@ export const authMixin = {
   },
 
   get authModeLabel() {
-    if (this.authMode === 'desktop-token') return '桌面本地令牌';
-    if (this.authMode === 'bff-cookie') return '统一登录（BFF Cookie）';
-    return 'Bearer Token（仅内存）';
+    if (this.authMode === 'desktop-token') {
+      return this.t('auth.desktopToken');
+    }
+    if (this.authMode === 'bff-cookie') return this.t('auth.bffCookie');
+    return this.t('auth.bearer');
   },
 
   async logout() {

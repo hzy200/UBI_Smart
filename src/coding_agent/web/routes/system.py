@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -12,7 +14,9 @@ from coding_agent import __version__
 from coding_agent.config import Settings
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
+from coding_agent.web.client_errors import append_client_error
 from coding_agent.web.dependencies import UserDep
+from coding_agent.web.models import ClientErrorReport
 from coding_agent.web.validation import check_thread_id
 from coding_agent.web.version import (
     CAPABILITIES_VERSION,
@@ -35,6 +39,29 @@ class SystemDeps:
 
 
 def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
+    @app.post("/api/client-errors")
+    async def client_errors(
+        payload: ClientErrorReport,
+        user: UserDep,
+    ) -> dict:
+        """接收前端错误摘要；默认由客户端设置决定是否发送。"""
+        record = {
+            "ts": datetime.now(UTC).isoformat(timespec="seconds"),
+            "user": user.name,
+            "kind": payload.kind,
+            "message": payload.message,
+            "stack": payload.stack,
+            "url": payload.url,
+            "version": payload.version,
+            "locale": payload.locale,
+            "client_at": payload.at,
+        }
+        append_client_error(
+            Path(deps.settings.resolved_audit_dir) / "client-errors.jsonl",
+            record,
+        )
+        return {"ok": True}
+
     @app.get("/healthz")
     async def healthz() -> dict:
         """公开存活探针：不暴露模型、Key、工作区等配置。"""

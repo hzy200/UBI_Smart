@@ -592,6 +592,7 @@
       this.loadRecentCommands();
       this.loadNotifications();
       this.initMultiTab();
+      this.initErrorReporting();
       this.applyBodyClasses();
       this.refreshBadgeClass();
       window.addEventListener("keydown", (event) => this.onGlobalKeydown(event));
@@ -938,8 +939,124 @@
       lhRelaxed: "\u5BBD\u677E",
       resetLayout: "\u91CD\u7F6E\u4FA7\u680F/\u68C0\u67E5\u5668\u5BBD\u5EA6",
       showReasoning: "\u663E\u793A\u6A21\u578B\u63A8\u7406\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF1B\u53EA\u5F71\u54CD\u754C\u9762\u5C55\u793A\uFF09",
+      providerProfiles: "Provider \u6863\u6848",
+      profilesDisabled: "\u591A\u7528\u6237\u6A21\u5F0F\u8BF7\u901A\u8FC7 AGENT_LLM_PROVIDERS \u914D\u7F6E\u3002",
+      profileName: "\u540D\u79F0\uFF0C\u5982 local",
+      profileBaseUrl: "https://api.example.com/v1",
+      profileModel: "\u6A21\u578B\u540D",
+      saveProfile: "\u4FDD\u5B58\u6863\u6848",
+      discoverModels: "\u53D1\u73B0\u6A21\u578B",
+      localPreset: "\u672C\u5730\u7AEF\u70B9\u9884\u8BBE",
+      edit: "\u7F16\u8F91",
+      delete: "\u5220\u9664",
+      modelKeys: "\u6A21\u578B\u5BC6\u94A5",
+      keyNote: "\u5BC6\u94A5\u53EA\u5199\u5165\u64CD\u4F5C\u7CFB\u7EDF\u5BC6\u94A5\u73AF\uFF0C\u4E0D\u4F1A\u56DE\u4F20\u6216\u5199\u5165 .env\u3002",
+      provider: "Provider",
+      apiKey: "\u7C98\u8D34 API Key",
+      saveKey: "\u4FDD\u5B58\u5BC6\u94A5",
+      testConnection: "\u6D4B\u8BD5\u8FDE\u63A5",
+      deleteKey: "\u5220\u9664\u5BC6\u94A5",
+      workspacePython: "\u5DE5\u4F5C\u533A\u4E0E Python",
+      pickFolder: "\u9009\u62E9\u6587\u4EF6\u5939",
+      reprobe: "\u91CD\u65B0\u63A2\u6D4B",
+      copyToWsl: "\u590D\u5236\u5230 WSL \u539F\u751F\u76EE\u5F55",
+      projectRegistry: "\u9879\u76EE\uFF08\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\uFF09",
+      importToWsl: "\u5BFC\u5165\u5230 WSL \u5DE5\u4F5C\u533A",
+      addHostWorkspace: "\u6DFB\u52A0\u672C\u673A\u5DE5\u4F5C\u533A",
+      refreshProjects: "\u5237\u65B0\u9879\u76EE",
+      cancelJob: "\u53D6\u6D88\u4EFB\u52A1",
+      archiveLabel: "\u4E0A\u4F20\u9879\u76EE\u5F52\u6863\uFF08zip / tar / tar.gz\uFF09\uFF1B\u53EF\u76F4\u63A5\u62D6\u62FD\u5230\u6B64\u5904",
+      archiveAria: "\u9879\u76EE\u5F52\u6863\u6587\u4EF6",
+      uploadProject: "\u4E0A\u4F20\u5E76\u521B\u5EFA\u9879\u76EE",
+      dropRelease: "\u677E\u5F00\u4EE5\u9009\u62E9\u8BE5\u5F52\u6863",
+      open: "\u6253\u5F00",
+      noProjects: "\u8FD8\u6CA1\u6709\u9879\u76EE",
+      revisions: "Revisions",
+      noRevisions: "\u8FD8\u6CA1\u6709 revision",
+      rollback: "\u56DE\u6EDA",
+      restoreArchive: "\u6062\u590D\u5F52\u6863",
+      pruneArchives: "\u6E05\u7406\u65E7\u5F52\u6863",
+      registryDisabled: "\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u672A\u542F\u7528\uFF1B\u4F7F\u7528\u4E0A\u9762\u7684\u5DE5\u4F5C\u533A\u8DEF\u5F84\u76F4\u63A5\u521B\u5EFA\u4F1A\u8BDD\u3002",
+      budgetNotify: "\u9884\u7B97\u4E0E\u901A\u77E5",
+      notifyHint: "\u5BA1\u6279 / \u5B8C\u6210 / \u5931\u8D25\u65F6\u53D1\u9001\u7CFB\u7EDF\u901A\u77E5",
+      diagnosticsUpdate: "\u8BCA\u65AD\u4E0E\u66F4\u65B0",
+      collectDiagnostics: "\u751F\u6210\u8BCA\u65AD\u5305",
+      openFolder: "\u6253\u5F00\u6240\u5728\u76EE\u5F55",
+      checkUpdate: "\u68C0\u67E5\u66F4\u65B0",
+      downloadUpdate: "\u4E0B\u8F7D\u66F4\u65B0",
+      account: "\u8D26\u6237",
+      logout: "\u9000\u51FA\u767B\u5F55",
+      maintenance: "\u8FD0\u7EF4\u7EF4\u62A4",
+      releaseLease: "\u91CA\u653E\u5F53\u524D\u4F1A\u8BDD\u79DF\u7EA6",
+      purgeMaintenance: "\u6E05\u7406\u8FC7\u671F\u79DF\u7EA6/\u5E42\u7B49\u952E",
+      settingsSaved: "\u8BBE\u7F6E\u4F1A\u7ACB\u5373\u4FDD\u5B58\u5230\u672C\u673A\u3002",
+      errorReporting: "\u53D1\u9001\u524D\u7AEF\u9519\u8BEF\u62A5\u544A\uFF08\u4EC5\u9519\u8BEF\u6458\u8981\uFF0C\u4E0D\u542B\u5BF9\u8BDD\u5185\u5BB9\uFF09",
+      errorReportingOn: "\u5DF2\u5F00\u542F\u524D\u7AEF\u9519\u8BEF\u4E0A\u62A5",
+      errorReportingOff: "\u5DF2\u5173\u95ED\u524D\u7AEF\u9519\u8BEF\u4E0A\u62A5",
+      copyClientErrors: "\u590D\u5236\u6700\u8FD1\u9519\u8BEF",
+      authMode: "\u8BA4\u8BC1\u65B9\u5F0F\uFF1A{mode}",
       matches: "\u627E\u5230 {count} \u4E2A\u5206\u7C7B",
       noResults: "\u6CA1\u6709\u5339\u914D\u7684\u8BBE\u7F6E"
+    },
+    auth: {
+      bearer: "Bearer Token\uFF08\u4EC5\u5185\u5B58\uFF09",
+      desktopToken: "\u684C\u9762\u4EE4\u724C\uFF08\u672C\u5730\u5B58\u50A8\uFF09",
+      bffCookie: "\u7EDF\u4E00\u767B\u5F55\uFF08BFF Cookie\uFF09"
+    },
+    commands: {
+      title: "\u547D\u4EE4\u9762\u677F",
+      placeholder: "\u8F93\u5165\u547D\u4EE4\u3001\u4F1A\u8BDD\u6216\u6587\u4EF6\uFF1B\u652F\u6301 > \u547D\u4EE4 / @ \u4F1A\u8BDD / # \u6587\u4EF6",
+      searchAria: "\u547D\u4EE4\u9762\u677F\u641C\u7D22",
+      listAria: "\u547D\u4EE4\u5217\u8868",
+      searching: "\u6B63\u5728\u641C\u7D22\u6587\u4EF6\u2026",
+      empty: "\u6CA1\u6709\u5339\u914D\u7684\u547D\u4EE4",
+      groups: {
+        commands: "\u547D\u4EE4",
+        session: "\u4F1A\u8BDD",
+        file: "\u6587\u4EF6",
+        fileContent: "\u6587\u4EF6\u5185\u5BB9",
+        filePath: "\u6587\u4EF6\u8DEF\u5F84",
+        recent: "\u6700\u8FD1\u4F7F\u7528"
+      },
+      "quick-open": { title: "\u5FEB\u901F\u6253\u5F00\u6587\u4EF6\u2026", hint: "\u6587\u4EF6" },
+      "new-session": { title: "\u65B0\u5EFA\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      settings: { title: "\u6253\u5F00\u8BBE\u7F6E", hint: "\u754C\u9762" },
+      recovery: { title: "\u6253\u5F00\u6062\u590D\u4E2D\u5FC3", hint: "\u754C\u9762" },
+      notifications: { title: "\u901A\u77E5\u4E2D\u5FC3", hint: "\u754C\u9762" },
+      shortcuts: { title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9" },
+      "search-conversation": { title: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD", hint: "\u5BFC\u822A" },
+      "split-session": { title: "\u5F53\u524D\u4F1A\u8BDD\u5206\u5C4F", hint: "\u89C6\u56FE" },
+      "jump-latest": { title: "\u8DF3\u5230\u6700\u65B0\u6D88\u606F", hint: "\u5BFC\u822A" },
+      "toggle-sidebar": { title: "\u5207\u6362\u4FA7\u680F", hint: "\u5E03\u5C40" },
+      "toggle-inspector": { title: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668", hint: "\u5E03\u5C40" },
+      "view-sessions": { title: "\u89C6\u56FE\uFF1A\u4F1A\u8BDD", hint: "\u5BFC\u822A" },
+      "view-files": { title: "\u89C6\u56FE\uFF1A\u6587\u4EF6\u6539\u52A8", hint: "\u5BFC\u822A" },
+      "view-tree": { title: "\u89C6\u56FE\uFF1A\u6587\u4EF6\u6811", hint: "\u5BFC\u822A" },
+      "view-git": { title: "\u89C6\u56FE\uFF1AGit", hint: "\u5BFC\u822A" },
+      "view-tasks": { title: "\u89C6\u56FE\uFF1A\u4EFB\u52A1", hint: "\u5BFC\u822A" },
+      "view-memory": { title: "\u89C6\u56FE\uFF1A\u8BB0\u5FC6", hint: "\u5BFC\u822A" },
+      "view-audit": { title: "\u89C6\u56FE\uFF1A\u5BA1\u8BA1", hint: "\u5BFC\u822A" },
+      "view-problems": { title: "\u89C6\u56FE\uFF1A\u95EE\u9898", hint: "\u5BFC\u822A" },
+      "tab-plan": { title: "\u68C0\u67E5\u5668\uFF1A\u8BA1\u5212", hint: "\u5BFC\u822A" },
+      "tab-tools": { title: "\u68C0\u67E5\u5668\uFF1A\u5DE5\u5177", hint: "\u5BFC\u822A" },
+      "tab-timeline": { title: "\u68C0\u67E5\u5668\uFF1A\u65F6\u95F4\u7EBF", hint: "\u5BFC\u822A" },
+      "close-editor": { title: "\u5173\u95ED\u5F53\u524D\u6807\u7B7E", hint: "\u6807\u7B7E" },
+      "close-other-editors": { title: "\u5173\u95ED\u5176\u4ED6\u6807\u7B7E", hint: "\u6807\u7B7E" },
+      "close-all-editors": { title: "\u5173\u95ED\u6240\u6709\u6587\u4EF6\u6807\u7B7E", hint: "\u6807\u7B7E" },
+      "refresh-files": { title: "\u5237\u65B0\u6587\u4EF6\u5FEB\u7167", hint: "\u6587\u4EF6" },
+      "refresh-tree": { title: "\u5237\u65B0\u6587\u4EF6\u6811", hint: "\u6587\u4EF6" },
+      "git-diff": { title: "\u67E5\u770B Git diff", hint: "Git" },
+      "theme-dark": { title: "\u4E3B\u9898\uFF1A\u6DF1\u8272", hint: "\u5916\u89C2" },
+      "theme-light": { title: "\u4E3B\u9898\uFF1A\u6D45\u8272", hint: "\u5916\u89C2" },
+      "theme-auto": { title: "\u4E3B\u9898\uFF1A\u8DDF\u968F\u7CFB\u7EDF", hint: "\u5916\u89C2" },
+      reasoning: { title: "\u663E\u793A/\u9690\u85CF\u6A21\u578B\u63A8\u7406", hint: "\u5916\u89C2" },
+      "reset-layout": { title: "\u91CD\u7F6E\u5E03\u5C40\u5BBD\u5EA6", hint: "\u5E03\u5C40" },
+      compact: { title: "\u538B\u7F29\u4E0A\u4E0B\u6587\u5E76\u5206\u53C9", hint: "Agent" },
+      pin: { title: "\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      unpin: { title: "\u53D6\u6D88\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      archive: { title: "\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      unarchive: { title: "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      tag: { title: "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E", hint: "\u4F1A\u8BDD" }
     },
     notifications: {
       title: "\u901A\u77E5",
@@ -1118,8 +1235,124 @@
       lhRelaxed: "Relaxed",
       resetLayout: "Reset sidebar/inspector widths",
       showReasoning: "Show model reasoning (off by default; display only)",
+      providerProfiles: "Provider profiles",
+      profilesDisabled: "In multi-user mode configure providers via AGENT_LLM_PROVIDERS.",
+      profileName: "Name, e.g. local",
+      profileBaseUrl: "https://api.example.com/v1",
+      profileModel: "Model name",
+      saveProfile: "Save profile",
+      discoverModels: "Discover models",
+      localPreset: "Local endpoint preset",
+      edit: "Edit",
+      delete: "Delete",
+      modelKeys: "Model keys",
+      keyNote: "Keys are written to the OS keyring, never returned or stored in .env.",
+      provider: "Provider",
+      apiKey: "Paste API key",
+      saveKey: "Save key",
+      testConnection: "Test connection",
+      deleteKey: "Delete key",
+      workspacePython: "Workspace & Python",
+      pickFolder: "Choose folder",
+      reprobe: "Probe again",
+      copyToWsl: "Copy to native WSL directory",
+      projectRegistry: "Projects (workspace registry)",
+      importToWsl: "Import into WSL workspace",
+      addHostWorkspace: "Add host workspace",
+      refreshProjects: "Refresh projects",
+      cancelJob: "Cancel job",
+      archiveLabel: "Upload project archive (zip / tar / tar.gz); drag and drop here",
+      archiveAria: "Project archive file",
+      uploadProject: "Upload and create project",
+      dropRelease: "Release to select this archive",
+      open: "Open",
+      noProjects: "No projects yet",
+      revisions: "Revisions",
+      noRevisions: "No revisions yet",
+      rollback: "Roll back",
+      restoreArchive: "Restore archive",
+      pruneArchives: "Prune old archives",
+      registryDisabled: "Workspace registry is disabled; create sessions with the workspace path above.",
+      budgetNotify: "Budget & notifications",
+      notifyHint: "Send a system notification on approval / completion / failure",
+      diagnosticsUpdate: "Diagnostics & updates",
+      collectDiagnostics: "Collect diagnostics",
+      openFolder: "Open containing folder",
+      checkUpdate: "Check for updates",
+      downloadUpdate: "Download update",
+      account: "Account",
+      logout: "Sign out",
+      maintenance: "Maintenance",
+      releaseLease: "Release current session lease",
+      purgeMaintenance: "Purge expired leases/idempotency keys",
+      settingsSaved: "Settings are saved locally immediately.",
+      errorReporting: "Send frontend error reports (summary only, no conversation content)",
+      errorReportingOn: "Frontend error reporting enabled",
+      errorReportingOff: "Frontend error reporting disabled",
+      copyClientErrors: "Copy recent errors",
+      authMode: "Authentication: {mode}",
       matches: "{count} matching sections",
       noResults: "No matching settings"
+    },
+    auth: {
+      bearer: "Bearer token (memory only)",
+      desktopToken: "Desktop token (local storage)",
+      bffCookie: "Unified login (BFF cookie)"
+    },
+    commands: {
+      title: "Command palette",
+      placeholder: "Type a command, session or file; > command / @ session / # file",
+      searchAria: "Search command palette",
+      listAria: "Command list",
+      searching: "Searching files\u2026",
+      empty: "No matching commands",
+      groups: {
+        commands: "Commands",
+        session: "Session",
+        file: "File",
+        fileContent: "File content",
+        filePath: "File path",
+        recent: "Recently used"
+      },
+      "quick-open": { title: "Quick open file\u2026", hint: "File" },
+      "new-session": { title: "New session", hint: "Session" },
+      settings: { title: "Open settings", hint: "UI" },
+      recovery: { title: "Open recovery center", hint: "UI" },
+      notifications: { title: "Notification center", hint: "UI" },
+      shortcuts: { title: "Show keyboard shortcuts", hint: "Help" },
+      "search-conversation": { title: "Search current conversation", hint: "Navigation" },
+      "split-session": { title: "Split current session", hint: "View" },
+      "jump-latest": { title: "Jump to latest message", hint: "Navigation" },
+      "toggle-sidebar": { title: "Toggle sidebar", hint: "Layout" },
+      "toggle-inspector": { title: "Toggle right inspector", hint: "Layout" },
+      "view-sessions": { title: "View: Sessions", hint: "Navigation" },
+      "view-files": { title: "View: File changes", hint: "Navigation" },
+      "view-tree": { title: "View: File tree", hint: "Navigation" },
+      "view-git": { title: "View: Git", hint: "Navigation" },
+      "view-tasks": { title: "View: Tasks", hint: "Navigation" },
+      "view-memory": { title: "View: Memory", hint: "Navigation" },
+      "view-audit": { title: "View: Audit", hint: "Navigation" },
+      "view-problems": { title: "View: Problems", hint: "Navigation" },
+      "tab-plan": { title: "Inspector: Plan", hint: "Navigation" },
+      "tab-tools": { title: "Inspector: Tools", hint: "Navigation" },
+      "tab-timeline": { title: "Inspector: Timeline", hint: "Navigation" },
+      "close-editor": { title: "Close current tab", hint: "Tabs" },
+      "close-other-editors": { title: "Close other tabs", hint: "Tabs" },
+      "close-all-editors": { title: "Close all file tabs", hint: "Tabs" },
+      "refresh-files": { title: "Refresh file snapshots", hint: "File" },
+      "refresh-tree": { title: "Refresh file tree", hint: "File" },
+      "git-diff": { title: "Show Git diff", hint: "Git" },
+      "theme-dark": { title: "Theme: Dark", hint: "Appearance" },
+      "theme-light": { title: "Theme: Light", hint: "Appearance" },
+      "theme-auto": { title: "Theme: Follow system", hint: "Appearance" },
+      reasoning: { title: "Show/hide model reasoning", hint: "Appearance" },
+      "reset-layout": { title: "Reset layout widths", hint: "Layout" },
+      compact: { title: "Compact context and fork", hint: "Agent" },
+      pin: { title: "Pin current session", hint: "Session" },
+      unpin: { title: "Unpin current session", hint: "Session" },
+      archive: { title: "Archive current session", hint: "Session" },
+      unarchive: { title: "Unarchive current session", hint: "Session" },
+      tag: { title: "Edit current session tags", hint: "Session" }
     },
     notifications: {
       title: "Notifications",
@@ -1225,6 +1458,73 @@
           message.settings && typeof message.settings === "object" ? message.settings : {}
         );
       }
+    }
+  };
+
+  // src/ui/error-report.ts
+  function normalizeClientError(kind, error, path) {
+    const isObject = Boolean(error) && typeof error === "object";
+    const name = isObject ? String(error.name || "") : "";
+    const raw = typeof error === "string" ? error : isObject ? String(error.message || "") : String(error || "");
+    const message = raw.replace(/\s+/g, " ").trim();
+    if (!message) return null;
+    if (name === "AbortError" || /abort/i.test(name)) return null;
+    const stack = String(error?.stack || "");
+    return {
+      kind: String(kind || "error").slice(0, 32),
+      message: message.slice(0, 500),
+      stack: stack.slice(0, 4e3),
+      url: String(path || "").slice(0, 500),
+      at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+
+  // src/features/error-report.ts
+  var errorReportMixin = {
+    initErrorReporting() {
+      if (typeof window === "undefined") return;
+      window.addEventListener("error", (event) => {
+        const detail = event.error || event.message;
+        this.captureClientError("error", detail);
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        this.captureClientError(
+          "unhandledrejection",
+          event.reason
+        );
+      });
+    },
+    captureClientError(kind, error) {
+      const path = typeof location !== "undefined" ? location.pathname : "";
+      const report = normalizeClientError(kind, error, path);
+      if (!report) return;
+      this.clientErrors = [report, ...this.clientErrors].slice(0, 20);
+      if (!this.errorReportingEnabled) return;
+      const now = Date.now();
+      if (Object.keys(this._errorReportTimes).length > 100) {
+        this._errorReportTimes = {};
+      }
+      const last = Number(this._errorReportTimes[report.message] || 0);
+      if (now - last < 6e4) return;
+      this._errorReportTimes[report.message] = now;
+      void this.sendClientError(report);
+    },
+    async sendClientError(report) {
+      try {
+        await authFetch("/api/client-errors", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...report,
+            version: FRONTEND_VERSION,
+            locale: this.locale
+          })
+        });
+      } catch (err) {
+      }
+    },
+    copyClientErrors() {
+      this.copyText(JSON.stringify(this.clientErrors, null, 2));
     }
   };
 
@@ -1420,9 +1720,11 @@
       location.assign(target);
     },
     get authModeLabel() {
-      if (this.authMode === "desktop-token") return "\u684C\u9762\u672C\u5730\u4EE4\u724C";
-      if (this.authMode === "bff-cookie") return "\u7EDF\u4E00\u767B\u5F55\uFF08BFF Cookie\uFF09";
-      return "Bearer Token\uFF08\u4EC5\u5185\u5B58\uFF09";
+      if (this.authMode === "desktop-token") {
+        return this.t("auth.desktopToken");
+      }
+      if (this.authMode === "bff-cookie") return this.t("auth.bffCookie");
+      return this.t("auth.bearer");
     },
     async logout() {
       const config = currentRuntimeConfig();
@@ -1534,6 +1836,9 @@
       if (typeof saved.notify === "boolean") {
         this.notifyEnabled = saved.notify;
       }
+      if (typeof saved.errorReporting === "boolean") {
+        this.errorReportingEnabled = saved.errorReporting;
+      }
       this.setLocale(saved.locale || "zh-CN");
       this.applyBodyClasses();
     },
@@ -1541,6 +1846,15 @@
       const value = event && event.target ? event.target.value : "zh-CN";
       this.setLocale(value);
       this.saveSettings();
+    },
+    toggleErrorReporting() {
+      this.errorReportingEnabled = !this.errorReportingEnabled;
+      this.saveSettings();
+      this.toastMessage(
+        this.t(
+          this.errorReportingEnabled ? "settings.errorReportingOn" : "settings.errorReportingOff"
+        )
+      );
     },
     saveSettings() {
       const payload = {
@@ -1555,6 +1869,7 @@
         showReasoning: this.showReasoning,
         workspace: this.workspaceInput,
         notify: this.notifyEnabled,
+        errorReporting: this.errorReportingEnabled,
         locale: this.locale
       };
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
@@ -5064,6 +5379,13 @@ ${detail || ""}`;
     showNextApproval(view = this.activeView) {
       view.approval = view.approvals[0] || null;
       view.approvalPosition = view.approvals.length > 1 ? `\u8FD8\u5269 ${view.approvals.length} \u6761\u5F85\u786E\u8BA4` : "";
+      if (view === this.activeView && view.approval) {
+        const modal = document.querySelector(".approval-modal");
+        const modalOpen = Boolean(
+          modal && !modal.hasAttribute("x-cloak") && modal.style.display !== "none"
+        );
+        this.$nextTick(() => this.focusModal(".approval-modal", !modalOpen));
+      }
     },
     async decide(granted) {
       const view = this.activeView;
@@ -5086,6 +5408,9 @@ ${detail || ""}`;
     },
     async resumeApprovals(view = this.activeView) {
       view.approval = null;
+      if (view === this.activeView) {
+        this.$nextTick(() => this.restoreModalFocus());
+      }
       view.busy = true;
       view.stateText = "\u6062\u590D\u4E2D\u2026";
       view.canReconnect = false;
@@ -6827,6 +7152,14 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       const target = event.target;
       const typing = Boolean(target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable));
       const mod = event.ctrlKey || event.metaKey;
+      if (this.hasApprovals && !typing && !this.commandOpen) {
+        const key = event.key.toLowerCase();
+        if (key === "y" || key === "n") {
+          event.preventDefault();
+          void this.decide(key === "y");
+          return;
+        }
+      }
       if (this.commandOpen) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -6992,8 +7325,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         target.focus();
       }
     },
-    focusModal(selector) {
-      this.rememberModalFocus();
+    focusModal(selector, remember = true) {
+      if (remember) this.rememberModalFocus();
       const attempt = (remaining) => {
         this.$nextTick(() => {
           const modal = selector ? document.querySelector(selector) : this.activeModal();
@@ -7291,7 +7624,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         this.fileSearchResults = (data.results || []).map((row, index) => ({
           ...row,
           _key: `${row.path}:${row.line}:${index}`,
-          _hint: row.kind === "content" ? "\u6587\u4EF6\u5185\u5BB9" : "\u6587\u4EF6\u8DEF\u5F84"
+          _hint: row.kind === "content" ? this.t("commands.groups.fileContent") : this.t("commands.groups.filePath")
         }));
       } catch (err) {
         if (seq !== this._searchSeq || threadId !== this.threadId) return;
@@ -7300,6 +7633,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       } finally {
         if (seq === this._searchSeq) this.fileSearchLoading = false;
       }
+    },
+    commandText(id, field, fallback) {
+      const key = `commands.${id}.${field}`;
+      const value = this.t(key);
+      return value === key ? fallback : value;
     },
     commandItems() {
       const commands = [
@@ -7344,14 +7682,20 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           run: () => this.toggleReasoning()
         },
         { id: "reset-layout", title: "\u91CD\u7F6E\u5E03\u5C40\u5BBD\u5EA6", hint: "\u5E03\u5C40", run: () => this.resetLayout() }
-      ].map((item) => ({ ...item, kind: "command", group: "\u547D\u4EE4" }));
+      ].map((item) => ({
+        ...item,
+        title: this.commandText(item.id, "title", item.title),
+        hint: this.commandText(item.id, "hint", item.hint),
+        kind: "command",
+        group: this.t("commands.groups.commands")
+      }));
       if (this.threadId && !this.busy) {
         commands.push({
           id: "compact",
-          title: "\u538B\u7F29\u4E0A\u4E0B\u6587\u5E76\u5206\u53C9",
-          hint: "Agent",
+          title: this.commandText("compact", "title", "\u538B\u7F29\u4E0A\u4E0B\u6587\u5E76\u5206\u53C9"),
+          hint: this.commandText("compact", "hint", "Agent"),
           kind: "command",
-          group: "\u547D\u4EE4",
+          group: this.t("commands.groups.commands"),
           run: () => this.compactContext()
         });
       }
@@ -7360,26 +7704,34 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         commands.push(
           {
             id: "pin-session",
-            title: current.pinned ? "\u53D6\u6D88\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD" : "\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD",
-            hint: "\u4F1A\u8BDD",
+            title: this.commandText(
+              current.pinned ? "unpin" : "pin",
+              "title",
+              current.pinned ? "\u53D6\u6D88\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD" : "\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD"
+            ),
+            hint: this.commandText("pin", "hint", "\u4F1A\u8BDD"),
             kind: "command",
-            group: "\u547D\u4EE4",
+            group: this.t("commands.groups.commands"),
             run: () => this.toggleSessionPin(current)
           },
           {
             id: "archive-session",
-            title: current.archived ? "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD" : "\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD",
-            hint: "\u4F1A\u8BDD",
+            title: this.commandText(
+              current.archived ? "unarchive" : "archive",
+              "title",
+              current.archived ? "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD" : "\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD"
+            ),
+            hint: this.commandText("archive", "hint", "\u4F1A\u8BDD"),
             kind: "command",
-            group: "\u547D\u4EE4",
+            group: this.t("commands.groups.commands"),
             run: () => this.toggleSessionArchive(current)
           },
           {
             id: "tag-session",
-            title: "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E",
-            hint: "\u4F1A\u8BDD",
+            title: this.commandText("tag", "title", "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E"),
+            hint: this.commandText("tag", "hint", "\u4F1A\u8BDD"),
             kind: "command",
-            group: "\u547D\u4EE4",
+            group: this.t("commands.groups.commands"),
             run: () => this.editSessionTags(current)
           }
         );
@@ -7387,18 +7739,18 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       const sessions = (this.sessions || []).slice(0, 20).map((session) => ({
         id: `session:${session.thread_id}`,
         title: session.title || session.thread_id,
-        hint: "\u4F1A\u8BDD",
+        hint: this.t("commands.groups.session"),
         kind: "session",
-        group: "\u4F1A\u8BDD",
+        group: this.t("commands.groups.session"),
         run: () => this.openSession(session.thread_id)
       }));
       const files = (this.fileSearchResults || []).map((row) => ({
         id: `file:${row._key}`,
         title: row.line ? `${row.path}:${row.line}` : row.path,
-        hint: row._hint || "\u6587\u4EF6",
+        hint: row._hint || this.t("commands.groups.file"),
         detail: row.preview || "",
         kind: "file",
-        group: "\u6587\u4EF6",
+        group: this.t("commands.groups.file"),
         run: () => this.openFile(row.path, row.line)
       }));
       const items = [...commands, ...sessions, ...files];
@@ -7407,7 +7759,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         const recent = this.recentCommands.map((id) => byId.get(id)).filter(Boolean).map((item) => ({
           ...item,
           id: `recent:${item.id}`,
-          group: "\u6700\u8FD1\u4F7F\u7528"
+          group: this.t("commands.groups.recent")
         }));
         return [...recent, ...items];
       }
@@ -8081,7 +8433,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       return this.authMode === "bff-cookie";
     },
     get authModeText() {
-      return `\u8BA4\u8BC1\u65B9\u5F0F\uFF1A${this.authModeLabel}`;
+      return this.t("settings.authMode", { mode: this.authModeLabel });
     },
     get chatTabIndex() {
       return this.mainTab === "chat" ? 0 : -1;
@@ -8945,6 +9297,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       uploadFailed: false,
       _uploadAbort: null,
       _lastUploadFiles: [],
+      clientErrors: [],
+      errorReportingEnabled: false,
+      _errorReportTimes: {},
       uiError: "",
       _errorRetryKind: "",
       _errorRetryPayload: "",
@@ -8976,6 +9331,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       bootMixin,
       i18nMixin,
       multiTabMixin,
+      errorReportMixin,
       authMixin,
       sessionViewMixin,
       draftsMixin,

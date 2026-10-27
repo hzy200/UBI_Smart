@@ -66,6 +66,7 @@ export const bootMixin = {
     this.loadRecentCommands();
     this.loadNotifications();
     this.initMultiTab();
+    this.initErrorReporting();
     this.applyBodyClasses();
     this.refreshBadgeClass();
     window.addEventListener('keydown', (event) => this.onGlobalKeydown(event));

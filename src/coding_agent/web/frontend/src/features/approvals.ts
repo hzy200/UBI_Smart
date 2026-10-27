@@ -10,6 +10,16 @@ export const approvalsMixin = {
     view.approvalPosition = view.approvals.length > 1
       ? `还剩 ${view.approvals.length} 条待确认`
       : '';
+    if (view === this.activeView && view.approval) {
+      // 首次打开才记录返回焦点；后续审批只移动焦点，避免把返回目标
+      // 记成即将被移除的按钮。用真实可见性判断，避免旧的 approval
+      // 状态让首次打开被误判为“已打开”。
+      const modal = document.querySelector('.approval-modal') as HTMLElement | null;
+      const modalOpen = Boolean(
+        modal && !modal.hasAttribute('x-cloak') && modal.style.display !== 'none'
+      );
+      this.$nextTick(() => this.focusModal('.approval-modal', !modalOpen));
+    }
   },
 
   async decide(granted) {
@@ -35,6 +45,9 @@ export const approvalsMixin = {
 
   async resumeApprovals(view = this.activeView) {
     view.approval = null;
+    if (view === this.activeView) {
+      this.$nextTick(() => this.restoreModalFocus());
+    }
     view.busy = true;
     view.stateText = '恢复中…';
     // 序号跨 resume 连续；保留 lastSeq，避免重放历史事件。

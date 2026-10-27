@@ -60,8 +60,8 @@ export const focusMixin = {
     }
   },
 
-  focusModal(selector: string) {
-    this.rememberModalFocus();
+  focusModal(selector: string, remember = true) {
+    if (remember) this.rememberModalFocus();
     const attempt = (remaining: number) => {
       this.$nextTick(() => {
         const modal = selector

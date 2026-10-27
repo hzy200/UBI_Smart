@@ -1099,6 +1099,77 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       assert.equal(document.documentElement.lang, 'zh-CN');
     });
 
+    await t.test('审批模态聚焦、y/n 快捷键与焦点归还', async () => {
+      const returnTarget = document.querySelector(
+        '.command-trigger',
+      ) as HTMLElement;
+      returnTarget.focus();
+      data.approvals = [{
+        request_id: 'a11y-req',
+        command: 'ls',
+        level: '读',
+      }];
+      data.showNextApproval();
+      await waitFor(
+        () => Boolean(document.activeElement?.closest('.approval-modal')),
+        '审批焦点进入',
+      );
+
+      let decided: boolean | null = null;
+      const originalDecide = data.decide;
+      data.decide = (value: boolean) => { decided = value; };
+      keydown(window, { key: 'y' });
+      assert.equal(decided, true);
+
+      data.decide = originalDecide;
+      data.approvals = [];
+      data.approval = null;
+      data.restoreModalFocus();
+      await waitFor(
+        () => document.activeElement === returnTarget,
+        '审批焦点归还',
+      );
+    });
+
+    await t.test('图标按钮与模态具备可访问名', () => {
+      const buttons = Array.from(
+        document.querySelectorAll('button.icon-btn, button.activity-item'),
+      ) as HTMLElement[];
+      for (const button of buttons) {
+        const name = (
+          button.getAttribute('aria-label')
+          || button.getAttribute('title')
+          || button.textContent
+          || ''
+        ).trim();
+        assert.ok(
+          name,
+          `图标按钮缺少可访问名：${button.outerHTML.slice(0, 120)}`,
+        );
+      }
+      const modals = Array.from(
+        document.querySelectorAll('.modal[aria-modal="true"]'),
+      ) as HTMLElement[];
+      for (const modal of modals) {
+        assert.ok(
+          modal.getAttribute('aria-labelledby'),
+          `模态缺少 aria-labelledby：${modal.className}`,
+        );
+      }
+    });
+
+    await t.test('前端错误默认只本地采集，不上报', () => {
+      const before = data.clientErrors.length;
+      data.errorReportingEnabled = false;
+      window.dispatchEvent(new window.ErrorEvent('error', {
+        message: 'boom',
+        error: new Error('boom'),
+      }));
+      assert.equal(data.clientErrors.length, before + 1);
+      assert.equal(data.clientErrors[0].message, 'boom');
+      data.clientErrors = [];
+    });
+
     await t.test('没有 Alpine CSP 表达式错误', () => {
       const errors = app.warnings.filter(
         (line) => line.includes('unable to interpret'),

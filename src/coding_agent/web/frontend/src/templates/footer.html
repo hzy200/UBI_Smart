@@ -43,7 +43,7 @@
   </button>
 </footer>
 
-<div class="toast-stack" aria-live="polite">
+<div class="toast-stack" aria-live="polite" aria-relevant="additions">
   <template x-for="item in toasts" :key="item.id">
     <div class="toast" :class="item._cls" role="status">
       <svg class="icon" aria-hidden="true"><use :href="item._icon"></use></svg>

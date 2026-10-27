@@ -255,7 +255,9 @@ export const cspMixin = {
   },
   get authTokenVisible() { return this.authMode !== 'bff-cookie'; },
   get authBffVisible() { return this.authMode === 'bff-cookie'; },
-  get authModeText() { return `认证方式：${this.authModeLabel}`; },
+  get authModeText() {
+    return this.t('settings.authMode', { mode: this.authModeLabel });
+  },
   get chatTabIndex() { return this.mainTab === 'chat' ? 0 : -1; },
   get mainPaneClass() {
     return this.splitOpen && this.activePane === 'main' ? 'pane-active' : '';

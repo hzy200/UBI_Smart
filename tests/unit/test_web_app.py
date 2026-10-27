@@ -622,6 +622,24 @@ def test_thread_history(monkeypatch, settings) -> None:
     ]
 
 
+def test_client_error_report_is_appended(settings) -> None:
+    from pathlib import Path
+
+    client = TestClient(web.create_app(settings))
+    response = client.post(
+        "/api/client-errors",
+        json={"kind": "error", "message": "boom", "stack": "stack"},
+    )
+    assert response.status_code == 200
+    path = Path(settings.resolved_audit_dir) / "client-errors.jsonl"
+    text = path.read_text(encoding="utf-8")
+    assert '"message": "boom"' in text
+    assert '"kind": "error"' in text
+
+    bad = client.post("/api/client-errors", json={"message": ""})
+    assert bad.status_code == 422
+
+
 def test_thread_history_empty(monkeypatch, settings) -> None:
     client = _client(monkeypatch, settings)
     assert client.get("/api/thread/none").json() == {

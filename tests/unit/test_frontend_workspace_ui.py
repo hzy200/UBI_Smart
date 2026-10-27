@@ -71,18 +71,18 @@ def test_app_js_contains_workspace_flow() -> None:
 
 def test_index_contains_registry_section() -> None:
     text = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert "项目（工作区注册表）" in text
+    assert "i18n.settings.projectRegistry" in text
     assert "capabilities.workspace_registry" in text
-    assert "导入到 WSL 工作区" in text
-    assert "添加本机工作区" in text
-    assert "上传并创建项目" in text
-    assert "取消任务" in text
+    assert "i18n.settings.importToWsl" in text
+    assert "i18n.settings.addHostWorkspace" in text
+    assert "i18n.settings.uploadProject" in text
+    assert "i18n.settings.cancelJob" in text
     assert "onProjectDrop" in text
-    assert "释放当前会话租约" in text
-    assert "清理过期租约/幂等键" in text
-    assert "恢复归档" in text
+    assert "i18n.settings.releaseLease" in text
+    assert "i18n.settings.purgeMaintenance" in text
+    assert "i18n.settings.restoreArchive" in text
     assert ':aria-label="i18n.sidebar.chooseProject"' in text
-    assert 'aria-label="项目归档文件"' in text
+    assert ':aria-label="i18n.settings.archiveAria"' in text
     assert 'class="progress-bar"' in text
     assert 'x-text="projectProgressText"' in text
     assert 'class="msg-copy"' in text

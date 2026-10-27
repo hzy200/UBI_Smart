@@ -64,6 +64,14 @@ export const keyboardMixin = {
       || target.isContentEditable
     ));
     const mod = event.ctrlKey || event.metaKey;
+    if (this.hasApprovals && !typing && !this.commandOpen) {
+      const key = event.key.toLowerCase();
+      if (key === 'y' || key === 'n') {
+        event.preventDefault();
+        void this.decide(key === 'y');
+        return;
+      }
+    }
     if (this.commandOpen) {
       if (event.key === 'Escape') {
         event.preventDefault();

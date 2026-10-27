@@ -242,7 +242,7 @@
         </label>
       </div>
       <div class="upload-progress" x-show="uploadBusy" role="status" aria-live="polite">
-        <progress max="100" :value="uploadPercent"></progress>
+        <progress max="100" :value="uploadPercent" :aria-label="i18n.composer.uploading"></progress>
         <span x-text="uploadText"></span>
         <button @click="cancelUpload" x-text="i18n.composer.cancelUpload"></button>
       </div>

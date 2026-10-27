@@ -60,6 +60,18 @@ class SessionImportRequest(BaseModel):
     provider: str = Field(default="", max_length=64)
 
 
+class ClientErrorReport(BaseModel):
+    """前端主动上报的错误摘要；不包含对话内容。"""
+
+    kind: str = Field(default="error", max_length=32)
+    message: str = Field(min_length=1, max_length=500)
+    stack: str = Field(default="", max_length=4000)
+    url: str = Field(default="", max_length=500)
+    version: str = Field(default="", max_length=64)
+    locale: str = Field(default="", max_length=16)
+    at: str = Field(default="", max_length=64)
+
+
 class ModelRequest(BaseModel):
     model: str = Field(default="", max_length=200)
     provider: str = Field(default="", max_length=64)

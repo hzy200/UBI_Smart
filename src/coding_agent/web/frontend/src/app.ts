@@ -7,6 +7,7 @@
 import { bootMixin } from './features/boot';
 import { i18nMixin } from './features/i18n';
 import { multiTabMixin } from './features/multi-tab';
+import { errorReportMixin } from './features/error-report';
 import { authMixin } from './features/auth';
 import { settingsMixin } from './features/settings';
 import { workspaceMixin } from './features/workspace';
@@ -209,6 +210,9 @@ const agentApp = () => {
   uploadFailed: false,
   _uploadAbort: null,
   _lastUploadFiles: [],
+  clientErrors: [],
+  errorReportingEnabled: false,
+  _errorReportTimes: {},
   uiError: '',
   _errorRetryKind: '',
   _errorRetryPayload: '',
@@ -240,6 +244,7 @@ const agentApp = () => {
     bootMixin,
     i18nMixin,
     multiTabMixin,
+    errorReportMixin,
     authMixin,
     sessionViewMixin,
     draftsMixin,

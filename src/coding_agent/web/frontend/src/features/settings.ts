@@ -31,6 +31,9 @@ export const settingsMixin = {
     if (typeof saved.notify === 'boolean') {
       this.notifyEnabled = saved.notify;
     }
+    if (typeof saved.errorReporting === 'boolean') {
+      this.errorReportingEnabled = saved.errorReporting;
+    }
     this.setLocale(saved.locale || 'zh-CN');
     this.applyBodyClasses();
   },
@@ -39,6 +42,18 @@ export const settingsMixin = {
     const value = event && event.target ? event.target.value : 'zh-CN';
     this.setLocale(value);
     this.saveSettings();
+  },
+
+  toggleErrorReporting() {
+    this.errorReportingEnabled = !this.errorReportingEnabled;
+    this.saveSettings();
+    this.toastMessage(
+      this.t(
+        this.errorReportingEnabled
+          ? 'settings.errorReportingOn'
+          : 'settings.errorReportingOff',
+      ),
+    );
   },
 
   saveSettings() {
@@ -54,6 +69,7 @@ export const settingsMixin = {
       showReasoning: this.showReasoning,
       workspace: this.workspaceInput,
       notify: this.notifyEnabled,
+      errorReporting: this.errorReportingEnabled,
       locale: this.locale,
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));

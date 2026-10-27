@@ -267,7 +267,9 @@ export const layoutMixin = {
       this.fileSearchResults = (data.results || []).map((row, index) => ({
         ...row,
         _key: `${row.path}:${row.line}:${index}`,
-        _hint: row.kind === 'content' ? '文件内容' : '文件路径',
+        _hint: row.kind === 'content'
+          ? this.t('commands.groups.fileContent')
+          : this.t('commands.groups.filePath'),
       }));
     } catch (err) {
       if (seq !== this._searchSeq || threadId !== this.threadId) return;
@@ -276,6 +278,12 @@ export const layoutMixin = {
     } finally {
       if (seq === this._searchSeq) this.fileSearchLoading = false;
     }
+  },
+
+  commandText(id, field, fallback) {
+    const key = `commands.${id}.${field}`;
+    const value = this.t(key);
+    return value === key ? fallback : value;
   },
 
   commandItems() {
@@ -318,14 +326,20 @@ export const layoutMixin = {
         run: () => this.toggleReasoning(),
       },
       { id: 'reset-layout', title: '重置布局宽度', hint: '布局', run: () => this.resetLayout() },
-    ].map((item) => ({ ...item, kind: 'command', group: '命令' }));
+    ].map((item) => ({
+      ...item,
+      title: this.commandText(item.id, 'title', item.title),
+      hint: this.commandText(item.id, 'hint', item.hint),
+      kind: 'command',
+      group: this.t('commands.groups.commands'),
+    }));
     if (this.threadId && !this.busy) {
       commands.push({
         id: 'compact',
-        title: '压缩上下文并分叉',
-        hint: 'Agent',
+        title: this.commandText('compact', 'title', '压缩上下文并分叉'),
+        hint: this.commandText('compact', 'hint', 'Agent'),
         kind: 'command',
-        group: '命令',
+        group: this.t('commands.groups.commands'),
         run: () => this.compactContext(),
       });
     }
@@ -334,26 +348,34 @@ export const layoutMixin = {
       commands.push(
         {
           id: 'pin-session',
-          title: current.pinned ? '取消置顶当前会话' : '置顶当前会话',
-          hint: '会话',
+          title: this.commandText(
+            current.pinned ? 'unpin' : 'pin',
+            'title',
+            current.pinned ? '取消置顶当前会话' : '置顶当前会话',
+          ),
+          hint: this.commandText('pin', 'hint', '会话'),
           kind: 'command',
-          group: '命令',
+          group: this.t('commands.groups.commands'),
           run: () => this.toggleSessionPin(current),
         },
         {
           id: 'archive-session',
-          title: current.archived ? '取消归档当前会话' : '归档当前会话',
-          hint: '会话',
+          title: this.commandText(
+            current.archived ? 'unarchive' : 'archive',
+            'title',
+            current.archived ? '取消归档当前会话' : '归档当前会话',
+          ),
+          hint: this.commandText('archive', 'hint', '会话'),
           kind: 'command',
-          group: '命令',
+          group: this.t('commands.groups.commands'),
           run: () => this.toggleSessionArchive(current),
         },
         {
           id: 'tag-session',
-          title: '编辑当前会话标签',
-          hint: '会话',
+          title: this.commandText('tag', 'title', '编辑当前会话标签'),
+          hint: this.commandText('tag', 'hint', '会话'),
           kind: 'command',
-          group: '命令',
+          group: this.t('commands.groups.commands'),
           run: () => this.editSessionTags(current),
         },
       );
@@ -361,18 +383,18 @@ export const layoutMixin = {
     const sessions = (this.sessions || []).slice(0, 20).map((session) => ({
       id: `session:${session.thread_id}`,
       title: session.title || session.thread_id,
-      hint: '会话',
+      hint: this.t('commands.groups.session'),
       kind: 'session',
-      group: '会话',
+      group: this.t('commands.groups.session'),
       run: () => this.openSession(session.thread_id),
     }));
     const files = (this.fileSearchResults || []).map((row) => ({
       id: `file:${row._key}`,
       title: row.line ? `${row.path}:${row.line}` : row.path,
-      hint: row._hint || '文件',
+      hint: row._hint || this.t('commands.groups.file'),
       detail: row.preview || '',
       kind: 'file',
-      group: '文件',
+      group: this.t('commands.groups.file'),
       run: () => this.openFile(row.path, row.line),
     }));
     const items = [...commands, ...sessions, ...files];
@@ -384,7 +406,7 @@ export const layoutMixin = {
         .map((item) => ({
           ...item,
           id: `recent:${item.id}`,
-          group: '最近使用',
+          group: this.t('commands.groups.recent'),
         }));
       return [...recent, ...items];
     }

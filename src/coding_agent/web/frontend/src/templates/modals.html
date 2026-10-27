@@ -2,7 +2,7 @@
      @click.self="closeCommandPalette"
      role="dialog" aria-modal="true" aria-labelledby="command-title">
   <div class="command-box">
-    <h3 id="command-title" class="sr-only">命令面板</h3>
+    <h3 id="command-title" class="sr-only" x-text="i18n.commands.title"></h3>
     <div class="command-input-row">
       <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       <input x-ref="commandInput" x-model="commandQuery"
@@ -10,11 +10,11 @@
              @keydown="onCommandKeydown"
              :aria-activedescendant="commandActiveDescendant"
              aria-controls="command-list"
-             placeholder="输入命令、会话或文件；支持 > 命令 / @ 会话 / # 文件"
-             aria-label="命令面板搜索">
+             :placeholder="i18n.commands.placeholder"
+             :aria-label="i18n.commands.searchAria">
       <kbd>Esc</kbd>
     </div>
-    <div class="command-list" id="command-list" role="listbox" aria-label="命令列表">
+    <div class="command-list" id="command-list" role="listbox" :aria-label="i18n.commands.listAria">
       <template x-for="cmd in filteredCommandResults" :key="cmd.id">
         <div class="command-entry">
           <div class="command-group" x-show="cmd._groupStart" x-text="cmd._groupLabel"></div>
@@ -30,13 +30,13 @@
           </button>
         </div>
       </template>
-      <div class="note" x-show="fileSearchLoading">正在搜索文件…</div>
-      <div class="empty" x-show="noCommands">没有匹配的命令</div>
+      <div class="note" x-show="fileSearchLoading" x-text="i18n.commands.searching"></div>
+      <div class="empty" x-show="noCommands" x-text="i18n.commands.empty"></div>
     </div>
   </div>
 </div>
 
-<div class="modal" x-show="hasApprovals" x-cloak
+<div class="modal approval-modal" x-show="hasApprovals" x-cloak
      role="dialog" aria-modal="true" aria-labelledby="approval-title">
   <div class="modal-box">
     <h3 id="approval-title">需要确认</h3>
@@ -165,18 +165,18 @@
         </section>
 
         <section class="settings-view" x-show="settingsViewVisible.models">
-          <h4>Provider 档案</h4>
-          <div class="note" x-show="profilesDisabled">多用户模式请通过 AGENT_LLM_PROVIDERS 配置。</div>
+          <h4 x-text="i18n.settings.providerProfiles"></h4>
+          <div class="note" x-show="profilesDisabled" x-text="i18n.settings.profilesDisabled"></div>
           <div x-show="profilesEnabled">
             <div class="row">
-              <input x-model="profileName" placeholder="名称，如 local">
-              <input x-model="profileBaseUrl" placeholder="https://api.example.com/v1">
-              <input x-model="profileModel" placeholder="模型名">
+              <input x-model="profileName" :placeholder="i18n.settings.profileName">
+              <input x-model="profileBaseUrl" :placeholder="i18n.settings.profileBaseUrl">
+              <input x-model="profileModel" :placeholder="i18n.settings.profileModel">
             </div>
             <div class="panel-actions">
-              <button class="primary" @click="saveProfile">保存档案</button>
-              <button @click="discoverModels">发现模型</button>
-              <button @click="useLocalPreset">本地端点预设</button>
+              <button class="primary" @click="saveProfile" x-text="i18n.settings.saveProfile"></button>
+              <button @click="discoverModels" x-text="i18n.settings.discoverModels"></button>
+              <button @click="useLocalPreset" x-text="i18n.settings.localPreset"></button>
             </div>
             <div class="note" x-show="modelOptionsText" x-text="modelOptionsText"></div>
             <template x-for="p in profiles" :key="p.name">
@@ -185,68 +185,70 @@
                   <span x-text="p.name"></span>
                   <span x-text="p.model"></span>
                   <span class="note" x-text="p.base_url"></span>
-                  <button data-action="profile" data-op="edit" :data-name="p.name" @click="onAction">编辑</button>
-                  <button class="danger" data-action="profile" data-op="delete" :data-name="p.name" @click="onAction">删除</button>
+                  <button data-action="profile" data-op="edit" :data-name="p.name" @click="onAction" x-text="i18n.settings.edit"></button>
+                  <button class="danger" data-action="profile" data-op="delete" :data-name="p.name" @click="onAction" x-text="i18n.settings.delete"></button>
                 </div>
               </div>
             </template>
           </div>
 
-          <h4>模型密钥</h4>
-          <p class="note">密钥只写入操作系统密钥环，不会回传或写入 .env。</p>
-          <label>Provider</label>
+          <h4 x-text="i18n.settings.modelKeys"></h4>
+          <p class="note" x-text="i18n.settings.keyNote"></p>
+          <label x-text="i18n.settings.provider"></label>
           <select x-model="providerName">
             <template x-for="p in providers" :key="p._key">
               <option :value="p.name" x-text="p._label"></option>
             </template>
           </select>
-          <input type="password" x-model="providerKeyInput" placeholder="粘贴 API Key">
+          <input type="password" x-model="providerKeyInput" :placeholder="i18n.settings.apiKey">
           <div class="panel-actions">
-            <button class="primary" @click="saveProviderKey">保存密钥</button>
-            <button @click="testProvider">测试连接</button>
-            <button class="danger" @click="deleteProviderKey">删除密钥</button>
+            <button class="primary" @click="saveProviderKey" x-text="i18n.settings.saveKey"></button>
+            <button @click="testProvider" x-text="i18n.settings.testConnection"></button>
+            <button class="danger" @click="deleteProviderKey" x-text="i18n.settings.deleteKey"></button>
           </div>
         </section>
 
         <section class="settings-view" x-show="settingsViewVisible.workspace">
-          <h4>工作区与 Python</h4>
+          <h4 x-text="i18n.settings.workspacePython"></h4>
           <div class="project-report" x-text="projectReport"></div>
           <div class="panel-actions">
             <button x-show="canPickWorkspace"
-                    @click="pickWorkspace">选择文件夹</button>
-            <button @click="probeProject" :disabled="projectLoading">重新探测</button>
-            <button x-show="desktopAvailable" @click="openInVscode">在 VS Code 打开</button>
-            <button x-show="canCopyWorkspace" @click="copyWorkspace" :disabled="copyBusy">复制到 WSL 原生目录</button>
+                    @click="pickWorkspace" x-text="i18n.settings.pickFolder"></button>
+            <button @click="probeProject" :disabled="projectLoading" x-text="i18n.settings.reprobe"></button>
+            <button x-show="desktopAvailable" @click="openInVscode" x-text="i18n.main.openInEditor"></button>
+            <button x-show="canCopyWorkspace" @click="copyWorkspace" :disabled="copyBusy" x-text="i18n.settings.copyToWsl"></button>
           </div>
           <div class="note note-bad" x-show="projectHasWarnings" x-text="projectWarnings"></div>
           <div class="note" x-show="copyMessage" x-text="copyMessage"></div>
 
-          <h4>项目（工作区注册表）</h4>
+          <h4 x-text="i18n.settings.projectRegistry"></h4>
           <div x-show="capabilities.workspace_registry"
                @dragover.prevent="onProjectDragOver"
                @dragleave="onProjectDragLeave"
                @drop.prevent="onProjectDrop">
             <div class="panel-actions">
               <button x-show="desktopAvailable" @click="importLocalProject"
-                      :disabled="projectBusy">导入到 WSL 工作区</button>
-              <button @click="registerHostWorkspace" :disabled="projectBusy">
-                添加本机工作区
+                      :disabled="projectBusy" x-text="i18n.settings.importToWsl"></button>
+              <button @click="registerHostWorkspace" :disabled="projectBusy"
+                      x-text="i18n.settings.addHostWorkspace">
               </button>
-              <button @click="refreshProjects" :disabled="projectBusy">刷新项目</button>
+              <button @click="refreshProjects" :disabled="projectBusy" x-text="i18n.settings.refreshProjects"></button>
               <button class="danger" x-show="showCancelProjectJob"
-                      @click="cancelProjectJob">取消任务</button>
+                      @click="cancelProjectJob" x-text="i18n.settings.cancelJob"></button>
             </div>
-            <label>上传项目归档（zip / tar / tar.gz）；可直接拖拽到此处</label>
+            <label x-text="i18n.settings.archiveLabel"></label>
             <input type="file" accept=".zip,.tar,.tar.gz,.tgz"
-                   aria-label="项目归档文件" @change="onProjectFile">
+                   :aria-label="i18n.settings.archiveAria" @change="onProjectFile">
             <div class="panel-actions">
               <button class="primary" @click="uploadProject"
-                      :disabled="projectUploadDisabled">上传并创建项目</button>
+                      :disabled="projectUploadDisabled" x-text="i18n.settings.uploadProject"></button>
               <span class="note" x-text="projectFileName"></span>
             </div>
-            <div class="note" x-show="projectDropActive">松开以选择该归档</div>
+            <div class="note" x-show="projectDropActive" x-text="i18n.settings.dropRelease"></div>
             <div class="note" x-show="projectMessage" x-text="projectMessage"></div>
-            <div class="progress" x-show="showProjectProgress">
+            <div class="progress" x-show="showProjectProgress" role="progressbar"
+                 :aria-valuenow="projectPercent" aria-valuemin="0" aria-valuemax="100"
+                 :aria-label="i18n.settings.uploadProject">
               <div class="progress-bar" :style="projectBarStyle"></div>
             </div>
             <div class="note" x-show="projectProgressText" x-text="projectProgressText"></div>
@@ -254,69 +256,74 @@
               <div class="file-head">
                 <span x-text="p._label"></span>
                 <span class="note" x-text="p.root_path"></span>
-                <button data-action="select-project" :data-id="p.workspace_id" @click="onAction">打开</button>
+                <button data-action="select-project" :data-id="p.workspace_id" @click="onAction" x-text="i18n.settings.open"></button>
               </div>
             </template>
-            <div class="empty" x-show="noProjects">还没有项目</div>
-            <h4>Revisions</h4>
-            <div class="note" x-show="noRevisions">还没有 revision</div>
+            <div class="empty" x-show="noProjects" x-text="i18n.settings.noProjects"></div>
+            <h4 x-text="i18n.settings.revisions"></h4>
+            <div class="note" x-show="noRevisions" x-text="i18n.settings.noRevisions"></div>
             <template x-for="r in revisions" :key="r.revision_id">
               <div class="file-head">
                 <span x-text="r._label"></span>
                 <button data-action="revision" data-op="rollback" :data-id="r.revision_id" @click="onAction"
-                        :disabled="r._disabled">回滚</button>
+                        :disabled="r._disabled" x-text="i18n.settings.rollback"></button>
                 <button data-action="revision" data-op="restore" :data-id="r.revision_id" @click="onAction"
-                        :disabled="r._restoreDisabled">恢复归档</button>
+                        :disabled="r._restoreDisabled" x-text="i18n.settings.restoreArchive"></button>
                 <button data-action="revision" data-op="pin" :data-id="r.revision_id" @click="onAction" :disabled="revisionBusy"
                         x-text="r._pinLabel"></button>
               </div>
             </template>
             <div class="panel-actions">
-              <button @click="pruneRevisions" :disabled="revisionBusy">清理旧归档</button>
+              <button @click="pruneRevisions" :disabled="revisionBusy" x-text="i18n.settings.pruneArchives"></button>
             </div>
           </div>
-          <p class="note" x-show="noWorkspaceRegistry">
-            工作区注册表未启用；使用上面的工作区路径直接创建会话。
-          </p>
+          <p class="note" x-show="noWorkspaceRegistry" x-text="i18n.settings.registryDisabled"></p>
         </section>
 
         <section class="settings-view" x-show="settingsViewVisible.diagnostics">
-          <h4>预算与通知</h4>
+          <h4 x-text="i18n.settings.budgetNotify"></h4>
           <div class="note" x-text="limitsText"></div>
           <label>
             <input type="checkbox" :checked="notifyEnabled" @change="toggleNotify" style="width:auto">
-            审批 / 完成 / 失败时发送系统通知
+            <span x-text="i18n.settings.notifyHint"></span>
           </label>
+          <label>
+            <input type="checkbox" :checked="errorReportingEnabled" @change="toggleErrorReporting" style="width:auto">
+            <span x-text="i18n.settings.errorReporting"></span>
+          </label>
+          <div class="panel-actions">
+            <button @click="copyClientErrors" x-text="i18n.settings.copyClientErrors"></button>
+          </div>
 
-          <h4>诊断与更新</h4>
+          <h4 x-text="i18n.settings.diagnosticsUpdate"></h4>
           <div class="panel-actions" x-show="desktopAvailable">
-            <button @click="collectDiagnostics" :disabled="diagnosticsBusy">生成诊断包</button>
-            <button @click="revealDiagnostics" :disabled="noDiagnosticsPath">打开所在目录</button>
-            <button @click="checkUpdate">检查更新</button>
-            <button x-show="updateAvailable" @click="openUpdate">下载更新</button>
+            <button @click="collectDiagnostics" :disabled="diagnosticsBusy" x-text="i18n.settings.collectDiagnostics"></button>
+            <button @click="revealDiagnostics" :disabled="noDiagnosticsPath" x-text="i18n.settings.openFolder"></button>
+            <button @click="checkUpdate" x-text="i18n.settings.checkUpdate"></button>
+            <button x-show="updateAvailable" @click="openUpdate" x-text="i18n.settings.downloadUpdate"></button>
           </div>
           <div class="note" x-show="diagnosticsPath" x-text="diagnosticsPath"></div>
           <div class="note" x-show="updateText" x-text="updateText"></div>
         </section>
 
         <section class="settings-view" x-show="settingsViewVisible.advanced">
-          <h4>账户</h4>
+          <h4 x-text="i18n.settings.account"></h4>
           <div class="panel-actions">
             <span class="note" x-text="authModeText"></span>
-            <button class="danger" @click="logout">退出登录</button>
+            <button class="danger" @click="logout" x-text="i18n.settings.logout"></button>
           </div>
 
-          <h4>运维维护</h4>
+          <h4 x-text="i18n.settings.maintenance"></h4>
           <div class="panel-actions">
-            <button @click="releaseLease" :disabled="noThread">释放当前会话租约</button>
-            <button @click="purgeMaintenance">清理过期租约/幂等键</button>
+            <button @click="releaseLease" :disabled="noThread" x-text="i18n.settings.releaseLease"></button>
+            <button @click="purgeMaintenance" x-text="i18n.settings.purgeMaintenance"></button>
           </div>
         </section>
       </div>
     </div>
     <div class="settings-foot">
-      <span class="note">设置会立即保存到本机。</span>
-      <button @click="toggleSettings">关闭</button>
+      <span class="note" x-text="i18n.settings.settingsSaved"></span>
+      <button @click="toggleSettings" x-text="i18n.common.close"></button>
     </div>
   </div>
 </div>
