@@ -21,10 +21,10 @@ from coding_agent.web.models import (
     SessionMetaRequest,
     SessionRequest,
 )
-from coding_agent.web.routes.runs import (
-    _clean_transcript,
-    _load_transcript,
-    _save_transcript,
+from coding_agent.web.transcripts import (
+    clean_transcript,
+    load_transcript,
+    save_transcript,
 )
 from coding_agent.web.validation import check_thread_id
 
@@ -320,7 +320,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         """把导出的 JSON 恢复到新会话；有 transcript 时连工具卡片一起恢复。"""
         deps.reject_db_degraded()
         source = request.transcript or request.messages
-        messages = _clean_transcript(source)
+        messages = clean_transcript(source)
         if not messages:
             raise HTTPException(status_code=400, detail="导入文件没有可用的消息")
         created = await create_session(
@@ -337,7 +337,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         public_thread = created["thread_id"]
         tenant = deps.tenant(user)
         try:
-            _save_transcript(tenant, public_thread, messages)
+            save_transcript(tenant, public_thread, messages)
         except OSError as exc:
             with deps.registry_lock:
                 deps.session_configs.pop((user.name, public_thread), None)
@@ -537,7 +537,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             )
         ).strip()
         if format == "json":
-            transcript, _ = _load_transcript(tenant, public_thread)
+            transcript, _ = load_transcript(tenant, public_thread)
             return {
                 "format": "json",
                 "version": 1,
