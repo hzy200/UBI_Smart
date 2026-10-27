@@ -48,9 +48,11 @@ export const transcriptMixin = {
     };
     this.decorateMessage(message, resolvedPhase);
     this.messages.push(message);
-    this.scrollBottom(role === 'user' || resolvedPhase === 'final');
-    this.scheduleVirtualRange();
-    this.$nextTick(() => this.decorateTranscript());
+    if (!this._isBackgroundApply) {
+      this.scrollBottom(role === 'user' || resolvedPhase === 'final');
+      this.scheduleVirtualRange();
+      this.$nextTick(() => this.decorateTranscript());
+    }
     return message;
   },
 
@@ -260,6 +262,7 @@ export const transcriptMixin = {
   },
 
   announce(text) {
+    if (this._isBackgroundApply) return;
     const value = String(text || '').replace(/\s+/g, ' ').trim();
     if (!value) return;
     this.liveAnnouncement = value;
@@ -330,15 +333,19 @@ export const transcriptMixin = {
     tokenBuffers.delete(id);
   },
 
-  finishAssistant() {
-    if (this._currentMessage) {
-      this.flushAssistantToken(this._currentMessage.id);
-      this._currentMessage.done = true;
-      this.decorateMessage(this._currentMessage);
-    }
-    this._currentMessage = null;
-    this._currentNode = '';
-    this.$nextTick(() => this.decorateTranscript());
+  finishAssistant(view = this.activeView) {
+    return this.withView(view, () => {
+      if (this._currentMessage) {
+        this.flushAssistantToken(this._currentMessage.id);
+        this._currentMessage.done = true;
+        this.decorateMessage(this._currentMessage);
+      }
+      this._currentMessage = null;
+      this._currentNode = '';
+      if (!this._isBackgroundApply) {
+        this.$nextTick(() => this.decorateTranscript());
+      }
+    });
   },
 
   virtualEnabled() {
@@ -383,6 +390,7 @@ export const transcriptMixin = {
   },
 
   scheduleVirtualRange() {
+    if (this._isBackgroundApply) return;
     if (!this.virtualEnabled() || this._virtualRaf) return;
     this._virtualRaf = requestAnimationFrame(() => {
       this._virtualRaf = 0;
@@ -426,6 +434,7 @@ export const transcriptMixin = {
   },
 
   scrollBottom(force = true) {
+    if (this._isBackgroundApply) return;
     this.$nextTick(() => {
       const element = this.$refs.transcript;
       if (!element) return;

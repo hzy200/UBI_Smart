@@ -275,6 +275,8 @@ export async function startApp() {
       };
       window.fetch = makeFetch();
       window.Headers = globalThis.Headers;
+      window.TextDecoder = globalThis.TextDecoder;
+      window.TextEncoder = globalThis.TextEncoder;
       window.structuredClone = globalThis.structuredClone;
       window.matchMedia = () => ({
         matches: false,

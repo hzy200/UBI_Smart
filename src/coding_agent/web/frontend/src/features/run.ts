@@ -4,8 +4,6 @@ import {
   authFetch,
 } from '../api/http';
 import {
-  renderTimers,
-  tokenBuffers,
   toolMap,
 } from '../state/runtime';
 import {
@@ -16,6 +14,13 @@ import {
 } from '../sse';
 
 export const runMixin = {
+  clearViewToolEntries(view) {
+    const prefix = `${(view && view.threadId) || '-'}::`;
+    for (const key of Array.from(toolMap.keys())) {
+      if (key.startsWith(prefix)) toolMap.delete(key);
+    }
+  },
+
   async send(override = '', appendUser = true) {
     const text = (
       typeof override === 'string' && override ? override : (this.prompt || '')
@@ -31,63 +36,70 @@ export const runMixin = {
       this.toastMessage(String(e));
       return;
     }
-    this.prompt = '';
+    // ensureSession 可能新建并切换视图，之后再绑定本次流。
+    const view = this.activeView;
+    view.prompt = '';
     if (appendUser) this.pushMessage('user', text);
-    this._lastPrompt = text;
-    this.busy = true;
-    this.paused = false;
-    this.stateText = '运行中…';
-    this.connectionState = 'streaming';
-    this._terminal = false;
-    this._suspended = false;
-    this._retryCount = 0;
-    this.reasoningBlocks = [];
-    this.plan = [];
-    this.kinds = [];
-    this.planRows = [];
-    this.stepIdx = -1;
-    this.planDegraded = false;
-    this.tools = [];
-    toolMap.clear();
-    renderTimers.forEach((timer) => clearTimeout(timer));
-    renderTimers.clear();
-    tokenBuffers.clear();
+    view._lastPrompt = text;
+    view.busy = true;
+    view.paused = false;
+    view.stateText = '运行中…';
+    view.connectionState = 'streaming';
+    view._terminal = false;
+    view._suspended = false;
+    view._retryCount = 0;
+    view.reasoningBlocks = [];
+    view.plan = [];
+    view.kinds = [];
+    view.planRows = [];
+    view.stepIdx = -1;
+    view.planDegraded = false;
+    view.tools = [];
+    view._toolsVersion += 1;
+    this.clearViewToolEntries(view);
     this.diffText = '';
-    this.lastSeq = 0;
-    this.canReconnect = false;
-    this._currentMessage = null;
-    this._currentNode = '';
+    view.lastSeq = 0;
+    view.canReconnect = false;
+    view._currentMessage = null;
+    view._currentNode = '';
+    const controller = new AbortController();
+    view._abort = controller;
     try {
       const response = await authFetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: text, thread_id: this.threadId }),
+        body: JSON.stringify({ prompt: text, thread_id: view.threadId }),
+        signal: controller.signal,
       });
-      if (await this.handleRunConflict(response)) return;
-      await this.consume(response);
+      if (await this.handleRunConflict(response, view)) return;
+      await this.consume(response, view);
     } catch (err) {
-      this.failRun(err);
+      if (!controller.signal.aborted) this.failRun(err, view);
     } finally {
-      this.afterStream();
+      if (view._abort === controller) view._abort = null;
+      await this.afterStream(view);
     }
   },
 
-  async consume(response) {
-    this.connectionState = 'streaming';
+  async consume(response, view = this.activeView) {
+    view.connectionState = 'streaming';
     await consumeSse(
       response,
       ({ event, seq }) => {
-        if (Number.isFinite(seq)) this.lastSeq = Math.max(this.lastSeq, seq);
-        this.applyEvent(this.activeView, event);
+        if (Number.isFinite(seq)) {
+          view.lastSeq = Math.max(view.lastSeq, seq);
+        }
+        // 事件始终落到发起该流的视图，而不是当前激活视图。
+        this.applyEvent(view, event);
       },
       {
-        getLastSeq: () => this.lastSeq,
+        getLastSeq: () => view.lastSeq,
         idleTimeoutMs: currentRuntimeConfig()?.sse.idleTimeoutMs,
       },
     );
   },
 
-  async handleRunConflict(response) {
+  async handleRunConflict(response, view = this.activeView) {
     if (response.status !== 409) return false;
     let payload: any = {};
     try {
@@ -99,8 +111,10 @@ export const runMixin = {
     const nested = detail && typeof detail === 'object' ? detail : {};
     const code = payload.code || nested.code || '';
     if (code === 'run_in_progress') {
-      this.toastMessage('该会话已在运行，正在连接事件流…');
-      await this.reconnect();
+      if (this.activeView === view) {
+        this.toastMessage('该会话已在运行，正在连接事件流…');
+      }
+      await this.reconnect(view);
       return true;
     }
     const message = typeof detail === 'string' && detail
@@ -112,38 +126,49 @@ export const runMixin = {
     );
   },
 
-  async reconnect() {
-    if (!this.threadId) return;
-    if (this._retryTimer) {
-      clearTimeout(this._retryTimer);
-      this._retryTimer = null;
+  async reconnect(view = this.activeView) {
+    if (!view || !view.threadId) return;
+    if (view._retryTimer) {
+      clearTimeout(view._retryTimer);
+      view._retryTimer = null;
     }
-    this.busy = true;
-    this.stateText = '重连中…';
-    this.connectionState = 'reconnecting';
-    this.canReconnect = false;
+    view.busy = true;
+    view.stateText = '重连中…';
+    view.connectionState = 'reconnecting';
+    view.canReconnect = false;
+    const controller = new AbortController();
+    view._abort = controller;
     try {
       const response = await authFetch(
-        `/api/stream/${encodeURIComponent(this.threadId)}?after=${this.lastSeq}`,
+        `/api/stream/${encodeURIComponent(view.threadId)}?after=${view.lastSeq}`,
+        { signal: controller.signal },
       );
-      await this.consume(response);
+      await this.consume(response, view);
     } catch (err) {
-      this.toastMessage(`重连失败：${err}`);
-      this.canReconnect = true;
+      if (!controller.signal.aborted) {
+        if (this.activeView === view) {
+          this.toastMessage(`重连失败：${err}`);
+        }
+        view.canReconnect = true;
+      }
     } finally {
-      await this.afterStream();
+      if (view._abort === controller) view._abort = null;
+      await this.afterStream(view);
     }
   },
 
-  scheduleReconnect() {
-    if (this._retryTimer) return;
-    this._retryCount += 1;
-    const delay = Math.min(8000, 500 * 2 ** this._retryCount);
-    this.stateText = `连接中断，${Math.round(delay / 1000)}s 后重连…`;
-    this.connectionState = 'reconnecting';
-    this._retryTimer = setTimeout(() => {
-      this._retryTimer = null;
-      this.reconnect();
+  scheduleReconnect(view = this.activeView) {
+    if (!view || view._retryTimer) return;
+    view._retryCount += 1;
+    const delay = Math.min(8000, 500 * 2 ** view._retryCount);
+    view.stateText = `连接中断，${Math.round(delay / 1000)}s 后重连…`;
+    view.connectionState = 'reconnecting';
+    view._retryTimer = setTimeout(() => {
+      view._retryTimer = null;
+      if (view.threadId && this.sessionViews[view.threadId] !== view) {
+        return;
+      }
+      void this.reconnect(view);
     }, delay);
   },
 
@@ -151,7 +176,7 @@ export const runMixin = {
     if (this.busy || !this._lastPrompt) return;
     this.canReconnect = false;
     this.connectionState = 'idle';
-    this.send(this._lastPrompt, false);
+    void this.send(this._lastPrompt, false);
   },
 
   connectionText() {
@@ -161,46 +186,54 @@ export const runMixin = {
     return '';
   },
 
-  async afterStream() {
-    this.finishAssistant();
+  async afterStream(view = this.activeView) {
+    this.finishAssistant(view);
     if (
-      this.canReconnect &&
-      !this._terminal &&
-      !this._suspended &&
-      this._retryCount < 3
+      view.canReconnect &&
+      !view._terminal &&
+      !view._suspended &&
+      view._retryCount < 3
     ) {
-      this.scheduleReconnect();
+      this.scheduleReconnect(view);
       return;
     }
-    this.connectionState = this._terminal ? 'idle' : 'closed';
-    if (this.stateText === '连接中断') {
-      this.busy = false;
+    view.connectionState = view._terminal ? 'idle' : 'closed';
+    if (view.stateText === '连接中断') {
+      view.busy = false;
       return;
     }
-    if (this.approvals.length) {
-      this.stateText = '等待审批';
-      this.showNextApproval();
-      this.busy = false;
+    if (view.approvals.length) {
+      view.stateText = '等待审批';
+      view.approval = view.approvals[0] || null;
+      view.approvalPosition = view.approvals.length > 1
+        ? `还剩 ${view.approvals.length} 条待确认`
+        : '';
+      view.busy = false;
       return;
     }
-    if (this.paused) {
-      this.stateText = '已暂停';
-      this.busy = false;
+    if (view.paused) {
+      view.stateText = '已暂停';
+      view.busy = false;
       return;
     }
-    this.busy = false;
-    if (this.stateText === '运行中…') this.stateText = '就绪';
-    this.canReconnect = false;
+    view.busy = false;
+    if (view.stateText === '运行中…') view.stateText = '就绪';
+    view.canReconnect = false;
     await this.loadSessions();
   },
 
-  failRun(err) {
-    this.busy = false;
-    this.finishAssistant();
-    this.stateText = '连接中断';
-    this.connectionState = 'closed';
-    this.canReconnect = Boolean(this.threadId && this.lastSeq > 0);
-    this.pushMessage('system', `运行失败：${err && err.message ? err.message : err}`);
+  failRun(err, view = this.activeView) {
+    view.busy = false;
+    this.finishAssistant(view);
+    view.stateText = '连接中断';
+    view.connectionState = 'closed';
+    view.canReconnect = Boolean(view.threadId && view.lastSeq > 0);
+    this.withView(view, () => {
+      this.pushMessage(
+        'system',
+        `运行失败：${err && err.message ? err.message : err}`,
+      );
+    });
   },
 
 };

@@ -97,10 +97,15 @@ export const eventsMixin = {
       case 'file_changed':
         this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
         this.filesDirty = true;
-        this.markTreeGitDirty(event.path);
-        for (const tab of this.editorTabs) {
-          if (tab.kind === 'file' && (tab.path === event.path || tab.title === event.path)) {
-            tab.stale = true;
+        if (!this._isBackgroundApply) {
+          this.markTreeGitDirty(event.path);
+          for (const tab of this.editorTabs) {
+            if (
+              tab.kind === 'file'
+              && (tab.path === event.path || tab.title === event.path)
+            ) {
+              tab.stale = true;
+            }
           }
         }
         break;
@@ -315,7 +320,8 @@ export const eventsMixin = {
   },
 
   noteSessionActivity() {
-    if (!this.threadId || !this.sessionHidden()) return;
+    if (!this.threadId) return;
+    if (!this._isBackgroundApply && !this.sessionHidden()) return;
     void this.setSessionUnread(this.threadId, true);
   },
 

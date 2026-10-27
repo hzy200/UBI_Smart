@@ -689,11 +689,67 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       assert.equal(data.sessionViews['thread-dom-test'].loaded, true);
     });
 
-    await t.test('忙或待审批时仍阻止切换（阶段 4 前边界）', async () => {
+    await t.test('忙时仍可切换，旧视图保持运行状态', async () => {
+      data.activateSessionView('thread-dom-test');
       data.busy = true;
       await data.openSession('thread-dom-other');
+      assert.equal(data.threadId, 'thread-dom-other');
+      assert.equal(data.busy, false);
+      const previous = data.sessionViews['thread-dom-test'];
+      assert.equal(previous.busy, true);
+      previous.busy = false;
+    });
+
+    await t.test('后台 SSE 事件写入所属视图', async () => {
+      data.resetSessionViews();
+      const active = data.activateSessionView('stream-active', true);
+      const background = data.activateSessionView('stream-background', true);
+      data.activateSessionView('stream-active');
+
+      const frames = [
+        { type: 'assistant_token', node: 'n', text: '后台输出' },
+        { type: 'plan_created', steps: ['后台计划'], kinds: ['x'] },
+      ];
+      const body = frames
+        .map((frame, index) => (
+          `id: ${index + 1}\ndata: ${JSON.stringify(frame)}\n\n`
+        ))
+        .join('');
+      await data.consume(new Response(body, { status: 200 }), background);
+
+      assert.equal(data.activeView, active);
+      assert.equal(background.plan[0], '后台计划');
+      await waitFor(
+        () => background.messages.some((m) => m.text === '后台输出'),
+        '后台视图 token',
+      );
+      assert.equal(active.messages.length, 0);
+    });
+
+    await t.test('后台完成会标记未读且不打断当前会话', async () => {
+      data.resetSessionViews();
+      data.activateSessionView('thread-dom-test');
+      const background = data.activateSessionView('thread-dom-other');
+      data.activateSessionView('thread-dom-test');
+
+      data.applyEvent(background, {
+        type: 'run_finished',
+        answer: '后台完成',
+      });
+      await waitFor(
+        () => {
+          const row = data.sessions.find(
+            (item) => item.thread_id === 'thread-dom-other',
+          );
+          return Boolean(row && row.unread);
+        },
+        '后台未读',
+      );
       assert.equal(data.threadId, 'thread-dom-test');
-      data.busy = false;
+      assert.equal(
+        data.messages.some((m) => m.text === '后台完成'),
+        false,
+      );
     });
 
     await t.test('没有 Alpine CSP 表达式错误', () => {

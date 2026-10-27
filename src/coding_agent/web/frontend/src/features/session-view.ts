@@ -6,6 +6,14 @@
  */
 
 import { createSessionView } from '../state/session-view';
+import {
+  clearDerivedCaches,
+  markdownCaches,
+  messageHeights,
+  renderTimers,
+  tokenBuffers,
+  toolMap,
+} from '../state/runtime';
 
 export const SESSION_VIEW_FIELDS = [
   'threadId',
@@ -87,6 +95,9 @@ const mixin: Record<string, any> = {
   disposeSessionView(threadId = '') {
     const key = String(threadId || '');
     const active = this.activeView && this.activeView.threadId === key;
+    const view = this.sessionViews[key];
+    if (view && view._abort) view._abort.abort();
+    if (view && view._retryTimer) clearTimeout(view._retryTimer);
     const next = { ...this.sessionViews };
     delete next[key];
     this.sessionViews = next;
@@ -94,6 +105,21 @@ const mixin: Record<string, any> = {
   },
 
   resetSessionViews() {
+    const views = Object.values(this.sessionViews) as any[];
+    for (const view of views) {
+      if (view && view._abort) view._abort.abort();
+      if (view && view._retryTimer) clearTimeout(view._retryTimer);
+    }
+    if (this.activeView && this.activeView._abort) {
+      this.activeView._abort.abort();
+    }
+    renderTimers.forEach((timer) => clearTimeout(timer));
+    renderTimers.clear();
+    tokenBuffers.clear();
+    markdownCaches.clear();
+    messageHeights.clear();
+    toolMap.clear();
+    clearDerivedCaches();
     this.sessionViews = {};
     this.activeView = createSessionView('');
   },
@@ -102,7 +128,12 @@ const mixin: Record<string, any> = {
     const keys = Object.keys(this.sessionViews);
     if (keys.length <= MAX_SESSION_VIEWS) return;
     const removable = keys
-      .filter((key) => key !== keepId)
+      .filter((key) => {
+        if (key === keepId) return false;
+        const view = this.sessionViews[key];
+        // 后台仍在跑流的视图不能被淘汰，否则事件会写进孤立对象。
+        return !view.busy && !view._retryTimer;
+      })
       .sort((a, b) => (
         Number(this.sessionViews[a].lastActiveAt || 0)
         - Number(this.sessionViews[b].lastActiveAt || 0)
@@ -117,15 +148,22 @@ const mixin: Record<string, any> = {
     this.sessionViews = next;
   },
 
-  applyEvent(view, event) {
-    if (!view || !event) return;
+  withView(view, fn) {
     const previous = this.activeView;
+    const previousBackground = this._isBackgroundApply;
     this.activeView = view;
+    this._isBackgroundApply = previous !== view;
     try {
-      this.handleEvent(event);
+      return fn();
     } finally {
       this.activeView = previous;
+      this._isBackgroundApply = previousBackground;
     }
+  },
+
+  applyEvent(view, event) {
+    if (!view || !event) return;
+    this.withView(view, () => this.handleEvent(event));
   },
 };
 

@@ -10,6 +10,7 @@ export function createSessionView(threadId = '') {
     threadId,
     loaded: false,
     lastActiveAt: 0,
+    _abort: null,
     stateText: '就绪',
     costText: '',
     usage: { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 },

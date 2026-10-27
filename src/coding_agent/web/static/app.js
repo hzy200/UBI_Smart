@@ -1574,6 +1574,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return this.tab === name;
     },
     setTab(name, open = true) {
+      if (this._isBackgroundApply) return;
       this.tab = name;
       this.tabClasses = {
         plan: name === "plan" ? "active" : "",
@@ -1809,7 +1810,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
   // src/features/sessions.ts
   var sessionsMixin = {
     async saveTranscript() {
-      if (!this.threadId || this.messages.length === 0) return;
+      const threadId = this.threadId;
+      const unread = this._isBackgroundApply || this.sessionHidden();
+      if (!threadId || this.messages.length === 0) return;
       const messages = this.messages.map((message) => ({
         role: message.role,
         kind: message.kind || "",
@@ -1827,18 +1830,15 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }));
       try {
         const response = await authFetch(
-          `/api/thread/${encodeURIComponent(this.threadId)}/transcript`,
+          `/api/thread/${encodeURIComponent(threadId)}/transcript`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messages,
-              unread: this.sessionHidden()
-            })
+            body: JSON.stringify({ messages, unread })
           }
         );
         await readJson(response, "\u4FDD\u5B58\u5BF9\u8BDD\u8F68\u8FF9\u5931\u8D25");
-        if (this.sessionHidden()) this.applySessionUnread(this.threadId, true);
+        if (unread) this.applySessionUnread(threadId, true);
       } catch (err) {
       }
     },
@@ -2298,10 +2298,6 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return this.createSession();
     },
     async newSession() {
-      if (this.busy || this.approvals.length || this.paused) {
-        this.toastMessage("\u5F53\u524D\u4EFB\u52A1\u8FD0\u884C\u4E2D\u6216\u6302\u8D77\u4E2D\uFF0C\u5148\u5904\u7406\u5BA1\u6279/\u6682\u505C");
-        return;
-      }
       this.activateSessionView("", true);
       this._boundProjectId = "";
       this.resetConversation();
@@ -2358,6 +2354,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       };
     },
     resetConversation() {
+      const staleIds = new Set(
+        (this.messages || []).map((message) => Number(message.id))
+      );
+      const threadKey = this.threadId || "-";
       this.messages = [];
       this.reasoningBlocks = [];
       this.lastSeq = 0;
@@ -2418,19 +2418,21 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.stateText = "\u5C31\u7EEA";
       if (this.activeView) this.activeView.loaded = false;
       this.resetSessionUi();
-      toolMap.clear();
-      renderTimers.forEach((timer) => clearTimeout(timer));
-      renderTimers.clear();
-      tokenBuffers.clear();
-      markdownCaches.clear();
+      const prefix = `${threadKey}::`;
+      for (const key of Array.from(toolMap.keys())) {
+        if (key.startsWith(prefix)) toolMap.delete(key);
+      }
+      for (const id of staleIds) {
+        const timer = renderTimers.get(id);
+        if (timer !== void 0) clearTimeout(timer);
+        renderTimers.delete(id);
+        tokenBuffers.delete(id);
+        markdownCaches.delete(id);
+        messageHeights.delete(id);
+      }
       clearDerivedCaches();
-      messageHeights.clear();
     },
     async openSession(id) {
-      if (this.busy || this.approvals.length || this.paused) {
-        this.toastMessage("\u5F53\u524D\u4EFB\u52A1\u8FD0\u884C\u4E2D\u6216\u6302\u8D77\u4E2D\uFF0C\u5148\u5904\u7406\u5BA1\u6279/\u6682\u505C");
-        return;
-      }
       const view = this.activateSessionView(id);
       this.markSessionRead(id);
       const row = this.sessions.find((item) => item.thread_id === id);
@@ -2667,9 +2669,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       };
       this.decorateMessage(message, resolvedPhase);
       this.messages.push(message);
-      this.scrollBottom(role === "user" || resolvedPhase === "final");
-      this.scheduleVirtualRange();
-      this.$nextTick(() => this.decorateTranscript());
+      if (!this._isBackgroundApply) {
+        this.scrollBottom(role === "user" || resolvedPhase === "final");
+        this.scheduleVirtualRange();
+        this.$nextTick(() => this.decorateTranscript());
+      }
       return message;
     },
     decorateMessage(message, phase) {
@@ -2841,6 +2845,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       await this.copyText((code ? code.textContent : pre.textContent) || "");
     },
     announce(text) {
+      if (this._isBackgroundApply) return;
       const value = String(text || "").replace(/\s+/g, " ").trim();
       if (!value) return;
       this.liveAnnouncement = value;
@@ -2903,15 +2908,19 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       markdownCaches.delete(id);
       tokenBuffers.delete(id);
     },
-    finishAssistant() {
-      if (this._currentMessage) {
-        this.flushAssistantToken(this._currentMessage.id);
-        this._currentMessage.done = true;
-        this.decorateMessage(this._currentMessage);
-      }
-      this._currentMessage = null;
-      this._currentNode = "";
-      this.$nextTick(() => this.decorateTranscript());
+    finishAssistant(view = this.activeView) {
+      return this.withView(view, () => {
+        if (this._currentMessage) {
+          this.flushAssistantToken(this._currentMessage.id);
+          this._currentMessage.done = true;
+          this.decorateMessage(this._currentMessage);
+        }
+        this._currentMessage = null;
+        this._currentNode = "";
+        if (!this._isBackgroundApply) {
+          this.$nextTick(() => this.decorateTranscript());
+        }
+      });
     },
     virtualEnabled() {
       return this.messages.length > VIRTUAL_THRESHOLD;
@@ -2947,6 +2956,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       });
     },
     scheduleVirtualRange() {
+      if (this._isBackgroundApply) return;
       if (!this.virtualEnabled() || this._virtualRaf) return;
       this._virtualRaf = requestAnimationFrame(() => {
         this._virtualRaf = 0;
@@ -2985,6 +2995,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.scheduleVirtualRange();
     },
     scrollBottom(force = true) {
+      if (this._isBackgroundApply) return;
       this.$nextTick(() => {
         const element = this.$refs.transcript;
         if (!element) return;
@@ -3194,6 +3205,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
 
   // src/features/run.ts
   var runMixin = {
+    clearViewToolEntries(view) {
+      const prefix = `${view && view.threadId || "-"}::`;
+      for (const key of Array.from(toolMap.keys())) {
+        if (key.startsWith(prefix)) toolMap.delete(key);
+      }
+    },
     async send(override = "", appendUser = true) {
       const text = (typeof override === "string" && override ? override : this.prompt || "").trim();
       if (!text || this.busy) return;
@@ -3207,61 +3224,66 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.toastMessage(String(e));
         return;
       }
-      this.prompt = "";
+      const view = this.activeView;
+      view.prompt = "";
       if (appendUser) this.pushMessage("user", text);
-      this._lastPrompt = text;
-      this.busy = true;
-      this.paused = false;
-      this.stateText = "\u8FD0\u884C\u4E2D\u2026";
-      this.connectionState = "streaming";
-      this._terminal = false;
-      this._suspended = false;
-      this._retryCount = 0;
-      this.reasoningBlocks = [];
-      this.plan = [];
-      this.kinds = [];
-      this.planRows = [];
-      this.stepIdx = -1;
-      this.planDegraded = false;
-      this.tools = [];
-      toolMap.clear();
-      renderTimers.forEach((timer) => clearTimeout(timer));
-      renderTimers.clear();
-      tokenBuffers.clear();
+      view._lastPrompt = text;
+      view.busy = true;
+      view.paused = false;
+      view.stateText = "\u8FD0\u884C\u4E2D\u2026";
+      view.connectionState = "streaming";
+      view._terminal = false;
+      view._suspended = false;
+      view._retryCount = 0;
+      view.reasoningBlocks = [];
+      view.plan = [];
+      view.kinds = [];
+      view.planRows = [];
+      view.stepIdx = -1;
+      view.planDegraded = false;
+      view.tools = [];
+      view._toolsVersion += 1;
+      this.clearViewToolEntries(view);
       this.diffText = "";
-      this.lastSeq = 0;
-      this.canReconnect = false;
-      this._currentMessage = null;
-      this._currentNode = "";
+      view.lastSeq = 0;
+      view.canReconnect = false;
+      view._currentMessage = null;
+      view._currentNode = "";
+      const controller = new AbortController();
+      view._abort = controller;
       try {
         const response = await authFetch("/api/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: text, thread_id: this.threadId })
+          body: JSON.stringify({ prompt: text, thread_id: view.threadId }),
+          signal: controller.signal
         });
-        if (await this.handleRunConflict(response)) return;
-        await this.consume(response);
+        if (await this.handleRunConflict(response, view)) return;
+        await this.consume(response, view);
       } catch (err) {
-        this.failRun(err);
+        if (!controller.signal.aborted) this.failRun(err, view);
       } finally {
-        this.afterStream();
+        if (view._abort === controller) view._abort = null;
+        await this.afterStream(view);
       }
     },
-    async consume(response) {
-      this.connectionState = "streaming";
+    async consume(response, view = this.activeView) {
+      view.connectionState = "streaming";
       await consumeSse(
         response,
         ({ event, seq }) => {
-          if (Number.isFinite(seq)) this.lastSeq = Math.max(this.lastSeq, seq);
-          this.applyEvent(this.activeView, event);
+          if (Number.isFinite(seq)) {
+            view.lastSeq = Math.max(view.lastSeq, seq);
+          }
+          this.applyEvent(view, event);
         },
         {
-          getLastSeq: () => this.lastSeq,
+          getLastSeq: () => view.lastSeq,
           idleTimeoutMs: currentRuntimeConfig()?.sse.idleTimeoutMs
         }
       );
     },
-    async handleRunConflict(response) {
+    async handleRunConflict(response, view = this.activeView) {
       if (response.status !== 409) return false;
       let payload = {};
       try {
@@ -3273,8 +3295,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       const nested = detail && typeof detail === "object" ? detail : {};
       const code = payload.code || nested.code || "";
       if (code === "run_in_progress") {
-        this.toastMessage("\u8BE5\u4F1A\u8BDD\u5DF2\u5728\u8FD0\u884C\uFF0C\u6B63\u5728\u8FDE\u63A5\u4E8B\u4EF6\u6D41\u2026");
-        await this.reconnect();
+        if (this.activeView === view) {
+          this.toastMessage("\u8BE5\u4F1A\u8BDD\u5DF2\u5728\u8FD0\u884C\uFF0C\u6B63\u5728\u8FDE\u63A5\u4E8B\u4EF6\u6D41\u2026");
+        }
+        await this.reconnect(view);
         return true;
       }
       const message = typeof detail === "string" && detail ? detail : JSON.stringify(payload.details || nested || payload);
@@ -3282,44 +3306,55 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         `${message}\uFF08${code || "run.conflict"}${payload.request_id ? ` \xB7 request_id=${payload.request_id}` : ""}\uFF09`
       );
     },
-    async reconnect() {
-      if (!this.threadId) return;
-      if (this._retryTimer) {
-        clearTimeout(this._retryTimer);
-        this._retryTimer = null;
+    async reconnect(view = this.activeView) {
+      if (!view || !view.threadId) return;
+      if (view._retryTimer) {
+        clearTimeout(view._retryTimer);
+        view._retryTimer = null;
       }
-      this.busy = true;
-      this.stateText = "\u91CD\u8FDE\u4E2D\u2026";
-      this.connectionState = "reconnecting";
-      this.canReconnect = false;
+      view.busy = true;
+      view.stateText = "\u91CD\u8FDE\u4E2D\u2026";
+      view.connectionState = "reconnecting";
+      view.canReconnect = false;
+      const controller = new AbortController();
+      view._abort = controller;
       try {
         const response = await authFetch(
-          `/api/stream/${encodeURIComponent(this.threadId)}?after=${this.lastSeq}`
+          `/api/stream/${encodeURIComponent(view.threadId)}?after=${view.lastSeq}`,
+          { signal: controller.signal }
         );
-        await this.consume(response);
+        await this.consume(response, view);
       } catch (err) {
-        this.toastMessage(`\u91CD\u8FDE\u5931\u8D25\uFF1A${err}`);
-        this.canReconnect = true;
+        if (!controller.signal.aborted) {
+          if (this.activeView === view) {
+            this.toastMessage(`\u91CD\u8FDE\u5931\u8D25\uFF1A${err}`);
+          }
+          view.canReconnect = true;
+        }
       } finally {
-        await this.afterStream();
+        if (view._abort === controller) view._abort = null;
+        await this.afterStream(view);
       }
     },
-    scheduleReconnect() {
-      if (this._retryTimer) return;
-      this._retryCount += 1;
-      const delay = Math.min(8e3, 500 * 2 ** this._retryCount);
-      this.stateText = `\u8FDE\u63A5\u4E2D\u65AD\uFF0C${Math.round(delay / 1e3)}s \u540E\u91CD\u8FDE\u2026`;
-      this.connectionState = "reconnecting";
-      this._retryTimer = setTimeout(() => {
-        this._retryTimer = null;
-        this.reconnect();
+    scheduleReconnect(view = this.activeView) {
+      if (!view || view._retryTimer) return;
+      view._retryCount += 1;
+      const delay = Math.min(8e3, 500 * 2 ** view._retryCount);
+      view.stateText = `\u8FDE\u63A5\u4E2D\u65AD\uFF0C${Math.round(delay / 1e3)}s \u540E\u91CD\u8FDE\u2026`;
+      view.connectionState = "reconnecting";
+      view._retryTimer = setTimeout(() => {
+        view._retryTimer = null;
+        if (view.threadId && this.sessionViews[view.threadId] !== view) {
+          return;
+        }
+        void this.reconnect(view);
       }, delay);
     },
     retry() {
       if (this.busy || !this._lastPrompt) return;
       this.canReconnect = false;
       this.connectionState = "idle";
-      this.send(this._lastPrompt, false);
+      void this.send(this._lastPrompt, false);
     },
     connectionText() {
       if (this.connectionState === "streaming") return "\u6D41\u5F0F\u8FDE\u63A5\u4E2D";
@@ -3327,40 +3362,46 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       if (this.connectionState === "closed") return "\u8FDE\u63A5\u5DF2\u5173\u95ED";
       return "";
     },
-    async afterStream() {
-      this.finishAssistant();
-      if (this.canReconnect && !this._terminal && !this._suspended && this._retryCount < 3) {
-        this.scheduleReconnect();
+    async afterStream(view = this.activeView) {
+      this.finishAssistant(view);
+      if (view.canReconnect && !view._terminal && !view._suspended && view._retryCount < 3) {
+        this.scheduleReconnect(view);
         return;
       }
-      this.connectionState = this._terminal ? "idle" : "closed";
-      if (this.stateText === "\u8FDE\u63A5\u4E2D\u65AD") {
-        this.busy = false;
+      view.connectionState = view._terminal ? "idle" : "closed";
+      if (view.stateText === "\u8FDE\u63A5\u4E2D\u65AD") {
+        view.busy = false;
         return;
       }
-      if (this.approvals.length) {
-        this.stateText = "\u7B49\u5F85\u5BA1\u6279";
-        this.showNextApproval();
-        this.busy = false;
+      if (view.approvals.length) {
+        view.stateText = "\u7B49\u5F85\u5BA1\u6279";
+        view.approval = view.approvals[0] || null;
+        view.approvalPosition = view.approvals.length > 1 ? `\u8FD8\u5269 ${view.approvals.length} \u6761\u5F85\u786E\u8BA4` : "";
+        view.busy = false;
         return;
       }
-      if (this.paused) {
-        this.stateText = "\u5DF2\u6682\u505C";
-        this.busy = false;
+      if (view.paused) {
+        view.stateText = "\u5DF2\u6682\u505C";
+        view.busy = false;
         return;
       }
-      this.busy = false;
-      if (this.stateText === "\u8FD0\u884C\u4E2D\u2026") this.stateText = "\u5C31\u7EEA";
-      this.canReconnect = false;
+      view.busy = false;
+      if (view.stateText === "\u8FD0\u884C\u4E2D\u2026") view.stateText = "\u5C31\u7EEA";
+      view.canReconnect = false;
       await this.loadSessions();
     },
-    failRun(err) {
-      this.busy = false;
-      this.finishAssistant();
-      this.stateText = "\u8FDE\u63A5\u4E2D\u65AD";
-      this.connectionState = "closed";
-      this.canReconnect = Boolean(this.threadId && this.lastSeq > 0);
-      this.pushMessage("system", `\u8FD0\u884C\u5931\u8D25\uFF1A${err && err.message ? err.message : err}`);
+    failRun(err, view = this.activeView) {
+      view.busy = false;
+      this.finishAssistant(view);
+      view.stateText = "\u8FDE\u63A5\u4E2D\u65AD";
+      view.connectionState = "closed";
+      view.canReconnect = Boolean(view.threadId && view.lastSeq > 0);
+      this.withView(view, () => {
+        this.pushMessage(
+          "system",
+          `\u8FD0\u884C\u5931\u8D25\uFF1A${err && err.message ? err.message : err}`
+        );
+      });
     }
   };
 
@@ -3447,10 +3488,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         case "file_changed":
           this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
           this.filesDirty = true;
-          this.markTreeGitDirty(event.path);
-          for (const tab of this.editorTabs) {
-            if (tab.kind === "file" && (tab.path === event.path || tab.title === event.path)) {
-              tab.stale = true;
+          if (!this._isBackgroundApply) {
+            this.markTreeGitDirty(event.path);
+            for (const tab of this.editorTabs) {
+              if (tab.kind === "file" && (tab.path === event.path || tab.title === event.path)) {
+                tab.stale = true;
+              }
             }
           }
           break;
@@ -3654,7 +3697,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
     },
     noteSessionActivity() {
-      if (!this.threadId || !this.sessionHidden()) return;
+      if (!this.threadId) return;
+      if (!this._isBackgroundApply && !this.sessionHidden()) return;
       void this.setSessionUnread(this.threadId, true);
     },
     verificationText(event) {
@@ -3977,49 +4021,58 @@ ${detail || ""}`;
 
   // src/features/approvals.ts
   var approvalsMixin = {
-    showNextApproval() {
-      this.approval = this.approvals[0] || null;
-      this.approvalPosition = this.approvals.length > 1 ? `\u8FD8\u5269 ${this.approvals.length} \u6761\u5F85\u786E\u8BA4` : "";
+    showNextApproval(view = this.activeView) {
+      view.approval = view.approvals[0] || null;
+      view.approvalPosition = view.approvals.length > 1 ? `\u8FD8\u5269 ${view.approvals.length} \u6761\u5F85\u786E\u8BA4` : "";
     },
     async decide(granted) {
-      if (!this.approval) return;
-      this.decisions[this.approval.request_id] = !!granted;
-      this.approvals.shift();
-      if (this.approvals.length) {
-        this.showNextApproval();
+      const view = this.activeView;
+      if (!view.approval) return;
+      view.decisions[view.approval.request_id] = !!granted;
+      view.approvals.shift();
+      if (view.approvals.length) {
+        this.showNextApproval(view);
         return;
       }
-      await this.resumeApprovals();
+      await this.resumeApprovals(view);
     },
     async decideAll(granted) {
-      for (const item of this.approvals) {
-        this.decisions[item.request_id] = !!granted;
+      const view = this.activeView;
+      for (const item of view.approvals) {
+        view.decisions[item.request_id] = !!granted;
       }
-      this.approvals = [];
-      await this.resumeApprovals();
+      view.approvals = [];
+      await this.resumeApprovals(view);
     },
-    async resumeApprovals() {
-      this.approval = null;
-      this.busy = true;
-      this.stateText = "\u6062\u590D\u4E2D\u2026";
-      this.canReconnect = false;
-      this.connectionState = "streaming";
-      this._terminal = false;
-      this._suspended = false;
-      this._retryCount = 0;
+    async resumeApprovals(view = this.activeView) {
+      view.approval = null;
+      view.busy = true;
+      view.stateText = "\u6062\u590D\u4E2D\u2026";
+      view.canReconnect = false;
+      view.connectionState = "streaming";
+      view._terminal = false;
+      view._suspended = false;
+      view._retryCount = 0;
+      const controller = new AbortController();
+      view._abort = controller;
       try {
-        const response = await authFetch(`/api/resume/${encodeURIComponent(this.threadId)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decisions: this.decisions })
-        });
-        this.decisions = {};
-        if (await this.handleRunConflict(response)) return;
-        await this.consume(response);
+        const response = await authFetch(
+          `/api/resume/${encodeURIComponent(view.threadId)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ decisions: view.decisions }),
+            signal: controller.signal
+          }
+        );
+        view.decisions = {};
+        if (await this.handleRunConflict(response, view)) return;
+        await this.consume(response, view);
       } catch (err) {
-        this.failRun(err);
+        if (!controller.signal.aborted) this.failRun(err, view);
       } finally {
-        this.afterStream();
+        if (view._abort === controller) view._abort = null;
+        await this.afterStream(view);
       }
     }
   };
@@ -4054,24 +4107,29 @@ ${detail || ""}`;
       await this.steer("replan");
     },
     async resumeSteering() {
-      if (!this.threadId) return;
-      this.busy = true;
-      this.stateText = "\u6062\u590D\u4E2D\u2026";
-      this.canReconnect = false;
-      this.connectionState = "streaming";
-      this._terminal = false;
-      this._suspended = false;
-      this._retryCount = 0;
+      const view = this.activeView;
+      if (!view.threadId) return;
+      view.busy = true;
+      view.stateText = "\u6062\u590D\u4E2D\u2026";
+      view.canReconnect = false;
+      view.connectionState = "streaming";
+      view._terminal = false;
+      view._suspended = false;
+      view._retryCount = 0;
+      const controller = new AbortController();
+      view._abort = controller;
       try {
-        const response = await authFetch(`/api/resume_steering/${encodeURIComponent(this.threadId)}`, {
-          method: "POST"
-        });
-        if (await this.handleRunConflict(response)) return;
-        await this.consume(response);
+        const response = await authFetch(
+          `/api/resume_steering/${encodeURIComponent(view.threadId)}`,
+          { method: "POST", signal: controller.signal }
+        );
+        if (await this.handleRunConflict(response, view)) return;
+        await this.consume(response, view);
       } catch (err) {
-        this.failRun(err);
+        if (!controller.signal.aborted) this.failRun(err, view);
       } finally {
-        await this.afterStream();
+        if (view._abort === controller) view._abort = null;
+        await this.afterStream(view);
       }
     }
   };
@@ -7049,6 +7107,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       threadId,
       loaded: false,
       lastActiveAt: 0,
+      _abort: null,
       stateText: "\u5C31\u7EEA",
       costText: "",
       usage: { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 },
@@ -7180,34 +7239,62 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     disposeSessionView(threadId = "") {
       const key = String(threadId || "");
       const active = this.activeView && this.activeView.threadId === key;
+      const view = this.sessionViews[key];
+      if (view && view._abort) view._abort.abort();
+      if (view && view._retryTimer) clearTimeout(view._retryTimer);
       const next = { ...this.sessionViews };
       delete next[key];
       this.sessionViews = next;
       if (active) this.activateSessionView("", true);
     },
     resetSessionViews() {
+      const views = Object.values(this.sessionViews);
+      for (const view of views) {
+        if (view && view._abort) view._abort.abort();
+        if (view && view._retryTimer) clearTimeout(view._retryTimer);
+      }
+      if (this.activeView && this.activeView._abort) {
+        this.activeView._abort.abort();
+      }
+      renderTimers.forEach((timer) => clearTimeout(timer));
+      renderTimers.clear();
+      tokenBuffers.clear();
+      markdownCaches.clear();
+      messageHeights.clear();
+      toolMap.clear();
+      clearDerivedCaches();
       this.sessionViews = {};
       this.activeView = createSessionView("");
     },
     pruneSessionViews(keepId = "") {
       const keys = Object.keys(this.sessionViews);
       if (keys.length <= MAX_SESSION_VIEWS) return;
-      const removable = keys.filter((key) => key !== keepId).sort((a, b) => Number(this.sessionViews[a].lastActiveAt || 0) - Number(this.sessionViews[b].lastActiveAt || 0));
+      const removable = keys.filter((key) => {
+        if (key === keepId) return false;
+        const view = this.sessionViews[key];
+        return !view.busy && !view._retryTimer;
+      }).sort((a, b) => Number(this.sessionViews[a].lastActiveAt || 0) - Number(this.sessionViews[b].lastActiveAt || 0));
       const next = { ...this.sessionViews };
       while (Object.keys(next).length > MAX_SESSION_VIEWS && removable.length) {
         delete next[removable.shift()];
       }
       this.sessionViews = next;
     },
-    applyEvent(view, event) {
-      if (!view || !event) return;
+    withView(view, fn) {
       const previous = this.activeView;
+      const previousBackground = this._isBackgroundApply;
       this.activeView = view;
+      this._isBackgroundApply = previous !== view;
       try {
-        this.handleEvent(event);
+        return fn();
       } finally {
         this.activeView = previous;
+        this._isBackgroundApply = previousBackground;
       }
+    },
+    applyEvent(view, event) {
+      if (!view || !event) return;
+      this.withView(view, () => this.handleEvent(event));
     }
   };
   for (const field of SESSION_VIEW_FIELDS) {
@@ -7229,6 +7316,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     const app = {
       activeView: createSessionView(""),
       sessionViews: {},
+      _isBackgroundApply: false,
       ready: false,
       configLoaded: false,
       configError: "",

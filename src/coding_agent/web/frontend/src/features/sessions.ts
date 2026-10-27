@@ -19,7 +19,9 @@ import { sessionMetaText, sessionPreviewText } from '../ui/sessions';
 
 export const sessionsMixin = {
   async saveTranscript() {
-    if (!this.threadId || this.messages.length === 0) return;
+    const threadId = this.threadId;
+    const unread = this._isBackgroundApply || this.sessionHidden();
+    if (!threadId || this.messages.length === 0) return;
     const messages = this.messages.map((message) => ({
       role: message.role,
       kind: message.kind || '',
@@ -37,18 +39,15 @@ export const sessionsMixin = {
     }));
     try {
       const response = await authFetch(
-        `/api/thread/${encodeURIComponent(this.threadId)}/transcript`,
+        `/api/thread/${encodeURIComponent(threadId)}/transcript`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages,
-            unread: this.sessionHidden(),
-          }),
+          body: JSON.stringify({ messages, unread }),
         },
       );
       await readJson(response, '保存对话轨迹失败');
-      if (this.sessionHidden()) this.applySessionUnread(this.threadId, true);
+      if (unread) this.applySessionUnread(threadId, true);
     } catch (err) {
       // 轨迹只是 UI 增强，保存失败不能打断运行。
     }
@@ -593,10 +592,6 @@ export const sessionsMixin = {
   },
 
   async newSession() {
-    if (this.busy || this.approvals.length || this.paused) {
-      this.toastMessage('当前任务运行中或挂起中，先处理审批/暂停');
-      return;
-    }
     this.activateSessionView('', true);
     this._boundProjectId = '';
     this.resetConversation();
@@ -643,6 +638,10 @@ export const sessionsMixin = {
   },
 
   resetConversation() {
+    const staleIds = new Set<number>(
+      (this.messages || []).map((message) => Number(message.id)),
+    );
+    const threadKey = this.threadId || '-';
     this.messages = [];
     this.reasoningBlocks = [];
     this.lastSeq = 0;
@@ -700,21 +699,23 @@ export const sessionsMixin = {
     this.stateText = '就绪';
     if (this.activeView) this.activeView.loaded = false;
     this.resetSessionUi();
-    toolMap.clear();
-    renderTimers.forEach((timer) => clearTimeout(timer));
-    renderTimers.clear();
-    tokenBuffers.clear();
-    markdownCaches.clear();
+    // 只清理当前视图的缓存，避免打断其他会话仍在进行的流。
+    const prefix = `${threadKey}::`;
+    for (const key of Array.from(toolMap.keys())) {
+      if (key.startsWith(prefix)) toolMap.delete(key);
+    }
+    for (const id of staleIds) {
+      const timer = renderTimers.get(id);
+      if (timer !== undefined) clearTimeout(timer);
+      renderTimers.delete(id);
+      tokenBuffers.delete(id);
+      markdownCaches.delete(id);
+      messageHeights.delete(id);
+    }
     clearDerivedCaches();
-    messageHeights.clear();
   },
 
   async openSession(id) {
-    // 阶段 4 之前的流仍绑定 activeView，忙/待审批时禁止切换。
-    if (this.busy || this.approvals.length || this.paused) {
-      this.toastMessage('当前任务运行中或挂起中，先处理审批/暂停');
-      return;
-    }
     const view = this.activateSessionView(id);
     this.markSessionRead(id);
     const row = this.sessions.find((item) => item.thread_id === id);

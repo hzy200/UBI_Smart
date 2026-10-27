@@ -98,6 +98,7 @@ export const view_modelMixin = {
   },
   isTab(name) { return this.tab === name; },
   setTab(name, open = true) {
+    if (this._isBackgroundApply) return;
     this.tab = name;
     this.tabClasses = {
       plan: name === 'plan' ? 'active' : '',

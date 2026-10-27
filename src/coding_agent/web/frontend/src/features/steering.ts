@@ -38,24 +38,29 @@ export const steeringMixin = {
   },
 
   async resumeSteering() {
-    if (!this.threadId) return;
-    this.busy = true;
-    this.stateText = '恢复中…';
-    this.canReconnect = false;
-    this.connectionState = 'streaming';
-    this._terminal = false;
-    this._suspended = false;
-    this._retryCount = 0;
+    const view = this.activeView;
+    if (!view.threadId) return;
+    view.busy = true;
+    view.stateText = '恢复中…';
+    view.canReconnect = false;
+    view.connectionState = 'streaming';
+    view._terminal = false;
+    view._suspended = false;
+    view._retryCount = 0;
+    const controller = new AbortController();
+    view._abort = controller;
     try {
-      const response = await authFetch(`/api/resume_steering/${encodeURIComponent(this.threadId)}`, {
-        method: 'POST',
-      });
-      if (await this.handleRunConflict(response)) return;
-      await this.consume(response);
+      const response = await authFetch(
+        `/api/resume_steering/${encodeURIComponent(view.threadId)}`,
+        { method: 'POST', signal: controller.signal },
+      );
+      if (await this.handleRunConflict(response, view)) return;
+      await this.consume(response, view);
     } catch (err) {
-      this.failRun(err);
+      if (!controller.signal.aborted) this.failRun(err, view);
     } finally {
-      await this.afterStream();
+      if (view._abort === controller) view._abort = null;
+      await this.afterStream(view);
     }
   },
 

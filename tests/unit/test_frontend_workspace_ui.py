@@ -412,7 +412,39 @@ def test_stage3_session_store_is_guarded() -> None:
         "SessionStore 复用视图",
         "SessionStore 限制保留",
         "重复打开会话不重置",
-        "阶段 4 前边界",
+        "旧视图保持运行状态",
+    ):
+        assert marker in interaction, marker
+
+
+def test_stage4_background_streams_are_guarded() -> None:
+    """阶段 4：每会话流绑定、后台事件隔离、未读与 abort。"""
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "_isBackgroundApply",
+        "withView",
+        "AbortController",
+        "view._abort",
+        "scheduleReconnect(view",
+        "consume(response, view",
+        "applyEvent(view, event)",
+    ):
+        assert marker in app, marker
+
+    interaction = (
+        ROOT
+        / "src"
+        / "coding_agent"
+        / "web"
+        / "frontend"
+        / "tests"
+        / "dom"
+        / "interaction.test.ts"
+    ).read_text(encoding="utf-8")
+    for marker in (
+        "忙时仍可切换",
+        "后台 SSE 事件写入所属视图",
+        "后台完成会标记未读",
     ):
         assert marker in interaction, marker
 

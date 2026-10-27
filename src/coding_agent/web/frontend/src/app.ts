@@ -35,6 +35,7 @@ const agentApp = () => {
   const app: Record<string, any> = ({
   activeView: createSessionView(''),
   sessionViews: {},
+  _isBackgroundApply: false,
   ready: false,
   configLoaded: false,
   configError: '',
