@@ -96,6 +96,7 @@ export const view_modelMixin = {
     this.tabClasses = {
       plan: name === 'plan' ? 'active' : '',
       tools: name === 'tools' ? 'active' : '',
+      timeline: name === 'timeline' ? 'active' : '',
     };
     if (open && this.inspectorCollapsed) this.inspectorCollapsed = false;
   },

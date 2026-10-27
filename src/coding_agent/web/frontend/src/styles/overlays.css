@@ -74,6 +74,59 @@
   .icon-btn, .status-command { min-height: 0; }
 }
 
+.notification-btn { position: relative; }
+.notification-btn .activity-dot { top: 3px; right: 3px; }
+.notification-panel {
+  position: fixed;
+  top: calc(var(--header-height) + 8px);
+  right: 12px;
+  z-index: 30;
+  width: min(380px, 92vw);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.notification-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.notification-head h3 {
+  flex: 1;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.notification-unread { color: var(--accent); font-size: 11px; }
+.notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  overflow: auto;
+}
+.notification-item {
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+.notification-item.notif-success { border-left-color: var(--ok); }
+.notification-item.notif-error { border-left-color: var(--bad); }
+.notification-item.notif-warning { border-left-color: var(--warn); }
+.notification-title { font-size: 12px; font-weight: 600; }
+.notification-body { margin-top: 2px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.notification-time { margin-top: 3px; color: var(--text-3); font-size: 10px; }
+
 .command-modal {
   align-items: flex-start;
   justify-content: center;
@@ -117,8 +170,16 @@
 .command-item:hover,
 .command-item.selected { background: var(--panel-2); border-color: var(--border); }
 .command-item.selected { border-color: var(--accent); }
-.command-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.command-hint { color: var(--muted); font-size: 11px; }
+.command-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.command-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-detail {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-hint { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
 .sr-only {
   position: absolute;
   width: 1px;

@@ -157,3 +157,35 @@ def test_ide_shell_and_command_palette_are_guarded() -> None:
     css = (STATIC / "style.css").read_text(encoding="utf-8")
     for marker in (".activitybar", ".statusbar", ".command-box", ".splitter"):
         assert marker in css, marker
+
+
+def test_m3_workspace_features_are_guarded() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "mainTab === 'file'",
+        "mainTab === 'diff'",
+        "diffRows()",
+        "fileView._html",
+        "notification-panel",
+        "unreadNotifications",
+        "tabClasses.timeline",
+        "timeline-item",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "diffRows",
+        "highlightCode",
+        "onCommandQuery",
+        "searchFiles",
+        "fileSearchResults",
+        "pushNotification",
+        "pushTimeline",
+        "notifications",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".editor-code", ".diff-add", ".notification-panel", ".timeline-item"):
+        assert marker in css, marker

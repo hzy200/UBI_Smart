@@ -153,9 +153,7 @@
           </div>
         </div>
       </template>
-      <button x-show="diffDisplay" @click="copyText(diffDisplay)">复制 diff</button>
-      <pre class="diff" x-show="diffDisplay" x-text="diffDisplay"></pre>
-      <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部 diff</button>
+      <div class="note">查看 diff 会在主区打开标签页。</div>
       <div class="note">接受 = 保留当前内容；拒绝 = 恢复到快照前的内容（回滚前会再留底）。</div>
       <div class="empty" x-show="files.length === 0 && diffText === ''">还没有文件改动</div>
     </div>
@@ -174,13 +172,7 @@
         </div>
       </template>
       <div class="empty" x-show="!treeLoading && treeRows.length === 0">空目录，或先创建会话</div>
-      <div x-show="fileView.path">
-        <div class="panel-actions">
-          <span x-text="fileView.path"></span>
-          <span class="note" x-text="fileView._size"></span>
-        </div>
-        <pre class="diff" x-text="fileView._text"></pre>
-      </div>
+      <div class="note">点击文件会在主区打开只读预览。</div>
     </div>
 
     <div class="view" x-show="view === 'git'">
@@ -196,7 +188,7 @@
       <template x-for="row in gitInfo._commits" :key="row._key">
         <div class="note" x-text="row._text"></div>
       </template>
-      <pre class="diff" x-show="gitDiffText" x-text="gitDiffText"></pre>
+      <div class="note" x-show="mainTab === 'diff' && diffPath === 'Git'">Git diff 已在主区标签中打开。</div>
     </div>
 
     <div class="view" x-show="view === 'tasks'">

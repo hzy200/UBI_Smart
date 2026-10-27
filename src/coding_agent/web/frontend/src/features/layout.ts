@@ -4,6 +4,8 @@
  * 只改界面状态，不触碰运行/审批/工作区事实。
  */
 
+import { authFetch, readJson } from '../api/http';
+
 const LAYOUT_KEY = 'codingagent.layout';
 const ACTIVITY_WIDTH = 52;
 const MIN_SIDEBAR = 220;
@@ -179,6 +181,10 @@ export const layoutMixin = {
     this.commandOpen = true;
     this.commandQuery = '';
     this.commandIndex = 0;
+    this.fileSearchResults = [];
+    this.fileSearchLoading = false;
+    this._searchSeq += 1;
+    if (this._searchTimer) clearTimeout(this._searchTimer);
     this.$nextTick(() => {
       const input = this.$refs.commandInput;
       if (input) input.focus();
@@ -189,6 +195,51 @@ export const layoutMixin = {
     this.commandOpen = false;
     this.commandQuery = '';
     this.commandIndex = 0;
+    this.fileSearchResults = [];
+    this.fileSearchLoading = false;
+    this._searchSeq += 1;
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+  },
+
+  onCommandQuery() {
+    this.commandIndex = 0;
+    this.fileSearchResults = [];
+    this.fileSearchLoading = false;
+    this._searchSeq += 1;
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+    const query = String(this.commandQuery || '').trim();
+    if (query.length < 2 || !this.threadId) return;
+    this._searchTimer = setTimeout(() => {
+      void this.searchFiles(query);
+    }, 220);
+  },
+
+  async searchFiles(query: string) {
+    if (!this.threadId) return;
+    const threadId = this.threadId;
+    const seq = ++this._searchSeq;
+    this.fileSearchLoading = true;
+    try {
+      const params = new URLSearchParams({
+        thread_id: threadId,
+        q: query,
+        limit: '30',
+      });
+      const response = await authFetch(`/api/search?${params.toString()}`);
+      const data = await readJson(response, '搜索文件失败');
+      if (seq !== this._searchSeq || threadId !== this.threadId) return;
+      this.fileSearchResults = (data.results || []).map((row, index) => ({
+        ...row,
+        _key: `${row.path}:${row.line}:${index}`,
+        _hint: row.kind === 'content' ? '文件内容' : '文件路径',
+      }));
+    } catch (err) {
+      if (seq !== this._searchSeq || threadId !== this.threadId) return;
+      this.fileSearchResults = [];
+      this.toastMessage(String(err));
+    } finally {
+      if (seq === this._searchSeq) this.fileSearchLoading = false;
+    }
   },
 
   commandItems() {
@@ -196,6 +247,7 @@ export const layoutMixin = {
       { id: 'new-session', title: '新建会话', hint: '会话', run: () => this.newSession() },
       { id: 'settings', title: '打开设置', hint: '界面', run: () => this.toggleSettings() },
       { id: 'recovery', title: '打开恢复中心', hint: '界面', run: () => this.openRecovery() },
+      { id: 'notifications', title: '通知中心', hint: '界面', run: () => this.toggleNotifications() },
       { id: 'shortcuts', title: '查看快捷键', hint: '帮助', run: () => { this.shortcutsOpen = true; } },
       { id: 'toggle-sidebar', title: '切换侧栏', hint: '布局', run: () => this.toggleSidebar() },
       { id: 'toggle-inspector', title: '切换右侧检查器', hint: '布局', run: () => this.toggleInspector() },
@@ -208,6 +260,7 @@ export const layoutMixin = {
       { id: 'view-audit', title: '视图：审计', hint: '导航', run: () => this.setView('audit') },
       { id: 'tab-plan', title: '检查器：计划', hint: '导航', run: () => this.setTab('plan') },
       { id: 'tab-tools', title: '检查器：工具', hint: '导航', run: () => this.setTab('tools') },
+      { id: 'tab-timeline', title: '检查器：时间线', hint: '导航', run: () => this.setTab('timeline') },
       { id: 'refresh-files', title: '刷新文件快照', hint: '文件', run: () => this.loadSnapshots() },
       { id: 'refresh-tree', title: '刷新文件树', hint: '文件', run: () => this.loadTree(this.treePath) },
       { id: 'git-diff', title: '查看 Git diff', hint: 'Git', run: () => this.loadGit(true) },
@@ -238,6 +291,15 @@ export const layoutMixin = {
         run: () => this.openSession(session.thread_id),
       });
     }
+    for (const row of this.fileSearchResults || []) {
+      items.push({
+        id: `file:${row._key}`,
+        title: row.line ? `${row.path}:${row.line}` : row.path,
+        hint: row._hint || '文件',
+        detail: row.preview || '',
+        run: () => this.openFile(row.path, row.line),
+      });
+    }
     return items;
   },
 
@@ -248,7 +310,9 @@ export const layoutMixin = {
     const tokens = query.split(/\s+/).filter(Boolean);
     return items
       .filter((item) => {
-        const haystack = `${item.title} ${item.hint} ${item.id}`.toLowerCase();
+        const haystack = (
+          `${item.title} ${item.hint} ${item.id} ${item.detail || ''}`
+        ).toLowerCase();
         return tokens.every((token) => haystack.includes(token));
       })
       .slice(0, 40);

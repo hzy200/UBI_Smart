@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import glob
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
@@ -14,12 +15,15 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from coding_agent.agent_protocol import AgentContext
 from coding_agent.agent_server_models import DeleteUploadBody, RestoreBody
 from coding_agent.config import Settings
+from coding_agent.execution.host_file_access import HostFileAccess
 from coding_agent.project_env import probe_project
 from coding_agent.workspace.browse import (
+    MAX_READ_BYTES,
     BrowseError,
     git_summary,
     list_directory,
     read_text_file,
+    search_workspace,
 )
 
 
@@ -37,10 +41,60 @@ def _uploads_dir(context: AgentContext, thread_id: str) -> Path:
     return Path(context.workspace) / ".agent" / "uploads" / safe
 
 
+def _host_access(app: FastAPI, context: AgentContext) -> HostFileAccess:
+    acceptor = getattr(app.state, "host_broker_acceptor", None)
+    if acceptor is None:
+        raise HTTPException(status_code=503, detail="A2L 未启用")
+    caller = acceptor.caller_for(context.a2l_id)
+    if caller is None:
+        raise HTTPException(status_code=503, detail="A2L 未连接")
+    return HostFileAccess(
+        caller,
+        workspace_id=context.workspace_id,
+        root_handle=context.root_handle,
+    )
+
+
+def _host_error(exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=502,
+        detail=f"本机工作区读取失败：{type(exc).__name__}: {exc}",
+    )
+
+
 def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/files")
     async def files(request: Request, path: str = "") -> dict:
         context = deps.context(request)
+        if context.workspace_kind == "host":
+            access = _host_access(app, context)
+            try:
+                rows = await asyncio.to_thread(
+                    access.list_dir, path, limit=1000
+                )
+            except Exception as exc:  # noqa: BLE001 - 边界转 HTTP
+                raise _host_error(exc) from exc
+            entries = []
+            for kind, item_path in rows:
+                name = item_path.rsplit("/", 1)[-1] or item_path
+                entries.append(
+                    {
+                        "name": name,
+                        "path": item_path,
+                        "is_dir": kind == "d",
+                        "size": 0,
+                    }
+                )
+            entries.sort(
+                key=lambda item: (
+                    not item["is_dir"], item["name"].lower()
+                )
+            )
+            return {
+                "path": path.strip("/"),
+                "entries": entries[:200],
+                "truncated": len(entries) > 200,
+            }
         try:
             return await asyncio.to_thread(
                 list_directory, context.workspace, path
@@ -51,12 +105,68 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/file")
     async def file_content(request: Request, path: str) -> dict:
         context = deps.context(request)
+        if context.workspace_kind == "host":
+            access = _host_access(app, context)
+            try:
+                info = await asyncio.to_thread(access.stat, path)
+                if not info.get("is_file"):
+                    raise HTTPException(status_code=422, detail="不是文件")
+                text = await asyncio.to_thread(
+                    access.read_text, path, max_bytes=MAX_READ_BYTES
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 边界转 HTTP
+                raise _host_error(exc) from exc
+            return {
+                "path": path.strip("/"),
+                "size": int(info.get("size") or 0),
+                "truncated": False,
+                "binary": False,
+                "content": text,
+            }
         try:
             return await asyncio.to_thread(
                 read_text_file, context.workspace, path
             )
         except BrowseError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/search")
+    async def search(
+        request: Request, q: str = "", limit: int = 50
+    ) -> dict:
+        context = deps.context(request)
+        text = q.strip()
+        cap = max(1, min(int(limit), 100))
+        if not text:
+            return {"query": "", "results": [], "truncated": False}
+        if context.workspace_kind == "host":
+            access = _host_access(app, context)
+            pattern = f"*{glob.escape(text)}*"
+            try:
+                files = await asyncio.to_thread(
+                    access.find_files, pattern, limit=cap
+                )
+            except Exception as exc:  # noqa: BLE001 - 边界转 HTTP
+                raise _host_error(exc) from exc
+            return {
+                "query": text,
+                "results": [
+                    {"path": path, "line": 0, "preview": "", "kind": "path"}
+                    for path in files[:cap]
+                ],
+                "truncated": len(files) >= cap,
+                "content_search": False,
+            }
+        try:
+            result = await asyncio.to_thread(
+                search_workspace, context.workspace, text, limit=cap
+            )
+        except BrowseError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        result["content_search"] = True
+        return result
 
     @app.get("/v1/git")
     async def git(request: Request, diff: bool = False) -> dict:

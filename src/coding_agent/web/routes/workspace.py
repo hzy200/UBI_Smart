@@ -22,6 +22,7 @@ from coding_agent.workspace.browse import (
     git_summary,
     list_directory,
     read_text_file,
+    search_workspace,
 )
 
 
@@ -119,6 +120,36 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             )
         except BrowseError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/search")
+    async def search(
+        user: UserDep,
+        thread_id: str,
+        q: str = "",
+        limit: int = 50,
+    ) -> dict:
+        public_thread = check_thread_id(thread_id)
+        deps.reject_deleted(user, public_thread)
+        tenant = deps.tenant(user)
+        config = deps.config_for(
+            user, tenant, public_thread, create=False
+        )
+        if deps.agent_client is not None:
+            return await deps.agent_json(
+                user, tenant, config, "GET", "/v1/search",
+                params={"q": q, "limit": str(limit)},
+            )
+        if not q.strip():
+            return {"query": "", "results": [], "truncated": False}
+        workspace = config.workspace if config else tenant.workspace
+        try:
+            result = await asyncio.to_thread(
+                search_workspace, workspace, q, limit=limit
+            )
+        except BrowseError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        result["content_search"] = True
+        return result
 
     @app.get("/api/git")
     async def git_panel(

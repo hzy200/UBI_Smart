@@ -1518,7 +1518,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.tab = name;
       this.tabClasses = {
         plan: name === "plan" ? "active" : "",
-        tools: name === "tools" ? "active" : ""
+        tools: name === "tools" ? "active" : "",
+        timeline: name === "timeline" ? "active" : ""
       };
       if (open && this.inspectorCollapsed) this.inspectorCollapsed = false;
     },
@@ -1948,6 +1949,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.plan = [];
       this.kinds = [];
       this.planRows = [];
+      this.timeline = [];
       this.stepIdx = -1;
       this.planDegraded = false;
       this.tools = [];
@@ -1959,8 +1961,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.checkpoints = [];
       this.diffText = "";
       this.diffDisplay = "";
+      this.diffPath = "";
       this.diffTruncated = false;
       this.diffExpanded = false;
+      this.mainTab = "chat";
       this.tasks = [];
       this.audit = [];
       this.uploads = [];
@@ -2010,7 +2014,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       await this.loadApprovals();
       this.treePath = "";
       this.treeRows = [];
-      this.fileView = { path: "", size: 0, _text: "" };
+      this.fileView = { path: "", size: 0, _text: "", _html: "" };
       this.gitInfo = {
         is_repo: false,
         _state: "",
@@ -2513,6 +2517,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.connectionState = "streaming";
           this._terminal = false;
           this._suspended = false;
+          this.timeline = [];
+          this.pushTimeline("start", "\u5F00\u59CB\u8FD0\u884C");
           break;
         case "plan_created":
           this.plan = event.steps || [];
@@ -2521,6 +2527,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.planDegraded = !!event.degraded;
           this.stepIdx = 0;
           this.setTab("plan", false);
+          this.pushTimeline("plan", "\u751F\u6210\u8BA1\u5212", `${this.plan.length} \u6B65`);
           break;
         case "plan_revised":
           this.plan = event.steps || [];
@@ -2535,6 +2542,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           if ((event.total || 1) > 1) {
             this.pushMessage("system", `\u7B2C ${event.index + 1}/${event.total} \u6B65\uFF1A${event.text}`);
           }
+          this.pushTimeline(
+            "step",
+            `\u7B2C ${event.index + 1}/${event.total || 1} \u6B65`,
+            event.text
+          );
           break;
         case "step_finished":
           if (event.cancelled) this.pushMessage("system", "\u8BE5\u6B65\u9AA4\u88AB\u53D6\u6D88");
@@ -2557,10 +2569,16 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.upsertTool(event);
           this.upsertToolMessage(event);
           this.setTab("tools", false);
+          this.pushTimeline("tool", event.name, event.summary);
           break;
         case "tool_call_finished":
           this.finishTool(event);
           this.finishToolMessage(event);
+          this.pushTimeline(
+            event.ok ? "ok" : "error",
+            event.name,
+            event.exit_code != null ? `exit ${event.exit_code}` : ""
+          );
           break;
         case "file_changed":
           this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
@@ -2568,9 +2586,19 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           break;
         case "verification":
           this.pushMessage("system", this.verificationText(event));
+          this.pushTimeline(
+            event.ok === false ? "error" : "verify",
+            "\u9A8C\u8BC1",
+            event.summary
+          );
           break;
         case "review_finished":
           this.pushMessage("system", this.reviewText(event));
+          this.pushTimeline(
+            event.blocked ? "error" : "review",
+            "\u5BA1\u67E5",
+            event.summary
+          );
           break;
         case "repair_started":
           this.pushMessage("system", `\u7B2C ${event.attempt}/${event.limit} \u6B21\u4FEE\u590D\uFF1A${event.summary}`);
@@ -2613,11 +2641,17 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         case "context_trimmed":
           if (event.trimmed) {
             this.pushMessage("system", `\u4E0A\u4E0B\u6587\u88C1\u526A\uFF1A${event.trimmed} \u6761\uFF0C${event.before_tokens} \u2192 ${event.after_tokens} tokens`);
+            this.pushTimeline(
+              "info",
+              "\u4E0A\u4E0B\u6587\u88C1\u526A",
+              `${event.before_tokens} \u2192 ${event.after_tokens} tokens`
+            );
           }
           break;
         case "cost_report":
           this.costText = this.formatCost(event);
           for (const alert of event.alerts || []) this.toastMessage(alert);
+          this.pushTimeline("cost", "\u6210\u672C", this.costText);
           break;
         case "approval_requested":
           this.approvals.push(event);
@@ -2625,6 +2659,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.stateText = "\u7B49\u5F85\u5BA1\u6279";
           this._suspended = true;
           this._terminal = false;
+          this.pushTimeline(
+            "warning",
+            "\u7B49\u5F85\u5BA1\u6279",
+            event.command || event.tool || ""
+          );
           this.notify("CodingAgent \u9700\u8981\u5BA1\u6279", event.command || event.tool || "");
           break;
         case "steering_applied":
@@ -2662,6 +2701,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.markFinalAnswer();
           this.moveFinalAnswerLast();
           this.scrollBottom();
+          this.pushTimeline("done", "\u8FD0\u884C\u5B8C\u6210", event.answer || "");
           void this.saveTranscript();
           this.notify("CodingAgent \u8FD0\u884C\u5B8C\u6210", event.answer || "");
           break;
@@ -2671,6 +2711,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this._suspended = false;
           this.connectionState = "closed";
           this.pushMessage("system", `\u8FD0\u884C\u5931\u8D25\uFF1A${event.message}`);
+          this.pushTimeline("error", "\u8FD0\u884C\u5931\u8D25", event.message);
           void this.saveTranscript();
           this.notify("CodingAgent \u8FD0\u884C\u5931\u8D25", event.message || "");
           break;
@@ -2842,6 +2883,19 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       existing._worker = existing.worker_id;
       existing._timing = formatDuration(existing.duration_ms);
       existing._tokens = formatTokens(existing.input_tokens, existing.output_tokens);
+    },
+    pushTimeline(kind, title, detail = "") {
+      this.timeline.push({
+        id: ++this._timelineSeq,
+        kind,
+        title: String(title || ""),
+        detail: String(detail || "").slice(0, 300),
+        time: (/* @__PURE__ */ new Date()).toLocaleTimeString(),
+        _cls: `timeline-${kind}`
+      });
+      if (this.timeline.length > 500) {
+        this.timeline.splice(0, this.timeline.length - 500);
+      }
     }
   };
 
@@ -3150,11 +3204,13 @@ ${paths}
         const response = await authFetch(`/api/diff?${params.toString()}`);
         const data = await readJson(response, "\u8BFB\u53D6 diff \u5931\u8D25");
         this.diffText = data.diff || "\uFF08\u6CA1\u6709\u5DEE\u5F02\uFF09";
+        this.diffPath = path || "";
         const lines = this.diffText.split("\n");
         this.diffTruncated = lines.length > 200;
         this.diffExpanded = false;
         this.diffDisplay = this.diffTruncated ? `${lines.slice(0, 200).join("\n")}
 \u2026\uFF08\u5171 ${lines.length} \u884C\uFF0C\u5DF2\u6298\u53E0\uFF09` : this.diffText;
+        this.mainTab = "diff";
       } catch (err) {
         this.toastMessage(String(err));
       }
@@ -3210,7 +3266,6 @@ ${paths}
           _meta: entry.is_dir ? "" : this.formatBytes(entry.size),
           _cls: entry.is_dir ? "tree-dir" : "tree-file"
         }));
-        this.fileView = { path: "", size: 0, _text: "" };
       } catch (err) {
         this.toastMessage(String(err));
       } finally {
@@ -3230,7 +3285,7 @@ ${paths}
       parts.pop();
       await this.loadTree(parts.join("/"));
     },
-    async openFile(path) {
+    async openFile(path, line = 0) {
       if (!this.threadId) return;
       try {
         const params = new URLSearchParams({
@@ -3239,14 +3294,144 @@ ${paths}
         });
         const response = await authFetch(`/api/file?${params.toString()}`);
         const data = await readJson(response, "\u8BFB\u53D6\u6587\u4EF6\u5931\u8D25");
+        const text = data.binary ? "\uFF08\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u4E0D\u5C55\u793A\u5185\u5BB9\uFF09" : data.content + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "");
         this.fileView = {
           ...data,
           _size: this.formatBytes(data.size),
-          _text: data.binary ? "\uFF08\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u4E0D\u5C55\u793A\u5185\u5BB9\uFF09" : data.content + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "")
+          _lang: this.fileLanguage(path),
+          _text: text,
+          _html: this.highlightCode(path, text, data.binary)
         };
+        this.mainTab = "file";
+        this.$nextTick(() => this.scrollFileToLine(line));
       } catch (err) {
         this.toastMessage(String(err));
       }
+    },
+    scrollFileToLine(line) {
+      if (!line) return;
+      const view = document.querySelector(".editor-code");
+      if (!view) return;
+      const style = window.getComputedStyle(view);
+      const lineHeight = Number.parseFloat(style.lineHeight) || 18;
+      view.scrollTop = Math.max(0, (Number(line) - 3) * lineHeight);
+    },
+    fileLanguage(path) {
+      const ext = String(path || "").split(".").pop().toLowerCase();
+      const languages = {
+        py: "python",
+        js: "javascript",
+        mjs: "javascript",
+        cjs: "javascript",
+        ts: "typescript",
+        tsx: "typescript",
+        jsx: "javascript",
+        json: "json",
+        yaml: "yaml",
+        yml: "yaml",
+        toml: "ini",
+        md: "markdown",
+        html: "xml",
+        htm: "xml",
+        xml: "xml",
+        css: "css",
+        scss: "scss",
+        sh: "bash",
+        bash: "bash",
+        ps1: "powershell",
+        java: "java",
+        kt: "kotlin",
+        go: "go",
+        rs: "rust",
+        c: "c",
+        h: "c",
+        cpp: "cpp",
+        hpp: "cpp",
+        sql: "sql",
+        dockerfile: "dockerfile"
+      };
+      return languages[ext] || "";
+    },
+    highlightCode(path, text, binary = false) {
+      const source = String(text || "");
+      if (!source || binary) return escapeHtml(source);
+      const language = this.fileLanguage(path);
+      try {
+        if (language && window.hljs && typeof window.hljs.getLanguage === "function" && window.hljs.getLanguage(language)) {
+          return window.hljs.highlight(source, { language }).value;
+        }
+      } catch (err) {
+      }
+      return escapeHtml(source);
+    },
+    mainTabClass(name) {
+      return this.mainTab === name ? "active" : "";
+    },
+    showChat() {
+      this.mainTab = "chat";
+    },
+    showFileTab() {
+      if (this.fileView.path) this.mainTab = "file";
+    },
+    showDiffTab() {
+      if (this.diffDisplay) this.mainTab = "diff";
+    },
+    closeFileTab() {
+      this.fileView = { path: "", size: 0, _text: "", _html: "" };
+      if (this.mainTab === "file") this.mainTab = "chat";
+    },
+    closeDiffTab() {
+      this.diffText = "";
+      this.diffDisplay = "";
+      this.diffPath = "";
+      this.diffTruncated = false;
+      this.diffExpanded = false;
+      if (this.mainTab === "diff") this.mainTab = "chat";
+    },
+    diffRows() {
+      const text = String(this.diffDisplay || "");
+      if (!text) return [];
+      let oldLine = 0;
+      let newLine = 0;
+      const rows = [];
+      for (const raw of text.split("\n")) {
+        let cls = "diff-line";
+        let no = "";
+        if (raw.startsWith("+++") || raw.startsWith("---")) {
+          cls += " diff-file";
+        } else if (raw.startsWith("@@")) {
+          cls += " diff-hunk";
+          const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+          if (match) {
+            oldLine = Number(match[1]);
+            newLine = Number(match[2]);
+          }
+        } else if (raw.startsWith("+")) {
+          cls += " diff-add";
+          no = `+${newLine}`;
+          newLine += 1;
+        } else if (raw.startsWith("-")) {
+          cls += " diff-del";
+          no = `-${oldLine}`;
+          oldLine += 1;
+        } else if (raw.startsWith(" ")) {
+          cls += " diff-ctx";
+          no = String(newLine);
+          newLine += 1;
+          oldLine += 1;
+        } else if (raw.startsWith("\\")) {
+          cls += " diff-meta";
+        } else {
+          cls += " diff-meta";
+        }
+        rows.push({
+          _key: `${rows.length}:${raw}`,
+          text: raw,
+          _cls: cls,
+          _no: no
+        });
+      }
+      return rows;
     },
     async loadGit(diff = false) {
       if (!this.threadId) {
@@ -3278,6 +3463,14 @@ ${paths}
         } : { ...data, _state: data.error || "\u4E0D\u662F Git \u4ED3\u5E93", _changes: [], _commits: [] };
         this.gitDiffText = diff ? `${data.diff || ""}
 ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931\u8D25\uFF1A${data.diff_error}` : "\uFF08\u6CA1\u6709\u5DEE\u5F02\uFF09") : "";
+        if (diff) {
+          this.diffText = this.gitDiffText;
+          this.diffDisplay = this.gitDiffText;
+          this.diffPath = "Git";
+          this.diffTruncated = false;
+          this.diffExpanded = true;
+          this.mainTab = "diff";
+        }
       } catch (err) {
         this.toastMessage(String(err));
       } finally {
@@ -3476,6 +3669,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.saveSettings();
     },
     notify(title, body) {
+      const kind = title.includes("\u5931\u8D25") ? "error" : title.includes("\u5BA1\u6279") ? "warning" : title.includes("\u5B8C\u6210") ? "success" : "info";
+      this.pushNotification(kind, title, body);
       if (!this.notifyEnabled) return;
       if (!("Notification" in window) || Notification.permission !== "granted") {
         return;
@@ -3611,6 +3806,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         return;
       }
       if (event.key === "Escape") {
+        if (this.notificationsOpen) {
+          this.closeNotifications();
+          return;
+        }
         if (this.shortcutsOpen) {
           this.shortcutsOpen = false;
           return;
@@ -3804,6 +4003,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.commandOpen = true;
       this.commandQuery = "";
       this.commandIndex = 0;
+      this.fileSearchResults = [];
+      this.fileSearchLoading = false;
+      this._searchSeq += 1;
+      if (this._searchTimer) clearTimeout(this._searchTimer);
       this.$nextTick(() => {
         const input = this.$refs.commandInput;
         if (input) input.focus();
@@ -3813,12 +4016,56 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.commandOpen = false;
       this.commandQuery = "";
       this.commandIndex = 0;
+      this.fileSearchResults = [];
+      this.fileSearchLoading = false;
+      this._searchSeq += 1;
+      if (this._searchTimer) clearTimeout(this._searchTimer);
+    },
+    onCommandQuery() {
+      this.commandIndex = 0;
+      this.fileSearchResults = [];
+      this.fileSearchLoading = false;
+      this._searchSeq += 1;
+      if (this._searchTimer) clearTimeout(this._searchTimer);
+      const query = String(this.commandQuery || "").trim();
+      if (query.length < 2 || !this.threadId) return;
+      this._searchTimer = setTimeout(() => {
+        void this.searchFiles(query);
+      }, 220);
+    },
+    async searchFiles(query) {
+      if (!this.threadId) return;
+      const threadId = this.threadId;
+      const seq = ++this._searchSeq;
+      this.fileSearchLoading = true;
+      try {
+        const params = new URLSearchParams({
+          thread_id: threadId,
+          q: query,
+          limit: "30"
+        });
+        const response = await authFetch(`/api/search?${params.toString()}`);
+        const data = await readJson(response, "\u641C\u7D22\u6587\u4EF6\u5931\u8D25");
+        if (seq !== this._searchSeq || threadId !== this.threadId) return;
+        this.fileSearchResults = (data.results || []).map((row, index) => ({
+          ...row,
+          _key: `${row.path}:${row.line}:${index}`,
+          _hint: row.kind === "content" ? "\u6587\u4EF6\u5185\u5BB9" : "\u6587\u4EF6\u8DEF\u5F84"
+        }));
+      } catch (err) {
+        if (seq !== this._searchSeq || threadId !== this.threadId) return;
+        this.fileSearchResults = [];
+        this.toastMessage(String(err));
+      } finally {
+        if (seq === this._searchSeq) this.fileSearchLoading = false;
+      }
     },
     commandItems() {
       const items = [
         { id: "new-session", title: "\u65B0\u5EFA\u4F1A\u8BDD", hint: "\u4F1A\u8BDD", run: () => this.newSession() },
         { id: "settings", title: "\u6253\u5F00\u8BBE\u7F6E", hint: "\u754C\u9762", run: () => this.toggleSettings() },
         { id: "recovery", title: "\u6253\u5F00\u6062\u590D\u4E2D\u5FC3", hint: "\u754C\u9762", run: () => this.openRecovery() },
+        { id: "notifications", title: "\u901A\u77E5\u4E2D\u5FC3", hint: "\u754C\u9762", run: () => this.toggleNotifications() },
         { id: "shortcuts", title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9", run: () => {
           this.shortcutsOpen = true;
         } },
@@ -3833,6 +4080,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         { id: "view-audit", title: "\u89C6\u56FE\uFF1A\u5BA1\u8BA1", hint: "\u5BFC\u822A", run: () => this.setView("audit") },
         { id: "tab-plan", title: "\u68C0\u67E5\u5668\uFF1A\u8BA1\u5212", hint: "\u5BFC\u822A", run: () => this.setTab("plan") },
         { id: "tab-tools", title: "\u68C0\u67E5\u5668\uFF1A\u5DE5\u5177", hint: "\u5BFC\u822A", run: () => this.setTab("tools") },
+        { id: "tab-timeline", title: "\u68C0\u67E5\u5668\uFF1A\u65F6\u95F4\u7EBF", hint: "\u5BFC\u822A", run: () => this.setTab("timeline") },
         { id: "refresh-files", title: "\u5237\u65B0\u6587\u4EF6\u5FEB\u7167", hint: "\u6587\u4EF6", run: () => this.loadSnapshots() },
         { id: "refresh-tree", title: "\u5237\u65B0\u6587\u4EF6\u6811", hint: "\u6587\u4EF6", run: () => this.loadTree(this.treePath) },
         { id: "git-diff", title: "\u67E5\u770B Git diff", hint: "Git", run: () => this.loadGit(true) },
@@ -3863,6 +4111,15 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           run: () => this.openSession(session.thread_id)
         });
       }
+      for (const row of this.fileSearchResults || []) {
+        items.push({
+          id: `file:${row._key}`,
+          title: row.line ? `${row.path}:${row.line}` : row.path,
+          hint: row._hint || "\u6587\u4EF6",
+          detail: row.preview || "",
+          run: () => this.openFile(row.path, row.line)
+        });
+      }
       return items;
     },
     filteredCommands() {
@@ -3871,7 +4128,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (!query) return items.slice(0, 40);
       const tokens = query.split(/\s+/).filter(Boolean);
       return items.filter((item) => {
-        const haystack = `${item.title} ${item.hint} ${item.id}`.toLowerCase();
+        const haystack = `${item.title} ${item.hint} ${item.id} ${item.detail || ""}`.toLowerCase();
         return tokens.every((token) => haystack.includes(token));
       }).slice(0, 40);
     },
@@ -3909,6 +4166,42 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         event.preventDefault();
         this.runCommand(items[this.commandIndex]);
       }
+    }
+  };
+
+  // src/features/notifications.ts
+  var MAX_NOTIFICATIONS = 100;
+  var notificationsMixin = {
+    pushNotification(kind, title, body = "") {
+      const text = String(title || "").trim();
+      if (!text) return;
+      const item = {
+        id: ++this._notificationSeq,
+        kind: kind || "info",
+        title: text,
+        body: String(body || "").slice(0, 300),
+        time: (/* @__PURE__ */ new Date()).toLocaleTimeString()
+      };
+      this.notifications = [item, ...this.notifications].slice(0, MAX_NOTIFICATIONS);
+      if (this.notificationsOpen) this.unreadNotifications = 0;
+      else this.unreadNotifications += 1;
+    },
+    toggleNotifications() {
+      this.notificationsOpen = !this.notificationsOpen;
+      if (this.notificationsOpen) this.markNotificationsRead();
+    },
+    closeNotifications() {
+      this.notificationsOpen = false;
+    },
+    markNotificationsRead() {
+      this.unreadNotifications = 0;
+    },
+    clearNotifications() {
+      this.notifications = [];
+      this.unreadNotifications = 0;
+    },
+    notificationClass(item) {
+      return `notif-${item && item.kind ? item.kind : "info"}`;
     }
   };
 
@@ -4011,7 +4304,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       treePath: "",
       treeRows: [],
       treeLoading: false,
-      fileView: { path: "", size: 0, _text: "" },
+      fileView: { path: "", size: 0, _text: "", _html: "" },
       gitInfo: {
         is_repo: false,
         _state: "",
@@ -4045,6 +4338,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       approvalPosition: "",
       decisions: {},
       tab: "plan",
+      mainTab: "chat",
+      diffPath: "",
       view: "sessions",
       viewClasses: { sessions: "active", files: "", tree: "", git: "", tasks: "", memory: "", audit: "" },
       filesDirty: false,
@@ -4056,6 +4351,14 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       commandOpen: false,
       commandQuery: "",
       commandIndex: 0,
+      notifications: [],
+      notificationsOpen: false,
+      unreadNotifications: 0,
+      _notificationSeq: 0,
+      fileSearchResults: [],
+      fileSearchLoading: false,
+      _searchTimer: null,
+      _searchSeq: 0,
       _resizing: "",
       showSettings: false,
       providerName: "deepseek",
@@ -4065,7 +4368,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       fontSize: "normal",
       fontFamily: "system",
       bodyClasses: "theme-dark density-normal font-normal family-system",
-      tabClasses: { plan: "active", tools: "" },
+      tabClasses: { plan: "active", tools: "", timeline: "" },
+      timeline: [],
+      _timelineSeq: 0,
       badgeClasses: "badge-read",
       toast: "",
       _msgSeq: 0,
@@ -4097,7 +4402,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       ...desktopMixin,
       ...memoryMixin,
       ...keyboardMixin,
-      ...layoutMixin
+      ...layoutMixin,
+      ...notificationsMixin
     };
   };
   var registerAgentApp = () => {

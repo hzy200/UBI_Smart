@@ -4,6 +4,7 @@ import {
   authFetch,
   readJson,
 } from '../api/http';
+import { escapeHtml } from '../ui/format';
 
 export const inspectorMixin = {
   async compactContext() {
@@ -139,12 +140,14 @@ export const inspectorMixin = {
       const response = await authFetch(`/api/diff?${params.toString()}`);
       const data = await readJson(response, '读取 diff 失败');
       this.diffText = data.diff || '（没有差异）';
+      this.diffPath = path || '';
       const lines = this.diffText.split('\n');
       this.diffTruncated = lines.length > 200;
       this.diffExpanded = false;
       this.diffDisplay = this.diffTruncated
         ? `${lines.slice(0, 200).join('\n')}\n…（共 ${lines.length} 行，已折叠）`
         : this.diffText;
+      this.mainTab = 'diff';
     } catch (err) {
       this.toastMessage(String(err));
     }
@@ -204,7 +207,6 @@ export const inspectorMixin = {
         _meta: entry.is_dir ? '' : this.formatBytes(entry.size),
         _cls: entry.is_dir ? 'tree-dir' : 'tree-file',
       }));
-      this.fileView = { path: '', size: 0, _text: '' };
     } catch (err) {
       this.toastMessage(String(err));
     } finally {
@@ -227,7 +229,7 @@ export const inspectorMixin = {
     await this.loadTree(parts.join('/'));
   },
 
-  async openFile(path) {
+  async openFile(path, line = 0) {
     if (!this.threadId) return;
     try {
       const params = new URLSearchParams({
@@ -236,16 +238,162 @@ export const inspectorMixin = {
       });
       const response = await authFetch(`/api/file?${params.toString()}`);
       const data = await readJson(response, '读取文件失败');
+      const text = data.binary
+        ? '（二进制文件，不展示内容）'
+        : data.content + (data.truncated ? '\n…（已截断）' : '');
       this.fileView = {
         ...data,
         _size: this.formatBytes(data.size),
-        _text: data.binary
-          ? '（二进制文件，不展示内容）'
-          : data.content + (data.truncated ? '\n…（已截断）' : ''),
+        _lang: this.fileLanguage(path),
+        _text: text,
+        _html: this.highlightCode(path, text, data.binary),
       };
+      this.mainTab = 'file';
+      this.$nextTick(() => this.scrollFileToLine(line));
     } catch (err) {
       this.toastMessage(String(err));
     }
+  },
+
+  scrollFileToLine(line) {
+    if (!line) return;
+    const view = document.querySelector('.editor-code') as HTMLElement | null;
+    if (!view) return;
+    const style = window.getComputedStyle(view);
+    const lineHeight = Number.parseFloat(style.lineHeight) || 18;
+    view.scrollTop = Math.max(0, (Number(line) - 3) * lineHeight);
+  },
+
+  fileLanguage(path) {
+    const ext = String(path || '').split('.').pop().toLowerCase();
+    const languages: Record<string, string> = {
+      py: 'python',
+      js: 'javascript',
+      mjs: 'javascript',
+      cjs: 'javascript',
+      ts: 'typescript',
+      tsx: 'typescript',
+      jsx: 'javascript',
+      json: 'json',
+      yaml: 'yaml',
+      yml: 'yaml',
+      toml: 'ini',
+      md: 'markdown',
+      html: 'xml',
+      htm: 'xml',
+      xml: 'xml',
+      css: 'css',
+      scss: 'scss',
+      sh: 'bash',
+      bash: 'bash',
+      ps1: 'powershell',
+      java: 'java',
+      kt: 'kotlin',
+      go: 'go',
+      rs: 'rust',
+      c: 'c',
+      h: 'c',
+      cpp: 'cpp',
+      hpp: 'cpp',
+      sql: 'sql',
+      dockerfile: 'dockerfile',
+    };
+    return languages[ext] || '';
+  },
+
+  highlightCode(path, text, binary = false) {
+    const source = String(text || '');
+    if (!source || binary) return escapeHtml(source);
+    const language = this.fileLanguage(path);
+    try {
+      if (
+        language
+        && window.hljs
+        && typeof window.hljs.getLanguage === 'function'
+        && window.hljs.getLanguage(language)
+      ) {
+        return window.hljs.highlight(source, { language }).value;
+      }
+    } catch (err) {
+      // 高亮失败时退回纯文本，不能影响预览。
+    }
+    return escapeHtml(source);
+  },
+
+  mainTabClass(name) {
+    return this.mainTab === name ? 'active' : '';
+  },
+
+  showChat() {
+    this.mainTab = 'chat';
+  },
+
+  showFileTab() {
+    if (this.fileView.path) this.mainTab = 'file';
+  },
+
+  showDiffTab() {
+    if (this.diffDisplay) this.mainTab = 'diff';
+  },
+
+  closeFileTab() {
+    this.fileView = { path: '', size: 0, _text: '', _html: '' };
+    if (this.mainTab === 'file') this.mainTab = 'chat';
+  },
+
+  closeDiffTab() {
+    this.diffText = '';
+    this.diffDisplay = '';
+    this.diffPath = '';
+    this.diffTruncated = false;
+    this.diffExpanded = false;
+    if (this.mainTab === 'diff') this.mainTab = 'chat';
+  },
+
+  diffRows() {
+    const text = String(this.diffDisplay || '');
+    if (!text) return [];
+    let oldLine = 0;
+    let newLine = 0;
+    const rows: any[] = [];
+    for (const raw of text.split('\n')) {
+      let cls = 'diff-line';
+      let no = '';
+      if (raw.startsWith('+++') || raw.startsWith('---')) {
+        cls += ' diff-file';
+      } else if (raw.startsWith('@@')) {
+        cls += ' diff-hunk';
+        const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        if (match) {
+          oldLine = Number(match[1]);
+          newLine = Number(match[2]);
+        }
+      } else if (raw.startsWith('+')) {
+        cls += ' diff-add';
+        no = `+${newLine}`;
+        newLine += 1;
+      } else if (raw.startsWith('-')) {
+        cls += ' diff-del';
+        no = `-${oldLine}`;
+        oldLine += 1;
+      } else if (raw.startsWith(' ')) {
+        cls += ' diff-ctx';
+        no = String(newLine);
+        newLine += 1;
+        oldLine += 1;
+      } else if (raw.startsWith('\\')) {
+        cls += ' diff-meta';
+      } else {
+        cls += ' diff-meta';
+      }
+      rows.push({
+        _key: `${rows.length}:${raw}`,
+        text: raw,
+        _cls: cls,
+        _no: no,
+      });
+    }
+    return rows;
   },
 
   async loadGit(diff = false) {
@@ -289,6 +437,14 @@ export const inspectorMixin = {
             ? `diff 读取失败：${data.diff_error}`
             : '（没有差异）')
         : '';
+      if (diff) {
+        this.diffText = this.gitDiffText;
+        this.diffDisplay = this.gitDiffText;
+        this.diffPath = 'Git';
+        this.diffTruncated = false;
+        this.diffExpanded = true;
+        this.mainTab = 'diff';
+      }
     } catch (err) {
       this.toastMessage(String(err));
     } finally {

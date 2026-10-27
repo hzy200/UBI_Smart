@@ -19,6 +19,8 @@ export const eventsMixin = {
         this.connectionState = 'streaming';
         this._terminal = false;
         this._suspended = false;
+        this.timeline = [];
+        this.pushTimeline('start', '开始运行');
         break;
       case 'plan_created':
         this.plan = event.steps || [];
@@ -27,6 +29,7 @@ export const eventsMixin = {
         this.planDegraded = !!event.degraded;
         this.stepIdx = 0;
         this.setTab('plan', false);
+        this.pushTimeline('plan', '生成计划', `${this.plan.length} 步`);
         break;
       case 'plan_revised':
         this.plan = event.steps || [];
@@ -41,6 +44,11 @@ export const eventsMixin = {
         if ((event.total || 1) > 1) {
           this.pushMessage('system', `第 ${event.index + 1}/${event.total} 步：${event.text}`);
         }
+        this.pushTimeline(
+          'step',
+          `第 ${event.index + 1}/${event.total || 1} 步`,
+          event.text,
+        );
         break;
       case 'step_finished':
         if (event.cancelled) this.pushMessage('system', '该步骤被取消');
@@ -63,10 +71,16 @@ export const eventsMixin = {
         this.upsertTool(event);
         this.upsertToolMessage(event);
         this.setTab('tools', false);
+        this.pushTimeline('tool', event.name, event.summary);
         break;
       case 'tool_call_finished':
         this.finishTool(event);
         this.finishToolMessage(event);
+        this.pushTimeline(
+          event.ok ? 'ok' : 'error',
+          event.name,
+          event.exit_code != null ? `exit ${event.exit_code}` : '',
+        );
         break;
       case 'file_changed':
         this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
@@ -74,9 +88,19 @@ export const eventsMixin = {
         break;
       case 'verification':
         this.pushMessage('system', this.verificationText(event));
+        this.pushTimeline(
+          event.ok === false ? 'error' : 'verify',
+          '验证',
+          event.summary,
+        );
         break;
       case 'review_finished':
         this.pushMessage('system', this.reviewText(event));
+        this.pushTimeline(
+          event.blocked ? 'error' : 'review',
+          '审查',
+          event.summary,
+        );
         break;
       case 'repair_started':
         this.pushMessage('system', `第 ${event.attempt}/${event.limit} 次修复：${event.summary}`);
@@ -119,11 +143,17 @@ export const eventsMixin = {
       case 'context_trimmed':
         if (event.trimmed) {
           this.pushMessage('system', `上下文裁剪：${event.trimmed} 条，${event.before_tokens} → ${event.after_tokens} tokens`);
+          this.pushTimeline(
+            'info',
+            '上下文裁剪',
+            `${event.before_tokens} → ${event.after_tokens} tokens`,
+          );
         }
         break;
       case 'cost_report':
         this.costText = this.formatCost(event);
         for (const alert of event.alerts || []) this.toastMessage(alert);
+        this.pushTimeline('cost', '成本', this.costText);
         break;
       case 'approval_requested':
         this.approvals.push(event);
@@ -131,6 +161,11 @@ export const eventsMixin = {
         this.stateText = '等待审批';
         this._suspended = true;
         this._terminal = false;
+        this.pushTimeline(
+          'warning',
+          '等待审批',
+          event.command || event.tool || '',
+        );
         this.notify('CodingAgent 需要审批', event.command || event.tool || '');
         break;
       case 'steering_applied':
@@ -174,6 +209,7 @@ export const eventsMixin = {
         this.markFinalAnswer();
         this.moveFinalAnswerLast();
         this.scrollBottom();
+        this.pushTimeline('done', '运行完成', event.answer || '');
         void this.saveTranscript();
         this.notify('CodingAgent 运行完成', event.answer || '');
         break;
@@ -183,6 +219,7 @@ export const eventsMixin = {
         this._suspended = false;
         this.connectionState = 'closed';
         this.pushMessage('system', `运行失败：${event.message}`);
+        this.pushTimeline('error', '运行失败', event.message);
         void this.saveTranscript();
         this.notify('CodingAgent 运行失败', event.message || '');
         break;
@@ -371,6 +408,20 @@ export const eventsMixin = {
     existing._worker = existing.worker_id;
     existing._timing = formatDuration(existing.duration_ms);
     existing._tokens = formatTokens(existing.input_tokens, existing.output_tokens);
+  },
+
+  pushTimeline(kind, title, detail = '') {
+    this.timeline.push({
+      id: ++this._timelineSeq,
+      kind,
+      title: String(title || ''),
+      detail: String(detail || '').slice(0, 300),
+      time: new Date().toLocaleTimeString(),
+      _cls: `timeline-${kind}`,
+    });
+    if (this.timeline.length > 500) {
+      this.timeline.splice(0, this.timeline.length - 500);
+    }
   },
 
 };

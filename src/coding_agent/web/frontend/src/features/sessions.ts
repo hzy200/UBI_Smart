@@ -325,6 +325,7 @@ export const sessionsMixin = {
     this.plan = [];
     this.kinds = [];
     this.planRows = [];
+    this.timeline = [];
     this.stepIdx = -1;
     this.planDegraded = false;
     this.tools = [];
@@ -336,8 +337,10 @@ export const sessionsMixin = {
     this.checkpoints = [];
     this.diffText = '';
     this.diffDisplay = '';
+    this.diffPath = '';
     this.diffTruncated = false;
     this.diffExpanded = false;
+    this.mainTab = 'chat';
     this.tasks = [];
     this.audit = [];
     this.uploads = [];
@@ -396,7 +399,7 @@ export const sessionsMixin = {
     await this.loadApprovals();
     this.treePath = '';
     this.treeRows = [];
-    this.fileView = { path: '', size: 0, _text: '' };
+    this.fileView = { path: '', size: 0, _text: '', _html: '' };
     this.gitInfo = {
       is_repo: false, _state: '', _branch: '',
       _changes: [], _commits: [],

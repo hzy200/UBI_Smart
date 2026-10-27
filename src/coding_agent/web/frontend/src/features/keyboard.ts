@@ -74,6 +74,7 @@ export const keyboardMixin = {
       return;
     }
     if (event.key === 'Escape') {
+      if (this.notificationsOpen) { this.closeNotifications(); return; }
       if (this.shortcutsOpen) { this.shortcutsOpen = false; return; }
       if (this.showSettings) { this.showSettings = false; return; }
       if (this.showRecovery) { this.showRecovery = false; return; }

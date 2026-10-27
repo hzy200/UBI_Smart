@@ -12,6 +12,7 @@ from coding_agent.workspace.browse import (
     git_summary,
     list_directory,
     read_text_file,
+    search_workspace,
 )
 
 
@@ -47,6 +48,35 @@ def test_read_file_reports_binary_and_truncation(tmp_path) -> None:
     big = read_text_file(str(tmp_path), "huge.txt")
     assert big["truncated"] is True
     assert len(big["content"]) < 300 * 1024
+
+
+def test_search_matches_paths_and_content_without_secrets(tmp_path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text(
+        "def needle():\n    return 1\n", encoding="utf-8"
+    )
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "needle.md").write_text("hello\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("NEEDLE=secret\n", encoding="utf-8")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "needle.js").write_text(
+        "needle\n", encoding="utf-8"
+    )
+
+    data = search_workspace(str(tmp_path), "needle")
+    paths = {(row["path"], row["kind"]) for row in data["results"]}
+    assert ("docs/needle.md", "path") in paths
+    assert ("src/main.py", "content") in paths
+    assert all(row["path"] != ".env" for row in data["results"])
+    assert all("node_modules" not in row["path"] for row in data["results"])
+
+
+def test_search_is_bounded(tmp_path) -> None:
+    for index in range(10):
+        (tmp_path / f"hit-{index}.txt").write_text("hit\n", encoding="utf-8")
+    data = search_workspace(str(tmp_path), "hit", limit=3)
+    assert len(data["results"]) == 3
+    assert data["truncated"] is True
 
 
 def test_paths_cannot_escape_workspace(tmp_path) -> None:

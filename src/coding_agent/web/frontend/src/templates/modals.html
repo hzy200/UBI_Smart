@@ -6,9 +6,9 @@
     <div class="command-input-row">
       <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       <input x-ref="commandInput" x-model="commandQuery"
-             @input="commandIndex = 0"
+             @input="onCommandQuery()"
              @keydown="onCommandKeydown($event)"
-             placeholder="输入命令、会话或视图…" aria-label="命令面板搜索">
+             placeholder="输入命令、会话或文件…" aria-label="命令面板搜索">
       <kbd>Esc</kbd>
     </div>
     <div class="command-list" role="listbox" aria-label="命令列表">
@@ -16,11 +16,15 @@
         <button class="command-item" :class="commandClass(index)"
                 role="option" @mouseenter="hoverCommand(index)"
                 @click="runCommand(cmd)">
-          <span class="command-title" x-text="cmd.title"></span>
+          <span class="command-main">
+            <span class="command-title" x-text="cmd.title"></span>
+            <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>
+          </span>
           <span class="command-hint" x-text="cmd.hint"></span>
         </button>
       </template>
-      <div class="empty" x-show="filteredCommands().length === 0">没有匹配的命令</div>
+      <div class="note" x-show="fileSearchLoading">正在搜索文件…</div>
+      <div class="empty" x-show="filteredCommands().length === 0 && !fileSearchLoading">没有匹配的命令</div>
     </div>
   </div>
 </div>

@@ -60,3 +60,34 @@
 .task-status { margin-left: auto; color: var(--muted); font-size: 11px; }
 .audit-row { display: grid; grid-template-columns: 1.4fr .8fr 2fr; gap: 6px; font-size: 11px; overflow-wrap: anywhere; }
 .memory-item span { flex: 1; }
+
+.timeline { display: flex; flex-direction: column; padding-left: 6px; }
+.timeline-item {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  padding: 0 0 12px 12px;
+  border-left: 1px solid var(--border);
+}
+.timeline-item:last-child { border-left-color: transparent; padding-bottom: 0; }
+.timeline-dot {
+  position: absolute;
+  left: -4px;
+  top: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.timeline-ok .timeline-dot,
+.timeline-done .timeline-dot,
+.timeline-verify .timeline-dot,
+.timeline-review .timeline-dot { background: var(--ok); }
+.timeline-error .timeline-dot { background: var(--bad); }
+.timeline-warning .timeline-dot { background: var(--warn); }
+.timeline-body { flex: 1; min-width: 0; }
+.timeline-line { display: flex; align-items: center; gap: 8px; }
+.timeline-title { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.timeline-time { margin-left: auto; flex: 0 0 auto; color: var(--text-3); font-size: 10px; }
+.timeline-detail { margin-top: 2px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; white-space: pre-wrap; }

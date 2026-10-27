@@ -1,9 +1,21 @@
   <main class="main">
-    <div class="main-tabs">
-      <div class="main-tab active">
+    <div class="main-tabs" role="tablist" aria-label="主区标签">
+      <button class="main-tab" :class="mainTabClass('chat')" @click="showChat()">
         <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
         <span>对话</span>
-      </div>
+      </button>
+      <button class="main-tab" :class="mainTabClass('file')" x-show="fileView.path"
+              @click="showFileTab()">
+        <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
+        <span class="main-tab-label" x-text="fileView.path"></span>
+        <span class="tab-close" role="button" @click.stop="closeFileTab()" title="关闭文件">×</span>
+      </button>
+      <button class="main-tab" :class="mainTabClass('diff')" x-show="diffDisplay"
+              @click="showDiffTab()">
+        <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
+        <span>Diff</span>
+        <span class="tab-close" role="button" @click.stop="closeDiffTab()" title="关闭 Diff">×</span>
+      </button>
       <span class="main-tab-title" x-text="currentSessionTitle()"></span>
       <span class="spacer"></span>
       <span class="main-tab-state" x-text="stateText"></span>
@@ -11,6 +23,39 @@
         <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       </button>
     </div>
+
+    <section class="editor-view" x-show="mainTab === 'file'" x-cloak>
+      <div class="editor-toolbar">
+        <span class="editor-path" x-text="fileView.path"></span>
+        <span class="note" x-text="fileView._size"></span>
+        <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
+        <span class="spacer"></span>
+        <button @click="copyText(fileView._text)">复制</button>
+        <button @click="closeFileTab()">关闭</button>
+      </div>
+      <pre class="editor-code"><code x-html="fileView._html"></code></pre>
+    </section>
+
+    <section class="editor-view" x-show="mainTab === 'diff'" x-cloak>
+      <div class="editor-toolbar">
+        <span class="editor-path">Diff</span>
+        <span class="note" x-text="diffPath || '本轮改动'"></span>
+        <span class="spacer"></span>
+        <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部</button>
+        <button @click="copyText(diffDisplay)">复制</button>
+        <button @click="closeDiffTab()">关闭</button>
+      </div>
+      <div class="diff-view">
+        <template x-for="row in diffRows()" :key="row._key">
+          <div class="diff-line" :class="row._cls">
+            <span class="diff-no" x-text="row._no"></span>
+            <span class="diff-text" x-text="row.text"></span>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <div class="main-chat" x-show="mainTab === 'chat'">
     <div class="reasoning" x-show="showReasoning && reasoningBlocks.length" x-cloak>
       <template x-for="(block, index) in reasoningBlocks" :key="index">
         <details class="reasoning-block" :open="index === reasoningBlocks.length - 1">
@@ -125,6 +170,7 @@
         </template>
       </div>
       <div class="note" x-show="uploadQuota" x-text="uploadQuota"></div>
+    </div>
     </div>
   </main>
 

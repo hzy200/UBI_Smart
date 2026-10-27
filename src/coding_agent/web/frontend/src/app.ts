@@ -24,6 +24,7 @@ import { desktopMixin } from './features/desktop';
 import { memoryMixin } from './features/memory';
 import { keyboardMixin } from './features/keyboard';
 import { layoutMixin } from './features/layout';
+import { notificationsMixin } from './features/notifications';
 
 const agentApp = () => {
   return ({
@@ -123,7 +124,7 @@ const agentApp = () => {
   treePath: '',
   treeRows: [],
   treeLoading: false,
-  fileView: { path: '', size: 0, _text: '' },
+  fileView: { path: '', size: 0, _text: '', _html: '' },
   gitInfo: {
     is_repo: false, _state: '', _branch: '',
     _changes: [], _commits: [],
@@ -154,6 +155,8 @@ const agentApp = () => {
   approvalPosition: '',
   decisions: {},
   tab: 'plan',
+  mainTab: 'chat',
+  diffPath: '',
   view: 'sessions',
   viewClasses: { sessions: 'active', files: '', tree: '', git: '', tasks: '', memory: '', audit: '' },
   filesDirty: false,
@@ -165,6 +168,14 @@ const agentApp = () => {
   commandOpen: false,
   commandQuery: '',
   commandIndex: 0,
+  notifications: [],
+  notificationsOpen: false,
+  unreadNotifications: 0,
+  _notificationSeq: 0,
+  fileSearchResults: [],
+  fileSearchLoading: false,
+  _searchTimer: null,
+  _searchSeq: 0,
   _resizing: '',
   showSettings: false,
   providerName: 'deepseek',
@@ -174,7 +185,9 @@ const agentApp = () => {
   fontSize: 'normal',
   fontFamily: 'system',
   bodyClasses: 'theme-dark density-normal font-normal family-system',
-  tabClasses: { plan: 'active', tools: '' },
+  tabClasses: { plan: 'active', tools: '', timeline: '' },
+  timeline: [],
+  _timelineSeq: 0,
   badgeClasses: 'badge-read',
   toast: '',
   _msgSeq: 0,
@@ -208,6 +221,7 @@ const agentApp = () => {
   ...memoryMixin,
   ...keyboardMixin,
   ...layoutMixin,
+  ...notificationsMixin,
 });
 };
 

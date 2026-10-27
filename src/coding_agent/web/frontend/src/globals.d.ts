@@ -10,7 +10,11 @@ declare global {
     };
     pywebview?: { api: Record<string, (...args: any[]) => any> };
     __APP_CONFIG__?: Record<string, unknown>;
-    hljs?: { highlightElement: (element: Element) => void };
+    hljs?: {
+      highlightElement: (element: Element) => void;
+      getLanguage?: (name: string) => unknown;
+      highlight?: (code: string, options: { language: string }) => { value: string };
+    };
     Alpine?: {
       data: (name: string, factory: (...args: any[]) => unknown) => void;
       initTree: (root: Element) => void;

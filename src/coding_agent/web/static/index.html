@@ -101,6 +101,10 @@
     <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
     <path d="M3 3v5h5"/>
   </symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24">
+    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
+    <path d="M10 21h4"/>
+  </symbol>
   <symbol id="i-keyboard" viewBox="0 0 24 24">
     <rect x="2" y="6" width="20" height="12" rx="2"/>
     <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>
@@ -130,6 +134,10 @@
   <span class="spacer"></span>
   <button class="icon-btn" @click="toggleInspector()" aria-label="切换检查器" title="切换检查器（Ctrl+J）">
     <svg class="icon" aria-hidden="true"><use href="#i-panel-right"></use></svg>
+  </button>
+  <button class="icon-btn notification-btn" @click.stop="toggleNotifications()" aria-label="通知中心" title="通知中心">
+    <svg class="icon" aria-hidden="true"><use href="#i-bell"></use></svg>
+    <span class="activity-dot" x-show="unreadNotifications > 0" aria-hidden="true"></span>
   </button>
   <button class="icon-btn" @click="openRecovery()" aria-label="打开恢复中心" title="恢复中心">
     <svg class="icon" aria-hidden="true"><use href="#i-recovery"></use></svg>
@@ -298,9 +306,7 @@
           </div>
         </div>
       </template>
-      <button x-show="diffDisplay" @click="copyText(diffDisplay)">复制 diff</button>
-      <pre class="diff" x-show="diffDisplay" x-text="diffDisplay"></pre>
-      <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部 diff</button>
+      <div class="note">查看 diff 会在主区打开标签页。</div>
       <div class="note">接受 = 保留当前内容；拒绝 = 恢复到快照前的内容（回滚前会再留底）。</div>
       <div class="empty" x-show="files.length === 0 && diffText === ''">还没有文件改动</div>
     </div>
@@ -319,13 +325,7 @@
         </div>
       </template>
       <div class="empty" x-show="!treeLoading && treeRows.length === 0">空目录，或先创建会话</div>
-      <div x-show="fileView.path">
-        <div class="panel-actions">
-          <span x-text="fileView.path"></span>
-          <span class="note" x-text="fileView._size"></span>
-        </div>
-        <pre class="diff" x-text="fileView._text"></pre>
-      </div>
+      <div class="note">点击文件会在主区打开只读预览。</div>
     </div>
 
     <div class="view" x-show="view === 'git'">
@@ -341,7 +341,7 @@
       <template x-for="row in gitInfo._commits" :key="row._key">
         <div class="note" x-text="row._text"></div>
       </template>
-      <pre class="diff" x-show="gitDiffText" x-text="gitDiffText"></pre>
+      <div class="note" x-show="mainTab === 'diff' && diffPath === 'Git'">Git diff 已在主区标签中打开。</div>
     </div>
 
     <div class="view" x-show="view === 'tasks'">
@@ -401,11 +401,23 @@
      role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度"></div>
 
   <main class="main">
-    <div class="main-tabs">
-      <div class="main-tab active">
+    <div class="main-tabs" role="tablist" aria-label="主区标签">
+      <button class="main-tab" :class="mainTabClass('chat')" @click="showChat()">
         <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
         <span>对话</span>
-      </div>
+      </button>
+      <button class="main-tab" :class="mainTabClass('file')" x-show="fileView.path"
+              @click="showFileTab()">
+        <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
+        <span class="main-tab-label" x-text="fileView.path"></span>
+        <span class="tab-close" role="button" @click.stop="closeFileTab()" title="关闭文件">×</span>
+      </button>
+      <button class="main-tab" :class="mainTabClass('diff')" x-show="diffDisplay"
+              @click="showDiffTab()">
+        <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
+        <span>Diff</span>
+        <span class="tab-close" role="button" @click.stop="closeDiffTab()" title="关闭 Diff">×</span>
+      </button>
       <span class="main-tab-title" x-text="currentSessionTitle()"></span>
       <span class="spacer"></span>
       <span class="main-tab-state" x-text="stateText"></span>
@@ -413,6 +425,39 @@
         <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       </button>
     </div>
+
+    <section class="editor-view" x-show="mainTab === 'file'" x-cloak>
+      <div class="editor-toolbar">
+        <span class="editor-path" x-text="fileView.path"></span>
+        <span class="note" x-text="fileView._size"></span>
+        <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
+        <span class="spacer"></span>
+        <button @click="copyText(fileView._text)">复制</button>
+        <button @click="closeFileTab()">关闭</button>
+      </div>
+      <pre class="editor-code"><code x-html="fileView._html"></code></pre>
+    </section>
+
+    <section class="editor-view" x-show="mainTab === 'diff'" x-cloak>
+      <div class="editor-toolbar">
+        <span class="editor-path">Diff</span>
+        <span class="note" x-text="diffPath || '本轮改动'"></span>
+        <span class="spacer"></span>
+        <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部</button>
+        <button @click="copyText(diffDisplay)">复制</button>
+        <button @click="closeDiffTab()">关闭</button>
+      </div>
+      <div class="diff-view">
+        <template x-for="row in diffRows()" :key="row._key">
+          <div class="diff-line" :class="row._cls">
+            <span class="diff-no" x-text="row._no"></span>
+            <span class="diff-text" x-text="row.text"></span>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <div class="main-chat" x-show="mainTab === 'chat'">
     <div class="reasoning" x-show="showReasoning && reasoningBlocks.length" x-cloak>
       <template x-for="(block, index) in reasoningBlocks" :key="index">
         <details class="reasoning-block" :open="index === reasoningBlocks.length - 1">
@@ -528,6 +573,7 @@
       </div>
       <div class="note" x-show="uploadQuota" x-text="uploadQuota"></div>
     </div>
+    </div>
   </main>
 
   <div class="splitter splitter-right" x-show="!inspectorCollapsed"
@@ -538,6 +584,7 @@
     <div class="tabs">
       <button :class="tabClasses.plan" @click="setTab('plan')">计划</button>
       <button :class="tabClasses.tools" @click="setTab('tools')">工具</button>
+      <button :class="tabClasses.timeline" @click="setTab('timeline')">时间线</button>
     </div>
     <button class="icon-btn" @click="toggleInspector()" title="收起检查器" aria-label="收起检查器">
       <svg class="icon" aria-hidden="true"><use href="#i-panel-right"></use></svg>
@@ -575,6 +622,24 @@
     </template>
     <div class="empty" x-show="tools.length === 0">没有工具调用</div>
   </div>
+
+  <div class="panel" x-show="tab === 'timeline'">
+    <div class="timeline">
+      <template x-for="item in timeline" :key="item.id">
+        <div class="timeline-item" :class="item._cls">
+          <span class="timeline-dot"></span>
+          <div class="timeline-body">
+            <div class="timeline-line">
+              <span class="timeline-title" x-text="item.title"></span>
+              <span class="timeline-time" x-text="item.time"></span>
+            </div>
+            <div class="timeline-detail" x-show="item.detail" x-text="item.detail"></div>
+          </div>
+        </div>
+      </template>
+      <div class="empty" x-show="timeline.length === 0">当前运行还没有时间线记录</div>
+    </div>
+  </div>
 </section>
 </div>
 
@@ -586,9 +651,9 @@
     <div class="command-input-row">
       <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       <input x-ref="commandInput" x-model="commandQuery"
-             @input="commandIndex = 0"
+             @input="onCommandQuery()"
              @keydown="onCommandKeydown($event)"
-             placeholder="输入命令、会话或视图…" aria-label="命令面板搜索">
+             placeholder="输入命令、会话或文件…" aria-label="命令面板搜索">
       <kbd>Esc</kbd>
     </div>
     <div class="command-list" role="listbox" aria-label="命令列表">
@@ -596,11 +661,15 @@
         <button class="command-item" :class="commandClass(index)"
                 role="option" @mouseenter="hoverCommand(index)"
                 @click="runCommand(cmd)">
-          <span class="command-title" x-text="cmd.title"></span>
+          <span class="command-main">
+            <span class="command-title" x-text="cmd.title"></span>
+            <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>
+          </span>
           <span class="command-hint" x-text="cmd.hint"></span>
         </button>
       </template>
-      <div class="empty" x-show="filteredCommands().length === 0">没有匹配的命令</div>
+      <div class="note" x-show="fileSearchLoading">正在搜索文件…</div>
+      <div class="empty" x-show="filteredCommands().length === 0 && !fileSearchLoading">没有匹配的命令</div>
     </div>
   </div>
 </div>
@@ -834,6 +903,31 @@
     <div class="modal-actions">
       <button @click="closeRecovery()">关闭</button>
     </div>
+  </div>
+</div>
+
+<div class="notification-panel" x-show="notificationsOpen" x-cloak
+     @click.outside="closeNotifications()" role="dialog" aria-label="通知中心">
+  <div class="notification-head">
+    <h3>通知</h3>
+    <span class="notification-unread" x-show="unreadNotifications > 0"
+          x-text="unreadNotifications + ' 条未读'"></span>
+    <button class="icon-btn" @click="markNotificationsRead()" title="全部已读" aria-label="全部已读">
+      <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+    </button>
+    <button class="icon-btn" @click="clearNotifications()" title="清空通知" aria-label="清空通知">
+      <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+    </button>
+  </div>
+  <div class="notification-list">
+    <template x-for="item in notifications" :key="item.id">
+      <div class="notification-item" :class="notificationClass(item)">
+        <div class="notification-title" x-text="item.title"></div>
+        <div class="notification-body" x-show="item.body" x-text="item.body"></div>
+        <div class="notification-time" x-text="item.time"></div>
+      </div>
+    </template>
+    <div class="empty" x-show="notifications.length === 0">还没有通知</div>
   </div>
 </div>
 

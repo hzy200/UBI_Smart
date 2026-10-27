@@ -193,6 +193,35 @@ def test_files_and_git_endpoints_use_session_workspace(
     assert seen["diff"] == "True"
 
 
+def test_search_endpoint_uses_session_workspace(settings, monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_search(workspace: str, query: str, *, limit: int = 50) -> dict:
+        seen["workspace"] = workspace
+        seen["query"] = query
+        seen["limit"] = limit
+        return {
+            "query": query,
+            "results": [{"path": "a.py", "line": 3, "kind": "content"}],
+            "truncated": False,
+        }
+
+    monkeypatch.setattr(workspace_routes, "search_workspace", fake_search)
+    client = TestClient(web.create_app(settings))
+    thread = client.post(
+        "/api/sessions", json={"workspace": "/tmp/ws"}
+    ).json()["thread_id"]
+
+    response = client.get(
+        "/api/search",
+        params={"thread_id": thread, "q": "needle", "limit": 5},
+    )
+    assert response.status_code == 200
+    assert response.json()["results"][0]["path"] == "a.py"
+    assert response.json()["content_search"] is True
+    assert seen == {"workspace": "/tmp/ws", "query": "needle", "limit": 5}
+
+
 def test_provider_profile_crud_changes_provider_rows(
     settings, tmp_path
 ) -> None:

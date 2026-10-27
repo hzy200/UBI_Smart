@@ -72,6 +72,14 @@ export const desktopMixin = {
   },
 
   notify(title, body) {
+    const kind = title.includes('失败')
+      ? 'error'
+      : title.includes('审批')
+        ? 'warning'
+        : title.includes('完成')
+          ? 'success'
+          : 'info';
+    this.pushNotification(kind, title, body);
     if (!this.notifyEnabled) return;
     if (!('Notification' in window) || Notification.permission !== 'granted') {
       return;

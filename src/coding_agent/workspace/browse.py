@@ -9,12 +9,22 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
+
+from coding_agent.security.read_policy import is_protected_read_path
 
 MAX_ENTRIES = 400
 MAX_READ_BYTES = 256 * 1024
 MAX_DIFF_CHARS = 120_000
+MAX_SEARCH_FILE_BYTES = 128 * 1024
+MAX_SEARCH_SCAN_FILES = 5000
 _SKIP_DIRS = {"__pycache__", ".git", "node_modules"}
+_SEARCH_SKIP_DIRS = _SKIP_DIRS | {
+    ".venv", "venv", "env", ".agent", "dist", "build",
+    ".idea", ".vscode", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    ".aws", ".kube",
+}
 _BRANCH_RE = re.compile(r"^## ([^.\[ ]+)(?:\.\.\.\S+)?(?: \[(.+)\])?$")
 
 
@@ -113,6 +123,88 @@ def read_text_file(workspace: str, rel: str) -> dict:
         "binary": binary,
         "content": "" if binary else data.decode("utf-8", errors="replace"),
     }
+
+
+def search_workspace(
+    workspace: str,
+    query: str,
+    *,
+    limit: int = 50,
+) -> dict:
+    """按路径与内容做只读检索；不跟随符号链接，不返回秘密文件。"""
+    root = _root(workspace)
+    text = str(query or "").strip()
+    if not text:
+        return {"query": "", "results": [], "truncated": False}
+    if len(text) > 200:
+        raise BrowseError("搜索词过长")
+    needle = text.lower()
+    cap = max(1, min(int(limit), 100))
+    results: list[dict] = []
+    truncated = False
+    scanned = 0
+    deadline = time.monotonic() + 3.0
+    for current, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in _SEARCH_SKIP_DIRS and not name.startswith(".git")
+        )
+        for name in sorted(files):
+            if time.monotonic() > deadline:
+                truncated = True
+                break
+            target = Path(current) / name
+            if target.is_symlink():
+                continue
+            rel = _relative(root, target)
+            if is_protected_read_path(rel):
+                continue
+            scanned += 1
+            if scanned > MAX_SEARCH_SCAN_FILES:
+                truncated = True
+                break
+            if needle in rel.lower():
+                results.append(
+                    {"path": rel, "line": 0, "preview": "", "kind": "path"}
+                )
+                if len(results) >= cap:
+                    truncated = True
+                    break
+            try:
+                size = target.stat().st_size
+            except OSError:
+                continue
+            if size > MAX_SEARCH_FILE_BYTES:
+                continue
+            try:
+                data = target.read_bytes()
+            except OSError:
+                continue
+            if b"\x00" in data[:4096]:
+                continue
+            content = data.decode("utf-8", errors="replace")
+            for line_number, line in enumerate(content.splitlines(), 1):
+                if needle not in line.lower():
+                    continue
+                results.append(
+                    {
+                        "path": rel,
+                        "line": line_number,
+                        "preview": line.strip()[:240],
+                        "kind": "content",
+                    }
+                )
+                if len(results) >= cap:
+                    truncated = True
+                    break
+            if len(results) >= cap:
+                break
+        if len(results) >= cap or scanned > MAX_SEARCH_SCAN_FILES:
+            break
+        if time.monotonic() > deadline:
+            truncated = True
+            break
+    return {"query": text, "results": results[:cap], "truncated": truncated}
 
 
 def _git(root: Path, *args: str, timeout: float = 10.0):
