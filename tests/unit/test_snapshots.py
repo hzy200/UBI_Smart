@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from typing import Any
 
 from coding_agent.sandbox.fs import FileStat, SandboxFsError
@@ -85,9 +88,17 @@ class _FakeFs:
         return self.files.pop(path, None) is not None
 
 
-def _store(files: dict[str, str] | None = None) -> tuple[SnapshotStore, dict[str, str]]:
+def _store(
+    files: dict[str, str] | None = None,
+    manifest_root: Path | None = None,
+) -> tuple[SnapshotStore, dict[str, str]]:
     files = files if files is not None else {}
-    store = SnapshotStore(_FakeSandbox(files), _FakeFs(files), ROOT)  # type: ignore[arg-type]
+    store = SnapshotStore(
+        _FakeSandbox(files),  # type: ignore[arg-type]
+        _FakeFs(files),  # type: ignore[arg-type]
+        ROOT,
+        manifest_root=manifest_root,
+    )
     return store, files
 
 
@@ -188,6 +199,51 @@ def test_an_empty_file_is_restored_as_empty_not_deleted() -> None:
     assert result.ok is True
     assert files[f"{ROOT}/e.py"] == ""
     assert "已回滚" in result.message
+
+
+def test_manifest_records_hashes_and_absent_flags(tmp_path: Path) -> None:
+    store, _ = _store(manifest_root=tmp_path)
+    first = store.save(f"{ROOT}/a.py", "old")
+    second = store.save(f"{ROOT}/new.py", "", existed=False)
+
+    manifests = {
+        json.loads(path.read_text(encoding="utf-8"))["snapshot_id"]: path
+        for path in tmp_path.glob("*/*.json")
+    }
+    assert set(manifests) == {first, second}
+    first_data = json.loads(manifests[first].read_text(encoding="utf-8"))
+    assert first_data["files"]["a.py"]["sha256"] == hashlib.sha256(
+        b"old"
+    ).hexdigest()
+    assert first_data["files"]["a.py"]["absent"] is False
+    second_data = json.loads(manifests[second].read_text(encoding="utf-8"))
+    assert second_data["files"]["new.py"]["absent"] is True
+
+
+def test_tampered_snapshot_is_rejected(tmp_path: Path) -> None:
+    files = {f"{ROOT}/a.py": "current"}
+    store, files = _store(files, manifest_root=tmp_path)
+    snapshot_id = store.save(f"{ROOT}/a.py", "original")
+    files[f"{BACKUP_PREFIX}{snapshot_id}/a.py"] = "tampered"
+
+    entry = store.latest_for(f"{ROOT}/a.py")
+    assert entry is not None
+    result = store.restore(entry)
+
+    assert result.ok is False
+    assert "校验失败" in result.message
+    assert files[f"{ROOT}/a.py"] == "current", "校验失败时不能覆盖当前文件"
+
+
+def test_manifest_absent_flag_survives_deleted_marker(tmp_path: Path) -> None:
+    files: dict[str, str] = {}
+    store, files = _store(files, manifest_root=tmp_path)
+    snapshot_id = store.save(f"{ROOT}/new.py", "", existed=False)
+    entry = store.latest_for(f"{ROOT}/new.py")
+    assert entry is not None
+
+    files.pop(f"{BACKUP_PREFIX}{snapshot_id}/new.py.absent")
+    assert store.was_absent(entry) is True
 
 
 def test_rolling_back_a_creation_twice_is_a_no_op() -> None:

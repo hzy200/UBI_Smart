@@ -9,7 +9,7 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **216** 个配置项。
+共 **217** 个配置项。
 
 ## 通用
 
@@ -178,6 +178,7 @@
 | `AGENT_SHELL_NETWORK` | `shell_network` | `bool` | `true` | 仅 bwrap 模式生效：false 时加 --unshare-net，命令完全无网络。 off 模式没有内核级隔离，词法策略无法禁止 curl/wget 出网。 |
 | `AGENT_SHELL_SANDBOX` | `shell_sandbox` | `str` | `"off"` | shell 隔离后端：off（默认，仅工作区 cwd 约束）\| bwrap（挂载命名空间隔离） bwrap 模式下若沙箱内不可用，会**拒绝执行**（fail closed），不静默降级 |
 | `AGENT_SHELL_TIMEOUT` | `shell_timeout` | `int` | `60` |  |
+| `AGENT_SNAPSHOT_MANIFEST_DIR` | `snapshot_manifest_dir` | `str` | `""` | 快照校验清单根目录；留空 = 用户主目录下的 .codingagent/snapshots。 放在工作区外，shell 级篡改快照内容也能在恢复时被发现。 |
 | `AGENT_STEERING_DIR` | `steering_dir` | `str` | `""` | 未消费 steering 指令的持久化目录；留空 = <当前目录>/.agent/steering |
 | `AGENT_SYMBOL_INDEX_TTL_S` | `symbol_index_ttl_s` | `float` | `10.0` | AST 符号索引缓存时间；写操作不会主动失效，过期后自动重建。 |
 | `AGENT_TOOL_JOURNAL_ENABLED` | `tool_journal_enabled` | `bool` | `true` | 有副作用工具的执行日志：崩溃后同一 call_id 不自动重放。 |

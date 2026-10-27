@@ -538,6 +538,11 @@ class Settings(BaseSettings):
     audit_enabled: bool = Field(default=True, alias="AGENT_AUDIT_ENABLED")
     # 留空表示自动用 <当前目录>/.agent/audit
     audit_dir: str = Field(default="", alias="AGENT_AUDIT_DIR")
+    # 快照校验清单根目录；留空 = 用户主目录下的 .codingagent/snapshots。
+    # 放在工作区外，shell 级篡改快照内容也能在恢复时被发现。
+    snapshot_manifest_dir: str = Field(
+        default="", alias="AGENT_SNAPSHOT_MANIFEST_DIR"
+    )
     # 未消费 steering 指令的持久化目录；留空 = <当前目录>/.agent/steering
     steering_dir: str = Field(default="", alias="AGENT_STEERING_DIR")
     # 跨进程限流状态文件；留空 = <当前目录>/.agent/rate_limits.json；:memory: 关闭
@@ -824,6 +829,14 @@ class Settings(BaseSettings):
     @property
     def resolved_audit_dir(self) -> Path:
         return Path(self.audit_dir) if self.audit_dir else Path.cwd() / ".agent" / "audit"
+
+    @property
+    def resolved_snapshot_manifest_dir(self) -> Path:
+        return (
+            Path(self.snapshot_manifest_dir)
+            if self.snapshot_manifest_dir
+            else Path.home() / ".codingagent" / "snapshots"
+        )
 
     @property
     def resolved_steering_dir(self) -> Path:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from coding_agent.sandbox.fs import SandboxFs
@@ -11,11 +12,22 @@ from coding_agent.sandbox.snapshots import SnapshotStore
 
 
 class SandboxExecutionBackend:
-    def __init__(self, sandbox: Any, workspace: str) -> None:
+    def __init__(
+        self,
+        sandbox: Any,
+        workspace: str,
+        *,
+        manifest_root: str | Path | None = None,
+    ) -> None:
         self.sandbox = sandbox
         self.workspace = str(workspace)
         self.fs = SandboxFs(sandbox, self.workspace)
-        self.snapshots = SnapshotStore(sandbox, self.fs, self.workspace)
+        self.snapshots = SnapshotStore(
+            sandbox,
+            self.fs,
+            self.workspace,
+            manifest_root=manifest_root,
+        )
 
     def capabilities(self) -> dict[str, Any]:
         return {

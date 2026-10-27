@@ -468,7 +468,11 @@ class AgentRuntime:
         if self._execution is not None or not self._workspace:
             return
         service = ExecutionService(
-            SandboxExecutionBackend(self._sandbox, self._workspace),
+            SandboxExecutionBackend(
+                self._sandbox,
+                self._workspace,
+                manifest_root=self.settings.resolved_snapshot_manifest_dir,
+            ),
             self._workspace,
             targets=self.execution_targets,
             workspace_kind=self.workspace_kind,
@@ -518,7 +522,10 @@ class AgentRuntime:
         """文件快照存储，供 `/undo` `/diff` 使用。"""
         if self._snapshots is None:
             self._snapshots = SnapshotStore(
-                self._sandbox, self._sandbox_fs(), self.workspace
+                self._sandbox,
+                self._sandbox_fs(),
+                self.workspace,
+                manifest_root=self.settings.resolved_snapshot_manifest_dir,
             )
         return self._snapshots
 

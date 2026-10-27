@@ -64,6 +64,9 @@ def _isolate_agent_data_dirs(tmp_path, monkeypatch) -> Iterator[None]:
     """
     monkeypatch.setenv("AGENT_CHECKPOINT_PATH", str(tmp_path / "checkpoints.sqlite"))
     monkeypatch.setenv("AGENT_AUDIT_DIR", str(tmp_path / "audit"))
+    monkeypatch.setenv(
+        "AGENT_SNAPSHOT_MANIFEST_DIR", str(tmp_path / "snapshot-manifests")
+    )
     monkeypatch.setenv("AGENT_STEERING_DIR", str(tmp_path / "steering"))
     monkeypatch.setenv(
         "AGENT_RATE_LIMIT_STATE_PATH", str(tmp_path / "rate_limits.json")

@@ -9,7 +9,7 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 216,
+  "count": 217,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
@@ -174,6 +174,7 @@
     "AGENT_SHELL_NETWORK",
     "AGENT_SHELL_SANDBOX",
     "AGENT_SHELL_TIMEOUT",
+    "AGENT_SNAPSHOT_MANIFEST_DIR",
     "AGENT_STEERING_DIR",
     "AGENT_SYMBOL_INDEX_TTL_S",
     "AGENT_TOOL_JOURNAL_ENABLED",
@@ -1532,6 +1533,14 @@
       "default": 60,
       "section": "通用",
       "doc": ""
+    },
+    {
+      "name": "snapshot_manifest_dir",
+      "env": "AGENT_SNAPSHOT_MANIFEST_DIR",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "快照校验清单根目录；留空 = 用户主目录下的 .codingagent/snapshots。 放在工作区外，shell 级篡改快照内容也能在恢复时被发现。"
     },
     {
       "name": "steering_dir",

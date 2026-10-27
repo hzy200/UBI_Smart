@@ -14,11 +14,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
+import os
 import posixpath
 import shlex
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from coding_agent.diffing import count_changes, unified_diff
@@ -78,22 +83,93 @@ class RestoreResult:
     message: str = ""
 
 
+class SnapshotTamperedError(SandboxFsError):
+    """快照内容与宿主侧校验和不一致，可能已被修改。"""
+
+
 def _relpath(path: str, root: str) -> str:
     prefix = root.rstrip("/") + "/"
     return path[len(prefix) :] if path.startswith(prefix) else path
 
 
 class SnapshotStore:
-    """工作区内的文件快照。"""
+    """工作区内的文件快照，可选宿主侧校验和清单。"""
 
-    def __init__(self, sandbox: WslSandbox, fs: SandboxFs, root: str) -> None:
+    def __init__(
+        self,
+        sandbox: WslSandbox,
+        fs: SandboxFs,
+        root: str,
+        *,
+        manifest_root: str | Path | None = None,
+    ) -> None:
         self._sandbox = sandbox
         self._fs = fs
         self.root = root
+        self._manifest_root = Path(manifest_root) if manifest_root else None
+        self._workspace_key = hashlib.sha256(
+            str(root).encode("utf-8")
+        ).hexdigest()[:16]
 
     @property
     def backup_root(self) -> str:
         return posixpath.join(self.root, BACKUP_DIRNAME)
+
+    def _manifest_path(self, snapshot_id: str) -> Path | None:
+        if self._manifest_root is None:
+            return None
+        return self._manifest_root / self._workspace_key / f"{snapshot_id}.json"
+
+    def _write_manifest(
+        self,
+        snapshot_id: str,
+        files: dict[str, tuple[str, bool]],
+    ) -> None:
+        """把每个快照文件的 sha256 写到工作区外的清单。
+
+        清单写入失败时保持 best-effort：快照本身已经落盘，不能因为
+        宿主目录只读就让文件写入失败。没有清单时恢复会退化为旧行为。
+        """
+        path = self._manifest_path(snapshot_id)
+        if path is None:
+            return
+        payload = {
+            "snapshot_id": snapshot_id,
+            "root": self.root,
+            "files": {
+                relpath: {
+                    "sha256": hashlib.sha256(
+                        content.encode("utf-8")
+                    ).hexdigest(),
+                    "absent": absent,
+                }
+                for relpath, (content, absent) in files.items()
+            },
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp = path.with_suffix(".tmp")
+            temp.write_text(
+                json.dumps(payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            os.replace(temp, path)
+        except OSError:
+            pass
+
+    def _load_manifest(self, snapshot_id: str) -> dict[str, Any] | None:
+        path = self._manifest_path(snapshot_id)
+        if path is None:
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if not isinstance(payload.get("files"), dict):
+            return None
+        return payload
 
     # ------------------------------------------------------------------
     # 写入
@@ -111,6 +187,9 @@ class SnapshotStore:
         self._write(snapshot_id, relpath, original)
         if not existed:
             self._write(snapshot_id, f"{relpath}{ABSENT_SUFFIX}", "")
+        self._write_manifest(
+            snapshot_id, {relpath: (original, not existed)}
+        )
         return snapshot_id
 
     def write_with_snapshot(
@@ -144,6 +223,10 @@ class SnapshotStore:
                 )
             ] = ""
         self._fs.write_many(files)
+        self._write_manifest(
+            snapshot_id,
+            {relpath: (original if existed else "", not existed)},
+        )
         return snapshot_id
 
     def move_with_snapshot(
@@ -180,6 +263,11 @@ class SnapshotStore:
                 )
             ] = ""
         self._fs.write_many(files)
+        self._write_manifest(source_id, {source_rel: (content, False)})
+        self._write_manifest(
+            dest_id,
+            {dest_rel: (dest_original if dest_existed else "", not dest_existed)},
+        )
         return source_id, dest_id
 
     def write_many_with_snapshots(
@@ -195,6 +283,7 @@ class SnapshotStore:
             return {}
         files: dict[str, str] = {}
         ids: dict[str, str] = {}
+        manifests: dict[str, dict[str, tuple[str, bool]]] = {}
         for path, content, original, existed in entries:
             snapshot_id = _new_snapshot_id()
             relpath = _relpath(path, self.root)
@@ -211,7 +300,13 @@ class SnapshotStore:
                 ] = ""
             files[path] = content
             ids[path] = snapshot_id
+            manifests.setdefault(snapshot_id, {})[relpath] = (
+                original if existed else "",
+                not existed,
+            )
         self._fs.write_many(files)
+        for snapshot_id, entries_map in manifests.items():
+            self._write_manifest(snapshot_id, entries_map)
         return ids
 
     def save_many(
@@ -226,6 +321,7 @@ class SnapshotStore:
             return []
         files: dict[str, str] = {}
         snapshot_ids: list[str] = []
+        manifests: dict[str, dict[str, tuple[str, bool]]] = {}
         for path, original, existed in items:
             snapshot_id = _new_snapshot_id()
             relpath = _relpath(path, self.root)
@@ -241,11 +337,23 @@ class SnapshotStore:
                     )
                 ] = ""
             snapshot_ids.append(snapshot_id)
+            manifests[snapshot_id] = {relpath: (original, not existed)}
         self._fs.write_many(files)
+        for snapshot_id, entries_map in manifests.items():
+            self._write_manifest(snapshot_id, entries_map)
         return snapshot_ids
 
     def was_absent(self, entry: SnapshotEntry) -> bool:
-        """这份留底是否代表「当时文件不存在」。"""
+        """这份留底是否代表「当时文件不存在」。
+
+        有校验清单时以清单为准：删掉 `.absent` 标记不能把「新建」伪装成
+        「原来就是空文件」。
+        """
+        manifest = self._load_manifest(entry.snapshot_id)
+        if manifest:
+            record = manifest["files"].get(entry.path)
+            if isinstance(record, dict):
+                return bool(record.get("absent"))
         marker = posixpath.join(
             self.backup_root, entry.snapshot_id, f"{entry.path}{ABSENT_SUFFIX}"
         )
@@ -308,7 +416,19 @@ class SnapshotStore:
 
     def read(self, entry: SnapshotEntry) -> str:
         target = posixpath.join(self.backup_root, entry.snapshot_id, entry.path)
-        return self._fs.read_text(target, max_bytes=MAX_OPERATIONAL_BYTES)
+        content = self._fs.read_text(
+            target, max_bytes=MAX_OPERATIONAL_BYTES
+        )
+        manifest = self._load_manifest(entry.snapshot_id)
+        if manifest:
+            record = manifest["files"].get(entry.path)
+            expected = str((record or {}).get("sha256") or "")
+            actual = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            if expected and actual != expected:
+                raise SnapshotTamperedError(
+                    f"快照 {entry.snapshot_id} 内容校验失败，可能已被修改"
+                )
+        return content
 
     # ------------------------------------------------------------------
     # 恢复

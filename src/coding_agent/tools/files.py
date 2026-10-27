@@ -215,7 +215,12 @@ def build_file_tools(
 ) -> list[BaseTool]:
     root = resolve_workspace(settings, sandbox)
     fs = SandboxFs(sandbox, root, cache=read_cache)
-    snapshots = SnapshotStore(sandbox, fs, root)
+    snapshots = SnapshotStore(
+        sandbox,
+        fs,
+        root,
+        manifest_root=settings.resolved_snapshot_manifest_dir,
+    )
     access: FileAccess = file_access or SandboxFileAccess(fs, root)
 
     def _display(target: str) -> str:

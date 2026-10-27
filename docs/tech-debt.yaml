@@ -74,17 +74,6 @@ items:
       （spread 31pp）就是这么来的 —— 那次读数说明不了任何事。
       也不要把 long 的历史 2/5 当成当前基线：任务数已从 5 扩到 6。
 
-  - id: TD-007
-    title: 快照落在工作区内，工作区可写时 agent 能改自己的留底
-    where: sandbox/snapshots.py
-    why_now: 改动会影响所有回滚路径；T2 达标项之一
-    debt_type: 安全
-    severity: medium
-    plan: 快照移出工作区，或加校验和
-    owner: 项目作者
-    due: 升到 T2 威胁模型之前（见 THREAT_MODEL.md §5.7）
-    do_not: 不要把这条当成"已解决" —— 它只在 T1 下可接受
-
   - id: TD-008
     title: 文档里的测试数字多份不一致（1561 / 1661 / 1443 / 1420 / 1403）
     where: README.md, docs/ACCEPTANCE.md, docs/COMPLEXITY.md, docs/TEST_REPORT_*.md
@@ -162,6 +151,15 @@ items:
 # 已还清（保留作历史，避免重复讨论）
 # ===========================================================================
 paid_off:
+  - id: TD-007
+    title: 快照落在工作区内，工作区可写时 agent 能改自己的留底
+    resolved: 2026-10-27
+    how: 快照内容增加宿主侧 SHA-256 清单（默认 ~/.codingagent/snapshots，
+      可用 AGENT_SNAPSHOT_MANIFEST_DIR 重定向到工作区外）；恢复时校验，
+      `.absent` 以清单为准。shell 仍可删除快照，但恢复会失败而不是静默还原。
+    regression: tests/unit/test_snapshots.py（校验和、篡改拒绝、absent 清单）
+    see: src/coding_agent/sandbox/snapshots.py
+
   - id: TD-001
     title: runtime._stream 是最大的函数（623 行 / CC 114）
     resolved: 2026-10-27
