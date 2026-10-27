@@ -256,6 +256,63 @@ test('jsdom 交互：会话、文件树、Problems、流式渲染与焦点陷阱
       );
     });
 
+    await t.test('设置搜索按关键词过滤分节', async () => {
+      const opener = document.querySelector(
+        'header .icon-btn[aria-label="打开设置"]',
+      ) as HTMLElement;
+      opener.focus();
+      opener.click();
+      const modal = document.querySelector('.settings-modal') as HTMLElement;
+      await waitFor(() => modal.style.display !== 'none', '设置打开');
+      const sections = () => Array.from(
+        document.querySelectorAll('.settings-view'),
+      ) as HTMLElement[];
+      data.settingsQuery = '模型';
+      await waitFor(
+        () => sections()[1].style.display !== 'none'
+          && sections()[0].style.display === 'none',
+        '搜索模型',
+      );
+      assert.equal(data.settingsSearchLabel, '找到 1 个分类');
+
+      data.settingsQuery = '不存在的设置';
+      await waitFor(() => data.settingsNoResults === true, '无搜索结果');
+      data.settingsQuery = '';
+      await waitFor(() => sections()[0].style.display !== 'none', '清空搜索');
+      keydown(window, { key: 'Escape' });
+      await waitFor(() => modal.style.display === 'none', '设置关闭');
+    });
+
+    await t.test('加载骨架与全局错误横幅可关闭/重试', async () => {
+      data.sessions = [];
+      data.sessionsLoading = true;
+      await waitFor(
+        () => document.querySelector('.skeleton-list')?.style.display !== 'none',
+        '会话骨架',
+      );
+      data.sessionsLoading = false;
+
+      data.fileLoading = true;
+      await waitFor(
+        () => document.querySelector('.editor-skeleton')?.style.display !== 'none',
+        '文件骨架',
+      );
+      data.fileLoading = false;
+
+      data.reportError('测试错误', 'sessions');
+      const banner = document.querySelector('.error-banner') as HTMLElement;
+      await waitFor(() => banner.style.display !== 'none', '错误横幅');
+      assert.match(banner.textContent || '', /测试错误/);
+      data.dismissError();
+      await waitFor(() => banner.style.display === 'none', '关闭横幅');
+
+      data.reportError('会话加载失败', 'sessions');
+      await waitFor(() => banner.style.display !== 'none', '错误横幅重试');
+      data.retryLastError();
+      await waitFor(() => banner.style.display === 'none', '重试后关闭');
+      await waitFor(() => data.sessions.length === 2, '重试加载会话');
+    });
+
     await t.test('设置模态焦点进入、Tab 循环、Esc 关闭并恢复', async () => {
       const opener = document.querySelector(
         'header .icon-btn[aria-label="打开设置"]',

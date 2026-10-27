@@ -486,7 +486,7 @@ export const inspectorMixin = {
       }));
       this.treeChildren = { ...this.treeChildren, [path]: entries };
     } catch (err) {
-      this.toastMessage(String(err));
+      this.reportError(`读取文件树失败：${err}`, 'tree');
     } finally {
       this.treeLoadingMap = { ...this.treeLoadingMap, [path]: false };
     }
@@ -741,6 +741,7 @@ export const inspectorMixin = {
       this.$nextTick(() => this.scrollFileToLine(line));
       return;
     }
+    this.fileLoading = true;
     try {
       const params = new URLSearchParams({
         thread_id: this.threadId,
@@ -786,7 +787,9 @@ export const inspectorMixin = {
       this.activateEditorTab(id);
       this.$nextTick(() => this.scrollFileToLine(line));
     } catch (err) {
-      this.toastMessage(String(err));
+      this.reportError(`读取文件失败：${err}`, 'file', path);
+    } finally {
+      this.fileLoading = false;
     }
   },
 

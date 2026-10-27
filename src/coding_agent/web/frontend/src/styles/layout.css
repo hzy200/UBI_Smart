@@ -526,3 +526,10 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .status-command { background: transparent; border: 0; padding: 0; color: var(--muted); font-size: 11px; }
 .status-command:hover { color: var(--accent); }
 .statusbar .badge { font-size: 10px; padding: 1px 6px; }
+.error-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--bad); background: var(--panel-2);
+  color: var(--text); font-size: 12px;
+}
+.error-banner .error-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }

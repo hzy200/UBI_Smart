@@ -122,6 +122,11 @@
         <button :class="sessionFilterClasses.pinned" data-action="session-filter" data-filter="pinned" @click="onAction">置顶</button>
         <button :class="sessionFilterClasses.archived" data-action="session-filter" data-filter="archived" @click="onAction">归档</button>
       </div>
+      <div class="skeleton-list" x-show="sessionsSkeletonVisible" aria-hidden="true">
+        <div class="skeleton skeleton-row"></div>
+        <div class="skeleton skeleton-row"></div>
+        <div class="skeleton skeleton-row"></div>
+      </div>
       <div class="session-batch" x-show="hasSessionSelection">
         <span x-text="sessionSelectionText"></span>
         <button data-action="session-batch" data-op="archive" @click="onAction">归档</button>
@@ -210,6 +215,12 @@
       <div class="note" x-show="treeGitState" x-text="treeGitState"></div>
       <input class="tree-search" x-model="treeQuery" placeholder="过滤已加载文件…">
       <div class="tree-list" role="tree" aria-label="文件树" @keydown="onTreeKeydown">
+        <div class="skeleton-list" x-show="treeSkeletonVisible" aria-hidden="true">
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+        </div>
         <template x-for="entry in filteredTreeResults" :key="entry._key">
           <div class="tree-row" :class="entry._cls"
                :style="entry._style"

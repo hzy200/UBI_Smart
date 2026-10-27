@@ -7,4 +7,5 @@ import './output.test';
 import './problems.test';
 import './search.test';
 import './sessions.test';
+import './settings.test';
 import './virtual.test';

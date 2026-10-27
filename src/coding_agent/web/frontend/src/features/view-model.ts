@@ -113,6 +113,7 @@ export const view_modelMixin = {
   },
   setSettingsTab(name) {
     this.settingsTab = name;
+    this.settingsQuery = '';
     this.settingsTabFlags = {
       appearance: name === 'appearance',
       models: name === 'models',

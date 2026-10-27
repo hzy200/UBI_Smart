@@ -1550,6 +1550,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     setSettingsTab(name) {
       this.settingsTab = name;
+      this.settingsQuery = "";
       this.settingsTabFlags = {
         appearance: name === "appearance",
         models: name === "models",
@@ -1875,6 +1876,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return row;
     },
     async loadSessions() {
+      this.sessionsLoading = true;
       try {
         const response = await authFetch(
           "/api/sessions?limit=50&include_archived=true"
@@ -1893,6 +1895,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.sessions = rows;
         this.filterSessions();
       } catch (e) {
+        this.reportError(`\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD\uFF1A${e}`, "sessions");
+      } finally {
+        this.sessionsLoading = false;
       }
     },
     currentSession() {
@@ -4726,7 +4731,7 @@ ${paths}
         }));
         this.treeChildren = { ...this.treeChildren, [path]: entries };
       } catch (err) {
-        this.toastMessage(String(err));
+        this.reportError(`\u8BFB\u53D6\u6587\u4EF6\u6811\u5931\u8D25\uFF1A${err}`, "tree");
       } finally {
         this.treeLoadingMap = { ...this.treeLoadingMap, [path]: false };
       }
@@ -4952,6 +4957,7 @@ ${paths}
         this.$nextTick(() => this.scrollFileToLine(line));
         return;
       }
+      this.fileLoading = true;
       try {
         const params = new URLSearchParams({
           thread_id: this.threadId,
@@ -4995,7 +5001,9 @@ ${paths}
         this.activateEditorTab(id);
         this.$nextTick(() => this.scrollFileToLine(line));
       } catch (err) {
-        this.toastMessage(String(err));
+        this.reportError(`\u8BFB\u53D6\u6587\u4EF6\u5931\u8D25\uFF1A${err}`, "file", path);
+      } finally {
+        this.fileLoading = false;
       }
     },
     async refreshActiveFile() {
@@ -5606,6 +5614,38 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     }
   };
 
+  // src/features/errors.ts
+  var errorsMixin = {
+    reportError(message, retryKind = "", payload = "") {
+      const text = String(message || "").replace(/\s+/g, " ").trim();
+      if (!text) return;
+      this.uiError = text;
+      this._errorRetryKind = retryKind || "";
+      this._errorRetryPayload = payload || "";
+    },
+    dismissError() {
+      this.uiError = "";
+      this._errorRetryKind = "";
+      this._errorRetryPayload = "";
+    },
+    retryLastError() {
+      const kind = this._errorRetryKind;
+      const payload = this._errorRetryPayload;
+      this.dismissError();
+      if (kind === "sessions") {
+        void this.loadSessions();
+        return;
+      }
+      if (kind === "tree") {
+        void this.refreshTree();
+        return;
+      }
+      if (kind === "file" && payload) {
+        void this.openFile(payload, 0, true);
+      }
+    }
+  };
+
   // src/features/layout.ts
   var LAYOUT_KEY = "codingagent.layout";
   var ACTIVITY_WIDTH = 52;
@@ -6150,6 +6190,115 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     });
   }
 
+  // src/ui/settings.ts
+  var SETTINGS_SECTIONS = [
+    {
+      key: "appearance",
+      label: "\u5916\u89C2",
+      keywords: [
+        "\u5916\u89C2",
+        "\u4E3B\u9898",
+        "\u6DF1\u8272",
+        "\u6D45\u8272",
+        "\u8DDF\u968F\u7CFB\u7EDF",
+        "\u5B57\u4F53",
+        "\u5B57\u53F7",
+        "\u5BC6\u5EA6",
+        "\u884C\u9AD8",
+        "\u52A8\u6548",
+        "theme",
+        "font",
+        "density",
+        "appearance"
+      ]
+    },
+    {
+      key: "models",
+      label: "\u6A21\u578B",
+      keywords: [
+        "\u6A21\u578B",
+        "\u4F9B\u5E94\u5546",
+        "provider",
+        "profile",
+        "api key",
+        "\u5BC6\u94A5",
+        "\u6E29\u5EA6",
+        "temperature",
+        "\u4E0A\u4E0B\u6587",
+        "token",
+        "model"
+      ]
+    },
+    {
+      key: "workspace",
+      label: "\u5DE5\u4F5C\u533A",
+      keywords: [
+        "\u5DE5\u4F5C\u533A",
+        "\u9879\u76EE",
+        "\u6743\u9650",
+        "\u53EA\u8BFB",
+        "\u5199\u5165",
+        "\u4E0A\u4F20",
+        "wsl",
+        "\u672C\u673A",
+        "workspace",
+        "project",
+        "access",
+        "upload"
+      ]
+    },
+    {
+      key: "diagnostics",
+      label: "\u8BCA\u65AD",
+      keywords: [
+        "\u8BCA\u65AD",
+        "\u65E5\u5FD7",
+        "\u66F4\u65B0",
+        "\u901A\u77E5",
+        "\u5065\u5EB7",
+        "\u7248\u672C",
+        "diagnostics",
+        "log",
+        "update",
+        "notification",
+        "version",
+        "health"
+      ]
+    },
+    {
+      key: "advanced",
+      label: "\u9AD8\u7EA7",
+      keywords: [
+        "\u9AD8\u7EA7",
+        "\u5FEB\u6377\u952E",
+        "\u91CD\u7F6E",
+        "\u5BFC\u5165",
+        "\u5BFC\u51FA",
+        "\u5B9E\u9A8C",
+        "advanced",
+        "shortcut",
+        "reset",
+        "import",
+        "export",
+        "experimental"
+      ]
+    }
+  ];
+  function matchesSettingsQuery(query, keywords) {
+    const text = String(query ?? "").trim().toLowerCase();
+    if (!text) return true;
+    return (keywords || []).some(
+      (keyword) => String(keyword).toLowerCase().includes(text)
+    );
+  }
+  function settingsVisibility(query, sections = SETTINGS_SECTIONS) {
+    const result = {};
+    for (const section of sections) {
+      result[section.key] = matchesSettingsQuery(query, section.keywords);
+    }
+    return result;
+  }
+
   // src/features/csp.ts
   var cspMixin = {
     onAction(event) {
@@ -6484,6 +6633,26 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     get chatTabIndex() {
       return this.mainTab === "chat" ? 0 : -1;
+    },
+    get settingsViewVisible() {
+      return settingsVisibility(this.settingsQuery);
+    },
+    get settingsMatchCount() {
+      return Object.values(this.settingsViewVisible).filter(Boolean).length;
+    },
+    get settingsSearchLabel() {
+      if (!String(this.settingsQuery || "").trim()) return "";
+      const count = this.settingsMatchCount;
+      return count ? `\u627E\u5230 ${count} \u4E2A\u5206\u7C7B` : "\u6CA1\u6709\u5339\u914D\u7684\u8BBE\u7F6E";
+    },
+    get settingsNoResults() {
+      return Boolean(String(this.settingsQuery || "").trim()) && this.settingsMatchCount === 0;
+    },
+    get treeSkeletonVisible() {
+      return this.treeRootLoading() && this.filteredTreeRows().length === 0;
+    },
+    get sessionsSkeletonVisible() {
+      return Boolean(this.sessionsLoading) && this.sessions.length === 0;
     },
     get sidebarExpanded() {
       return this.sidebarCollapsed ? "false" : "true";
@@ -6937,6 +7106,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       _resizing: "",
       showSettings: false,
       settingsTab: "appearance",
+      settingsQuery: "",
+      sessionsLoading: false,
+      fileLoading: false,
+      uiError: "",
+      _errorRetryKind: "",
+      _errorRetryPayload: "",
       providerName: "deepseek",
       providerKeyInput: "",
       theme: "dark",
@@ -6981,6 +7156,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       memoryMixin,
       keyboardMixin,
       focusMixin,
+      errorsMixin,
       layoutMixin,
       notificationsMixin,
       cspMixin

@@ -5,6 +5,7 @@
  */
 
 import { groupProblems } from '../ui/problems';
+import { settingsVisibility } from '../ui/settings';
 
 export const cspMixin = {
   onAction(event) {
@@ -254,6 +255,25 @@ export const cspMixin = {
   get authBffVisible() { return this.authMode === 'bff-cookie'; },
   get authModeText() { return `认证方式：${this.authModeLabel}`; },
   get chatTabIndex() { return this.mainTab === 'chat' ? 0 : -1; },
+  get settingsViewVisible() { return settingsVisibility(this.settingsQuery); },
+  get settingsMatchCount() {
+    return Object.values(this.settingsViewVisible).filter(Boolean).length;
+  },
+  get settingsSearchLabel() {
+    if (!String(this.settingsQuery || '').trim()) return '';
+    const count = this.settingsMatchCount;
+    return count ? `找到 ${count} 个分类` : '没有匹配的设置';
+  },
+  get settingsNoResults() {
+    return Boolean(String(this.settingsQuery || '').trim())
+      && this.settingsMatchCount === 0;
+  },
+  get treeSkeletonVisible() {
+    return this.treeRootLoading() && this.filteredTreeRows().length === 0;
+  },
+  get sessionsSkeletonVisible() {
+    return Boolean(this.sessionsLoading) && this.sessions.length === 0;
+  },
   get sidebarExpanded() { return this.sidebarCollapsed ? 'false' : 'true'; },
   get inspectorExpanded() { return this.inspectorCollapsed ? 'false' : 'true'; },
   get hasUnreadNotifications() { return this.unreadNotifications > 0; },

@@ -1,4 +1,9 @@
   <main class="main" id="main" tabindex="-1">
+    <div class="error-banner" role="alert" x-show="uiError">
+      <span class="error-text" x-text="uiError"></span>
+      <button x-show="_errorRetryKind" @click="retryLastError">重试</button>
+      <button @click="dismissError">关闭</button>
+    </div>
     <div class="main-tabs" role="tablist" aria-label="主区标签">
       <div class="main-tab-list" role="presentation" @keydown="onMainTabKeydown">
         <button class="main-tab" role="tab" :class="mainTabClasses.chat"
@@ -56,6 +61,11 @@
         <button x-show="fileInVscodeAvailable" @click="openFileInVscode">在 VS Code 打开</button>
         <button @click="copyActiveFileContent">复制内容</button>
         <button @click="closeActiveEditorTab">关闭</button>
+      </div>
+      <div class="editor-skeleton" x-show="fileLoading" aria-hidden="true">
+        <div class="skeleton skeleton-block"></div>
+        <div class="skeleton skeleton-block skeleton-short"></div>
+        <div class="skeleton skeleton-block"></div>
       </div>
       <div class="editor-code-wrap">
         <pre class="editor-gutter" x-text="fileView._lineNumbers"></pre>

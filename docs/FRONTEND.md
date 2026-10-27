@@ -153,6 +153,9 @@ web/static/vendor/*                                (直接由 A2 提供)
 4. **composer**：多行输入、发送/暂停/取消/继续、重试上一条、追加任务、
    重规划、上传文件、拖拽上传；上传列表与配额提示。
 
+主区顶部有全局错误横幅（`role="alert"`）：会话列表/文件树/文件读取失败时
+显示错误并提供重试；会话、文件树、文件预览在加载期间显示骨架屏。
+
 文件预览使用 highlight.js 按扩展名高亮，带行号、面包屑与“跳转到行”；
 diff 支持统一/并排视图、行号、增删着色、逐行语法高亮与词级高亮，
 超过 200 行默认折叠。文件内容与 diff 都只在主区只读展示。
@@ -189,6 +192,9 @@ diff 支持统一/并排视图、行号、增删着色、逐行语法高亮与�
 `localStorage`，点击可回到对应会话或文件。
 
 ### 3.6 设置
+
+设置按“外观 / 模型 / 工作区 / 诊断 / 高级”分页，顶部搜索框按中英文关键词
+过滤分节；搜索期间可同时看到多个匹配分节，无匹配时显示空态。切换分页会清空搜索。
 
 设置面板使用左侧分类 + 右侧内容区，分为：
 
@@ -524,6 +530,8 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | `web/frontend/src/ui/sessions.ts` | 会话列表摘要与元信息格式化 |
 | `web/frontend/src/ui/output.ts` | 大工具输出按行分页 |
 | `web/frontend/src/ui/memo.ts` | 派生列表单槽缓存 |
+| `web/frontend/src/ui/settings.ts` | 设置分节关键词搜索 |
+| `web/frontend/src/features/errors.ts` | 全局错误横幅与重试动作 |
 | `web/frontend/src/features/focus.ts` | 模态焦点进入/陷阱/恢复 mixin |
 | `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |
 | `web/frontend/tests/dom/*` | jsdom 交互测试（`node test-dom.mjs`） |

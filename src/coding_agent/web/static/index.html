@@ -284,6 +284,11 @@
         <button :class="sessionFilterClasses.pinned" data-action="session-filter" data-filter="pinned" @click="onAction">置顶</button>
         <button :class="sessionFilterClasses.archived" data-action="session-filter" data-filter="archived" @click="onAction">归档</button>
       </div>
+      <div class="skeleton-list" x-show="sessionsSkeletonVisible" aria-hidden="true">
+        <div class="skeleton skeleton-row"></div>
+        <div class="skeleton skeleton-row"></div>
+        <div class="skeleton skeleton-row"></div>
+      </div>
       <div class="session-batch" x-show="hasSessionSelection">
         <span x-text="sessionSelectionText"></span>
         <button data-action="session-batch" data-op="archive" @click="onAction">归档</button>
@@ -372,6 +377,12 @@
       <div class="note" x-show="treeGitState" x-text="treeGitState"></div>
       <input class="tree-search" x-model="treeQuery" placeholder="过滤已加载文件…">
       <div class="tree-list" role="tree" aria-label="文件树" @keydown="onTreeKeydown">
+        <div class="skeleton-list" x-show="treeSkeletonVisible" aria-hidden="true">
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+        </div>
         <template x-for="entry in filteredTreeResults" :key="entry._key">
           <div class="tree-row" :class="entry._cls"
                :style="entry._style"
@@ -496,6 +507,11 @@
      role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度"></div>
 
   <main class="main" id="main" tabindex="-1">
+    <div class="error-banner" role="alert" x-show="uiError">
+      <span class="error-text" x-text="uiError"></span>
+      <button x-show="_errorRetryKind" @click="retryLastError">重试</button>
+      <button @click="dismissError">关闭</button>
+    </div>
     <div class="main-tabs" role="tablist" aria-label="主区标签">
       <div class="main-tab-list" role="presentation" @keydown="onMainTabKeydown">
         <button class="main-tab" role="tab" :class="mainTabClasses.chat"
@@ -553,6 +569,11 @@
         <button x-show="fileInVscodeAvailable" @click="openFileInVscode">在 VS Code 打开</button>
         <button @click="copyActiveFileContent">复制内容</button>
         <button @click="closeActiveEditorTab">关闭</button>
+      </div>
+      <div class="editor-skeleton" x-show="fileLoading" aria-hidden="true">
+        <div class="skeleton skeleton-block"></div>
+        <div class="skeleton skeleton-block skeleton-short"></div>
+        <div class="skeleton skeleton-block"></div>
       </div>
       <div class="editor-code-wrap">
         <pre class="editor-gutter" x-text="fileView._lineNumbers"></pre>
@@ -904,6 +925,11 @@
       <h3 id="settings-title">设置</h3>
       <button class="icon-btn" @click="toggleSettings" aria-label="关闭设置">×</button>
     </div>
+    <div class="settings-search">
+      <input x-model="settingsQuery" placeholder="搜索设置，例如：主题、模型、上传…"
+             aria-label="搜索设置">
+      <span class="note" x-show="settingsQuery" x-text="settingsSearchLabel"></span>
+    </div>
     <div class="settings-body">
       <nav class="settings-nav" role="tablist" aria-label="设置分类">
         <button role="tab" :aria-selected="settingsTabFlags.appearance"
@@ -918,7 +944,8 @@
                 :class="settingsTabClasses.advanced" data-action="settings-tab" data-tab="advanced" @click="onAction">高级</button>
       </nav>
       <div class="settings-content">
-        <section class="settings-view" x-show="settingsTabFlags.appearance">
+        <div class="empty" x-show="settingsNoResults">没有匹配的设置</div>
+        <section class="settings-view" x-show="settingsViewVisible.appearance">
           <h4>外观</h4>
           <label>主题</label>
           <select x-model="theme" @change="saveSettings">
@@ -952,7 +979,7 @@
           </label>
         </section>
 
-        <section class="settings-view" x-show="settingsTabFlags.models">
+        <section class="settings-view" x-show="settingsViewVisible.models">
           <h4>Provider 档案</h4>
           <div class="note" x-show="profilesDisabled">多用户模式请通过 AGENT_LLM_PROVIDERS 配置。</div>
           <div x-show="profilesEnabled">
@@ -996,7 +1023,7 @@
           </div>
         </section>
 
-        <section class="settings-view" x-show="settingsTabFlags.workspace">
+        <section class="settings-view" x-show="settingsViewVisible.workspace">
           <h4>工作区与 Python</h4>
           <div class="project-report" x-text="projectReport"></div>
           <div class="panel-actions">
@@ -1068,7 +1095,7 @@
           </p>
         </section>
 
-        <section class="settings-view" x-show="settingsTabFlags.diagnostics">
+        <section class="settings-view" x-show="settingsViewVisible.diagnostics">
           <h4>预算与通知</h4>
           <div class="note" x-text="limitsText"></div>
           <label>
@@ -1087,7 +1114,7 @@
           <div class="note" x-show="updateText" x-text="updateText"></div>
         </section>
 
-        <section class="settings-view" x-show="settingsTabFlags.advanced">
+        <section class="settings-view" x-show="settingsViewVisible.advanced">
           <h4>账户</h4>
           <div class="panel-actions">
             <span class="note" x-text="authModeText"></span>

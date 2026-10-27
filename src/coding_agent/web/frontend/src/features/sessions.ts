@@ -142,6 +142,7 @@ export const sessionsMixin = {
   },
 
   async loadSessions() {
+    this.sessionsLoading = true;
     try {
       const response = await authFetch(
         '/api/sessions?limit=50&include_archived=true',
@@ -161,7 +162,11 @@ export const sessionsMixin = {
       this.sessionSelected = selected;
       this.sessions = rows;
       this.filterSessions();
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      this.reportError(`无法读取会话：${e}`, 'sessions');
+    } finally {
+      this.sessionsLoading = false;
+    }
   },
 
   currentSession() {

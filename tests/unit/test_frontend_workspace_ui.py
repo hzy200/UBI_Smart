@@ -384,6 +384,45 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_m12_settings_search_skeleton_and_error_banner_are_guarded() -> None:
+    """设置搜索、加载骨架与全局错误横幅。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        'class="settings-search"',
+        "settingsQuery",
+        "settingsSearchLabel",
+        "settingsNoResults",
+        "settingsViewVisible",
+        'class="skeleton skeleton-row"',
+        'class="editor-skeleton"',
+        'class="error-banner"',
+        "retryLastError",
+        "dismissError",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "matchesSettingsQuery",
+        "settingsVisibility",
+        "reportError",
+        "retryLastError",
+        "sessionsSkeletonVisible",
+        "treeSkeletonVisible",
+        "settingsViewVisible",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".skeleton", ".settings-search", ".error-banner"):
+        assert marker in css, marker
+
+    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    assert (frontend / "src" / "ui" / "settings.ts").is_file()
+    assert (frontend / "src" / "features" / "errors.ts").is_file()
+    assert (frontend / "tests" / "settings.test.ts").is_file()
+
+
 def test_m11_tool_output_paging_and_memo_are_guarded() -> None:
     """大工具输出分页与派生列表缓存。"""
     html = (STATIC / "index.html").read_text(encoding="utf-8")

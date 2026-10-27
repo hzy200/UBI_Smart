@@ -28,6 +28,12 @@
   border-bottom: 1px solid var(--border);
 }
 .settings-head h3 { font-size: 14px; }
+.settings-search {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-bottom: 1px solid var(--border);
+}
+.settings-search input { flex: 1; min-width: 0; }
 .settings-body { flex: 1 1 auto; min-height: 0; display: flex; }
 .settings-nav {
   flex: 0 0 170px;

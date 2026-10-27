@@ -24,6 +24,7 @@ import { desktopMixin } from './features/desktop';
 import { memoryMixin } from './features/memory';
 import { keyboardMixin } from './features/keyboard';
 import { focusMixin } from './features/focus';
+import { errorsMixin } from './features/errors';
 import { layoutMixin } from './features/layout';
 import { notificationsMixin } from './features/notifications';
 import { cspMixin } from './features/csp';
@@ -228,6 +229,12 @@ const agentApp = () => {
   _resizing: '',
   showSettings: false,
   settingsTab: 'appearance',
+  settingsQuery: '',
+  sessionsLoading: false,
+  fileLoading: false,
+  uiError: '',
+  _errorRetryKind: '',
+  _errorRetryPayload: '',
   providerName: 'deepseek',
   providerKeyInput: '',
   theme: 'dark',
@@ -272,6 +279,7 @@ const agentApp = () => {
     memoryMixin,
     keyboardMixin,
     focusMixin,
+    errorsMixin,
     layoutMixin,
     notificationsMixin,
     cspMixin,
