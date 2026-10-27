@@ -55,6 +55,7 @@ export const cspMixin = {
     if (op === 'delete') { this.deleteSession(id); return; }
     if (op === 'rename') { this.renameSession(id); return; }
     if (op === 'export') { this.exportSession(id); return; }
+    if (op === 'export-json') { this.exportSession(id, 'json'); return; }
     if (!row) return;
     if (op === 'pin') this.toggleSessionPin(row);
     if (op === 'archive') this.toggleSessionArchive(row);

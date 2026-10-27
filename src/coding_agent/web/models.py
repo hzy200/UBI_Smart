@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +40,19 @@ class SessionRequest(BaseModel):
 
     thread_id: str = Field(default="", max_length=64)
     # RFC-0001：注册表开启时必须用 workspace_id；关闭时仍接受裸路径。
+    workspace_id: str = Field(default="", max_length=36)
+    workspace: str = Field(default="", max_length=4096)
+    access_mode: Literal["read_only", "write_ask", "write_auto"] = "read_only"
+    model: str = Field(default="", max_length=200)
+    provider: str = Field(default="", max_length=64)
+
+
+class SessionImportRequest(BaseModel):
+    """导入一份导出的会话 JSON；工作区/权限/模型仍走正常创建校验。"""
+
+    title: str = Field(default="", max_length=120)
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    transcript: list[dict[str, Any]] = Field(default_factory=list)
     workspace_id: str = Field(default="", max_length=36)
     workspace: str = Field(default="", max_length=4096)
     access_mode: Literal["read_only", "write_ask", "write_auto"] = "read_only"

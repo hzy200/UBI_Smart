@@ -17,8 +17,14 @@ from coding_agent.web.models import (
     ModelRequest,
     RenameRequest,
     SessionConfig,
+    SessionImportRequest,
     SessionMetaRequest,
     SessionRequest,
+)
+from coding_agent.web.routes.runs import (
+    _clean_transcript,
+    _load_transcript,
+    _save_transcript,
 )
 from coding_agent.web.validation import check_thread_id
 
@@ -306,6 +312,74 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             "capabilities": deps.capabilities(config),
         }
 
+    @app.post("/api/sessions/import")
+    async def import_session(
+        request: SessionImportRequest,
+        user: UserDep,
+    ) -> dict:
+        """把导出的 JSON 恢复到新会话；有 transcript 时连工具卡片一起恢复。"""
+        deps.reject_db_degraded()
+        source = request.transcript or request.messages
+        messages = _clean_transcript(source)
+        if not messages:
+            raise HTTPException(status_code=400, detail="导入文件没有可用的消息")
+        created = await create_session(
+            SessionRequest(
+                thread_id="",
+                workspace_id=request.workspace_id,
+                workspace=request.workspace,
+                access_mode=request.access_mode,
+                model=request.model,
+                provider=request.provider,
+            ),
+            user,
+        )
+        public_thread = created["thread_id"]
+        tenant = deps.tenant(user)
+        try:
+            _save_transcript(tenant, public_thread, messages)
+        except OSError as exc:
+            with deps.registry_lock:
+                deps.session_configs.pop((user.name, public_thread), None)
+            deps.persist_configs(user, tenant)
+            raise HTTPException(
+                status_code=503, detail=f"保存导入轨迹失败：{exc}"
+            ) from exc
+
+        config = deps.config_for(user, tenant, public_thread, create=False)
+        title = " ".join(request.title.split())[:120]
+        if not title:
+            title = next(
+                (
+                    " ".join(str(item.get("text") or "").split())[:120]
+                    for item in messages
+                    if item.get("role") == "user" and item.get("text")
+                ),
+                "",
+            )
+        preview = ""
+        for item in reversed(messages):
+            if item.get("kind") == "tool":
+                continue
+            text = " ".join(str(item.get("text") or "").split())
+            if text:
+                preview = text[:160]
+                break
+        if config is not None:
+            if title:
+                config.title = title
+            config.last_message = preview
+            config.unread = False
+            deps.set_config(user, tenant, config)
+            deps.persist_configs(user, tenant)
+        return {
+            "ok": True,
+            "thread_id": public_thread,
+            "title": config.title if config else title,
+            "imported": len(messages),
+            "capabilities": created.get("capabilities", {}),
+        }
+
     @app.post("/api/sessions/{thread_id}/model")
     async def switch_model(
         thread_id: str,
@@ -463,12 +537,15 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             )
         ).strip()
         if format == "json":
+            transcript, _ = _load_transcript(tenant, public_thread)
             return {
                 "format": "json",
+                "version": 1,
                 "thread_id": public_thread,
                 "title": title,
                 "workspace": config.workspace if config else tenant.workspace,
                 "messages": messages,
+                "transcript": transcript,
             }
         lines = [
             f"# {title}",

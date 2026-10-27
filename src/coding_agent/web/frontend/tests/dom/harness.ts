@@ -72,6 +72,13 @@ const BASE_STUBS: Record<string, any> = {
   '/api/providers': { providers: [] },
   '/api/provider-profiles': { profiles: [], profiles_enabled: false },
   '/api/workspace': { workspace: '/tmp/ws' },
+  '/api/sessions/import': {
+    ok: true,
+    thread_id: 'thread-imported',
+    title: '导入的会话',
+    imported: 2,
+    capabilities: {},
+  },
   '/api/sessions': {
     sessions: [
       {

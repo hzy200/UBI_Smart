@@ -1024,6 +1024,18 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       data.applyRemoteSettings({ theme: beforeTheme, locale: beforeLocale });
     });
 
+    await t.test('导入 JSON 会话后打开新会话', async () => {
+      await data.importSession({
+        title: '导入的会话',
+        messages: [{ role: 'user', text: 'hello' }],
+        transcript: [],
+      });
+      await waitFor(() => data.threadId === 'thread-imported', '导入会话打开');
+      assert.equal(data.threadId, 'thread-imported');
+      await data.openSession('thread-dom-test');
+      await waitFor(() => data.threadId === 'thread-dom-test', '恢复测试会话');
+    });
+
     await t.test('语言切换更新壳层文案并持久化', async () => {
       data.setView('sessions');
       data.changeLocale({ target: { value: 'en-US' } });

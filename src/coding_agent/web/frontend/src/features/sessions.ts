@@ -26,6 +26,7 @@ import {
   toolMap,
 } from '../state/runtime';
 import { prependOlder } from '../ui/history';
+import { normalizeSessionImport } from '../ui/session-import';
 import { sessionMetaText, sessionPreviewText } from '../ui/sessions';
 
 export const sessionsMixin = {
@@ -637,22 +638,67 @@ export const sessionsMixin = {
     }
   },
 
-  async exportSession(id) {
+  async exportSession(id, format = 'markdown') {
     try {
       const response = await authFetch(
-        `/api/sessions/${encodeURIComponent(id)}/export?format=markdown`,
+        `/api/sessions/${encodeURIComponent(id)}/export?format=${format}`,
       );
       const data = await readJson(response, '导出失败');
-      const blob = new Blob([data.content || ''], { type: 'text/markdown' });
+      const json = format === 'json';
+      const body = json ? JSON.stringify(data, null, 2) : String(data.content || '');
+      const blob = new Blob(
+        [body],
+        { type: json ? 'application/json' : 'text/markdown' },
+      );
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${(data.title || id).replace(/[\\/:*?"<>|]/g, '_')}.md`;
+      link.download =
+        `${(data.title || id).replace(/[\\/:*?"<>|]/g, '_')}.` +
+        (json ? 'json' : 'md');
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {
       this.toastMessage(String(err));
     }
+  },
+
+  async importSessionFile(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = normalizeSessionImport(JSON.parse(text));
+      await this.importSession(payload);
+    } catch (err) {
+      this.toastMessage(String(err));
+    }
+  },
+
+  async importSession(payload) {
+    const response = await authFetch('/api/sessions/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: payload.title || '',
+        messages: payload.messages || [],
+        transcript: payload.transcript || [],
+        workspace_id: this.projectId || '',
+        workspace: this.workspaceInput || '',
+        access_mode: this.accessMode,
+        model: this.model,
+        provider: this.provider,
+      }),
+    });
+    const data = await readJson(response, '导入会话失败');
+    invalidateGet('/api/sessions');
+    await this.loadSessions(true);
+    this.broadcastSync('sessions');
+    await this.openSession(data.thread_id);
+    this.toastMessage(
+      this.t('sidebar.imported', { count: Number(data.imported || 0) }),
+    );
   },
 
   async ensureSession() {

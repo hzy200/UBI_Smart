@@ -14,6 +14,7 @@ import './output.test';
 import './problems.test';
 import './request-cache.test';
 import './search.test';
+import './session-import.test';
 import './sessions.test';
 import './settings.test';
 import './theme.test';

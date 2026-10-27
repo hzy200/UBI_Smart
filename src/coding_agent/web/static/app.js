@@ -828,6 +828,9 @@
       defaultModel: "\u9ED8\u8BA4\u6A21\u578B",
       applyModel: "\u5E94\u7528\u5230\u5F53\u524D\u4F1A\u8BDD",
       createSession: "\u521B\u5EFA\u4F1A\u8BDD",
+      importSession: "\u5BFC\u5165\u4F1A\u8BDD",
+      exportJson: "\u5BFC\u51FA JSON",
+      imported: "\u5DF2\u5BFC\u5165 {count} \u6761\u6D88\u606F",
       searchSessions: "\u641C\u7D22\u4F1A\u8BDD\u6216\u6807\u7B7E\u2026",
       all: "\u5168\u90E8",
       pinned: "\u7F6E\u9876",
@@ -997,6 +1000,9 @@
       defaultModel: "Default model",
       applyModel: "Apply to current session",
       createSession: "Create session",
+      importSession: "Import session",
+      exportJson: "Export JSON",
+      imported: "Imported {count} message(s)",
       searchSessions: "Search sessions or tags\u2026",
       all: "All",
       pinned: "Pinned",
@@ -2579,6 +2585,24 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     return [...older || [], ...current || []];
   }
 
+  // src/ui/session-import.ts
+  function isRecord2(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+  function normalizeSessionImport(raw) {
+    if (!isRecord2(raw)) throw new Error("\u5BFC\u5165\u6587\u4EF6\u4E0D\u662F\u5BF9\u8C61");
+    const messages = Array.isArray(raw.messages) ? raw.messages.filter(isRecord2) : [];
+    const transcript = Array.isArray(raw.transcript) ? raw.transcript.filter(isRecord2) : [];
+    if (!messages.length && !transcript.length) {
+      throw new Error("\u5BFC\u5165\u6587\u4EF6\u6CA1\u6709\u6D88\u606F");
+    }
+    return {
+      title: String(raw.title || "").slice(0, 120),
+      messages,
+      transcript
+    };
+  }
+
   // src/ui/sessions.ts
   function sessionPreviewText(message, limit = 90) {
     const text = String(message ?? "").replace(/\s+/g, " ").trim();
@@ -3131,22 +3155,63 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.toastMessage(String(err));
       }
     },
-    async exportSession(id) {
+    async exportSession(id, format = "markdown") {
       try {
         const response = await authFetch(
-          `/api/sessions/${encodeURIComponent(id)}/export?format=markdown`
+          `/api/sessions/${encodeURIComponent(id)}/export?format=${format}`
         );
         const data = await readJson(response, "\u5BFC\u51FA\u5931\u8D25");
-        const blob = new Blob([data.content || ""], { type: "text/markdown" });
+        const json = format === "json";
+        const body = json ? JSON.stringify(data, null, 2) : String(data.content || "");
+        const blob = new Blob(
+          [body],
+          { type: json ? "application/json" : "text/markdown" }
+        );
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `${(data.title || id).replace(/[\\/:*?"<>|]/g, "_")}.md`;
+        link.download = `${(data.title || id).replace(/[\\/:*?"<>|]/g, "_")}.` + (json ? "json" : "md");
         link.click();
         URL.revokeObjectURL(url);
       } catch (err) {
         this.toastMessage(String(err));
       }
+    },
+    async importSessionFile(event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = "";
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const payload = normalizeSessionImport(JSON.parse(text));
+        await this.importSession(payload);
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    async importSession(payload) {
+      const response = await authFetch("/api/sessions/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: payload.title || "",
+          messages: payload.messages || [],
+          transcript: payload.transcript || [],
+          workspace_id: this.projectId || "",
+          workspace: this.workspaceInput || "",
+          access_mode: this.accessMode,
+          model: this.model,
+          provider: this.provider
+        })
+      });
+      const data = await readJson(response, "\u5BFC\u5165\u4F1A\u8BDD\u5931\u8D25");
+      invalidateGet("/api/sessions");
+      await this.loadSessions(true);
+      this.broadcastSync("sessions");
+      await this.openSession(data.thread_id);
+      this.toastMessage(
+        this.t("sidebar.imported", { count: Number(data.imported || 0) })
+      );
     },
     async ensureSession() {
       if (this.threadId) return this.threadId;
@@ -7751,6 +7816,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       }
       if (op === "export") {
         this.exportSession(id);
+        return;
+      }
+      if (op === "export-json") {
+        this.exportSession(id, "json");
         return;
       }
       if (!row) return;

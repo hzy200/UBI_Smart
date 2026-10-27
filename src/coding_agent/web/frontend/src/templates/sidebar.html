@@ -110,6 +110,10 @@
         </select>
         <button @click="switchModel" :disabled="applyModelDisabled" x-text="i18n.sidebar.applyModel"></button>
         <button class="primary" @click="createSession" :disabled="createSessionDisabled" x-text="i18n.sidebar.createSession"></button>
+        <label class="upload-label">
+          <span x-text="i18n.sidebar.importSession"></span>
+          <input type="file" accept=".json,application/json" @change="importSessionFile">
+        </label>
       </div>
       <input class="session-search" x-model="sessionQuery" @input="onSessionSearchInput"
              :placeholder="i18n.sidebar.searchSessions">
@@ -162,6 +166,7 @@
                 <button data-action="session" data-op="tags" :data-id="s.thread_id" @click.stop="onAction">标签</button>
                 <button data-action="session" data-op="rename" :data-id="s.thread_id" @click.stop="onAction">改名</button>
                 <button data-action="session" data-op="export" :data-id="s.thread_id" @click.stop="onAction">导出</button>
+                <button data-action="session" data-op="export-json" :data-id="s.thread_id" @click.stop="onAction" x-text="i18n.sidebar.exportJson"></button>
                 <button class="danger" data-action="session" data-op="delete" :data-id="s.thread_id" @click.stop="onAction">删除</button>
               </div>
             </div>

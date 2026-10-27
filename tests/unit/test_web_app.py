@@ -713,6 +713,56 @@ def test_transcript_roundtrip_preserves_tool_cards(settings) -> None:
     assert saved["messages"][2]["phase"] == "final"
 
 
+def test_session_import_restores_exported_json(monkeypatch, settings) -> None:
+    """导出 JSON 应可原样导入到新会话，并保留工具卡片。"""
+    client = _client(monkeypatch, settings)
+    created = client.post(
+        "/api/sessions", json={"thread_id": "t1", "workspace": "/tmp/ws"}
+    )
+    assert created.status_code == 200
+    messages = [
+        {"role": "user", "text": "看看目录"},
+        {
+            "role": "工具",
+            "kind": "tool",
+            "name": "file_list",
+            "summary": "ls",
+            "preview": "a.txt",
+            "ok": True,
+        },
+        {"role": "assistant", "text": "只有 a.txt"},
+    ]
+    saved = client.post(
+        "/api/thread/t1/transcript", json={"messages": messages}
+    )
+    assert saved.status_code == 200
+
+    exported = client.get("/api/sessions/t1/export?format=json").json()
+    assert exported["transcript"][1]["kind"] == "tool"
+
+    imported = client.post(
+        "/api/sessions/import",
+        json={
+            "title": exported["title"],
+            "messages": exported["messages"],
+            "transcript": exported["transcript"],
+            "workspace": "/tmp/ws",
+        },
+    )
+    assert imported.status_code == 200
+    body = imported.json()
+    assert body["imported"] == 3
+    assert body["thread_id"] != "t1"
+
+    history = client.get(f"/api/thread/{body['thread_id']}").json()
+    assert [item["text"] for item in history["transcript"]] == [
+        "看看目录",
+        "",
+        "只有 a.txt",
+    ]
+    assert history["transcript"][1]["kind"] == "tool"
+
+
 def test_transcript_updates_session_preview_and_unread(settings) -> None:
     """保存轨迹时顺带更新列表摘要与未读，不必再读整份 transcript。"""
     client = TestClient(web.create_app(settings))
