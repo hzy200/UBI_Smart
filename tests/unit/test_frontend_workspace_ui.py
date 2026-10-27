@@ -384,6 +384,48 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_image_preview_and_split_session_are_guarded() -> None:
+    """图片预览与只读会话分屏。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        'class="image-preview"',
+        "fileView.data_url",
+        "fileView._isImage",
+        "fileView._imageNote",
+        'class="split-pane"',
+        "splitMessages",
+        "splitTitle",
+        'data-op="split"',
+        "openSplitInMain",
+        "closeSplit",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "openSplitSession",
+        "decorateSplitMessage",
+        "splitEmpty",
+        "_isImage",
+        "image_too_large",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".image-preview", ".split-pane", ".split-msg"):
+        assert marker in css, marker
+
+    browse = (
+        ROOT / "src" / "coding_agent" / "workspace" / "browse.py"
+    ).read_text(encoding="utf-8")
+    assert "MAX_IMAGE_BYTES" in browse
+    assert "data_url" in browse
+    tests = (ROOT / "tests" / "unit" / "test_browse.py").read_text(
+        encoding="utf-8"
+    )
+    assert "test_read_file_embeds_small_images" in tests
+
+
 def test_jsdom_covers_approval_and_layout_resize() -> None:
     """审批流程与侧栏/检查器拖拽必须留在 jsdom 交互测试里。"""
     frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"

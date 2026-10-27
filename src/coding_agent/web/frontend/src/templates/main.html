@@ -51,11 +51,13 @@
         <span class="editor-crumb" x-text="fileView._crumb"></span>
         <span class="note" x-text="fileView._size"></span>
         <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
+        <span class="note" x-show="fileView._imageNote" x-text="fileView._imageNote"></span>
         <span class="note note-bad" x-show="activeEditorStale">文件已变化</span>
         <span class="spacer"></span>
-        <input class="line-input" x-model="fileLineInput" @keydown.enter.prevent="goToFileLine"
+        <input class="line-input" x-show="fileView._isText" x-model="fileLineInput"
+               @keydown.enter.prevent="goToFileLine"
                placeholder="行号" aria-label="跳转到行">
-        <button @click="goToFileLine">跳转</button>
+        <button x-show="fileView._isText" @click="goToFileLine">跳转</button>
         <button x-show="activeEditorStale" @click="refreshActiveFile">刷新</button>
         <button @click="copyActiveFilePath">复制路径</button>
         <button x-show="fileInVscodeAvailable" @click="openFileInVscode">在 VS Code 打开</button>
@@ -67,7 +69,10 @@
         <div class="skeleton skeleton-block skeleton-short"></div>
         <div class="skeleton skeleton-block"></div>
       </div>
-      <div class="editor-code-wrap">
+      <div class="image-preview" x-show="fileView._isImage">
+        <img :src="fileView.data_url" :alt="fileView.path">
+      </div>
+      <div class="editor-code-wrap" x-show="fileView._isText">
         <pre class="editor-gutter" x-text="fileView._lineNumbers"></pre>
         <pre class="editor-code"><code x-html="fileView._html"></code></pre>
       </div>
@@ -245,6 +250,32 @@
       <div class="note" x-show="uploadQuota" x-text="uploadQuota"></div>
     </div>
     </div>
+
+    <section class="split-pane" x-show="splitOpen" aria-label="只读分屏会话">
+      <header class="split-pane-head">
+        <span class="split-pane-title" x-text="splitTitle"></span>
+        <span class="note">只读分屏</span>
+        <span class="spacer"></span>
+        <button @click="refreshSplit">刷新</button>
+        <button @click="openSplitInMain">在主区打开</button>
+        <button class="icon-btn" @click="closeSplit" aria-label="关闭分屏">×</button>
+      </header>
+      <div class="split-pane-body">
+        <div class="skeleton-list" x-show="splitLoading" aria-hidden="true">
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+        </div>
+        <div class="note note-bad" x-show="splitError" x-text="splitError"></div>
+        <template x-for="m in splitMessages" :key="m.id">
+          <div class="split-msg" :class="m._cls">
+            <div class="split-msg-label" x-text="m._label"></div>
+            <div class="split-msg-body" x-html="m._html"></div>
+          </div>
+        </template>
+        <div class="empty" x-show="splitEmpty">这个会话还没有消息</div>
+      </div>
+    </section>
   </main>
 
   <div class="splitter splitter-right" x-show="inspectorVisible"

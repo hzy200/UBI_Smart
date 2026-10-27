@@ -50,6 +50,32 @@ def test_read_file_reports_binary_and_truncation(tmp_path) -> None:
     assert len(big["content"]) < 300 * 1024
 
 
+def test_read_file_embeds_small_images(tmp_path) -> None:
+    from coding_agent.workspace.browse import MAX_IMAGE_BYTES
+
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    (tmp_path / "logo.png").write_bytes(png)
+    data = read_text_file(str(tmp_path), "logo.png")
+    assert data["image"] is True
+    assert data["mime"] == "image/png"
+    assert data["data_url"].startswith("data:image/png;base64,")
+    assert data["image_too_large"] is False
+
+    (tmp_path / "icon.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"></svg>', encoding="utf-8"
+    )
+    svg = read_text_file(str(tmp_path), "icon.svg")
+    assert svg["image"] is True
+    assert svg["mime"] == "image/svg+xml"
+    assert svg["binary"] is False
+
+    (tmp_path / "big.png").write_bytes(b"\x00" * (MAX_IMAGE_BYTES + 1))
+    big = read_text_file(str(tmp_path), "big.png")
+    assert big["image"] is False
+    assert big["image_too_large"] is True
+    assert big["data_url"] == ""
+
+
 def test_search_matches_paths_and_content_without_secrets(tmp_path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.py").write_text(

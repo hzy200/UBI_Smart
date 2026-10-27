@@ -6,6 +6,7 @@ Git 只跑只读子命令，且用列表参数、不经过 shell。
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 import subprocess
@@ -16,6 +17,7 @@ from coding_agent.security.read_policy import is_protected_read_path
 
 MAX_ENTRIES = 400
 MAX_READ_BYTES = 256 * 1024
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
 MAX_DIFF_CHARS = 120_000
 MAX_SEARCH_FILE_BYTES = 128 * 1024
 MAX_SEARCH_SCAN_FILES = 5000
@@ -26,6 +28,20 @@ _SEARCH_SKIP_DIRS = _SKIP_DIRS | {
     ".aws", ".kube",
 }
 _BRANCH_RE = re.compile(r"^## ([^.\[ ]+)(?:\.\.\.\S+)?(?: \[(.+)\])?$")
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".ico": "image/x-icon",
+    ".svg": "image/svg+xml",
+}
+
+
+def _image_mime(path: Path) -> str:
+    return _IMAGE_MIME.get(path.suffix.lower(), "")
 
 
 class BrowseError(ValueError):
@@ -109,19 +125,29 @@ def read_text_file(workspace: str, rel: str) -> dict:
     target = _resolve(root, rel)
     if not target.is_file():
         raise BrowseError("不是文件")
+    mime = _image_mime(target)
     try:
         size = target.stat().st_size
         with target.open("rb") as handle:
-            data = handle.read(MAX_READ_BYTES)
+            data = handle.read(MAX_IMAGE_BYTES if mime else MAX_READ_BYTES)
     except OSError as exc:
         raise BrowseError(f"无法读取文件：{exc}") from exc
     binary = b"\x00" in data[:8192]
+    image = bool(mime) and size <= MAX_IMAGE_BYTES and size <= len(data)
+    data_url = ""
+    if image:
+        encoded = base64.b64encode(data).decode("ascii")
+        data_url = f"data:{mime};base64,{encoded}"
     return {
         "path": _relative(root, target),
         "size": size,
         "truncated": size > len(data),
         "binary": binary,
         "content": "" if binary else data.decode("utf-8", errors="replace"),
+        "image": image,
+        "mime": mime,
+        "data_url": data_url,
+        "image_too_large": bool(mime) and size > MAX_IMAGE_BYTES,
     }
 
 

@@ -162,6 +162,7 @@
                         x-text="s._archiveLabel"></button>
                 <button data-action="session" data-op="unread" :data-id="s.thread_id" @click.stop="onAction"
                         x-text="s._unreadLabel"></button>
+                <button data-action="session" data-op="split" :data-id="s.thread_id" @click.stop="onAction">分屏</button>
                 <button data-action="session" data-op="tags" :data-id="s.thread_id" @click.stop="onAction">标签</button>
                 <button data-action="session" data-op="rename" :data-id="s.thread_id" @click.stop="onAction">改名</button>
                 <button data-action="session" data-op="export" :data-id="s.thread_id" @click.stop="onAction">导出</button>

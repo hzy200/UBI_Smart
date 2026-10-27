@@ -1939,6 +1939,53 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.sessionsLoading = false;
       }
     },
+    decorateSplitMessage(item, index) {
+      const role = String(item && item.role || "");
+      const text = String(item && item.text || "");
+      return {
+        id: `split-${index}`,
+        _label: role === "user" ? "\u4F60" : role === "assistant" ? "\u52A9\u624B" : role || "\u6D88\u606F",
+        _cls: `split-msg split-${role || "system"}`,
+        _html: renderMarkdown(text)
+      };
+    },
+    async openSplitSession(id) {
+      if (!id) return;
+      this.splitOpen = true;
+      this.splitSessionId = id;
+      this.splitLoading = true;
+      this.splitError = "";
+      this.splitMessages = [];
+      const row = this.sessions.find((item) => item.thread_id === id);
+      this.splitTitle = row && (row._title || row.title) || id;
+      try {
+        const response = await authFetch(
+          `/api/thread/${encodeURIComponent(id)}`
+        );
+        const data = await readJson(response, "\u8BFB\u53D6\u5206\u5C4F\u4F1A\u8BDD\u5931\u8D25");
+        const source = Array.isArray(data.transcript) && data.transcript.length ? data.transcript : data.messages || [];
+        this.splitMessages = source.filter((item) => item && item.kind !== "tool" && item.role !== "\u5DE5\u5177").slice(-200).map((item, index) => this.decorateSplitMessage(item, index));
+      } catch (err) {
+        this.splitError = String(err);
+        this.splitMessages = [];
+      } finally {
+        this.splitLoading = false;
+      }
+    },
+    refreshSplit() {
+      if (this.splitSessionId) void this.openSplitSession(this.splitSessionId);
+    },
+    closeSplit() {
+      this.splitOpen = false;
+      this.splitSessionId = "";
+      this.splitMessages = [];
+      this.splitError = "";
+    },
+    openSplitInMain() {
+      const id = this.splitSessionId;
+      this.closeSplit();
+      void this.openSession(id);
+    },
     currentSession() {
       return this.sessions.find(
         (item) => item.thread_id === this.threadId
@@ -2313,7 +2360,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _lang: "",
         _size: "",
         _lineNumbers: "",
-        _crumb: ""
+        _crumb: "",
+        _isImage: false,
+        _isText: true,
+        _imageNote: "",
+        data_url: "",
+        mime: ""
       };
       this.tasks = [];
       this.audit = [];
@@ -2390,7 +2442,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _lang: "",
         _size: "",
         _lineNumbers: "",
-        _crumb: ""
+        _crumb: "",
+        _isImage: false,
+        _isText: true,
+        _imageNote: "",
+        data_url: "",
+        mime: ""
       };
       this.gitInfo = {
         is_repo: false,
@@ -4677,7 +4734,12 @@ ${paths}
         _lang: "",
         _size: "",
         _lineNumbers: "",
-        _crumb: ""
+        _crumb: "",
+        _isImage: false,
+        _isText: true,
+        _imageNote: "",
+        data_url: "",
+        mime: ""
       };
       this.diffText = "";
       this.diffDisplay = "";
@@ -4712,7 +4774,12 @@ ${paths}
         _lang: "",
         _size: "",
         _lineNumbers: "",
-        _crumb: ""
+        _crumb: "",
+        _isImage: false,
+        _isText: true,
+        _imageNote: "",
+        data_url: "",
+        mime: ""
       };
       this.diffText = "";
       this.diffDisplay = "";
@@ -5004,15 +5071,19 @@ ${paths}
         });
         const response = await authFetch(`/api/file?${params.toString()}`);
         const data = await readJson(response, "\u8BFB\u53D6\u6587\u4EF6\u5931\u8D25");
-        const text = data.binary ? "\uFF08\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u4E0D\u5C55\u793A\u5185\u5BB9\uFF09" : data.content + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "");
+        const isImage = Boolean(data.image && data.data_url);
+        const text = isImage ? `\u56FE\u7247\uFF1A${data.mime || ""}` : data.image_too_large ? "\uFF08\u56FE\u7247\u8D85\u8FC7 2MB\uFF0C\u6682\u4E0D\u9884\u89C8\uFF09" : data.binary ? "\uFF08\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u4E0D\u5C55\u793A\u5185\u5BB9\uFF09" : data.content + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "");
         const lines = text.split("\n").length;
         const fileView = {
           ...data,
           _size: this.formatBytes(data.size),
           _lang: this.fileLanguage(path),
           _text: text,
-          _html: this.highlightCode(path, text, data.binary),
-          _lineNumbers: Array.from(
+          _isImage: isImage,
+          _isText: !isImage,
+          _imageNote: data.image_too_large ? "\u56FE\u7247\u8D85\u8FC7 2MB\uFF0C\u6682\u4E0D\u9884\u89C8" : "",
+          _html: isImage ? "" : this.highlightCode(path, text, data.binary),
+          _lineNumbers: isImage ? "" : Array.from(
             { length: lines },
             (_, index) => String(index + 1)
           ).join("\n"),
@@ -5516,6 +5587,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           this.closeNotifications();
           return;
         }
+        if (this.splitOpen) {
+          this.closeSplit();
+          return;
+        }
         if (this.shortcutsOpen) {
           this.closeShortcuts();
           return;
@@ -5924,6 +5999,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           this.showChat();
           this.openMessageSearch();
         } },
+        { id: "split-session", title: "\u5F53\u524D\u4F1A\u8BDD\u5206\u5C4F", hint: "\u89C6\u56FE", run: () => this.openSplitSession(this.threadId) },
         { id: "jump-latest", title: "\u8DF3\u5230\u6700\u65B0\u6D88\u606F", hint: "\u5BFC\u822A", run: () => this.scrollBottom(true) },
         { id: "toggle-sidebar", title: "\u5207\u6362\u4FA7\u680F", hint: "\u5E03\u5C40", run: () => this.toggleSidebar() },
         { id: "toggle-inspector", title: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668", hint: "\u5E03\u5C40", run: () => this.toggleInspector() },
@@ -6476,6 +6552,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (op === "archive") this.toggleSessionArchive(row);
       if (op === "tags") this.editSessionTags(row);
       if (op === "unread") this.toggleSessionUnread(row);
+      if (op === "split") this.openSplitSession(row.thread_id);
     },
     onEditorTabAction(op, id) {
       if (op === "activate") this.activateEditorTab(id);
@@ -6700,6 +6777,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     get sessionsSkeletonVisible() {
       return Boolean(this.sessionsLoading) && this.sessions.length === 0;
+    },
+    get splitEmpty() {
+      return !this.splitLoading && !this.splitError && this.splitMessages.length === 0;
     },
     get sidebarExpanded() {
       return this.sidebarCollapsed ? "false" : "true";
@@ -7058,6 +7138,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       sessionFilterClasses: { all: "active", pinned: "", archived: "" },
       sessionSelected: {},
       sessionBatchBusy: false,
+      splitOpen: false,
+      splitSessionId: "",
+      splitTitle: "",
+      splitMessages: [],
+      splitLoading: false,
+      splitError: "",
       treeChildren: {},
       treeExpanded: {},
       treeLoadingMap: {},
@@ -7074,7 +7160,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         _lang: "",
         _size: "",
         _lineNumbers: "",
-        _crumb: ""
+        _crumb: "",
+        _isImage: false,
+        _isText: true,
+        _imageNote: "",
+        data_url: "",
+        mime: ""
       },
       gitInfo: {
         is_repo: false,

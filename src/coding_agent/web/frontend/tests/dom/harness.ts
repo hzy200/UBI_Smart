@@ -135,12 +135,41 @@ const BASE_STUBS: Record<string, any> = {
     size: 9,
     binary: false,
     truncated: false,
+    image: false,
+    mime: '',
+    data_url: '',
+    image_too_large: false,
+  },
+  '/api/thread/thread-dom-other': {
+    messages: [
+      { role: 'user', text: '分屏问题' },
+      { role: 'assistant', text: '分屏回答' },
+    ],
+    transcript: [],
   },
 };
 
 function jsonStub(pathname: string, search: URLSearchParams): any {
   if (pathname === '/api/files') {
     return { entries: TREE_FILES[search.get('path') || ''] || [] };
+  }
+  if (pathname === '/api/file') {
+    const target = search.get('path') || '';
+    if (/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(target)) {
+      return {
+        path: target,
+        size: 12,
+        truncated: false,
+        binary: true,
+        content: '',
+        image: true,
+        mime: target.toLowerCase().endsWith('.svg')
+          ? 'image/svg+xml'
+          : 'image/png',
+        data_url: 'data:image/png;base64,iVBORw0KGgo=',
+        image_too_large: false,
+      };
+    }
   }
   if (pathname in BASE_STUBS) return BASE_STUBS[pathname];
   if (pathname.startsWith('/api/')) return {};

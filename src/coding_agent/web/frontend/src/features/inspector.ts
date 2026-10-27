@@ -394,6 +394,8 @@ export const inspectorMixin = {
     this.fileView = {
       path: '', size: 0, _text: '', _html: '',
       _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+      _isImage: false, _isText: true, _imageNote: '',
+      data_url: '', mime: '',
     };
     this.diffText = '';
     this.diffDisplay = '';
@@ -426,6 +428,8 @@ export const inspectorMixin = {
     this.fileView = {
       path: '', size: 0, _text: '', _html: '',
       _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+      _isImage: false, _isText: true, _imageNote: '',
+      data_url: '', mime: '',
     };
     this.diffText = '';
     this.diffDisplay = '';
@@ -749,20 +753,32 @@ export const inspectorMixin = {
       });
       const response = await authFetch(`/api/file?${params.toString()}`);
       const data = await readJson(response, '读取文件失败');
-      const text = data.binary
-        ? '（二进制文件，不展示内容）'
-        : data.content + (data.truncated ? '\n…（已截断）' : '');
+      const isImage = Boolean(data.image && data.data_url);
+      const text = isImage
+        ? `图片：${data.mime || ''}`
+        : data.image_too_large
+          ? '（图片超过 2MB，暂不预览）'
+          : data.binary
+            ? '（二进制文件，不展示内容）'
+            : data.content + (data.truncated ? '\n…（已截断）' : '');
       const lines = text.split('\n').length;
       const fileView = {
         ...data,
         _size: this.formatBytes(data.size),
         _lang: this.fileLanguage(path),
         _text: text,
-        _html: this.highlightCode(path, text, data.binary),
-        _lineNumbers: Array.from(
-          { length: lines },
-          (_, index) => String(index + 1),
-        ).join('\n'),
+        _isImage: isImage,
+        _isText: !isImage,
+        _imageNote: data.image_too_large ? '图片超过 2MB，暂不预览' : '',
+        _html: isImage
+          ? ''
+          : this.highlightCode(path, text, data.binary),
+        _lineNumbers: isImage
+          ? ''
+          : Array.from(
+            { length: lines },
+            (_, index) => String(index + 1),
+          ).join('\n'),
         _crumb: String(path || '').split('/').join(' › '),
       };
       if (existing) {

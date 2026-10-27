@@ -145,6 +145,48 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       );
     });
 
+    await t.test('图片文件显示预览而非文本', async () => {
+      await data.openFile('logo.png', 0, true);
+      await waitFor(
+        () => data.mainTab === 'file' && data.fileView._isImage === true,
+        '图片标签',
+      );
+      const image = document.querySelector(
+        '.image-preview img',
+      ) as HTMLImageElement;
+      assert.ok(image);
+      assert.equal(
+        image.getAttribute('src'),
+        'data:image/png;base64,iVBORw0KGgo=',
+      );
+      await waitFor(
+        () => (document.querySelector('.editor-code-wrap') as HTMLElement)
+          .style.display === 'none',
+        '隐藏文本区',
+      );
+      data.closeActiveEditorTab();
+    });
+
+    await t.test('会话可打开只读分屏并关闭', async () => {
+      assert.ok(
+        document.querySelector('[data-action="session"][data-op="split"]'),
+      );
+      data.openSplitSession('thread-dom-other');
+      await waitFor(
+        () => data.splitOpen && data.splitLoading === false,
+        '分屏加载',
+      );
+      assert.equal(data.splitTitle, '普通会话');
+      const pane = document.querySelector('.split-pane') as HTMLElement;
+      await waitFor(
+        () => (pane.textContent || '').includes('分屏回答'),
+        '分屏消息',
+      );
+      assert.equal(data.splitMessages.length, 2);
+      data.closeSplit();
+      await waitFor(() => pane.style.display === 'none', '分屏关闭');
+    });
+
     await t.test('Problems 按文件与来源聚合并可折叠', async () => {
       data.problems = [];
       data.problemExpanded = {};

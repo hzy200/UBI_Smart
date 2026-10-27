@@ -143,6 +143,12 @@ const agentApp = () => {
   sessionFilterClasses: { all: 'active', pinned: '', archived: '' },
   sessionSelected: {},
   sessionBatchBusy: false,
+  splitOpen: false,
+  splitSessionId: '',
+  splitTitle: '',
+  splitMessages: [],
+  splitLoading: false,
+  splitError: '',
   treeChildren: {},
   treeExpanded: {},
   treeLoadingMap: {},
@@ -154,6 +160,8 @@ const agentApp = () => {
   fileView: {
     path: '', size: 0, _text: '', _html: '',
     _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+    _isImage: false, _isText: true, _imageNote: '',
+    data_url: '', mime: '',
   },
   gitInfo: {
     is_repo: false, _state: '', _branch: '',

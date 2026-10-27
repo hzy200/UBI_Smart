@@ -90,6 +90,7 @@ export const keyboardMixin = {
     if (event.key === 'Escape') {
       if (this.messageSearchOpen) { this.closeMessageSearch(); return; }
       if (this.notificationsOpen) { this.closeNotifications(); return; }
+      if (this.splitOpen) { this.closeSplit(); return; }
       if (this.shortcutsOpen) { this.closeShortcuts(); return; }
       if (this.showSettings) { this.toggleSettings(); return; }
       if (this.showRecovery) { this.closeRecovery(); return; }

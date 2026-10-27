@@ -60,6 +60,7 @@ export const cspMixin = {
     if (op === 'archive') this.toggleSessionArchive(row);
     if (op === 'tags') this.editSessionTags(row);
     if (op === 'unread') this.toggleSessionUnread(row);
+    if (op === 'split') this.openSplitSession(row.thread_id);
   },
 
   onEditorTabAction(op, id) {
@@ -273,6 +274,11 @@ export const cspMixin = {
   },
   get sessionsSkeletonVisible() {
     return Boolean(this.sessionsLoading) && this.sessions.length === 0;
+  },
+  get splitEmpty() {
+    return !this.splitLoading
+      && !this.splitError
+      && this.splitMessages.length === 0;
   },
   get sidebarExpanded() { return this.sidebarCollapsed ? 'false' : 'true'; },
   get inspectorExpanded() { return this.inspectorCollapsed ? 'false' : 'true'; },

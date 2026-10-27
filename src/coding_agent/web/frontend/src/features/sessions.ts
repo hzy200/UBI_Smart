@@ -169,6 +169,67 @@ export const sessionsMixin = {
     }
   },
 
+  decorateSplitMessage(item, index) {
+    const role = String((item && item.role) || '');
+    const text = String((item && item.text) || '');
+    return {
+      id: `split-${index}`,
+      _label: role === 'user'
+        ? '你'
+        : role === 'assistant'
+          ? '助手'
+          : role || '消息',
+      _cls: `split-msg split-${role || 'system'}`,
+      _html: renderMarkdown(text),
+    };
+  },
+
+  async openSplitSession(id) {
+    if (!id) return;
+    this.splitOpen = true;
+    this.splitSessionId = id;
+    this.splitLoading = true;
+    this.splitError = '';
+    this.splitMessages = [];
+    const row = this.sessions.find((item) => item.thread_id === id);
+    this.splitTitle = (row && (row._title || row.title)) || id;
+    try {
+      const response = await authFetch(
+        `/api/thread/${encodeURIComponent(id)}`,
+      );
+      const data = await readJson(response, '读取分屏会话失败');
+      const source = Array.isArray(data.transcript) && data.transcript.length
+        ? data.transcript
+        : (data.messages || []);
+      this.splitMessages = source
+        .filter((item) => item && item.kind !== 'tool' && item.role !== '工具')
+        .slice(-200)
+        .map((item, index) => this.decorateSplitMessage(item, index));
+    } catch (err) {
+      this.splitError = String(err);
+      this.splitMessages = [];
+    } finally {
+      this.splitLoading = false;
+    }
+  },
+
+  refreshSplit() {
+    if (this.splitSessionId) void this.openSplitSession(this.splitSessionId);
+  },
+
+  closeSplit() {
+    this.splitOpen = false;
+    this.splitSessionId = '';
+    this.splitMessages = [];
+    this.splitError = '';
+  },
+
+  openSplitInMain() {
+    const id = this.splitSessionId;
+    this.closeSplit();
+    void this.openSession(id);
+  },
+
   currentSession() {
     return this.sessions.find(
       (item) => item.thread_id === this.threadId,
@@ -590,6 +651,8 @@ export const sessionsMixin = {
     this.fileView = {
       path: '', size: 0, _text: '', _html: '',
       _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+      _isImage: false, _isText: true, _imageNote: '',
+      data_url: '', mime: '',
     };
     this.tasks = [];
     this.audit = [];
@@ -670,6 +733,8 @@ export const sessionsMixin = {
     this.fileView = {
       path: '', size: 0, _text: '', _html: '',
       _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+      _isImage: false, _isText: true, _imageNote: '',
+      data_url: '', mime: '',
     };
     this.gitInfo = {
       is_repo: false, _state: '', _branch: '',
