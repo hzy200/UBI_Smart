@@ -289,7 +289,7 @@ def _ts_type(annotation: str) -> str:
 def render_frontend_events(events: list[dict[str, Any]]) -> str:
     """生成前端事件 union，避免手写契约字段漂移。"""
     lines = [
-        "/* 由 scripts/gen_contracts.py 从 docs/contracts/events.json 生成，禁止手改。 */",
+        "/* 由 scripts/gen_contracts.py 从 src/coding_agent/events.py 生成，禁止手改。 */",
         "",
     ]
     for event in events:

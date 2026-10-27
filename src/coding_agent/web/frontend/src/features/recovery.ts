@@ -1,24 +1,9 @@
 /* Alpine mixin: recovery。由 app.ts 拆分，方法名保持稳定以兼容模板与构建守卫。 */
 
 import {
-  AuthError,
-  ProblemError,
-  applyAuthHeaders,
   authFetch,
-  authUrl,
-  clearStoredToken,
-  getToken,
-  newIdempotencyKey,
-  parseHashToken,
   readJson,
-  restoreDesktopToken,
-  setToken,
 } from '../api/http';
-import { escapeHtml, formatDuration, formatTokens, renderMarkdown } from '../ui/format';
-import { renderTimers, tokenBuffers, toolMap } from '../state/runtime';
-import { ConfigError, apiUrl, currentRuntimeConfig, loadRuntimeConfig } from '../runtime-config';
-import { consumeSse } from '../sse';
-import { FRONTEND_VERSION, VersionError, compareSemver } from '../version';
 
 export const recoveryMixin = {
   async openRecovery() {

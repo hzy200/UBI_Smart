@@ -56,7 +56,7 @@ web/static/vendor/*                                (直接由 A2 提供)
   改 `frontend/src` 后必须重建（`node esbuild.mjs` 会同时构建三者）。
 - `features/*.ts` 是按域拆分的 Alpine mixin；`app.ts` 只保留初始状态与组合。
 - `contracts/events.generated.ts` 由 `scripts/gen_contracts.py` 从
-  `docs/contracts/events.json` 生成，禁止手改。
+  `src/coding_agent/events.py` 生成，禁止手改。
 - 守卫测试：`tests/unit/test_frontend_workspace_ui.py` 检查构建产物是否
   包含关键流程，防止忘记重建导致界面静默退回旧版本。
 - 类型检查：`tsc --noEmit`；构建：`node esbuild.mjs`。

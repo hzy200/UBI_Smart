@@ -1,4 +1,4 @@
-// 事件类型由 scripts/gen_contracts.py 从 docs/contracts/events.json 生成。
+// 事件类型由 scripts/gen_contracts.py 从 src/coding_agent/events.py 生成。
 // 这里只保留前端自己的非事件 DTO。
 
 export * from './contracts/events.generated';

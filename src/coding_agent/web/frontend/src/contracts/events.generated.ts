@@ -1,4 +1,4 @@
-/* 由 scripts/gen_contracts.py 从 docs/contracts/events.json 生成，禁止手改。 */
+/* 由 scripts/gen_contracts.py 从 src/coding_agent/events.py 生成，禁止手改。 */
 
 export interface ApprovalRequestedEvent {
   type: "approval_requested";
