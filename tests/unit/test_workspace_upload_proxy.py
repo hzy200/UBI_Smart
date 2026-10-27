@@ -183,6 +183,11 @@ def test_upload_size_limit_is_413(tmp_path) -> None:
         files={"archive": ("proj.zip", b"12345", "application/zip")},
     )
     assert response.status_code == 413
+    body = response.json()
+    detail = body.get("detail", body)
+    assert detail["code"] == "upload.archive_too_large"
+    assert detail["limit"] == 3
+    assert detail["received"] == 5
     assert agent.upload_started is None
 
 

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from coding_agent.config import Settings
+from coding_agent.control.idempotency import IdempotencyInFlight
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
@@ -36,6 +38,60 @@ class UploadDeps:
     agent_json: Callable[..., Awaitable[dict[str, Any]]]
     ops_runtime: Callable[[WebTenant, Any], Any]
     workspace_uploaded_bytes: Callable[[AuthUser, str], int]
+    idempotency: Any | None = None
+
+
+def _upload_error(
+    code: str, message: str, **details: Any
+) -> HTTPException:
+    return HTTPException(
+        status_code=413,
+        detail={"code": code, "message": message, **details},
+    )
+
+
+def _idem_key(user: AuthUser, thread: str, raw: str) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    # 幂等键是全局主键；按用户+会话命名空间，避免跨租户撞车。
+    digest = hashlib.sha256(
+        f"{user.name}:{thread}:{text}".encode()
+    ).hexdigest()
+    return f"session-upload:{digest[:40]}"
+
+
+def _idem_begin(deps: UploadDeps, key: str) -> dict | None:
+    if deps.idempotency is None or not key:
+        return None
+    try:
+        return deps.idempotency.begin(
+            key,
+            "session.upload",
+            ttl_s=int(deps.settings.idempotency_ttl_s or 600),
+        )
+    except IdempotencyInFlight as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "request.in_progress", "message": str(exc)},
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "request.invalid", "message": str(exc)},
+        ) from exc
+
+
+def _idem_finish(deps: UploadDeps, key: str, result: dict) -> None:
+    if deps.idempotency is not None and key:
+        deps.idempotency.finish(
+            key, result, ttl_s=int(deps.settings.idempotency_ttl_s or 600)
+        )
+
+
+def _idem_abort(deps: UploadDeps, key: str) -> None:
+    if deps.idempotency is not None and key:
+        deps.idempotency.abort(key)
 
 
 def _upload_rows(
@@ -69,16 +125,22 @@ def register_upload_routes(app: FastAPI, deps: UploadDeps) -> None:
         thread_id: str,
         user: UserDep,
         files: Annotated[list[UploadFile], File()],
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key")
+        ] = "",
     ) -> dict:
         """上传写入 `.agent/uploads`，不授予模型修改源码的能力。"""
         deps.rate_limit(user)
         public_thread = check_thread_id(thread_id)
         deps.reject_active(user, public_thread)
         settings = deps.settings
-        if len(files) > max(1, int(settings.web_max_upload_files)):
-            raise HTTPException(
-                status_code=413,
-                detail=f"单次最多上传 {settings.web_max_upload_files} 个文件",
+        limit_files = max(1, int(settings.web_max_upload_files))
+        if len(files) > limit_files:
+            raise _upload_error(
+                "upload.too_many_files",
+                f"单次最多上传 {limit_files} 个文件",
+                limit=limit_files,
+                received=len(files),
             )
         tenant = deps.tenant(user)
         config = deps.config_for(
@@ -86,14 +148,19 @@ def register_upload_routes(app: FastAPI, deps: UploadDeps) -> None:
         )
         if config is None:
             raise HTTPException(status_code=404, detail="会话不存在")
-        if deps.agent_client is not None:
+
+        async def _via_agent() -> dict:
             payload: list[tuple[str, bytes, str]] = []
             total = 0
             for item in files:
                 data = await item.read()
                 if len(data) > settings.web_max_upload_bytes:
-                    raise HTTPException(
-                        status_code=413, detail="单个文件超过上传上限"
+                    raise _upload_error(
+                        "upload.file_too_large",
+                        f"{item.filename} 超过单文件上传上限",
+                        filename=item.filename or "upload.bin",
+                        limit=settings.web_max_upload_bytes,
+                        received=len(data),
                     )
                 total += len(data)
                 payload.append(
@@ -107,12 +174,12 @@ def register_upload_routes(app: FastAPI, deps: UploadDeps) -> None:
                 user, config.workspace
             )
             if current + total > settings.web_max_upload_total_bytes:
-                raise HTTPException(
-                    status_code=413,
-                    detail=(
-                        "工作区累计上传超过上限 "
-                        f"{settings.web_max_upload_total_bytes} 字节"
-                    ),
+                raise _upload_error(
+                    "upload.total_too_large",
+                    "工作区累计上传超过上限",
+                    limit=settings.web_max_upload_total_bytes,
+                    current=current,
+                    added=total,
                 )
             result = await deps.agent_upload(
                 user, tenant, config, public_thread, payload
@@ -125,86 +192,109 @@ def register_upload_routes(app: FastAPI, deps: UploadDeps) -> None:
             deps.set_config(user, tenant, config)
             return result
 
-        runtime = deps.ops_runtime(tenant, config)
-        internal = tenant.thread_id(public_thread)
-        uploaded = []
-        before_bytes = config.uploaded_bytes
-        total_limit = settings.web_max_upload_total_bytes
-        known_sizes: list[int] | None = []
-        for item in files:
-            size = getattr(item, "size", None)
-            if size is None:
-                known_sizes = None
-                break
-            if size > settings.web_max_upload_bytes:
-                raise HTTPException(
-                    status_code=413,
-                    detail=(
-                        f"{item.filename} 超过上限 "
-                        f"{settings.web_max_upload_bytes} 字节"
-                    ),
-                )
-            known_sizes.append(int(size))
-        if known_sizes is not None:
-            current = deps.workspace_uploaded_bytes(
-                user, config.workspace
-            )
-            if current + sum(known_sizes) > total_limit:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"工作区累计上传超过上限 {total_limit} 字节",
-                )
-        try:
+        async def _locally() -> dict:
+            runtime = deps.ops_runtime(tenant, config)
+            internal = tenant.thread_id(public_thread)
+            uploaded = []
+            before_bytes = config.uploaded_bytes
+            total_limit = settings.web_max_upload_total_bytes
+            known_sizes: list[int] | None = []
             for item in files:
-                data = await item.read()
-                if len(data) > settings.web_max_upload_bytes:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=(
-                            f"{item.filename} 超过上限 "
-                            f"{settings.web_max_upload_bytes} 字节"
-                        ),
+                size = getattr(item, "size", None)
+                if size is None:
+                    known_sizes = None
+                    break
+                if size > settings.web_max_upload_bytes:
+                    raise _upload_error(
+                        "upload.file_too_large",
+                        f"{item.filename} 超过单文件上传上限",
+                        filename=item.filename or "upload.bin",
+                        limit=settings.web_max_upload_bytes,
+                        received=int(size),
                     )
-                if (
-                    deps.workspace_uploaded_bytes(
+                known_sizes.append(int(size))
+            if known_sizes is not None:
+                current = deps.workspace_uploaded_bytes(
+                    user, config.workspace
+                )
+                if current + sum(known_sizes) > total_limit:
+                    raise _upload_error(
+                        "upload.total_too_large",
+                        "工作区累计上传超过上限",
+                        limit=total_limit,
+                        current=current,
+                        added=sum(known_sizes),
+                    )
+            try:
+                for item in files:
+                    data = await item.read()
+                    if len(data) > settings.web_max_upload_bytes:
+                        raise _upload_error(
+                            "upload.file_too_large",
+                            f"{item.filename} 超过单文件上传上限",
+                            filename=item.filename or "upload.bin",
+                            limit=settings.web_max_upload_bytes,
+                            received=len(data),
+                        )
+                    current = deps.workspace_uploaded_bytes(
                         user, config.workspace
                     )
-                    + len(data)
-                    > total_limit
-                ):
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"工作区累计上传超过上限 {total_limit} 字节",
+                    if current + len(data) > total_limit:
+                        raise _upload_error(
+                            "upload.total_too_large",
+                            "工作区累计上传超过上限",
+                            limit=total_limit,
+                            current=current,
+                            added=len(data),
+                        )
+                    try:
+                        saved = runtime.store_upload(
+                            item.filename or "upload.bin",
+                            data,
+                            thread_id=internal,
+                            max_bytes=settings.web_max_upload_bytes,
+                        )
+                    except ValueError as exc:
+                        raise HTTPException(
+                            status_code=422, detail=str(exc)
+                        ) from exc
+                    except Exception as exc:  # noqa: BLE001 - 沙箱/路径错误要可读报出
+                        raise HTTPException(
+                            status_code=503,
+                            detail=f"{type(exc).__name__}: {exc}",
+                        ) from exc
+                    config.uploaded_bytes += len(data)
+                    uploaded.append(
+                        {
+                            **saved,
+                            "name": item.filename or "upload.bin",
+                            "content_type": item.content_type or "",
+                        }
                     )
-                try:
-                    saved = runtime.store_upload(
-                        item.filename or "upload.bin",
-                        data,
-                        thread_id=internal,
-                        max_bytes=settings.web_max_upload_bytes,
-                    )
-                except ValueError as exc:
-                    raise HTTPException(
-                        status_code=422, detail=str(exc)
-                    ) from exc
-                except Exception as exc:  # noqa: BLE001 - 沙箱/路径错误要可读报出
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"{type(exc).__name__}: {exc}",
-                    ) from exc
-                config.uploaded_bytes += len(data)
-                uploaded.append(
-                    {
-                        **saved,
-                        "name": item.filename or "upload.bin",
-                        "content_type": item.content_type or "",
-                    }
-                )
-        finally:
-            if config.uploaded_bytes != before_bytes:
-                deps.set_config(user, tenant, config)
-            await runtime.aclose()
-        return {"uploads": uploaded}
+            finally:
+                if config.uploaded_bytes != before_bytes:
+                    deps.set_config(user, tenant, config)
+                await runtime.aclose()
+            return {"uploads": uploaded}
+
+        key = _idem_key(user, public_thread, idempotency_key)
+        cached = _idem_begin(deps, key)
+        if cached is not None:
+            return cached
+        try:
+            result = await (
+                _via_agent()
+                if deps.agent_client is not None
+                else _locally()
+            )
+        except HTTPException:
+            _idem_abort(deps, key)
+            raise
+        except Exception:
+            _idem_abort(deps, key)
+            raise
+        _idem_finish(deps, key, result)
+        return result
 
     @app.get("/api/sessions/{thread_id}/uploads")
     async def list_uploads(thread_id: str, user: UserDep) -> dict:

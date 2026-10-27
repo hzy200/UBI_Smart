@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,9 +16,11 @@ from coding_agent.execution.contracts import (
     ExecutionError,
     ExecutionRequest,
     ExecutionResult,
+    normalize_execution_target,
 )
 from coding_agent.execution.host_ops import HOST_ORIGIN, host_run
 from coding_agent.sandbox.pathguard import ensure_inside
+from coding_agent.workspace.model import normalize_workspace_kind
 
 DEFAULT_MAX_READ_BYTES = 1024 * 1024
 
@@ -104,10 +107,14 @@ class ExecutionService:
         backend: ExecutionBackend,
         workspace: str,
         *,
+        targets: Mapping[str, ExecutionBackend] | None = None,
+        workspace_kind: str = "sandbox",
         journal_path: str | Path | None = None,
     ) -> None:
         self.backend = backend
+        self.targets = dict(targets or {})
         self.workspace = str(workspace)
+        self.workspace_kind = normalize_workspace_kind(workspace_kind)
         self.journal = ExecutionJournal(
             Path(journal_path)
             if journal_path
@@ -121,8 +128,35 @@ class ExecutionService:
             "service": "execution",
             "version": "1",
             **self.backend.capabilities(),
+            "targets": sorted(self.targets),
+            "workspace_kind": self.workspace_kind,
             "journal": str(self.journal.path),
         }
+
+    def _backend_for(
+        self, request: ExecutionRequest
+    ) -> tuple[str, ExecutionBackend]:
+        kind = normalize_workspace_kind(
+            request.workspace_kind or self.workspace_kind
+        )
+        target = normalize_execution_target(request.target)
+        if target == "auto":
+            target = kind
+        if target == "host" and kind != "host":
+            raise ExecutionError(
+                "TARGET_KIND_MISMATCH: target=host 但 workspace_kind=sandbox"
+            )
+        if target == "sandbox" and kind == "host":
+            raise ExecutionError(
+                "TARGET_KIND_MISMATCH: target=sandbox 但 workspace_kind=host"
+            )
+        backend = self.targets.get(target)
+        if backend is None:
+            if target == "sandbox":
+                backend = self.backend
+            else:
+                raise ExecutionError(f"执行后端未配置：{target}")
+        return target, backend
 
     def _next_seq(self, run_id: str) -> int:
         key = str(run_id or "")
@@ -134,14 +168,22 @@ class ExecutionService:
 
     @staticmethod
     def _fingerprint(request: ExecutionRequest) -> str:
+        fields: dict[str, Any] = {
+            "kind": request.kind,
+            "workspace_id": request.workspace_id,
+            "payload": request.payload,
+            "timeout_s": request.timeout_s,
+            "capture_limit": request.capture_limit,
+        }
+        # 只把非默认路由字段计入，保持旧回执的指纹兼容。
+        if request.workspace_kind != "sandbox":
+            fields["workspace_kind"] = request.workspace_kind
+        if request.target != "auto":
+            fields["target"] = request.target
+        if request.grant_id:
+            fields["grant_id"] = request.grant_id
         raw = json.dumps(
-            {
-                "kind": request.kind,
-                "workspace_id": request.workspace_id,
-                "payload": request.payload,
-                "timeout_s": request.timeout_s,
-                "capture_limit": request.capture_limit,
-            },
+            fields,
             ensure_ascii=False,
             sort_keys=True,
             default=str,
@@ -227,6 +269,8 @@ class ExecutionService:
             status="error",
         )
         try:
+            target, backend = self._backend_for(request)
+            base.data["target"] = target
             if kind == "run":
                 command = str(payload.get("command") or "")
                 if not command.strip():
@@ -236,7 +280,7 @@ class ExecutionService:
                     cwd = ensure_inside(
                         cwd, self.workspace, cwd=self.workspace
                     )
-                raw = self.backend.run(
+                raw = backend.run(
                     command,
                     cwd=cwd,
                     timeout=(
@@ -267,14 +311,15 @@ class ExecutionService:
                 if not path:
                     raise ExecutionError("path 不能为空")
                 base.data = {
-                    "content": self.backend.read_text(
+                    "target": target,
+                    "content": backend.read_text(
                         path,
                         max_bytes=int(
                             payload.get(
                                 "max_bytes", DEFAULT_MAX_READ_BYTES
                             )
                         ),
-                    )
+                    ),
                 }
                 base.status = "ok"
                 return base
@@ -284,21 +329,22 @@ class ExecutionService:
                 if not path:
                     raise ExecutionError("path 不能为空")
                 content = str(payload.get("content") or "")
-                written = self.backend.write_bytes(
+                written = backend.write_bytes(
                     path, content.encode("utf-8")
                 )
-                base.data = {"bytes": written}
+                base.data = {"target": target, "bytes": written}
                 base.status = "ok"
                 return base
 
             if kind == "list_dir":
                 path = str(payload.get("path") or "")
-                entries = self.backend.list_dir(
+                entries = backend.list_dir(
                     path,
                     max_depth=int(payload.get("max_depth", 1)),
                     limit=int(payload.get("limit", 200)),
                 )
                 base.data = {
+                    "target": target,
                     "entries": [
                         {"kind": entry[0], "path": entry[1]}
                         for entry in entries
@@ -309,7 +355,7 @@ class ExecutionService:
 
             if kind == "stat":
                 path = str(payload.get("path") or "")
-                base.data = dict(self.backend.stat(path))
+                base.data = {"target": target, **dict(backend.stat(path))}
                 base.status = "ok"
                 return base
 
@@ -317,7 +363,7 @@ class ExecutionService:
                 args = payload.get("args")
                 if not isinstance(args, list) or not args:
                     raise ExecutionError("git args 必须是非空数组")
-                raw = self.backend.git(
+                raw = backend.git(
                     [str(arg) for arg in args],
                     cwd=(
                         str(payload.get("cwd"))
@@ -336,21 +382,21 @@ class ExecutionService:
                 path = str(payload.get("path") or "")
                 if not path:
                     raise ExecutionError("path 不能为空")
-                info = dict(self.backend.stat(path))
+                info = dict(backend.stat(path))
                 existed = bool(info.get("exists")) and bool(
                     info.get("is_file")
                 )
                 content = (
-                    self.backend.read_text(
+                    backend.read_text(
                         path, max_bytes=DEFAULT_MAX_READ_BYTES
                     )
                     if existed
                     else ""
                 )
-                snapshot_id = self.backend.snapshot(
+                snapshot_id = backend.snapshot(
                     path, content, existed=existed
                 )
-                base.data = {"snapshot_id": snapshot_id}
+                base.data = {"target": target, "snapshot_id": snapshot_id}
                 base.snapshot_ids = [snapshot_id]
                 base.status = "ok"
                 return base
@@ -359,12 +405,15 @@ class ExecutionService:
                 snapshot_id = str(payload.get("snapshot_id") or "")
                 if not snapshot_id:
                     raise ExecutionError("snapshot_id 不能为空")
-                base.data = dict(
-                    self.backend.restore(
-                        snapshot_id,
-                        str(payload.get("path") or "") or None,
-                    )
-                )
+                base.data = {
+                    "target": target,
+                    **dict(
+                        backend.restore(
+                            snapshot_id,
+                            str(payload.get("path") or "") or None,
+                        )
+                    ),
+                }
                 base.status = "ok"
                 return base
 
@@ -372,7 +421,7 @@ class ExecutionService:
                 patch_path = str(payload.get("patch_path") or "")
                 if not patch_path:
                     raise ExecutionError("patch_path 不能为空")
-                raw = self.backend.apply_patch(
+                raw = backend.apply_patch(
                     patch_path,
                     root=str(payload.get("root") or self.workspace),
                     check=bool(payload.get("check", False)),
@@ -389,7 +438,7 @@ class ExecutionService:
                 return base
 
             if kind in {"worktree_create", "worktree_remove"}:
-                raw = self.backend.worktree(
+                raw = backend.worktree(
                     "create" if kind == "worktree_create" else "remove",
                     path=str(payload.get("path") or ""),
                     branch=str(payload.get("branch") or ""),
@@ -461,6 +510,11 @@ class ExecutionService:
         return self.record_terminal(request, "cancelled", error=error)
 
     def close(self) -> None:
-        close = getattr(self.backend, "close", None)
-        if callable(close):
-            close()
+        seen: set[int] = set()
+        for backend in (self.backend, *self.targets.values()):
+            if id(backend) in seen:
+                continue
+            seen.add(id(backend))
+            close = getattr(backend, "close", None)
+            if callable(close):
+                close()

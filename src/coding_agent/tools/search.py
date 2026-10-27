@@ -20,6 +20,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 from coding_agent.config import Settings
+from coding_agent.execution.file_access import FileAccess
 from coding_agent.sandbox.pathguard import SandboxPathError, ensure_inside
 from coding_agent.sandbox.policy import CommandLevel
 from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
@@ -131,7 +132,12 @@ def _trim_to_workspace(lines: list[str], root: str) -> list[str]:
     return [line[len(prefix) :] if line.startswith(prefix) else line for line in lines]
 
 
-def build_search_tools(settings: Settings, sandbox: WslSandbox) -> list[BaseTool]:
+def build_search_tools(
+    settings: Settings,
+    sandbox: WslSandbox,
+    *,
+    file_access: FileAccess | None = None,
+) -> list[BaseTool]:
     workspace = resolve_workspace(settings, sandbox)
     # 探测一次就记住：每次调用都探一遍纯属浪费。
     # 显式 cwd：bwrap 模式下 workdir 不能为空。
@@ -211,6 +217,42 @@ def build_search_tools(settings: Settings, sandbox: WslSandbox) -> list[BaseTool
         max_results: int = DEFAULT_MAX_RESULTS,
     ) -> str:
         args = FindFilesInput(pattern=pattern, reason=reason, path=path, max_results=max_results)
+        if file_access is not None:
+            try:
+                files = file_access.find_files(
+                    args.pattern,
+                    path=args.path,
+                    limit=args.max_results,
+                )
+            except Exception as exc:  # noqa: BLE001 - 工具边界统一回灌错误
+                return pack(
+                    f"[检索] {reason}\n查找失败：{exc}",
+                    ShellArtifact(ok=False),
+                )
+            files = [
+                item for item in files
+                if not is_protected_read_path(
+                    item, settings.read_deny_globs
+                )
+            ]
+            files.sort()
+            shown = files[: max_results]
+            header = f"找到 {len(files)} 个文件" + (
+                f"，显示前 {len(shown)} 个"
+                if len(files) > len(shown)
+                else ""
+            )
+            body = "\n".join(shown) if shown else "（没有匹配的文件）"
+            return pack(
+                f"[检索] {reason}\n{header}\n{body}",
+                ShellArtifact(
+                    command="file_access.find_files",
+                    ok=True,
+                    level=int(CommandLevel.READ),
+                    level_label=CommandLevel.READ.label,
+                ),
+            )
+
         target, error = _resolve(path)
         if error:
             return pack(error, ShellArtifact(ok=False, rejected=True))

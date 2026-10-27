@@ -108,6 +108,30 @@ def test_bind_registered_workspace() -> None:
     assert configs[("alice", "t1")].workspace_id == WORKSPACE_ID
 
 
+def test_bind_registered_host_workspace_keeps_handle_fields() -> None:
+    configs: dict = {}
+    row = {
+        "workspace_id": WORKSPACE_ID,
+        "root_path": "",
+        "kind": "host",
+        "a2l_id": "a2l-1",
+        "root_handle": "h-1",
+        "status": "active",
+    }
+    client = _client(
+        _deps(configs, registry_enabled=True, bind_row=row)
+    )
+    response = client.post(
+        "/api/sessions",
+        json={"thread_id": "t1", "workspace_id": WORKSPACE_ID},
+    )
+    assert response.status_code == 200
+    config = configs[("alice", "t1")]
+    assert config.workspace_kind == "host"
+    assert config.a2l_id == "a2l-1"
+    assert config.root_handle == "h-1"
+
+
 def test_registry_requires_workspace_id() -> None:
     client = _client(_deps({}, registry_enabled=True))
     response = client.post(

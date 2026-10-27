@@ -30,6 +30,17 @@ _LOG = logging.getLogger("coding_agent.desktop")
 
 DEFAULT_AGENT_PORT = 8790
 DEFAULT_CONTROL_PORT = 8780
+DEFAULT_HOST_BROKER_PORT = 8791
+
+
+@dataclass
+class HostBrokerProc:
+    proc: subprocess.Popen
+    port: int
+    log_path: Path
+
+    def stop(self, *, timeout: float = 10.0) -> None:
+        _stop_proc(self.proc, timeout=timeout)
 
 
 @dataclass
@@ -73,7 +84,7 @@ def _post(port: int, token: str, path: str) -> None:
         },
     )
     try:
-        with local_open(request, 8) as response:
+        with local_open(request, 2.5) as response:
             response.read()
     except Exception:  # noqa: BLE001 - 服务可能已经停止
         pass
@@ -87,7 +98,7 @@ def _stop_proc(proc: subprocess.Popen, *, timeout: float) -> None:
         pass
     proc.terminate()
     try:
-        proc.wait(timeout=5)
+        proc.wait(timeout=2)
     except subprocess.TimeoutExpired:
         proc.kill()
 
@@ -154,11 +165,20 @@ def _agent_env(config: LauncherConfig) -> dict[str, str]:
             env[key] = value
     if _truthy(os.environ.get("AGENT_WORKSPACE_REGISTRY")):
         # 默认根必须与 A2 记录的是同一套 WSL 路径。
-        env.setdefault(
-            "AGENT_WORKSPACE_ROOT", f"{wsl_home}/agent-ws/users"
-        )
+        # 旧会话的工作区是 <home>/agent-ws；新会话在其 users/ 下。
+        # 用父目录作为允许根，历史会话仍可打开并继续运行。
+        env.setdefault("AGENT_WORKSPACE_ROOT", f"{wsl_home}/agent-ws")
         env.setdefault("AGENT_WORKSPACE_MOUNT_ROOTS", "/mnt/")
         env.setdefault("AGENT_WORKSPACE_IMPORT_MODE", "copy")
+    if _truthy(os.environ.get("AGENT_HOST_BROKER_ENABLED")):
+        env["AGENT_HOST_BROKER_ENABLED"] = "1"
+        env["AGENT_HOST_BROKER_LISTEN_HOST"] = os.environ.get(
+            "AGENT_HOST_BROKER_LISTEN_HOST", "127.0.0.1"
+        )
+        env["AGENT_HOST_BROKER_LISTEN_PORT"] = os.environ.get(
+            "AGENT_HOST_BROKER_LISTEN_PORT",
+            str(DEFAULT_HOST_BROKER_PORT),
+        )
     return env
 
 
@@ -348,6 +368,82 @@ def start_agent(
     )
 
 
+def build_host_broker_command(
+    *,
+    url: str,
+    workspace_root: str,
+    workspace_id: str,
+    root_handle: str,
+    security_tier: str = "lowpriv",
+    auto_approve: bool = False,
+    journal: str = "",
+) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "coding_agent.host_broker",
+        "--url",
+        url,
+        "--workspace-root",
+        workspace_root,
+        "--workspace-id",
+        workspace_id,
+        "--root-handle",
+        root_handle,
+        "--security-tier",
+        security_tier,
+    ]
+    if auto_approve:
+        command.append("--auto-approve")
+    if journal:
+        command.extend(["--journal", journal])
+    return command
+
+
+def start_host_broker(
+    config: LauncherConfig,
+    *,
+    workspace_root: str,
+    workspace_id: str,
+    root_handle: str,
+    log_path: Path,
+    port: int | None = None,
+    security_tier: str = "lowpriv",
+    auto_approve: bool = False,
+) -> HostBrokerProc:
+    """在 Windows 本机启动 A2L 子进程；随客户端退出而终止。"""
+    chosen = (
+        port
+        if port is not None
+        else _env_port("AGENT_HOST_BROKER_LISTEN_PORT", DEFAULT_HOST_BROKER_PORT)
+    )
+    url = f"tcp://127.0.0.1:{chosen}"
+    command = build_host_broker_command(
+        url=url,
+        workspace_root=workspace_root,
+        workspace_id=workspace_id,
+        root_handle=root_handle,
+        security_tier=security_tier,
+        auto_approve=auto_approve,
+    )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = log_path.open("a", encoding="utf-8")
+    creationflags = 0
+    if os.name == "nt" and auto_approve:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        proc = subprocess.Popen(
+            command,
+            cwd=str(Path.home()),
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+        )
+    finally:
+        handle.close()
+    return HostBrokerProc(proc=proc, port=chosen, log_path=log_path)
+
+
 def start_control(
     config: LauncherConfig,
     *,
@@ -356,6 +452,7 @@ def start_control(
     log_path: Path,
     port: int | None = None,
     token: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> ControlServer:
     """启动 Windows 本机 A2，并把 A3 的地址与 token 注入其环境。"""
     chosen = (
@@ -373,11 +470,16 @@ def start_control(
         {
             "AGENT_INTERNAL_URL": f"http://127.0.0.1:{agent_port}",
             "AGENT_INTERNAL_TOKEN": agent_token,
+            # A2 的租户默认工作区来自 sandbox.home()；必须与 A3 使用同一发行版，
+            # 否则会生成 /home/<windows-user>/agent-ws 而 A3 在 /home/agent。
+            "AGENT_WSL_DISTRO": config.distro,
             "PYTHONIOENCODING": "utf-8",
         }
     )
     if str(config.control_db_url or "").strip():
         env["AGENT_CONTROL_DB_URL"] = config.control_db_url.strip()
+    if extra_env:
+        env.update({str(k): str(v) for k, v in extra_env.items()})
     token = token or secrets.token_urlsafe(32)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     proc = _spawn(

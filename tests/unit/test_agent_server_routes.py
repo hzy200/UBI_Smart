@@ -269,6 +269,80 @@ def test_files_and_file_content(tmp_path) -> None:
     assert client.get("/v1/file?path=missing.txt").status_code == 422
 
 
+def test_host_files_route_uses_a2l(tmp_path) -> None:
+    """host 工作区没有 A3 本地路径，文件树必须走 A2L。"""
+
+    class _Caller:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+
+        def call(self, kind, *, workspace, payload, grant_id=""):
+            self.calls.append((kind, workspace, payload))
+            if kind == "host.list_dir":
+                return {
+                    "entries": [
+                        {"kind": "f", "path": "a.txt"},
+                        {"kind": "d", "path": "src"},
+                    ]
+                }
+            if kind == "host.stat":
+                return {"exists": True, "is_file": True, "size": 2}
+            if kind == "host.read_text":
+                return {"text": "hi"}
+            raise AssertionError(kind)
+
+    class _Acceptor:
+        def __init__(self, caller: _Caller) -> None:
+            self.caller = caller
+
+        def caller_for(self, a2l_id: str):
+            return self.caller if a2l_id == "a2l-1" else None
+
+    caller = _Caller()
+    app = FastAPI()
+    app.state.host_broker_acceptor = _Acceptor(caller)
+    runtime = _Runtime()
+
+    async def close(_runtime) -> None:
+        await _runtime.aclose()
+
+    register_workspace_routes(
+        app,
+        WorkspaceDeps(
+            context=lambda request: AgentContext(
+                workspace="",
+                workspace_kind="host",
+                workspace_id="ws-1",
+                a2l_id="a2l-1",
+                root_handle="h-1",
+            ),
+            new_runtime=lambda context: runtime,
+            close_runtime=close,
+            reject_active=lambda context, thread_id: None,
+            settings=Settings(
+                _env_file=None,
+                audit_dir=str(tmp_path / "audit"),
+                checkpoint_path=":memory:",
+            ),
+        ),
+    )
+    client = TestClient(app)
+
+    listing = client.get("/v1/files").json()
+    assert [item["name"] for item in listing["entries"]] == [
+        "src",
+        "a.txt",
+    ]
+    content = client.get("/v1/file?path=a.txt").json()
+    assert content["content"] == "hi"
+    assert content["size"] == 2
+    assert caller.calls[0][1] == {
+        "workspace_id": "ws-1",
+        "kind": "host",
+        "root_handle": "h-1",
+    }
+
+
 def test_git_and_project_routes(tmp_path, monkeypatch) -> None:
     from coding_agent.agent_server_routes import workspace as routes
 

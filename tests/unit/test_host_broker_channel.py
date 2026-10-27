@@ -1,0 +1,267 @@
+"""A2L 内存通道：握手、请求、暂停、取消、离线。"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from coding_agent.host_broker.client import HostBrokerClient, HostBrokerOffline
+from coding_agent.host_broker.consent import AutoConsent
+from coding_agent.host_broker.lifecycle import BrokerLifecycle
+from coding_agent.host_broker.op_journal import OP_FINISHED, OpJournal
+from coding_agent.host_broker.policy import GrantStore
+from coding_agent.host_broker.protocol import (
+    A2L_PAUSED,
+    CANCELLED,
+    OP_NOT_ENABLED_IN_PHASE1,
+    UNAUTHENTICATED,
+    decode_frame,
+    encode_frame,
+    make_request,
+    make_response,
+)
+from coding_agent.host_broker.server import HostBrokerServer
+from coding_agent.host_broker.transport import memory_transport_pair
+
+
+def _workspace() -> dict[str, str]:
+    return {"workspace_id": "ws-1", "kind": "host", "root_handle": "h-1"}
+
+
+def test_handshake_request_and_journal(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        lifecycle = BrokerLifecycle(tmp_path / "a2l.lock", client_id="c-1")
+        assert lifecycle.start() is True
+        journal = OpJournal(tmp_path / "ops.sqlite3")
+        seen = []
+
+        async def handler(frame):
+            seen.append(frame)
+            return make_response(
+                frame, data={"kind": frame.kind, "payload": frame.payload}
+            )
+
+        server = HostBrokerServer(
+            server_t,
+            broker_id="b-1",
+            handler=handler,
+            journal=journal,
+            lifecycle=lifecycle,
+        )
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(
+            client_t, client_id="c-1", heartbeat_s=0.1, request_timeout_s=2
+        )
+        hello = await client.connect(timeout=2)
+        assert hello.meta["security_tier"] == "lowpriv"
+        assert hello.meta["protocol_version"] == 1
+
+        response = await client.request(
+            "host.read_text",
+            workspace=_workspace(),
+            payload={"path": "a.py"},
+            op_id="op-1",
+        )
+        assert response.status == "ok"
+        assert response.data["kind"] == "host.read_text"
+        assert seen and seen[0].op_id == "op-1"
+        record = journal.get("op-1")
+        assert record is not None and record.status == OP_FINISHED
+
+        await server.shutdown()
+        await client.close()
+        await server_task
+        lifecycle.stop()
+
+    asyncio.run(scenario())
+
+
+def test_unauthenticated_request_is_rejected(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        server = HostBrokerServer(server_t, broker_id="b-1")
+        server_task = asyncio.create_task(server.run())
+        request = make_request(
+            "host.health", op_id="op-1", workspace=_workspace()
+        )
+        await client_t.send(encode_frame(request))
+        raw = await asyncio.wait_for(client_t.recv(), timeout=2)
+        assert raw is not None
+        response = decode_frame(raw)
+        assert response.error_code == UNAUTHENTICATED
+        await server.shutdown()
+        await server_task
+
+    asyncio.run(scenario())
+
+
+def test_paused_server_rejects_requests(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        lifecycle = BrokerLifecycle(tmp_path / "a2l.lock")
+        lifecycle.start()
+        server = HostBrokerServer(
+            server_t, broker_id="b-1", lifecycle=lifecycle
+        )
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(client_t, client_id="c-1", heartbeat_s=0.1)
+        await client.connect(timeout=2)
+
+        lifecycle.pause()
+        response = await client.request(
+            "host.health", workspace=_workspace(), op_id="op-paused"
+        )
+        assert response.error_code == A2L_PAUSED
+
+        lifecycle.resume()
+        response = await client.request(
+            "host.health", workspace=_workspace(), op_id="op-running"
+        )
+        assert response.status == "ok"
+
+        await server.shutdown()
+        await client.close()
+        await server_task
+        lifecycle.stop()
+
+    asyncio.run(scenario())
+
+
+def test_unknown_or_write_op_is_not_enabled(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        server = HostBrokerServer(server_t, broker_id="b-1")
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(client_t, client_id="c-1", heartbeat_s=0.1)
+        await client.connect(timeout=2)
+
+        response = await client.request(
+            "host.write_bytes", workspace=_workspace(), op_id="op-write"
+        )
+        assert response.error_code == OP_NOT_ENABLED_IN_PHASE1
+
+        await server.shutdown()
+        await client.close()
+        await server_task
+
+    asyncio.run(scenario())
+
+
+def test_cancel_produces_cancelled_response(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        started = asyncio.Event()
+
+        async def handler(frame):
+            started.set()
+            await asyncio.sleep(30)
+            return make_response(frame)
+
+        server = HostBrokerServer(
+            server_t, broker_id="b-1", handler=handler
+        )
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(
+            client_t, client_id="c-1", heartbeat_s=0.1, request_timeout_s=5
+        )
+        await client.connect(timeout=2)
+
+        task = asyncio.create_task(
+            client.request(
+                "host.read_text",
+                workspace=_workspace(),
+                payload={"path": "a.py"},
+                op_id="op-cancel",
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=2)
+        await client.cancel("op-cancel")
+        response = await asyncio.wait_for(task, timeout=2)
+        assert response.status == "cancelled"
+        assert response.error_code == CANCELLED
+
+        await server.shutdown()
+        await client.close()
+        await server_task
+
+    asyncio.run(scenario())
+
+
+def test_grant_request_uses_local_consent(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        grants = GrantStore()
+        server = HostBrokerServer(
+            server_t,
+            broker_id="b-1",
+            grants=grants,
+            consent=AutoConsent(True),
+        )
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(client_t, client_id="c-1", heartbeat_s=0.1)
+        await client.connect(timeout=2)
+
+        frame = await client.request_grant(
+            scope=[str(tmp_path)], verbs=["read"], reason="test"
+        )
+        assert frame.type == "grant.granted"
+        assert frame.grant_id
+        assert grants.get(frame.grant_id) is not None
+
+        await server.shutdown()
+        await client.close()
+        await server_task
+
+    asyncio.run(scenario())
+
+
+def test_grant_request_can_be_denied(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        grants = GrantStore()
+        server = HostBrokerServer(
+            server_t,
+            broker_id="b-1",
+            grants=grants,
+            consent=AutoConsent(False),
+        )
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(client_t, client_id="c-1", heartbeat_s=0.1)
+        await client.connect(timeout=2)
+
+        frame = await client.request_grant(
+            scope=[str(tmp_path)], verbs=["read"], reason="test"
+        )
+        assert frame.type == "grant.denied"
+        assert grants.active() == []
+
+        await server.shutdown()
+        await client.close()
+        await server_task
+
+    asyncio.run(scenario())
+
+
+def test_server_shutdown_marks_client_offline(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        server = HostBrokerServer(server_t, broker_id="b-1")
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(client_t, client_id="c-1", heartbeat_s=0.1)
+        await client.connect(timeout=2)
+        assert client.is_online is True
+
+        await server.shutdown()
+        await server_task
+        for _ in range(20):
+            if not client.is_online:
+                break
+            await asyncio.sleep(0.01)
+        assert client.is_online is False
+        with pytest.raises(HostBrokerOffline):
+            await client.request("host.health", op_id="op-offline")
+        await client.close()
+
+    asyncio.run(scenario())

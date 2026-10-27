@@ -241,6 +241,7 @@ def test_start_control_injects_agent_env(tmp_path, monkeypatch) -> None:
     env = captured["env"]
     assert env["AGENT_INTERNAL_URL"] == "http://127.0.0.1:8790"
     assert env["AGENT_INTERNAL_TOKEN"] == "agent-token"
+    assert env["AGENT_WSL_DISTRO"] == _config().distro
 
 
 def test_start_control_rejects_occupied_port(tmp_path, monkeypatch) -> None:
@@ -406,7 +407,9 @@ def test_agent_env_enables_workspace_defaults(monkeypatch) -> None:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("AGENT_WORKSPACE_REGISTRY", "true")
     env = supervisor._agent_env(_config())
-    assert env["AGENT_WORKSPACE_ROOT"] == "/home/me/agent-ws/users"
+    # 旧会话工作区在 agent-ws 根下，新工作区在 agent-ws/users 下；
+    # 允许根本身必须覆盖两者，历史会话才能继续打开/运行。
+    assert env["AGENT_WORKSPACE_ROOT"] == "/home/me/agent-ws"
     assert env["AGENT_WORKSPACE_MOUNT_ROOTS"] == "/mnt/"
     assert env["AGENT_WORKSPACE_IMPORT_MODE"] == "copy"
 

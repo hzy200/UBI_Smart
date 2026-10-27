@@ -202,16 +202,24 @@ def run_desktop(
             width=1440,
             height=920,
             min_size=(980, 620),
+            maximized=True,
+            text_select=True,
+            zoomable=True,
             confirm_close=True,
         )
 
         def on_closing() -> bool:
-            # 给运行中的会话一个协作式取消窗口；超时后仍允许关闭，
-            # checkpoint 会保留，之后可从 CLI/TUI 恢复。
-            try:
-                _cancel_all(desktop)
-            except Exception:  # noqa: BLE001 - 关窗不能被清理失败卡死
-                pass
+            # 取消运行放到后台；关闭事件本身必须立刻返回，否则
+            # Windows 会把窗口标记为“未响应”。
+            def cancel_later() -> None:
+                try:
+                    _cancel_all(desktop)
+                except Exception:  # noqa: BLE001 - 关窗不能被清理失败卡死
+                    pass
+
+            threading.Thread(
+                target=cancel_later, name="desktop-cancel", daemon=True
+            ).start()
             return True
 
         if window is not None:

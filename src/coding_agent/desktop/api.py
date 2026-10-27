@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import functools
+import logging
 import os
 import re
 import shlex
@@ -14,6 +16,7 @@ import subprocess
 import threading
 import uuid
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -21,18 +24,88 @@ from coding_agent.desktop.config import LauncherConfig
 from coding_agent.desktop.wsl import home, run, to_wsl_path
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_LOG = logging.getLogger(__name__)
 
 
 def _text(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace").strip()
 
 
+def origin_of(url: str) -> str:
+    parsed = urlparse(str(url or ""))
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def is_loopback_origin(origin: str) -> bool:
+    parsed = urlparse(str(origin or ""))
+    return parsed.scheme in {"http", "https"} and (
+        (parsed.hostname or "").lower() in _LOOPBACK_HOSTS
+    )
+
+
+def _requires_trust(denied):
+    def decorate(function):
+        @functools.wraps(function)
+        def wrapper(self, *args, **kwargs):
+            if not self._trusted():
+                _LOG.warning(
+                    "桌面桥拒绝 %s：allowed=%s actual=%s",
+                    function.__name__,
+                    self.allowed_origin or "(empty)",
+                    self._current_origin() or "(unknown)",
+                )
+                return denied() if callable(denied) else denied
+            return function(self, *args, **kwargs)
+
+        return wrapper
+
+    return decorate
+
+
+_DENIED = {
+    "ok": False,
+    "error": "桌面桥拒绝：当前页面来源不可信",
+}
+
+
 class DesktopApi:
-    def __init__(self, config: LauncherConfig) -> None:
+    def __init__(
+        self,
+        config: LauncherConfig,
+        *,
+        allowed_origin: str = "",
+        origin_provider: Callable[[], str] | None = None,
+    ) -> None:
         self.config = config
+        self.allowed_origin = origin_of(allowed_origin)
+        self._origin_provider = origin_provider
         self._copies: dict[str, dict] = {}
         self._lock = threading.Lock()
 
+    def _current_origin(self) -> str:
+        if self._origin_provider is not None:
+            return origin_of(self._origin_provider())
+        try:
+            import webview
+
+            window = webview.windows[0]
+            getter = getattr(window, "get_current_url", None)
+            if not callable(getter):
+                return ""
+            return origin_of(str(getter() or ""))
+        except Exception:  # noqa: BLE001 - 无法证明来源时 fail closed
+            return ""
+
+    def _trusted(self) -> bool:
+        expected = origin_of(self.allowed_origin)
+        if not expected or not is_loopback_origin(expected):
+            return False
+        return self._current_origin() == expected
+
+    @_requires_trust(lambda: "")
     def pick_folder(self) -> str:
         """打开 Windows 原生文件夹选择器，返回 WSL 路径。"""
         try:
@@ -46,6 +119,7 @@ class DesktopApi:
             pass
         return ""
 
+    @_requires_trust(_DENIED)
     def open_in_vscode(self, path: str) -> dict:
         target = str(path or "").strip()
         if not target.startswith("/"):
@@ -73,6 +147,7 @@ class DesktopApi:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         return {"ok": True, "target": target}
 
+    @_requires_trust(_DENIED)
     def copy_to_wsl(self, source: str, name: str = "") -> dict:
         """把 `/mnt/...` 工作区复制到 `~/.coding-agent/workspaces/<name>`。"""
         src = to_wsl_path(str(source or "").strip()).rstrip("/")
@@ -158,6 +233,9 @@ class DesktopApi:
         ).start()
         return {"ok": True, "job_id": job_id, "target": dest}
 
+    @_requires_trust(
+        lambda: {"state": "denied", "error": "当前页面来源不可信"}
+    )
     def copy_status(self, job_id: str) -> dict:
         with self._lock:
             status = self._copies.get(str(job_id or ""))
@@ -165,6 +243,7 @@ class DesktopApi:
                 return {"state": "unknown", "error": ""}
             return dict(status)
 
+    @_requires_trust(_DENIED)
     def collect_diagnostics(self) -> dict:
         try:
             from coding_agent.desktop.diagnostics import (
@@ -176,6 +255,7 @@ class DesktopApi:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         return {"ok": True, "path": str(path)}
 
+    @_requires_trust(_DENIED)
     def reveal_diagnostics(self, path: str) -> dict:
         """在资源管理器中选中诊断包；只允许 app_home 下的文件。"""
         from coding_agent.desktop.config import app_home
@@ -195,6 +275,7 @@ class DesktopApi:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         return {"ok": True}
 
+    @_requires_trust(_DENIED)
     def check_update(self) -> dict:
         from coding_agent.desktop.update import (
             check_update,
@@ -213,6 +294,7 @@ class DesktopApi:
 
         return check_update(__version__, url)
 
+    @_requires_trust(_DENIED)
     def open_url(self, url: str) -> dict:
         parsed = urlparse(str(url or ""))
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:

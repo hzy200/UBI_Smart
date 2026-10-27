@@ -21,9 +21,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
 from coding_agent.concurrency import ConcurrencyGovernor
@@ -34,12 +37,25 @@ from coding_agent.events import (
     RunFailed,
     SteeringApplied,
 )
+from coding_agent.sse_stream import (
+    SSE_HEARTBEAT_MS,
+    sse_headers,
+    with_heartbeat,
+)
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.web.auth import AuthConfig, AuthUser
+from coding_agent.web.cors import StrictCORSMiddleware, parse_allowed_origins
+from coding_agent.web.errors import (
+    is_retryable_status,
+    problem_response,
+    status_error_code,
+)
 from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
 from coding_agent.web.middleware import (
     BodySizeLimitMiddleware,
     FixedWindowRateLimiter,
+    FrontendVersionMiddleware,
+    RequestIdMiddleware,
     SecurityHeadersMiddleware,
 )
 from coding_agent.web.models import (
@@ -79,6 +95,7 @@ from coding_agent.web.services import (
     ProviderService,
     SessionCatalog,
 )
+from coding_agent.web.version import MIN_FRONTEND_VERSION, WEB_API_VERSION
 
 STATIC_DIR = Path(__file__).parent / "static"
 _LOG = logging.getLogger(__name__)
@@ -155,6 +172,7 @@ def create_app(
     agent_client: Any | None = None,
 ) -> FastAPI:
     settings = apply_security_profile(settings or get_settings())
+    cors_origins = parse_allowed_origins(settings.web_cors_allowed_origins)
     if (
         desktop_mode
         and settings.workspace_registry
@@ -168,6 +186,68 @@ def create_app(
     base_llm_providers = str(settings.llm_providers or "")
     auth = auth or AuthConfig.from_settings(settings)
     app = FastAPI(title="CodingAgent", docs_url=None, redoc_url=None)
+
+    def _request_id(request: Request) -> str:
+        return str(getattr(request.state, "request_id", "") or "")
+
+    async def _http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        raw = exc.detail
+        code = status_error_code(exc.status_code)
+        message = ""
+        details: dict[str, Any] | None = None
+        if isinstance(raw, dict):
+            code = str(raw.get("code") or code)
+            message = str(raw.get("message") or raw.get("detail") or "")
+            details = {
+                key: value
+                for key, value in raw.items()
+                if key not in {"code", "message"}
+            }
+        else:
+            message = str(raw or "")
+        return problem_response(
+            status_code=exc.status_code,
+            code=code,
+            detail=message,
+            details=details,
+            retryable=is_retryable_status(exc.status_code),
+            headers=exc.headers,
+            instance=request.url.path,
+            request_id=_request_id(request),
+        )
+
+    async def _validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return problem_response(
+            status_code=422,
+            code="request.invalid",
+            detail="请求参数不合法",
+            details={"errors": jsonable_encoder(exc.errors())},
+            instance=request.url.path,
+            request_id=_request_id(request),
+        )
+
+    async def _unhandled_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        request_id = _request_id(request)
+        _LOG.exception(
+            "未处理异常 request_id=%s path=%s", request_id, request.url.path
+        )
+        return problem_response(
+            status_code=500,
+            code="server.error",
+            detail="服务器内部错误",
+            instance=request.url.path,
+            request_id=request_id,
+        )
+
+    app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
+    app.add_exception_handler(RequestValidationError, _validation_exception_handler)
+    app.add_exception_handler(Exception, _unhandled_exception_handler)
 
     # 认证开启 ≠ 多用户。桌面壳有 token，但仍是单用户本地模式。
     is_multi_user = auth.enabled if multi_user is None else bool(multi_user)
@@ -528,11 +608,7 @@ def create_app(
         return StreamingResponse(
             stream(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "X-Thread-Id": entry.public_thread,
-            },
+            headers=sse_headers(entry.public_thread),
         )
 
     def _transport_sse(
@@ -572,11 +648,7 @@ def create_app(
         return StreamingResponse(
             stream(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "X-Thread-Id": public_thread,
-            },
+            headers=sse_headers(public_thread),
         )
 
     def _get_entry(user: str, public_thread: str) -> RuntimeEntry | None:
@@ -604,6 +676,7 @@ def create_app(
                 settings.workspace_registry
                 and workspace_store is not None
             ),
+            "host_mode": settings.workspace_kind_default == "host",
             "workspace_upload_max_bytes": int(
                 settings.workspace_upload_max_bytes
             ),
@@ -661,22 +734,57 @@ def create_app(
                     await _drop_runtime(key, runtime)
 
         return StreamingResponse(
-            stream(),
+            with_heartbeat(stream()),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "X-Thread-Id": public_thread,
-            },
+            headers=sse_headers(public_thread),
         )
 
     app.add_middleware(
         BodySizeLimitMiddleware,
         max_bytes=settings.web_max_body_bytes,
-        upload_max_bytes=settings.web_max_upload_bytes,
+        # 会话上传是多文件 multipart；请求体上限按累计配额 + 头部余量，
+        # 单文件上限仍由路由逐文件校验。
+        upload_max_bytes=(
+            max(
+                int(settings.web_max_upload_total_bytes),
+                int(settings.web_max_upload_bytes),
+            )
+            + 1_048_576
+        ),
         workspace_upload_max_bytes=settings.workspace_upload_max_bytes,
     )
+    app.add_middleware(
+        FrontendVersionMiddleware, minimum=MIN_FRONTEND_VERSION
+    )
     app.add_middleware(SecurityHeadersMiddleware, hsts=hsts)
+    if cors_origins:
+        # 独立源站形态：Bearer 模式不带 Cookie，因此 credentials=False。
+        app.add_middleware(
+            StrictCORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "Idempotency-Key",
+                "Last-Event-ID",
+                "X-Request-ID",
+                "X-Frontend-Version",
+                "X-CSRF-Token",
+            ],
+            expose_headers=[
+                "X-Request-ID",
+                "X-Thread-Id",
+                "Retry-After",
+                "WWW-Authenticate",
+                "Deprecation",
+                "Sunset",
+            ],
+            max_age=600,
+        )
+    # 最后添加 = 最外层：保证 CORS/BodySize/Security 提前返回的错误也带 request id。
+    app.add_middleware(RequestIdMiddleware)
     app.state.auth = auth
     app.state.tenants = tenants
     app.state.governor = governor
@@ -739,6 +847,32 @@ def create_app(
         app.router.on_shutdown.append(transport.close)
     if agent_client is not None:
         app.router.on_shutdown.append(agent_client.aclose)
+
+    @app.get("/config.json", include_in_schema=False)
+    async def runtime_config() -> JSONResponse:
+        """前端运行时配置；公开但只含非敏感传输参数。
+
+        独立部署时由静态站自己提供 config.json；这里的默认值用于桌面
+        与同域反代。路径版本暂为 v0（尚未迁移到 /api/v1）。
+        """
+        return JSONResponse(
+            {
+                "schemaVersion": 1,
+                "apiBaseUrl": "",
+                "apiVersion": WEB_API_VERSION,
+                "authMode": "desktop-token" if desktop_mode else "bearer",
+                "auth": {},
+                "sse": {
+                    "heartbeatMs": SSE_HEARTBEAT_MS,
+                    "idleTimeoutMs": SSE_HEARTBEAT_MS * 3,
+                    "reconnectBaseMs": 500,
+                    "reconnectMaxMs": 30000,
+                    "reconnectMaxAttempts": 3,
+                },
+                "requestIdHeader": "X-Request-ID",
+            },
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
@@ -846,6 +980,12 @@ def create_app(
             )
         return row
 
+    consent_token = str(settings.consent_bridge_token or "").strip()
+    if desktop_mode and consent_token:
+        from coding_agent.web.consent_bridge import register_consent_bridge
+
+        register_consent_bridge(app, token=consent_token)
+
     register_workspace_registry_routes(
         app,
         WorkspaceRegistryDeps(
@@ -928,6 +1068,7 @@ def create_app(
             agent_json=gateway.json,
             ops_runtime=_ops_runtime,
             workspace_uploaded_bytes=catalog.workspace_uploaded_bytes,
+            idempotency=idempotency,
         ),
     )
 

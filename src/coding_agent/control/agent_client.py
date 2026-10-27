@@ -23,6 +23,7 @@ from coding_agent.agent_protocol import (
     AgentRunRequest,
     sign_context,
 )
+from coding_agent.request_context import REQUEST_ID_HEADER, current_request_id
 
 
 class AgentClientError(RuntimeError):
@@ -107,6 +108,9 @@ class AgentClient(Protocol):
         *,
         params: dict | None = None,
         json: dict | None = None,
+    ) -> dict: ...
+    async def register_host_workspace(
+        self, context: AgentContext
     ) -> dict: ...
     async def upload_files(
         self,
@@ -198,6 +202,9 @@ class HttpAgentClient:
         signature = sign_context(header, self.hmac_key)
         if signature:
             headers["X-Agent-Signature"] = signature
+        request_id = current_request_id()
+        if request_id:
+            headers[REQUEST_ID_HEADER] = request_id
         return headers
 
     def _client(self) -> httpx.AsyncClient:
@@ -380,6 +387,13 @@ class HttpAgentClient:
     ) -> dict:
         return await self._json(
             method.upper(), path, context, params=params, json=json
+        )
+
+    async def register_host_workspace(
+        self, context: AgentContext
+    ) -> dict:
+        return await self._json(
+            "POST", "/v1/host-workspaces/register", context
         )
 
     async def upload_files(

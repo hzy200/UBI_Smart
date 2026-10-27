@@ -150,6 +150,71 @@ class Settings(BaseSettings):
     execution_backend: str = Field(
         default="auto", alias="AGENT_EXECUTION_BACKEND"
     )
+
+    # ---------- A2L 宿主能力代理（Phase 1，默认关闭） ----------
+    # A2L 绑定客户端生命周期：随客户端启动/退出，不注册系统服务。
+    host_broker_enabled: bool = Field(
+        default=False, alias="AGENT_HOST_BROKER_ENABLED"
+    )
+    host_broker_url: str = Field(default="", alias="AGENT_HOST_BROKER_URL")
+    host_broker_listen_host: str = Field(
+        default="127.0.0.1", alias="AGENT_HOST_BROKER_LISTEN_HOST"
+    )
+    host_broker_listen_port: int = Field(
+        default=8791, alias="AGENT_HOST_BROKER_LISTEN_PORT"
+    )
+    host_workspace_id: str = Field(
+        default="", alias="AGENT_HOST_WORKSPACE_ID"
+    )
+    host_root_handle: str = Field(
+        default="", alias="AGENT_HOST_ROOT_HANDLE"
+    )
+    host_a2l_id: str = Field(
+        default="a2l-local", alias="AGENT_HOST_A2L_ID"
+    )
+    # lowpriv 是 P1 默认；appcontainer 仅受限只读；user-t1 仅 local-dev。
+    host_broker_security_tier: str = Field(
+        default="lowpriv", alias="AGENT_HOST_BROKER_SECURITY_TIER"
+    )
+    host_broker_account: str = Field(
+        default="", alias="AGENT_HOST_BROKER_ACCOUNT"
+    )
+    host_broker_device_cert: str = Field(
+        default="", alias="AGENT_HOST_BROKER_DEVICE_CERT"
+    )
+    host_broker_heartbeat_s: int = Field(
+        default=15, alias="AGENT_HOST_BROKER_HEARTBEAT_S"
+    )
+    host_broker_autostart: bool = Field(
+        default=True, alias="AGENT_HOST_BROKER_AUTOSTART"
+    )
+    host_broker_paused: bool = Field(
+        default=False, alias="AGENT_HOST_BROKER_PAUSED"
+    )
+    host_broker_store: str = Field(
+        default="", alias="AGENT_HOST_BROKER_STORE"
+    )
+    # 桌面端本机授权桥：A2L 把 grant.request 发到 A2，由聊天界面按钮决定。
+    consent_bridge_token: str = Field(
+        default="", alias="AGENT_CONSENT_TOKEN"
+    )
+    # 默认 sandbox 保持旧行为；桌面启动器显式设为 host。
+    workspace_kind_default: str = Field(
+        default="sandbox", alias="AGENT_WORKSPACE_KIND_DEFAULT"
+    )
+    grants_enabled: bool = Field(
+        default=False, alias="AGENT_GRANTS_ENABLED"
+    )
+    host_deny_roots: str = Field(default="", alias="AGENT_HOST_DENY_ROOTS")
+    host_root_policy: str = Field(
+        default="local_ntfs_only", alias="AGENT_HOST_ROOT_POLICY"
+    )
+    host_sensitive_roots: str = Field(
+        default="", alias="AGENT_HOST_SENSITIVE_ROOTS"
+    )
+    host_toolchain_roots: str = Field(
+        default="", alias="AGENT_HOST_TOOLCHAIN_ROOTS"
+    )
     # shell 隔离后端：off（默认，仅工作区 cwd 约束）| bwrap（挂载命名空间隔离）
     # bwrap 模式下若沙箱内不可用，会**拒绝执行**（fail closed），不静默降级
     shell_sandbox: str = Field(default="off", alias="AGENT_SHELL_SANDBOX")
@@ -599,6 +664,11 @@ class Settings(BaseSettings):
     # 未配置 token 时是否允许 loopback 匿名访问（单用户本地模式）。
     web_allow_anonymous_local: bool = Field(
         default=True, alias="AGENT_WEB_ALLOW_ANONYMOUS_LOCAL"
+    )
+    # 独立源站前端允许的精确 origin（逗号分隔）；空 = 不启用 CORS。
+    # 只允许 scheme://host[:port]，不接受路径、通配符或 null。
+    web_cors_allowed_origins: str = Field(
+        default="", alias="AGENT_CORS_ALLOWED_ORIGINS"
     )
 
     # ---------- A2 控制面（Phase B，可选） ----------

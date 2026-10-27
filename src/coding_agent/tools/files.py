@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from coding_agent.config import Settings
 from coding_agent.diffing import count_changes, unified_diff
+from coding_agent.execution.file_access import FileAccess, SandboxFileAccess
 from coding_agent.sandbox.fs import SandboxFs, SandboxFsError, SandboxFsTooLarge
 from coding_agent.sandbox.pathguard import SandboxPathError
 from coding_agent.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
@@ -210,10 +211,18 @@ def build_file_tools(
     allow_write: bool,
     write_scope: list[str] | None = None,
     read_cache: MutableMapping[str, bytes] | None = None,
+    file_access: FileAccess | None = None,
 ) -> list[BaseTool]:
     root = resolve_workspace(settings, sandbox)
     fs = SandboxFs(sandbox, root, cache=read_cache)
     snapshots = SnapshotStore(sandbox, fs, root)
+    access: FileAccess = file_access or SandboxFileAccess(fs, root)
+
+    def _display(target: str) -> str:
+        try:
+            return access.relative_to_root(target)
+        except Exception:  # noqa: BLE001 - 展示失败不影响操作
+            return str(target)
     # 并发写 worker 的写时边界。None/空表示不限制（主 agent 的常规文件工具）。
     # 归一化与 orchestrator.graph 的 scope 口径保持一致：POSIX 相对路径、
     # 不带前导斜杠、目录不以 "/" 结尾。
@@ -284,12 +293,12 @@ def build_file_tools(
         # 词法归一化零 I/O。紧接着的 read_text 会完成 realpath 校验，
         # 再单独 resolve 一次等于为同一次读付两次 wsl.exe 进程启动。
         try:
-            target = fs.lexical(path)
+            target = access.lexical(path)
         except SandboxPathError as exc:
             return _reject(path, "read", f"路径被拒绝：{exc}")
 
         protected = protected_read_reason(
-            _relpath(target, root), settings.read_deny_globs
+            _display(target), settings.read_deny_globs
         )
         if protected:
             return _reject(path, "read", protected)
@@ -297,18 +306,23 @@ def build_file_tools(
         # 词法路径可能是工作区内的符号链接（例如 safe.txt -> .env）。
         # 读保护必须看 realpath，否则链接会绕过保护。
         try:
-            info = fs.stat(target)
+            info = access.stat(target)
         except (SandboxFsError, SandboxPathError):
             info = None
-        if info is not None and info.real_path:
+        real_path = (
+            str(info.get("real_path") or "")
+            if isinstance(info, dict)
+            else str(getattr(info, "real_path", "") or "")
+        )
+        if real_path:
             real_protected = protected_read_reason(
-                _relpath(info.real_path, root), settings.read_deny_globs
+                _display(real_path), settings.read_deny_globs
             )
             if real_protected:
                 return _reject(path, "read", real_protected)
 
         try:
-            text = fs.read_text(target, max_bytes=max_bytes)
+            text = access.read_text(target, max_bytes=max_bytes)
         except SandboxPathError as exc:
             return _reject(path, "read", f"路径被拒绝：{exc}")
         except SandboxFsTooLarge as exc:
@@ -316,6 +330,8 @@ def build_file_tools(
             # 曾经任何错误都拼上这句，文件不存在时也让人去分段读。
             return _error(target, "read", f"{exc}。请用 offset/limit 分段读取。")
         except SandboxFsError as exc:
+            return _error(target, "read", str(exc))
+        except Exception as exc:  # noqa: BLE001 - 工具边界统一回灌错误
             return _error(target, "read", str(exc))
 
         lines = text.splitlines()
@@ -331,13 +347,13 @@ def build_file_tools(
             f"{start + i + 1:>6}\t{redact_secrets(line)}"
             for i, line in enumerate(window)
         )
-        header = f"文件 {_relpath(target, root)}（共 {total} 行"
+        header = f"文件 {_display(target)}（共 {total} 行"
         if window and (start or len(window) < total):
             header += f"，显示第 {start + 1}-{start + len(window)} 行"
         header += f"）\n{reason}"
 
         artifact = FileArtifact(
-            path=_relpath(target, root),
+            path=_display(target),
             action="read",
             ok=True,
             lines_read=len(window),
@@ -990,14 +1006,16 @@ def build_file_tools(
         reason: str = "",
     ) -> str:
         try:
-            target = fs.lexical(path)
+            target = access.lexical(path)
         except SandboxPathError as exc:
             return _reject(path, "list", f"路径被拒绝：{exc}")
         try:
-            entries = fs.list_dir(
+            entries = access.list_dir(
                 target, max_depth=max_depth, limit=limit
             )
         except (SandboxPathError, SandboxFsError) as exc:
+            return _error(target, "list", str(exc))
+        except Exception as exc:  # noqa: BLE001 - 工具边界统一回灌错误
             return _error(target, "list", str(exc))
         kind_label = {"d": "DIR ", "f": "FILE", "l": "LINK"}
         lines = [
@@ -1006,13 +1024,13 @@ def build_file_tools(
         ]
         body = "\n".join(lines) if lines else "（空目录）"
         artifact = FileArtifact(
-            path=_relpath(target, root),
+            path=_display(target),
             action="list",
             ok=True,
             lines_read=len(lines),
         )
         return pack(
-            f"[文件] {reason}\n列出 {_relpath(target, root)}"
+            f"[文件] {reason}\n列出 {_display(target)}"
             f"（{len(lines)} 项）\n{body}",
             artifact,
         )

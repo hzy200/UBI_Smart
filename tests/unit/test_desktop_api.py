@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 
 from coding_agent.desktop import api as desktop_api
 from coding_agent.desktop.config import LauncherConfig
+
+TRUSTED = "http://127.0.0.1:8780"
 
 
 def _config() -> LauncherConfig:
@@ -16,14 +19,22 @@ def _config() -> LauncherConfig:
     )
 
 
+def _bridge(actual: str = TRUSTED) -> desktop_api.DesktopApi:
+    return desktop_api.DesktopApi(
+        _config(),
+        allowed_origin=TRUSTED,
+        origin_provider=lambda: actual,
+    )
+
+
 def test_copy_rejects_non_mnt_source() -> None:
-    result = desktop_api.DesktopApi(_config()).copy_to_wsl("/home/me/proj")
+    result = _bridge().copy_to_wsl("/home/me/proj")
     assert result["ok"] is False
     assert "/mnt" in result["error"]
 
 
 def test_copy_rejects_illegal_names() -> None:
-    bridge = desktop_api.DesktopApi(_config())
+    bridge = _bridge()
     for name in ("../x", "a b", "x" * 65):
         result = bridge.copy_to_wsl("/mnt/d/proj", name)
         assert result["ok"] is False
@@ -39,14 +50,12 @@ def test_open_in_vscode_builds_wsl_remote_command(monkeypatch) -> None:
     monkeypatch.setattr(desktop_api.shutil, "which", lambda name: "code")
     monkeypatch.setattr(desktop_api.subprocess, "Popen", FakePopen)
 
-    result = desktop_api.DesktopApi(_config()).open_in_vscode(
-        "/home/agent/proj"
-    )
+    result = _bridge().open_in_vscode("/home/agent/proj")
     assert result["ok"] is True
     assert calls == [
         ["code", "--remote", "wsl+CodingAgent", "/home/agent/proj"]
     ]
-    assert desktop_api.DesktopApi(_config()).open_in_vscode("relative")["ok"] is False
+    assert _bridge().open_in_vscode("relative")["ok"] is False
 
 
 def test_copy_runs_cp_without_shell_and_reports_done(monkeypatch) -> None:
@@ -73,7 +82,7 @@ def test_copy_runs_cp_without_shell_and_reports_done(monkeypatch) -> None:
     monkeypatch.setattr(desktop_api.subprocess, "run", fake_subprocess_run)
     monkeypatch.setattr(desktop_api.threading, "Thread", ImmediateThread)
 
-    bridge = desktop_api.DesktopApi(_config())
+    bridge = _bridge()
     result = bridge.copy_to_wsl("/mnt/d/proj", "proj")
     assert result["ok"] is True
     assert result["target"] == "/home/agent/.coding-agent/workspaces/proj"
@@ -103,8 +112,48 @@ def test_copy_refuses_existing_target(monkeypatch) -> None:
             args=["wsl.exe"], returncode=0, stdout=b"SRC\nDEST\n", stderr=b""
         ),
     )
-    result = desktop_api.DesktopApi(_config()).copy_to_wsl(
-        "/mnt/d/proj", "proj"
-    )
+    result = _bridge().copy_to_wsl("/mnt/d/proj", "proj")
     assert result["ok"] is False
     assert "已存在" in result["error"]
+
+
+def test_bridge_rejects_untrusted_or_unknown_origin() -> None:
+    evil = _bridge("https://evil.example.com")
+    assert evil.copy_to_wsl("/mnt/d/proj", "proj")["ok"] is False
+    assert "来源" in evil.open_url("https://example.com")["error"]
+    assert evil.pick_folder() == ""
+    assert evil.copy_status("job")["state"] == "denied"
+
+    # 没有可证明的当前 origin（测试环境无 webview）时必须 fail closed。
+    no_origin = desktop_api.DesktopApi(
+        _config(), allowed_origin=TRUSTED
+    )
+    assert no_origin.open_in_vscode("/home/agent/proj")["ok"] is False
+
+
+def test_bridge_denial_is_logged(caplog) -> None:
+    evil = _bridge("https://evil.example.com")
+    with caplog.at_level(logging.WARNING):
+        evil.open_url("https://example.com")
+    assert "桌面桥拒绝" in caplog.text
+    assert "https://evil.example.com" in caplog.text
+
+
+def test_bridge_rejects_non_loopback_allowed_origin() -> None:
+    remote = desktop_api.DesktopApi(
+        _config(),
+        allowed_origin="https://app.example.com",
+        origin_provider=lambda: "https://app.example.com",
+    )
+    assert remote.open_url("https://example.com")["ok"] is False
+
+
+def test_origin_helpers_normalize_and_validate() -> None:
+    assert (
+        desktop_api.origin_of("http://127.0.0.1:8780/#token=x")
+        == "http://127.0.0.1:8780"
+    )
+    assert desktop_api.origin_of("javascript:alert(1)") == ""
+    assert desktop_api.is_loopback_origin("http://127.0.0.1:8780")
+    assert desktop_api.is_loopback_origin("http://localhost:8780")
+    assert not desktop_api.is_loopback_origin("https://example.com")

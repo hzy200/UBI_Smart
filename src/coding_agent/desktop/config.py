@@ -67,6 +67,11 @@ class LauncherConfig:
     # M4：A2 控制面数据库；空 = 继续用 gui-sessions.json。
     # 例：mysql+pymysql://user:pass@127.0.0.1:3306/coding_agent
     control_db_url: str = ""
+    # A2L host 工作区（Windows 本地路径）；空 = 不启动 A2L。
+    host_workspace_root: str = ""
+    host_workspace_id: str = ""
+    host_root_handle: str = ""
+    host_security_tier: str = "lowpriv"
 
     @classmethod
     def load(cls) -> LauncherConfig | None:
@@ -90,6 +95,18 @@ class LauncherConfig:
                 else []
             ),
             control_db_url=str(data.get("control_db_url") or "").strip(),
+            host_workspace_root=str(
+                data.get("host_workspace_root") or ""
+            ).strip(),
+            host_workspace_id=str(
+                data.get("host_workspace_id") or ""
+            ).strip(),
+            host_root_handle=str(
+                data.get("host_root_handle") or ""
+            ).strip(),
+            host_security_tier=str(
+                data.get("host_security_tier") or "lowpriv"
+            ).strip(),
         )
 
     def save(self) -> None:
@@ -108,4 +125,8 @@ class LauncherConfig:
             problems.append("工作区必须是 WSL 内的绝对路径")
         if not self.python.strip().startswith("/"):
             problems.append("Python 必须是 WSL 内的绝对路径")
+        if self.host_workspace_root and not os.path.isabs(
+            self.host_workspace_root
+        ):
+            problems.append("host 工作区必须是 Windows 绝对路径")
         return problems

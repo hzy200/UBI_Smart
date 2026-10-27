@@ -26,7 +26,13 @@ def register_desktop_routes(app: FastAPI, deps: DesktopDeps) -> None:
     async def desktop_shutdown(user: UserDep) -> dict:
         """桌面 server 的优雅退出入口；仅 desktop_mode 暴露。"""
         if not deps.desktop_mode:
-            raise HTTPException(status_code=404, detail="not found")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "desktop.unavailable",
+                    "message": "桌面专属能力未启用",
+                },
+            )
         callback = getattr(deps.app.state, "shutdown", None)
         if callable(callback):
             asyncio.get_running_loop().call_soon(callback)
@@ -36,7 +42,13 @@ def register_desktop_routes(app: FastAPI, deps: DesktopDeps) -> None:
     async def desktop_cancel_all(user: UserDep) -> dict:
         """桌面窗口关闭前协作式取消所有运行；仅桌面模式暴露。"""
         if not deps.desktop_mode:
-            raise HTTPException(status_code=404, detail="not found")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "desktop.unavailable",
+                    "message": "桌面专属能力未启用",
+                },
+            )
         with deps.registry_lock:
             entries = list(deps.runtimes.items())
         cancelled = 0

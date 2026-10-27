@@ -40,6 +40,8 @@ def build_tools(
     sandbox: Any | None = None,
     write_scope: list[str] | None = None,
     read_cache: MutableMapping[str, bytes] | None = None,
+    file_access: Any | None = None,
+    host_mode: bool = False,
 ) -> list[BaseTool]:
     """构造本次会话的全部工具。
 
@@ -55,6 +57,25 @@ def build_tools(
     settings = settings or get_settings()
     sandbox = sandbox or build_sandbox(settings)
 
+    if host_mode:
+        # Phase 1 host 只暴露只读文件/检索；shell、git、依赖、测试、记忆都不碰。
+        host_tools: list[BaseTool] = []
+        host_tools += build_file_tools(
+            settings,
+            sandbox,
+            allow_write=False,
+            read_cache=read_cache,
+            file_access=file_access,
+        )
+        host_tools += [
+            tool
+            for tool in build_search_tools(
+                settings, sandbox, file_access=file_access
+            )
+            if tool.name == "find_files"
+        ]
+        return [_instrument(tool) for tool in host_tools]
+
     tools: list[BaseTool] = [
         build_shell_tool(settings, sandbox, read_cache=read_cache)
     ]
@@ -65,6 +86,7 @@ def build_tools(
         allow_write=allow_write,
         write_scope=write_scope,
         read_cache=read_cache,
+        file_access=file_access,
     )
     tools += build_memory_tools(
         settings,
@@ -74,7 +96,9 @@ def build_tools(
     )
     tools += build_git_tools(settings, sandbox)
     tools += build_deps_tools(settings, sandbox)
-    tools += build_search_tools(settings, sandbox)
+    tools += build_search_tools(
+        settings, sandbox, file_access=file_access
+    )
     tools.append(
         build_symbol_tool(
             settings, sandbox, allow_lsp=allow_execution

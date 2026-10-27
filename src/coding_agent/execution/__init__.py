@@ -9,7 +9,16 @@ from coding_agent.execution.contracts import (
     ExecutionConflict,
     ExecutionRequest,
     ExecutionResult,
+    ExecutionTarget,
+    normalize_execution_target,
 )
+from coding_agent.execution.file_access import FileAccess, SandboxFileAccess
+from coding_agent.execution.host_backend import (
+    HostCaller,
+    HostCallError,
+    HostExecutionBackend,
+)
+from coding_agent.execution.host_file_access import HostFileAccess
 from coding_agent.execution.sandbox_backend import SandboxExecutionBackend
 from coding_agent.execution.sandbox_proxy import ExecutionSandbox
 from coding_agent.execution.service import ExecutionService
@@ -21,5 +30,13 @@ __all__ = [
     "ExecutionResult",
     "ExecutionService",
     "ExecutionSandbox",
+    "ExecutionTarget",
+    "FileAccess",
+    "HostCallError",
+    "HostCaller",
+    "HostExecutionBackend",
+    "HostFileAccess",
     "SandboxExecutionBackend",
+    "SandboxFileAccess",
+    "normalize_execution_target",
 ]

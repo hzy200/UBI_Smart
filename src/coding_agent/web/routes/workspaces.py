@@ -95,6 +95,54 @@ def _require_store(deps: WorkspaceRegistryDeps) -> Any:
     return deps.store
 
 
+def _ensure_default_host_workspace(
+    deps: WorkspaceRegistryDeps,
+    user: AuthUser,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """把启动时配置的本机目录登记成默认项目。
+
+    A2L 只把 `root_handle` 给服务端，A2 必须有一条对应的元数据；
+    否则前端拿不到可选的 `workspace_id`，会话只能落到启动默认目录。
+    """
+    settings = deps.settings
+    handle = str(settings.host_root_handle or "").strip()
+    workspace_id = str(settings.host_workspace_id or "").strip()
+    if (
+        settings.workspace_kind_default != "host"
+        or not handle
+        or not workspace_id
+        or deps.store is None
+    ):
+        return None
+    if any(
+        str(row.get("workspace_id") or "") == workspace_id
+        for row in rows
+    ):
+        return None
+    # 已有其他本机项目时不再补建默认项：用户删掉它可以保持删除状态。
+    if any(str(row.get("kind") or "") == "host" for row in rows):
+        return None
+    try:
+        # A2L 用这个 id 在本地 roots 里查绝对路径；A2 必须沿用同一个 id，
+        # 不能再生成随机 UUID，否则 host 读取会报 WORKSPACE_HANDLE_UNKNOWN。
+        row = deps.store.create(
+            user.name,
+            user.name,
+            "本机默认工作区",
+            source="local_mount",
+            kind="host",
+            a2l_id=str(settings.host_a2l_id or "a2l-local"),
+            root_handle=handle,
+            access_mode="read_only",
+            status="active",
+            workspace_id=workspace_id,
+        )
+    except WorkspaceError:
+        return None
+    return row
+
+
 def _owned(
     deps: WorkspaceRegistryDeps, user: AuthUser, workspace_id: str
 ) -> dict[str, Any]:
@@ -195,6 +243,9 @@ def _workspace_context(
         user=user.name,
         workspace=str(row.get("root_path") or ""),
         workspace_id=str(row.get("workspace_id") or ""),
+        workspace_kind=str(row.get("kind") or "sandbox"),
+        a2l_id=str(row.get("a2l_id") or ""),
+        root_handle=str(row.get("root_handle") or ""),
         access_mode=str(row.get("access_mode") or "read_only"),
         allow_write=True,
     )
@@ -247,6 +298,10 @@ def register_workspace_registry_routes(
             owner=user.name,
             include_deleted=include_deleted,
         )
+        if not include_deleted:
+            default_row = _ensure_default_host_workspace(deps, user, rows)
+            if default_row is not None:
+                rows.insert(0, default_row)
         return {"workspaces": rows}
 
     @app.post("/api/workspaces")
@@ -293,6 +348,71 @@ def register_workspace_registry_routes(
             _idem_abort(deps, idempotency_key)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         _idem_finish(deps, idempotency_key, row)
+        return row
+
+    @app.post("/api/workspaces/host")
+    async def register_host_workspace(user: UserDep) -> dict:
+        deps.rate_limit(user)
+        store = _require_store(deps)
+        if deps.agent_client is None:
+            raise HTTPException(
+                status_code=503, detail="A3 未配置，无法注册本机工作区"
+            )
+        context = AgentContext(
+            tenant=user.name,
+            user=user.name,
+            workspace="",
+            workspace_kind="host",
+            a2l_id=(
+                deps.settings.host_a2l_id or "a2l-local"
+            ),
+            access_mode="read_only",
+            allow_write=False,
+        )
+        try:
+            info = await deps.agent_client.register_host_workspace(
+                context
+            )
+        except Exception as exc:  # noqa: BLE001 - 边界转 HTTP
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "本机工作区注册失败（A2L 是否在线/已启动？）："
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            ) from exc
+        root_handle = str(info.get("root_handle") or "")
+        workspace_id = str(info.get("workspace_id") or "").strip()
+        if not root_handle:
+            raise HTTPException(
+                status_code=502, detail="A2L 未返回 root_handle"
+            )
+        if not workspace_id:
+            raise HTTPException(
+                status_code=502, detail="A2L 未返回 workspace_id"
+            )
+        existing = store.get(workspace_id)
+        if existing is not None:
+            if existing.get("tenant") != user.name:
+                raise HTTPException(status_code=404, detail="工作区不存在")
+            if existing.get("status") == "deleted":
+                raise HTTPException(status_code=409, detail="工作区已删除")
+            return existing
+        try:
+            row = store.create(
+                user.name,
+                user.name,
+                str(info.get("display_name") or "本机工作区"),
+                source="local_mount",
+                kind="host",
+                a2l_id=str(info.get("a2l_id") or context.a2l_id),
+                root_handle=root_handle,
+                access_mode="read_only",
+                status="active",
+                workspace_id=workspace_id,
+            )
+        except WorkspaceError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return row
 
     @app.get("/api/workspaces/{workspace_id}")
@@ -525,7 +645,12 @@ def register_workspace_registry_routes(
                     if limit and total > limit:
                         raise HTTPException(
                             status_code=413,
-                            detail=f"上传超过上限 {limit} 字节",
+                            detail={
+                                "code": "upload.archive_too_large",
+                                "message": "项目归档超过上传上限",
+                                "limit": limit,
+                                "received": total,
+                            },
                         )
                     output.write(chunk)
             if row.get("status") == "failed":

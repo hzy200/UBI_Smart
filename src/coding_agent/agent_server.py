@@ -24,6 +24,7 @@ import sys
 import time
 from collections import deque
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -67,8 +68,10 @@ from coding_agent.events import (
     Event,
     RunFailed,
 )
+from coding_agent.host_broker.acceptor import HostBrokerAcceptor
 from coding_agent.paths import PathGuardError, ensure_inside
 from coding_agent.runtime import AgentRuntime
+from coding_agent.sse_stream import sse_headers
 
 _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
 _STREAM_BUFFER_MAX_EVENTS = 5_000
@@ -81,16 +84,47 @@ def create_agent_app(
     runtime_factory: Any = AgentRuntime,
 ) -> FastAPI:
     settings = settings or get_settings()
-    agent_factory = AgentRuntimeFactory(settings, runtime_factory)
     expected = str(token or os.environ.get("AGENT_INTERNAL_TOKEN", "")).strip()
     if not expected:
         raise ValueError("AGENT_INTERNAL_TOKEN 未配置，拒绝启动无鉴权的 Agent Server")
 
-    app = FastAPI(title="CodingAgent Agent Server", docs_url=None, redoc_url=None)
+    transport = build_event_transport(settings)
+    acceptor = (
+        HostBrokerAcceptor(
+            host=settings.host_broker_listen_host,
+            port=settings.host_broker_listen_port,
+            client_id="a3",
+            heartbeat_s=settings.host_broker_heartbeat_s,
+        )
+        if settings.host_broker_enabled
+        else None
+    )
+    agent_factory = AgentRuntimeFactory(
+        settings,
+        runtime_factory,
+        host_broker_acceptor=acceptor,
+    )
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        if acceptor is not None:
+            acceptor.start()
+        try:
+            yield
+        finally:
+            if acceptor is not None:
+                acceptor.stop()
+
+    app = FastAPI(
+        title="CodingAgent Agent Server",
+        docs_url=None,
+        redoc_url=None,
+        lifespan=_lifespan,
+    )
+    app.state.transport = transport
+    app.state.host_broker_acceptor = acceptor
     runs: dict[tuple[str, str], AgentRuntime] = {}
     states: dict[tuple[str, str], RunState] = {}
-    transport = build_event_transport(settings)
-    app.state.transport = transport
 
     def _require_token(request: Request) -> None:
         header = request.headers.get("authorization", "")
@@ -100,7 +134,12 @@ def create_agent_app(
         if not hmac.compare_digest(provided, expected):
             raise HTTPException(status_code=401, detail="内部 token 无效")
 
-    def _context(request: Request) -> AgentContext:
+    def _context(
+        request: Request,
+        *,
+        require_host_handle: bool = True,
+        require_workspace_root: bool = True,
+    ) -> AgentContext:
         _require_token(request)
         raw = request.headers.get("x-agent-context", "")
         signature = request.headers.get("x-agent-signature", "")
@@ -116,11 +155,28 @@ def create_agent_app(
             raise HTTPException(
                 status_code=400, detail=f"Agent context 无效：{exc}"
             ) from exc
-        if not context.workspace.startswith("/"):
-            raise HTTPException(
-                status_code=400, detail="workspace 必须是绝对路径"
-            )
-        if settings.workspace_registry:
+        if context.workspace_kind == "host":
+            if not context.a2l_id:
+                raise HTTPException(
+                    status_code=400, detail="host 工作区需要 a2l_id"
+                )
+            if require_host_handle and (
+                not context.workspace_id or not context.root_handle
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="host 工作区需要 workspace_id/root_handle",
+                )
+        else:
+            if not context.workspace.startswith("/"):
+                raise HTTPException(
+                    status_code=400, detail="workspace 必须是绝对路径"
+                )
+        if (
+            require_workspace_root
+            and settings.workspace_registry
+            and context.workspace_kind != "host"
+        ):
             allowed = str(settings.workspace_root or "").strip()
             if not allowed:
                 raise HTTPException(
@@ -284,10 +340,7 @@ def create_agent_app(
         return StreamingResponse(
             stream(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
+            headers=sse_headers(),
         )
 
     def _transport_sse(event_key: str, *, after: int = 0) -> StreamingResponse:
@@ -321,7 +374,7 @@ def create_agent_app(
         return StreamingResponse(
             stream(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            headers=sse_headers(),
         )
 
     def _stream_guard(context: AgentContext, thread_id: str) -> RunState | None:
@@ -374,11 +427,39 @@ def create_agent_app(
     def _audit_dir(context: AgentContext) -> Path:
         return Path(agent_factory.tenant_settings(context).resolved_audit_dir)
 
+    @app.post("/v1/host-workspaces/register")
+    async def register_host_workspace(request: Request) -> dict[str, Any]:
+        context = _context(request, require_host_handle=False)
+        acceptor = app.state.host_broker_acceptor
+        if acceptor is None:
+            raise HTTPException(status_code=503, detail="A2L 未启用")
+        caller = acceptor.caller_for(context.a2l_id)
+        if caller is None:
+            raise HTTPException(
+                status_code=503, detail="A2L 未连接"
+            )
+        try:
+            data = await asyncio.to_thread(
+                caller.call,
+                "host.workspace.register",
+                workspace={},
+                payload={},
+            )
+        except Exception as exc:  # noqa: BLE001 - 边界转 HTTP
+            raise HTTPException(
+                status_code=502,
+                detail=f"本机工作区注册失败：{type(exc).__name__}: {exc}",
+            ) from exc
+        return {"a2l_id": context.a2l_id, **dict(data or {})}
+
     register_lifecycle_routes(
         app,
         LifecycleDeps(
             app=app,
             context=_context,
+            history_context=lambda request: _context(
+                request, require_workspace_root=False
+            ),
             require_token=_require_token,
             key=_key,
             event_key=_event_key,

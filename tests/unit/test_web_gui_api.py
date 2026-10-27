@@ -386,6 +386,92 @@ def test_upload_goes_to_agent_uploads(settings, runtime) -> None:
     assert uploaded["bytes"] == 5
 
 
+def test_upload_file_limit_reports_stable_code_and_details(
+    settings, runtime
+) -> None:
+    settings = settings.model_copy(update={"web_max_upload_bytes": 4})
+    client = TestClient(web.create_app(settings))
+    thread = client.post(
+        "/api/sessions",
+        json={"workspace": "/tmp/ws", "access_mode": "read_only"},
+    ).json()["thread_id"]
+
+    response = client.post(
+        f"/api/sessions/{thread}/uploads",
+        files=[("files", ("big.txt", b"12345", "text/plain"))],
+    )
+    assert response.status_code == 413
+    body = response.json()
+    assert body["code"] == "upload.file_too_large"
+    assert body["details"]["limit"] == 4
+    assert body["details"]["received"] == 5
+    assert body["details"]["filename"] == "big.txt"
+    assert body["request_id"] == response.headers["x-request-id"]
+
+
+def test_upload_file_count_limit(settings, runtime) -> None:
+    settings = settings.model_copy(update={"web_max_upload_files": 1})
+    client = TestClient(web.create_app(settings))
+    thread = client.post(
+        "/api/sessions",
+        json={"workspace": "/tmp/ws", "access_mode": "read_only"},
+    ).json()["thread_id"]
+
+    response = client.post(
+        f"/api/sessions/{thread}/uploads",
+        files=[
+            ("files", ("a.txt", b"a", "text/plain")),
+            ("files", ("b.txt", b"b", "text/plain")),
+        ],
+    )
+    assert response.status_code == 413
+    assert response.json()["code"] == "upload.too_many_files"
+    assert response.json()["details"]["limit"] == 1
+
+
+def test_session_upload_is_idempotent_with_control_db(
+    settings, runtime, tmp_path
+) -> None:
+    settings = settings.model_copy(
+        update={
+            "control_db_url": (
+                f"sqlite:///{(tmp_path / 'control.db').as_posix()}"
+            ),
+            "control_db_auto_create": True,
+        }
+    )
+    client = TestClient(web.create_app(settings))
+    thread = client.post(
+        "/api/sessions",
+        json={"workspace": "/tmp/ws", "access_mode": "read_only"},
+    ).json()["thread_id"]
+    url = f"/api/sessions/{thread}/uploads"
+
+    first = client.post(
+        url,
+        files=[("files", ("a.txt", b"hello", "text/plain"))],
+        headers={"Idempotency-Key": "upload-key-1"},
+    )
+    assert first.status_code == 200
+    assert first.json()["uploads"][0]["relative_path"].endswith("a.txt")
+
+    replay = client.post(
+        url,
+        files=[("files", ("b.txt", b"different", "text/plain"))],
+        headers={"Idempotency-Key": "upload-key-1"},
+    )
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+
+    third = client.post(
+        url,
+        files=[("files", ("c.txt", b"hello", "text/plain"))],
+        headers={"Idempotency-Key": "upload-key-2"},
+    )
+    assert third.status_code == 200
+    assert third.json()["uploads"][0]["relative_path"].endswith("c.txt")
+
+
 def test_health_uses_the_same_secret_store_as_runtime(
     settings, monkeypatch
 ) -> None:

@@ -302,6 +302,9 @@ def _row(workspace: Workspace) -> dict[str, Any]:
         "slug": workspace.slug,
         "display_name": workspace.display_name,
         "source": workspace.source,
+        "kind": workspace.kind,
+        "a2l_id": workspace.a2l_id,
+        "root_handle": workspace.root_handle,
         "root_path": workspace.root_path,
         "root_kind": workspace.root_kind,
         "status": workspace.status,
@@ -363,10 +366,14 @@ class WorkspaceStore:
         *,
         source: str = "upload",
         root_path: str | None = None,
+        kind: str = "sandbox",
+        a2l_id: str = "",
+        root_handle: str = "",
         access_mode: str = "read_only",
         quota_bytes: int = 0,
         status: str = "provisioning",
         legacy: bool = False,
+        workspace_id: str | None = None,
     ) -> dict[str, Any]:
         if source not in WORKSPACE_SOURCES:
             raise WorkspacePathError(f"未知来源：{source!r}")
@@ -377,16 +384,31 @@ class WorkspaceStore:
             raise WorkspaceStatusError(f"未知状态：{status!r}")
         tenant_part = _segment(tenant, "tenant")
         owner_part = _segment(owner, "owner")
-        workspace_id = _new_id()
+        kind = str(kind or "sandbox").strip().lower()
+        if kind not in {"host", "sandbox"}:
+            raise WorkspacePathError(f"未知工作区类型：{kind!r}")
+        requested_id = str(workspace_id or "").strip()
+        if requested_id and len(requested_id) > 36:
+            raise WorkspacePathError("workspace_id 过长")
+        workspace_id = requested_id or _new_id()
         slug = proposed_slug(display_name, workspace_id)
 
-        if root_path is None:
-            root_path = workspace_root_for(
-                self.policy, tenant_part, owner_part, slug
+        if kind == "host":
+            if not str(root_handle or "").strip():
+                raise WorkspacePathError("host 工作区必须提供 root_handle")
+            if root_path:
+                raise WorkspacePathError("host 工作区不接受 A2 侧 root_path")
+            normalized = ""
+            root_kind = "ntfs"
+            degraded = False
+        else:
+            if root_path is None:
+                root_path = workspace_root_for(
+                    self.policy, tenant_part, owner_part, slug
+                )
+            normalized, root_kind, degraded = validate_root(
+                self.policy, root_path, source=source
             )
-        normalized, root_kind, degraded = validate_root(
-            self.policy, root_path, source=source
-        )
 
         now = _now()
         for attempt in range(2):
@@ -398,6 +420,9 @@ class WorkspaceStore:
                 slug=candidate,
                 display_name=str(display_name or ""),
                 source=source,
+                kind=kind,
+                a2l_id=str(a2l_id or ""),
+                root_handle=str(root_handle or ""),
                 root_path=normalized,
                 root_kind=root_kind,
                 status=status,

@@ -18,6 +18,9 @@ class _Runtime:
     def list_snapshots(self, limit: int = 20):
         return []
 
+    async def history(self, _thread_id, *, limit=None, offset=0):
+        return []
+
     async def aclose(self) -> None:
         return None
 
@@ -90,6 +93,21 @@ def test_registry_requires_configured_root(tmp_path) -> None:
         headers=_headers("/srv/ws/alice/alice/demo"),
     )
     assert response.status_code == 400
+
+
+def test_history_ignores_workspace_root(tmp_path) -> None:
+    """旧会话的工作区可能不在新注册表根内，但历史仍要能看。"""
+    client = _app(
+        tmp_path,
+        workspace_registry=True,
+        workspace_root="/srv/ws",
+    )
+    response = client.get(
+        "/v1/history/t1",
+        headers=_headers("/home/agent/agent-ws"),
+    )
+    assert response.status_code == 200
+    assert response.json() == {"messages": []}
 
 
 def test_registry_off_keeps_legacy_behavior(tmp_path) -> None:

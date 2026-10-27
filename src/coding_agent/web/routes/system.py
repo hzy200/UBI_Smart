@@ -14,6 +14,11 @@ from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.validation import check_thread_id
+from coding_agent.web.version import (
+    CAPABILITIES_VERSION,
+    MIN_FRONTEND_VERSION,
+    WEB_API_VERSION,
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +41,9 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
         return {
             "status": "ok",
             "version": __version__,
+            "api_version": WEB_API_VERSION,
+            "min_frontend_version": MIN_FRONTEND_VERSION,
+            "capabilities_version": CAPABILITIES_VERSION,
             "agent_state": getattr(
                 app.state, "agent_status", {"state": "unknown"}
             ).get("state", "unknown"),
@@ -107,6 +115,7 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
         return {
             "default_access_mode": deps.default_access or "legacy",
             "desktop_mode": deps.desktop_mode,
+            "capabilities_version": CAPABILITIES_VERSION,
             "agent": getattr(
                 app.state, "agent_status", {"state": "unknown"}
             ),

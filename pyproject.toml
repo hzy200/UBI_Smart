@@ -86,6 +86,7 @@ markers = [
     "llm: 需要 DEEPSEEK_API_KEY",
     "wsl_env: 显式探测宿主 WSL 环境（如 doctor），允许真实执行沙箱命令",
     "execution: 真实 WSL/Linux 执行后端契约测试，允许启动沙箱命令",
+    "host: 需要 Windows 真机 A2L 宿主能力代理的测试",
     "mysql: 需要 AGENT_TEST_MYSQL_URL 指向独立测试库",
     "smoke: 系统冒烟，无 WSL/LLM 依赖，提交/发版前快速确认主链路可用",
     "regression: 承重不变量与历史回归集，失败即视为回归而不是新需求",

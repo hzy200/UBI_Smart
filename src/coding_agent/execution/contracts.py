@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+from coding_agent.workspace.model import WorkspaceKind
+
+ExecutionTarget = Literal["auto", "host", "sandbox"]
+
+EXECUTION_TARGETS: frozenset[str] = frozenset({"auto", "host", "sandbox"})
+
+
+def normalize_execution_target(value: str | None) -> ExecutionTarget:
+    """未知/空 target 按 `auto` 处理；路由层再做 kind 冲突检查。"""
+    text = str(value or "").strip().lower()
+    return text if text in EXECUTION_TARGETS else "auto"  # type: ignore[return-value]
 
 
 class ExecutionError(RuntimeError):
@@ -19,6 +31,9 @@ class ExecutionRequest:
     op_id: str
     kind: str
     workspace_id: str = ""
+    workspace_kind: WorkspaceKind = "sandbox"
+    target: ExecutionTarget = "auto"
+    grant_id: str = ""
     run_id: str = ""
     tool_call_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)

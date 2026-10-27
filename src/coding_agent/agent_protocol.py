@@ -94,6 +94,9 @@ class AgentContext:
     workspace: str = ""
     # RFC-0001：注册表开启时由 A2 绑定；A3 只用于审计与兼容，不据此放行路径。
     workspace_id: str = ""
+    workspace_kind: str = "sandbox"
+    a2l_id: str = ""
+    root_handle: str = ""
     access_mode: str = "read_only"
     model: str = ""
     provider: str = ""
@@ -122,6 +125,9 @@ class AgentContext:
             user=str(data.get("user") or "local"),
             workspace=str(data.get("workspace") or ""),
             workspace_id=str(data.get("workspace_id") or ""),
+            workspace_kind=str(data.get("workspace_kind") or "sandbox"),
+            a2l_id=str(data.get("a2l_id") or ""),
+            root_handle=str(data.get("root_handle") or ""),
             access_mode=str(data.get("access_mode") or "read_only"),
             model=str(data.get("model") or ""),
             provider=str(data.get("provider") or ""),

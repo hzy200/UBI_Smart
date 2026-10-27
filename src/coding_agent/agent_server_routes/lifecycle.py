@@ -36,6 +36,8 @@ class LifecycleDeps:
     states: dict
     runs: dict
     transport: Any
+    # 历史读取不依赖工作区是否在注册表根内；旧会话仍可回看。
+    history_context: Callable[[Request], AgentContext] | None = None
 
 
 def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
@@ -237,7 +239,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
         limit: int | None = None,
         offset: int = 0,
     ) -> dict:
-        context = deps.context(request)
+        context = (deps.history_context or deps.context)(request)
         runtime = deps.runtime_for(context, thread_id, create=False)
         temporary = None
         if runtime is None:

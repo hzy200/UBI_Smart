@@ -138,6 +138,7 @@ from coding_agent.tools.artifacts import (
 )
 from coding_agent.tools.delegate import DELEGATE_EXPLORE
 from coding_agent.tools.shell import SHELL_TOOL_NAME
+from coding_agent.workspace.model import normalize_workspace_kind
 from coding_agent.workspace_lock import WorkspaceLock
 
 # 只有这几个 action 才真正改动了文件，read 与空回滚不发 FileChanged
@@ -346,6 +347,9 @@ class AgentRuntime:
         model_override: str = "",
         provider_name: str = "",
         secret_store: SecretStore | None = None,
+        file_access: Any | None = None,
+        execution_targets: dict[str, Any] | None = None,
+        workspace_kind: str = "sandbox",
     ) -> None:
         self.settings = apply_security_profile(settings or get_settings())
         # production/ops 是只读审计档：无论调用方传了什么，都强制关闭写能力
@@ -387,6 +391,9 @@ class AgentRuntime:
         self.model_override = str(model_override or "").strip()
         self.provider_name = str(provider_name or "").strip()
         self.secret_store = secret_store
+        self.file_access = file_access
+        self.execution_targets = dict(execution_targets or {})
+        self.workspace_kind = normalize_workspace_kind(workspace_kind)
         self.policy = SessionPolicy(
             allow_write=allow_write,
             approval_mode=approval_mode or self.settings.approval_mode,
@@ -463,6 +470,8 @@ class AgentRuntime:
         service = ExecutionService(
             SandboxExecutionBackend(self._sandbox, self._workspace),
             self._workspace,
+            targets=self.execution_targets,
+            workspace_kind=self.workspace_kind,
         )
         self._execution = service
         self._sandbox = ExecutionSandbox(self._sandbox, service)
@@ -473,6 +482,9 @@ class AgentRuntime:
 
     def _repo_profile(self) -> RepoProfile:
         """仓库画像（文件数/测试文件数），按 runtime 缓存。"""
+        if self.workspace_kind == "host":
+            # Phase 1 host 只读不跑沙箱命令；画像未知而不是误探 Windows 路径。
+            return RepoProfile()
         if self._repo_profile_cache is None:
             self._repo_profile_cache = profile_workspace(self._sandbox, self.workspace)
         return self._repo_profile_cache
@@ -1116,6 +1128,8 @@ class AgentRuntime:
                 model_override=self.model_override,
                 provider_name=self.provider_name,
                 secret_store=self.secret_store,
+                file_access=self.file_access,
+                host_mode=self.workspace_kind == "host",
             )
         return self._graph
 
@@ -1232,7 +1246,10 @@ class AgentRuntime:
 
         # 分层项目指令是增强信息：发现失败（沙箱不可用、find 缺失）不影响运行
         instructions = ""
-        if self.settings.instructions_enabled:
+        if (
+            self.settings.instructions_enabled
+            and self.workspace_kind != "host"
+        ):
             try:
                 from coding_agent.instructions import load_project_instructions
 

@@ -53,6 +53,8 @@ class ExecutionSandbox:
                 op_id=context.next_op_id(),
                 kind="run",
                 workspace_id=self._execution.workspace,
+                workspace_kind=self._execution.workspace_kind,
+                target="auto",
                 run_id=context.run_id,
                 tool_call_id=context.call_id,
                 payload={

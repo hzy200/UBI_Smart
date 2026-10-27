@@ -34,6 +34,8 @@ def _client(
     *,
     enabled: bool = True,
     user: str = "alice",
+    settings: Settings | None = None,
+    agent_client: object | None = None,
 ) -> tuple[TestClient, dict[str, str]]:
     app = FastAPI()
     register_workspace_registry_routes(
@@ -42,10 +44,10 @@ def _client(
             rate_limit=lambda _user: None,
             store=store,
             enabled=enabled,
-            settings=Settings(
+            settings=settings or Settings(
                 _env_file=None, workspace_mount_roots="/mnt/d"
             ),
-            agent_client=None,
+            agent_client=agent_client,
         ),
     )
     holder = {"user": user}
@@ -196,3 +198,56 @@ def test_template_sources_generate_root(tmp_path, source: str) -> None:
     )
     assert response.status_code == 200
     assert response.json()["root_path"].startswith("/srv/ws/alice/alice/")
+
+
+def test_host_default_workspace_is_registered_once(tmp_path) -> None:
+    """启动配置的本机目录要出现在项目列表里，否则前端无法绑定它。"""
+    settings = Settings(
+        _env_file=None,
+        workspace_mount_roots="/mnt/d",
+        workspace_kind_default="host",
+        host_workspace_id="ws-local",
+        host_root_handle="h_local",
+        host_a2l_id="a2l-local",
+    )
+    client, _ = _client(_store(tmp_path), settings=settings)
+
+    first = client.get("/api/workspaces").json()["workspaces"]
+    assert len(first) == 1
+    row = first[0]
+    # A2L 用这个 id 查本地 roots，A2 不能换成随机 UUID。
+    assert row["workspace_id"] == "ws-local"
+    assert row["kind"] == "host"
+    assert row["root_handle"] == "h_local"
+    assert row["root_path"] == ""
+    assert row["status"] == "active"
+
+    second = client.get("/api/workspaces").json()["workspaces"]
+    assert [item["workspace_id"] for item in second] == [
+        row["workspace_id"]
+    ]
+
+
+def test_registered_host_workspace_keeps_a2l_id(tmp_path) -> None:
+    class _AgentClient:
+        async def register_host_workspace(self, _context):
+            return {
+                "workspace_id": "ws_picked",
+                "root_handle": "h_picked",
+                "display_name": "picked",
+                "a2l_id": "a2l-local",
+            }
+
+    store = _store(tmp_path)
+    client, _ = _client(store, agent_client=_AgentClient())
+
+    first = client.post("/api/workspaces/host")
+    assert first.status_code == 200
+    assert first.json()["workspace_id"] == "ws_picked"
+
+    # 重复注册同一目录时复用同一行，不产生第二个项目。
+    second = client.post("/api/workspaces/host")
+    assert second.status_code == 200
+    assert second.json()["workspace_id"] == "ws_picked"
+    rows = client.get("/api/workspaces").json()["workspaces"]
+    assert [row["workspace_id"] for row in rows] == ["ws_picked"]

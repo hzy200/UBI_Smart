@@ -193,6 +193,8 @@ def build_graph(
     model_override: str = "",
     provider_name: str = "",
     secret_store: Any | None = None,
+    file_access: Any | None = None,
+    host_mode: bool = False,
 ):
     # 一次运行只该有一份沙箱：环境探测（$HOME、bwrap、rg）的结果缓存在**实例**上，
     # 各建一份就等于各探一遍 —— 曾经这里是 runtime / build_tools / verify 三份，
@@ -233,6 +235,8 @@ def build_graph(
         allow_execution=policy.access_mode != ACCESS_READ_ONLY,
         sandbox=sandbox,
         read_cache=read_cache,
+        file_access=file_access,
+        host_mode=host_mode,
     )
     # 有副作用工具的执行日志放在宿主审计目录，不依赖沙箱。
     journal = ToolJournal(
