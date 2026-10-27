@@ -1,17 +1,18 @@
   <main class="main">
     <div class="main-tabs" role="tablist" aria-label="主区标签">
-      <button class="main-tab" :class="mainTabClass('chat')" @click="showChat()">
+      <button class="main-tab" role="tab" :class="mainTabClass('chat')"
+              :aria-selected="mainTab === 'chat' ? 'true' : 'false'" @click="showChat()">
         <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
         <span>对话</span>
       </button>
-      <button class="main-tab" :class="mainTabClass('file')" x-show="fileView.path"
-              @click="showFileTab()">
+      <button class="main-tab" role="tab" :class="mainTabClass('file')" x-show="fileView.path"
+              :aria-selected="mainTab === 'file' ? 'true' : 'false'" @click="showFileTab()">
         <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
         <span class="main-tab-label" x-text="fileView.path"></span>
         <span class="tab-close" role="button" @click.stop="closeFileTab()" title="关闭文件">×</span>
       </button>
-      <button class="main-tab" :class="mainTabClass('diff')" x-show="diffDisplay"
-              @click="showDiffTab()">
+      <button class="main-tab" role="tab" :class="mainTabClass('diff')" x-show="diffDisplay"
+              :aria-selected="mainTab === 'diff' ? 'true' : 'false'" @click="showDiffTab()">
         <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
         <span>Diff</span>
         <span class="tab-close" role="button" @click.stop="closeDiffTab()" title="关闭 Diff">×</span>
@@ -84,7 +85,10 @@
     </div>
     <div class="transcript" x-ref="transcript" role="log" aria-live="polite"
          aria-label="对话记录" @scroll="onTranscriptScroll($event)">
-      <template x-for="m in messages" :key="m.id">
+      <button class="load-older" x-show="hiddenMessageCount() > 0" @click="showOlderMessages()">
+        显示更早消息（还有 <span x-text="hiddenMessageCount()"></span> 条）
+      </button>
+      <template x-for="m in visibleMessages()" :key="m.id">
         <div class="msg" :class="messageClass(m)" :data-message-id="m.id">
           <div class="msg-head">
             <span class="msg-badge"

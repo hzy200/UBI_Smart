@@ -8,14 +8,16 @@
       <input x-ref="commandInput" x-model="commandQuery"
              @input="onCommandQuery()"
              @keydown="onCommandKeydown($event)"
+             :aria-activedescendant="'command-item-' + commandIndex"
+             aria-controls="command-list"
              placeholder="输入命令、会话或文件…" aria-label="命令面板搜索">
       <kbd>Esc</kbd>
     </div>
-    <div class="command-list" role="listbox" aria-label="命令列表">
+    <div class="command-list" id="command-list" role="listbox" aria-label="命令列表">
       <template x-for="(cmd, index) in filteredCommands()" :key="cmd.id">
-        <button class="command-item" :class="commandClass(index)"
-                role="option" @mouseenter="hoverCommand(index)"
-                @click="runCommand(cmd)">
+        <button class="command-item" :id="'command-item-' + index" :class="commandClass(index)"
+                role="option" :aria-selected="index === commandIndex ? 'true' : 'false'"
+                @mouseenter="hoverCommand(index)" @click="runCommand(cmd)">
           <span class="command-main">
             <span class="command-title" x-text="cmd.title"></span>
             <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>

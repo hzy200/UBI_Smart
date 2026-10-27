@@ -121,7 +121,9 @@
 </svg>
 
 <header x-show="ready" x-cloak>
-  <button class="icon-btn" @click="toggleSidebar()" aria-label="切换侧栏" title="切换侧栏（Ctrl+B）">
+  <button class="icon-btn" @click="toggleSidebar()" aria-label="切换侧栏"
+          :aria-expanded="!sidebarCollapsed ? 'true' : 'false'" aria-controls="sidebar-panel"
+          title="切换侧栏（Ctrl+B）">
     <svg class="icon" aria-hidden="true"><use href="#i-panel-left"></use></svg>
   </button>
   <span class="name">CodingAgent</span>
@@ -132,7 +134,9 @@
   </button>
   <span class="meta workspace" x-text="workspaceLabel()"></span>
   <span class="spacer"></span>
-  <button class="icon-btn" @click="toggleInspector()" aria-label="切换检查器" title="切换检查器（Ctrl+J）">
+  <button class="icon-btn" @click="toggleInspector()" aria-label="切换检查器"
+          :aria-expanded="!inspectorCollapsed ? 'true' : 'false'" aria-controls="inspector-panel"
+          title="切换检查器（Ctrl+J）">
     <svg class="icon" aria-hidden="true"><use href="#i-panel-right"></use></svg>
   </button>
   <button class="icon-btn notification-btn" @click.stop="toggleNotifications()" aria-label="通知中心" title="通知中心">
@@ -154,32 +158,39 @@
 <nav class="activitybar" aria-label="主导航">
   <div class="activity-group">
     <button class="activity-item" :class="viewClasses.sessions" @click="setView('sessions')"
+            :aria-pressed="view === 'sessions' ? 'true' : 'false'"
             title="会话" aria-label="会话">
       <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.files" @click="setView('files')"
+            :aria-pressed="view === 'files' ? 'true' : 'false'"
             title="文件改动" aria-label="文件改动">
       <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
       <span class="activity-dot" x-show="filesDirty" aria-hidden="true"></span>
     </button>
     <button class="activity-item" :class="viewClasses.tree" @click="setView('tree')"
+            :aria-pressed="view === 'tree' ? 'true' : 'false'"
             title="文件树" aria-label="文件树">
       <svg class="icon" aria-hidden="true"><use href="#i-tree"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.git" @click="setView('git')"
+            :aria-pressed="view === 'git' ? 'true' : 'false'"
             title="Git" aria-label="Git">
       <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.tasks" @click="setView('tasks')"
+            :aria-pressed="view === 'tasks' ? 'true' : 'false'"
             title="任务" aria-label="任务">
       <svg class="icon" aria-hidden="true"><use href="#i-tasks"></use></svg>
       <span class="activity-dot" x-show="tasksDirty" aria-hidden="true"></span>
     </button>
     <button class="activity-item" :class="viewClasses.memory" @click="setView('memory')"
+            :aria-pressed="view === 'memory' ? 'true' : 'false'"
             title="记忆" aria-label="记忆">
       <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.audit" @click="setView('audit')"
+            :aria-pressed="view === 'audit' ? 'true' : 'false'"
             title="审计" aria-label="审计">
       <svg class="icon" aria-hidden="true"><use href="#i-audit"></use></svg>
     </button>
@@ -190,7 +201,7 @@
   </button>
 </nav>
 
-<aside class="sidebar" x-show="!sidebarCollapsed">
+<aside class="sidebar" id="sidebar-panel" x-show="!sidebarCollapsed">
   <div class="sidebar-head">
     <h3 x-text="viewTitle()">会话</h3>
     <div class="row">
@@ -404,18 +415,19 @@
 
   <main class="main">
     <div class="main-tabs" role="tablist" aria-label="主区标签">
-      <button class="main-tab" :class="mainTabClass('chat')" @click="showChat()">
+      <button class="main-tab" role="tab" :class="mainTabClass('chat')"
+              :aria-selected="mainTab === 'chat' ? 'true' : 'false'" @click="showChat()">
         <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
         <span>对话</span>
       </button>
-      <button class="main-tab" :class="mainTabClass('file')" x-show="fileView.path"
-              @click="showFileTab()">
+      <button class="main-tab" role="tab" :class="mainTabClass('file')" x-show="fileView.path"
+              :aria-selected="mainTab === 'file' ? 'true' : 'false'" @click="showFileTab()">
         <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
         <span class="main-tab-label" x-text="fileView.path"></span>
         <span class="tab-close" role="button" @click.stop="closeFileTab()" title="关闭文件">×</span>
       </button>
-      <button class="main-tab" :class="mainTabClass('diff')" x-show="diffDisplay"
-              @click="showDiffTab()">
+      <button class="main-tab" role="tab" :class="mainTabClass('diff')" x-show="diffDisplay"
+              :aria-selected="mainTab === 'diff' ? 'true' : 'false'" @click="showDiffTab()">
         <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
         <span>Diff</span>
         <span class="tab-close" role="button" @click.stop="closeDiffTab()" title="关闭 Diff">×</span>
@@ -488,7 +500,10 @@
     </div>
     <div class="transcript" x-ref="transcript" role="log" aria-live="polite"
          aria-label="对话记录" @scroll="onTranscriptScroll($event)">
-      <template x-for="m in messages" :key="m.id">
+      <button class="load-older" x-show="hiddenMessageCount() > 0" @click="showOlderMessages()">
+        显示更早消息（还有 <span x-text="hiddenMessageCount()"></span> 条）
+      </button>
+      <template x-for="m in visibleMessages()" :key="m.id">
         <div class="msg" :class="messageClass(m)" :data-message-id="m.id">
           <div class="msg-head">
             <span class="msg-badge"
@@ -608,12 +623,15 @@
   <div class="splitter splitter-right" x-show="!inspectorCollapsed"
        @pointerdown="startResize('inspector', $event)"
        role="separator" aria-orientation="vertical" aria-label="调整检查器宽度"></div>
-<section class="inspector" x-show="!inspectorCollapsed">
+<section class="inspector" id="inspector-panel" x-show="!inspectorCollapsed">
   <div class="inspector-head">
-    <div class="tabs">
-      <button :class="tabClasses.plan" @click="setTab('plan')">计划</button>
-      <button :class="tabClasses.tools" @click="setTab('tools')">工具</button>
-      <button :class="tabClasses.timeline" @click="setTab('timeline')">时间线</button>
+    <div class="tabs" role="tablist" aria-label="检查器标签">
+      <button role="tab" :aria-selected="tab === 'plan' ? 'true' : 'false'"
+              :class="tabClasses.plan" @click="setTab('plan')">计划</button>
+      <button role="tab" :aria-selected="tab === 'tools' ? 'true' : 'false'"
+              :class="tabClasses.tools" @click="setTab('tools')">工具</button>
+      <button role="tab" :aria-selected="tab === 'timeline' ? 'true' : 'false'"
+              :class="tabClasses.timeline" @click="setTab('timeline')">时间线</button>
     </div>
     <button class="icon-btn" @click="toggleInspector()" title="收起检查器" aria-label="收起检查器">
       <svg class="icon" aria-hidden="true"><use href="#i-panel-right"></use></svg>
@@ -694,14 +712,16 @@
       <input x-ref="commandInput" x-model="commandQuery"
              @input="onCommandQuery()"
              @keydown="onCommandKeydown($event)"
+             :aria-activedescendant="'command-item-' + commandIndex"
+             aria-controls="command-list"
              placeholder="输入命令、会话或文件…" aria-label="命令面板搜索">
       <kbd>Esc</kbd>
     </div>
-    <div class="command-list" role="listbox" aria-label="命令列表">
+    <div class="command-list" id="command-list" role="listbox" aria-label="命令列表">
       <template x-for="(cmd, index) in filteredCommands()" :key="cmd.id">
-        <button class="command-item" :class="commandClass(index)"
-                role="option" @mouseenter="hoverCommand(index)"
-                @click="runCommand(cmd)">
+        <button class="command-item" :id="'command-item-' + index" :class="commandClass(index)"
+                role="option" :aria-selected="index === commandIndex ? 'true' : 'false'"
+                @mouseenter="hoverCommand(index)" @click="runCommand(cmd)">
           <span class="command-main">
             <span class="command-title" x-text="cmd.title"></span>
             <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>
@@ -960,7 +980,7 @@
       <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
     </button>
   </div>
-  <div class="notification-list">
+  <div class="notification-list" aria-live="polite">
     <template x-for="item in notifications" :key="item.id">
       <div class="notification-item" :class="notificationClass(item)">
         <div class="notification-title" x-text="item.title"></div>
@@ -972,7 +992,7 @@
   </div>
 </div>
 
-<footer class="statusbar" x-show="ready" x-cloak>
+<footer class="statusbar" role="contentinfo" x-show="ready" x-cloak>
   <span class="status-item" :title="healthText">
     <span class="status-dot" :class="connectionClass()"></span>
     <span x-text="stateText"></span>
@@ -991,7 +1011,7 @@
   </button>
 </footer>
 
-<div class="toast" x-show="toast" x-text="toast" x-cloak></div>
+<div class="toast" role="status" aria-live="polite" x-show="toast" x-text="toast" x-cloak></div>
 </div>
 
 <script src="/static/vendor/marked.min.js"></script>

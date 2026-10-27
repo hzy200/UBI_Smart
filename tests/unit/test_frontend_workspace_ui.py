@@ -226,3 +226,41 @@ def test_m4_conversation_and_tools_are_guarded() -> None:
     css = (STATIC / "style.css").read_text(encoding="utf-8")
     for marker in (".main-search", ".jump-latest", ".msg-hit", ".tool-detail", ".tree-copy"):
         assert marker in css, marker
+
+
+def test_m5_windowing_and_a11y_are_guarded() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "visibleMessages()",
+        "hiddenMessageCount()",
+        "showOlderMessages()",
+        "load-older",
+        'aria-selected',
+        'aria-pressed',
+        'aria-activedescendant',
+        'role="status"',
+        'aria-controls="sidebar-panel"',
+        'aria-controls="inspector-panel"',
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "visibleMessages",
+        "tailSlice",
+        "showOlderMessages",
+        "revealMessage",
+        "diffRowsFromText",
+        "matchesAllTokens",
+        "includesQuery",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    assert ".load-older" in css
+
+    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    assert (frontend / "test.mjs").is_file()
+    assert (frontend / "tests" / "diff.test.ts").is_file()
+    assert (frontend / "tests" / "search.test.ts").is_file()
+    assert (frontend / "tests" / "window.test.ts").is_file()

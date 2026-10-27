@@ -1989,6 +1989,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.decisions = {};
       this.costText = "";
       this.usage = { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 };
+      this.messageWindow = 120;
       this.messageSearchOpen = false;
       this.messageQuery = "";
       this.messageMatches = [];
@@ -2065,6 +2066,26 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     }
   };
 
+  // src/ui/search.ts
+  function includesQuery(haystack, query) {
+    const needle = String(query || "").trim().toLowerCase();
+    if (!needle) return true;
+    return String(haystack || "").toLowerCase().includes(needle);
+  }
+  function matchesAllTokens(haystack, query) {
+    const text = String(haystack || "").toLowerCase();
+    const tokens = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return true;
+    return tokens.every((token) => text.includes(token));
+  }
+
+  // src/ui/window.ts
+  function tailSlice(items, count) {
+    const size = Math.max(0, Math.floor(Number(count) || 0));
+    if (!size) return [];
+    return items.slice(Math.max(0, items.length - size));
+  }
+
   // src/features/transcript.ts
   var transcriptMixin = {
     pushMessage(role, text, done = true, phase = "") {
@@ -2086,7 +2107,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _cls: `msg-${role}${role === "assistant" ? " msg-answer" : ""}`
       };
       this.messages.push(message);
-      this.scrollBottom();
+      this.scrollBottom(role === "user" || resolvedPhase === "final");
       this.$nextTick(() => this.decorateTranscript());
       return message;
     },
@@ -2261,6 +2282,28 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this._currentNode = "";
       this.$nextTick(() => this.decorateTranscript());
     },
+    visibleMessages() {
+      return tailSlice(this.messages, this.messageWindow);
+    },
+    hiddenMessageCount() {
+      return Math.max(0, this.messages.length - this.messageWindow);
+    },
+    showOlderMessages() {
+      const element = this.$refs.transcript;
+      const anchor = element ? element.scrollHeight - element.scrollTop : 0;
+      this.messageWindow += 100;
+      this.$nextTick(() => {
+        if (element) element.scrollTop = element.scrollHeight - anchor;
+      });
+    },
+    revealMessage(id) {
+      const index = this.messages.findIndex((message) => message.id === id);
+      if (index < 0) return;
+      const start = Math.max(0, this.messages.length - this.messageWindow);
+      if (index < start) {
+        this.messageWindow = this.messages.length - index + 20;
+      }
+    },
     scrollBottom(force = true) {
       this.$nextTick(() => {
         const element = this.$refs.transcript;
@@ -2309,22 +2352,22 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     searchMessages(query) {
       this.messageQuery = query;
-      const needle = String(query || "").trim().toLowerCase();
-      if (!needle) {
+      if (!String(query || "").trim()) {
         this.messageMatches = [];
         this.messageMatchIndex = 0;
         return;
       }
-      this.messageMatches = this.messages.filter((message) => {
-        const haystack = `${message.text || ""} ${message.summary || ""} ${message.name || ""}`.toLowerCase();
-        return haystack.includes(needle);
-      }).map((message) => message.id);
+      this.messageMatches = this.messages.filter((message) => includesQuery(
+        `${message.text || ""} ${message.summary || ""} ${message.name || ""}`,
+        query
+      )).map((message) => message.id);
       this.messageMatchIndex = 0;
       this.scrollToMessageMatch();
     },
     scrollToMessageMatch() {
       const id = this.messageMatches[this.messageMatchIndex];
       if (id === void 0) return;
+      this.revealMessage(id);
       this.$nextTick(() => {
         const element = document.querySelector(
           `[data-message-id="${id}"]`
@@ -2937,7 +2980,6 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return this.toolFilter === name ? "active" : "";
     },
     filteredTools() {
-      const query = String(this.toolQuery || "").trim().toLowerCase();
       return this.tools.filter((tool) => {
         const state = tool.state || "running";
         if (this.toolFilter === "running" && state !== "running") return false;
@@ -2945,9 +2987,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         if (this.toolFilter === "error" && !["error", "rejected", "interrupted"].includes(state)) {
           return false;
         }
-        if (!query) return true;
-        const haystack = `${tool.name} ${tool.summary} ${tool.preview}`.toLowerCase();
-        return haystack.includes(query);
+        return includesQuery(
+          `${tool.name} ${tool.summary} ${tool.preview}`,
+          this.toolQuery
+        );
       });
     },
     toolMessageKey(event) {
@@ -2981,7 +3024,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _expanded: false,
         _cls: "msg-tool tool-running"
       });
-      this.scrollBottom();
+      this.scrollBottom(false);
     },
     finishToolMessage(event) {
       const key = this.toolMessageKey(event);
@@ -3003,7 +3046,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       message.done = true;
       message._cls = `msg-tool ${event.ok ? "tool-ok" : "tool-error"}`;
       if (event.rejected) message._cls = "msg-tool tool-rejected";
-      this.scrollBottom();
+      this.scrollBottom(false);
     },
     upsertWorker(event) {
       const id = event.task_id || event.worker_id;
@@ -3238,6 +3281,51 @@ ${paths}`);
     }
   };
 
+  // src/ui/diff.ts
+  function diffRowsFromText(text) {
+    const source = String(text || "");
+    if (!source) return [];
+    let oldLine = 0;
+    let newLine = 0;
+    const rows = [];
+    for (const raw of source.split("\n")) {
+      let cls = "diff-line";
+      let no = "";
+      if (raw.startsWith("+++") || raw.startsWith("---")) {
+        cls += " diff-file";
+      } else if (raw.startsWith("@@")) {
+        cls += " diff-hunk";
+        const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        if (match) {
+          oldLine = Number(match[1]);
+          newLine = Number(match[2]);
+        }
+      } else if (raw.startsWith("+")) {
+        cls += " diff-add";
+        no = `+${newLine}`;
+        newLine += 1;
+      } else if (raw.startsWith("-")) {
+        cls += " diff-del";
+        no = `-${oldLine}`;
+        oldLine += 1;
+      } else if (raw.startsWith(" ")) {
+        cls += " diff-ctx";
+        no = String(newLine);
+        newLine += 1;
+        oldLine += 1;
+      } else {
+        cls += " diff-meta";
+      }
+      rows.push({
+        _key: `${rows.length}:${raw}`,
+        text: raw,
+        _cls: cls,
+        _no: no
+      });
+    }
+    return rows;
+  }
+
   // src/features/inspector.ts
   var inspectorMixin = {
     async compactContext() {
@@ -3437,9 +3525,7 @@ ${paths}
       }
     },
     filteredTreeRows() {
-      const query = String(this.treeQuery || "").trim().toLowerCase();
-      if (!query) return this.treeRows;
-      return this.treeRows.filter((entry) => `${entry.name} ${entry.path}`.toLowerCase().includes(query));
+      return this.treeRows.filter((entry) => includesQuery(`${entry.name} ${entry.path}`, this.treeQuery));
     },
     canOpenFileInVscode() {
       const root = String(this.workspaceInput || this.workspace || "").trim();
@@ -3582,49 +3668,7 @@ ${paths}
       if (this.mainTab === "diff") this.mainTab = "chat";
     },
     diffRows() {
-      const text = String(this.diffDisplay || "");
-      if (!text) return [];
-      let oldLine = 0;
-      let newLine = 0;
-      const rows = [];
-      for (const raw of text.split("\n")) {
-        let cls = "diff-line";
-        let no = "";
-        if (raw.startsWith("+++") || raw.startsWith("---")) {
-          cls += " diff-file";
-        } else if (raw.startsWith("@@")) {
-          cls += " diff-hunk";
-          const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-          if (match) {
-            oldLine = Number(match[1]);
-            newLine = Number(match[2]);
-          }
-        } else if (raw.startsWith("+")) {
-          cls += " diff-add";
-          no = `+${newLine}`;
-          newLine += 1;
-        } else if (raw.startsWith("-")) {
-          cls += " diff-del";
-          no = `-${oldLine}`;
-          oldLine += 1;
-        } else if (raw.startsWith(" ")) {
-          cls += " diff-ctx";
-          no = String(newLine);
-          newLine += 1;
-          oldLine += 1;
-        } else if (raw.startsWith("\\")) {
-          cls += " diff-meta";
-        } else {
-          cls += " diff-meta";
-        }
-        rows.push({
-          _key: `${rows.length}:${raw}`,
-          text: raw,
-          _cls: cls,
-          _no: no
-        });
-      }
-      return rows;
+      return diffRowsFromText(this.diffDisplay);
     },
     async loadGit(diff = false) {
       if (!this.threadId) {
@@ -4332,14 +4376,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       return items;
     },
     filteredCommands() {
-      const query = String(this.commandQuery || "").trim().toLowerCase();
-      const items = this.commandItems();
-      if (!query) return items.slice(0, 40);
-      const tokens = query.split(/\s+/).filter(Boolean);
-      return items.filter((item) => {
-        const haystack = `${item.title} ${item.hint} ${item.id} ${item.detail || ""}`.toLowerCase();
-        return tokens.every((token) => haystack.includes(token));
-      }).slice(0, 40);
+      const query = String(this.commandQuery || "").trim();
+      return this.commandItems().filter((item) => matchesAllTokens(
+        `${item.title} ${item.hint} ${item.id} ${item.detail || ""}`,
+        query
+      )).slice(0, 40);
     },
     commandClass(index) {
       return index === this.commandIndex ? "selected" : "";
@@ -4494,6 +4535,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       _retryTimer: null,
       _lastPrompt: "",
       messages: [],
+      messageWindow: 120,
       messageSearchOpen: false,
       messageQuery: "",
       messageMatches: [],

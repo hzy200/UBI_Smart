@@ -10,6 +10,7 @@ import {
 import type {
   AgentEvent,
 } from '../contracts';
+import { includesQuery } from '../ui/search';
 
 export const eventsMixin = {
   handleEvent(event: AgentEvent) {
@@ -358,7 +359,6 @@ export const eventsMixin = {
   },
 
   filteredTools() {
-    const query = String(this.toolQuery || '').trim().toLowerCase();
     return this.tools.filter((tool) => {
       const state = tool.state || 'running';
       if (this.toolFilter === 'running' && state !== 'running') return false;
@@ -369,9 +369,10 @@ export const eventsMixin = {
       ) {
         return false;
       }
-      if (!query) return true;
-      const haystack = `${tool.name} ${tool.summary} ${tool.preview}`.toLowerCase();
-      return haystack.includes(query);
+      return includesQuery(
+        `${tool.name} ${tool.summary} ${tool.preview}`,
+        this.toolQuery,
+      );
     });
   },
 
@@ -407,7 +408,7 @@ export const eventsMixin = {
       _expanded: false,
       _cls: 'msg-tool tool-running',
     });
-    this.scrollBottom();
+    this.scrollBottom(false);
   },
 
   finishToolMessage(event) {
@@ -437,7 +438,7 @@ export const eventsMixin = {
     message._cls =
       `msg-tool ${event.ok ? 'tool-ok' : 'tool-error'}`;
     if (event.rejected) message._cls = 'msg-tool tool-rejected';
-    this.scrollBottom();
+    this.scrollBottom(false);
   },
 
   upsertWorker(event) {

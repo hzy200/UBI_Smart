@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.0",

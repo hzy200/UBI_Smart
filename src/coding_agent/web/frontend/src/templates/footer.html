@@ -11,7 +11,7 @@
       <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
     </button>
   </div>
-  <div class="notification-list">
+  <div class="notification-list" aria-live="polite">
     <template x-for="item in notifications" :key="item.id">
       <div class="notification-item" :class="notificationClass(item)">
         <div class="notification-title" x-text="item.title"></div>
@@ -23,7 +23,7 @@
   </div>
 </div>
 
-<footer class="statusbar" x-show="ready" x-cloak>
+<footer class="statusbar" role="contentinfo" x-show="ready" x-cloak>
   <span class="status-item" :title="healthText">
     <span class="status-dot" :class="connectionClass()"></span>
     <span x-text="stateText"></span>
@@ -42,7 +42,7 @@
   </button>
 </footer>
 
-<div class="toast" x-show="toast" x-text="toast" x-cloak></div>
+<div class="toast" role="status" aria-live="polite" x-show="toast" x-text="toast" x-cloak></div>
 </div>
 
 <script src="/static/vendor/marked.min.js"></script>

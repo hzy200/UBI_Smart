@@ -7,6 +7,8 @@ import {
   renderTimers,
   tokenBuffers,
 } from '../state/runtime';
+import { includesQuery } from '../ui/search';
+import { tailSlice } from '../ui/window';
 
 export const transcriptMixin = {
   pushMessage(role, text, done = true, phase = '') {
@@ -35,7 +37,7 @@ export const transcriptMixin = {
       _cls: `msg-${role}${role === 'assistant' ? ' msg-answer' : ''}`,
     };
     this.messages.push(message);
-    this.scrollBottom();
+    this.scrollBottom(role === 'user' || resolvedPhase === 'final');
     this.$nextTick(() => this.decorateTranscript());
     return message;
   },
@@ -231,6 +233,32 @@ export const transcriptMixin = {
     this.$nextTick(() => this.decorateTranscript());
   },
 
+  visibleMessages() {
+    return tailSlice(this.messages, this.messageWindow);
+  },
+
+  hiddenMessageCount() {
+    return Math.max(0, this.messages.length - this.messageWindow);
+  },
+
+  showOlderMessages() {
+    const element = this.$refs.transcript as HTMLElement | null;
+    const anchor = element ? element.scrollHeight - element.scrollTop : 0;
+    this.messageWindow += 100;
+    this.$nextTick(() => {
+      if (element) element.scrollTop = element.scrollHeight - anchor;
+    });
+  },
+
+  revealMessage(id) {
+    const index = this.messages.findIndex((message) => message.id === id);
+    if (index < 0) return;
+    const start = Math.max(0, this.messages.length - this.messageWindow);
+    if (index < start) {
+      this.messageWindow = this.messages.length - index + 20;
+    }
+  },
+
   scrollBottom(force = true) {
     this.$nextTick(() => {
       const element = this.$refs.transcript;
@@ -286,19 +314,16 @@ export const transcriptMixin = {
 
   searchMessages(query) {
     this.messageQuery = query;
-    const needle = String(query || '').trim().toLowerCase();
-    if (!needle) {
+    if (!String(query || '').trim()) {
       this.messageMatches = [];
       this.messageMatchIndex = 0;
       return;
     }
     this.messageMatches = this.messages
-      .filter((message) => {
-        const haystack = (
-          `${message.text || ''} ${message.summary || ''} ${message.name || ''}`
-        ).toLowerCase();
-        return haystack.includes(needle);
-      })
+      .filter((message) => includesQuery(
+        `${message.text || ''} ${message.summary || ''} ${message.name || ''}`,
+        query,
+      ))
       .map((message) => message.id);
     this.messageMatchIndex = 0;
     this.scrollToMessageMatch();
@@ -307,6 +332,7 @@ export const transcriptMixin = {
   scrollToMessageMatch() {
     const id = this.messageMatches[this.messageMatchIndex];
     if (id === undefined) return;
+    this.revealMessage(id);
     this.$nextTick(() => {
       const element = document.querySelector(
         `[data-message-id="${id}"]`,

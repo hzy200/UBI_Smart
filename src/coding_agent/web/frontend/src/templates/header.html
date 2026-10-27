@@ -1,5 +1,7 @@
 <header x-show="ready" x-cloak>
-  <button class="icon-btn" @click="toggleSidebar()" aria-label="切换侧栏" title="切换侧栏（Ctrl+B）">
+  <button class="icon-btn" @click="toggleSidebar()" aria-label="切换侧栏"
+          :aria-expanded="!sidebarCollapsed ? 'true' : 'false'" aria-controls="sidebar-panel"
+          title="切换侧栏（Ctrl+B）">
     <svg class="icon" aria-hidden="true"><use href="#i-panel-left"></use></svg>
   </button>
   <span class="name">CodingAgent</span>
@@ -10,7 +12,9 @@
   </button>
   <span class="meta workspace" x-text="workspaceLabel()"></span>
   <span class="spacer"></span>
-  <button class="icon-btn" @click="toggleInspector()" aria-label="切换检查器" title="切换检查器（Ctrl+J）">
+  <button class="icon-btn" @click="toggleInspector()" aria-label="切换检查器"
+          :aria-expanded="!inspectorCollapsed ? 'true' : 'false'" aria-controls="inspector-panel"
+          title="切换检查器（Ctrl+J）">
     <svg class="icon" aria-hidden="true"><use href="#i-panel-right"></use></svg>
   </button>
   <button class="icon-btn notification-btn" @click.stop="toggleNotifications()" aria-label="通知中心" title="通知中心">

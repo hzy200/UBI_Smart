@@ -105,6 +105,7 @@ const agentApp = () => {
   _retryTimer: null,
   _lastPrompt: '',
   messages: [],
+  messageWindow: 120,
   messageSearchOpen: false,
   messageQuery: '',
   messageMatches: [],

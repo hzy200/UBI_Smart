@@ -1,32 +1,39 @@
 <nav class="activitybar" aria-label="主导航">
   <div class="activity-group">
     <button class="activity-item" :class="viewClasses.sessions" @click="setView('sessions')"
+            :aria-pressed="view === 'sessions' ? 'true' : 'false'"
             title="会话" aria-label="会话">
       <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.files" @click="setView('files')"
+            :aria-pressed="view === 'files' ? 'true' : 'false'"
             title="文件改动" aria-label="文件改动">
       <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
       <span class="activity-dot" x-show="filesDirty" aria-hidden="true"></span>
     </button>
     <button class="activity-item" :class="viewClasses.tree" @click="setView('tree')"
+            :aria-pressed="view === 'tree' ? 'true' : 'false'"
             title="文件树" aria-label="文件树">
       <svg class="icon" aria-hidden="true"><use href="#i-tree"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.git" @click="setView('git')"
+            :aria-pressed="view === 'git' ? 'true' : 'false'"
             title="Git" aria-label="Git">
       <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.tasks" @click="setView('tasks')"
+            :aria-pressed="view === 'tasks' ? 'true' : 'false'"
             title="任务" aria-label="任务">
       <svg class="icon" aria-hidden="true"><use href="#i-tasks"></use></svg>
       <span class="activity-dot" x-show="tasksDirty" aria-hidden="true"></span>
     </button>
     <button class="activity-item" :class="viewClasses.memory" @click="setView('memory')"
+            :aria-pressed="view === 'memory' ? 'true' : 'false'"
             title="记忆" aria-label="记忆">
       <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.audit" @click="setView('audit')"
+            :aria-pressed="view === 'audit' ? 'true' : 'false'"
             title="审计" aria-label="审计">
       <svg class="icon" aria-hidden="true"><use href="#i-audit"></use></svg>
     </button>
@@ -37,7 +44,7 @@
   </button>
 </nav>
 
-<aside class="sidebar" x-show="!sidebarCollapsed">
+<aside class="sidebar" id="sidebar-panel" x-show="!sidebarCollapsed">
   <div class="sidebar-head">
     <h3 x-text="viewTitle()">会话</h3>
     <div class="row">

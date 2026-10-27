@@ -5,6 +5,8 @@ import {
   readJson,
 } from '../api/http';
 import { escapeHtml } from '../ui/format';
+import { diffRowsFromText } from '../ui/diff';
+import { includesQuery } from '../ui/search';
 
 export const inspectorMixin = {
   async compactContext() {
@@ -215,10 +217,8 @@ export const inspectorMixin = {
   },
 
   filteredTreeRows() {
-    const query = String(this.treeQuery || '').trim().toLowerCase();
-    if (!query) return this.treeRows;
     return this.treeRows.filter((entry) => (
-      `${entry.name} ${entry.path}`.toLowerCase().includes(query)
+      includesQuery(`${entry.name} ${entry.path}`, this.treeQuery)
     ));
   },
 
@@ -385,49 +385,7 @@ export const inspectorMixin = {
   },
 
   diffRows() {
-    const text = String(this.diffDisplay || '');
-    if (!text) return [];
-    let oldLine = 0;
-    let newLine = 0;
-    const rows: any[] = [];
-    for (const raw of text.split('\n')) {
-      let cls = 'diff-line';
-      let no = '';
-      if (raw.startsWith('+++') || raw.startsWith('---')) {
-        cls += ' diff-file';
-      } else if (raw.startsWith('@@')) {
-        cls += ' diff-hunk';
-        const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-        if (match) {
-          oldLine = Number(match[1]);
-          newLine = Number(match[2]);
-        }
-      } else if (raw.startsWith('+')) {
-        cls += ' diff-add';
-        no = `+${newLine}`;
-        newLine += 1;
-      } else if (raw.startsWith('-')) {
-        cls += ' diff-del';
-        no = `-${oldLine}`;
-        oldLine += 1;
-      } else if (raw.startsWith(' ')) {
-        cls += ' diff-ctx';
-        no = String(newLine);
-        newLine += 1;
-        oldLine += 1;
-      } else if (raw.startsWith('\\')) {
-        cls += ' diff-meta';
-      } else {
-        cls += ' diff-meta';
-      }
-      rows.push({
-        _key: `${rows.length}:${raw}`,
-        text: raw,
-        _cls: cls,
-        _no: no,
-      });
-    }
-    return rows;
+    return diffRowsFromText(this.diffDisplay);
   },
 
   async loadGit(diff = false) {

@@ -5,6 +5,7 @@
  */
 
 import { authFetch, readJson } from '../api/http';
+import { matchesAllTokens } from '../ui/search';
 
 const LAYOUT_KEY = 'codingagent.layout';
 const ACTIVITY_WIDTH = 52;
@@ -306,17 +307,12 @@ export const layoutMixin = {
   },
 
   filteredCommands() {
-    const query = String(this.commandQuery || '').trim().toLowerCase();
-    const items = this.commandItems();
-    if (!query) return items.slice(0, 40);
-    const tokens = query.split(/\s+/).filter(Boolean);
-    return items
-      .filter((item) => {
-        const haystack = (
-          `${item.title} ${item.hint} ${item.id} ${item.detail || ''}`
-        ).toLowerCase();
-        return tokens.every((token) => haystack.includes(token));
-      })
+    const query = String(this.commandQuery || '').trim();
+    return this.commandItems()
+      .filter((item) => matchesAllTokens(
+        `${item.title} ${item.hint} ${item.id} ${item.detail || ''}`,
+        query,
+      ))
       .slice(0, 40);
   },
 

@@ -133,6 +133,7 @@ web/static/vendor/*                                (直接由 A2 提供)
    可关闭并回到对话。
 2. **reasoning**：按节点分块，默认折叠；拿不到推理内容就不显示，不伪造。
 3. **transcript**：用户/助手/系统/工具消息的时间线；可滚动，输入区固定在底部。
+   默认只渲染最近 120 条消息，顶部可“显示更早消息”；搜索命中会自动展开窗口。
    用户消息支持“编辑重发”，最终回答支持“重新生成”；`Ctrl/Cmd+Shift+F`
    搜索当前对话并可上下跳转命中；滚动离开底部时显示“跳到最新”。
 4. **composer**：多行输入、发送/暂停/取消/继续、重试上一条、追加任务、
@@ -312,6 +313,10 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 ### 8.2 可访问性
 
 - transcript 使用 `role="log"`、`aria-live="polite"`；按钮/输入有 `aria-label`。
+- 主区/检查器标签使用 `role="tab"` + `aria-selected`；活动栏使用 `aria-pressed`；
+  侧栏/检查器开关使用 `aria-expanded` + `aria-controls`。
+- 命令面板使用 `aria-activedescendant` 指向当前命令项；toast 使用
+  `role="status"` + `aria-live="polite"`。
 - 所有可交互元素有 `:focus-visible` 轮廓；支持 `prefers-reduced-motion`。
 - 颜色不是唯一信息通道：状态同时有文字徽标/圆点/边框样式。
 - 窄屏（≤1100px）检查器改为右侧浮层；≤760px 活动栏横向、侧栏限高。
@@ -369,6 +374,7 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 - 长消息/工具输出默认折叠；`content-visibility: auto` 降低长列表成本。
 - 会话列表最多加载 50 条；会话按工作区分组，避免一次渲染过多。
 - 代码高亮只做一次；复制按钮/代码按钮不重复装饰。
+- 长会话默认只渲染最近 120 条消息，按需向上扩展；搜索命中会自动扩大窗口。
 - 对话内搜索只在已加载消息上同步执行，不发后端请求；工具详情 JSON 在
   事件到达时生成一次。
 - 流式输出默认跟随底部，但用户主动上滚后不再强制滚动，可用“跳到最新”恢复。
@@ -387,6 +393,7 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 cd src/coding_agent/web/frontend
 node node_modules/typescript/bin/tsc --noEmit
 node esbuild.mjs
+node test.mjs
 
 pytest -m "not llm" tests/unit/test_frontend_workspace_ui.py \
        tests/unit/test_web_app.py \
@@ -444,6 +451,10 @@ transcript 保存。
 | `web/frontend/src/features/*.ts` | 按域拆分的 Alpine mixin（会话/工作区/运行/检查器等） |
 | `web/frontend/src/api/http.ts` | 认证、fetch、401 刷新与 problem+json 解析 |
 | `web/frontend/src/ui/format.ts` | 展示格式化与 Markdown 清洗 |
+| `web/frontend/src/ui/diff.ts` | 统一 diff 的纯解析逻辑 |
+| `web/frontend/src/ui/search.ts` | 查询匹配纯函数 |
+| `web/frontend/src/ui/window.ts` | 长会话尾部窗口切片 |
+| `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |
 | `web/frontend/src/state/runtime.ts` | 非响应式 Map 缓冲 |
 | `web/frontend/src/contracts/events.generated.ts` | 由契约生成的事件 union（禁止手改） |
 | `web/frontend/src/templates/*.html` | 页面模板分片（构建期拼成 `static/index.html`） |

@@ -352,6 +352,7 @@ export const sessionsMixin = {
     this.decisions = {};
     this.costText = '';
     this.usage = { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 };
+    this.messageWindow = 120;
     this.messageSearchOpen = false;
     this.messageQuery = '';
     this.messageMatches = [];
