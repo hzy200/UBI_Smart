@@ -326,6 +326,7 @@ export const sessionsMixin = {
     this.kinds = [];
     this.planRows = [];
     this.timeline = [];
+    this.problems = [];
     this.stepIdx = -1;
     this.planDegraded = false;
     this.tools = [];
@@ -344,6 +345,9 @@ export const sessionsMixin = {
     this.diffTruncated = false;
     this.diffExpanded = false;
     this.mainTab = 'chat';
+    this.editorTabs = [];
+    this.activeEditorId = '';
+    this.fileView = { path: '', size: 0, _text: '', _html: '' };
     this.tasks = [];
     this.audit = [];
     this.uploads = [];
@@ -407,8 +411,9 @@ export const sessionsMixin = {
     }
     await this.loadUploads();
     await this.loadApprovals();
-    this.treePath = '';
-    this.treeRows = [];
+    this.treeChildren = {};
+    this.treeExpanded = {};
+    this.treeLoadingMap = {};
     this.fileView = { path: '', size: 0, _text: '', _html: '' };
     this.gitInfo = {
       is_repo: false, _state: '', _branch: '',

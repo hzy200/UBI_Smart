@@ -145,6 +145,21 @@ header .spacer { flex: 1; }
   background: var(--accent);
   box-shadow: 0 0 0 2px var(--panel);
 }
+.activity-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--panel);
+}
 
 .sidebar {
   width: var(--sidebar-width);
@@ -218,8 +233,20 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
+  overflow: hidden;
+}
+.main-tab-list {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 .main-tab {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;

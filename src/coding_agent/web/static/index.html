@@ -101,6 +101,10 @@
     <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
     <path d="M3 3v5h5"/>
   </symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24">
+    <path d="M12 3 2.5 20h19L12 3Z"/>
+    <path d="M12 9v5M12 17.5h.01"/>
+  </symbol>
   <symbol id="i-bell" viewBox="0 0 24 24">
     <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
     <path d="M10 21h4"/>
@@ -193,6 +197,12 @@
             :aria-pressed="view === 'audit' ? 'true' : 'false'"
             title="审计" aria-label="审计">
       <svg class="icon" aria-hidden="true"><use href="#i-audit"></use></svg>
+    </button>
+    <button class="activity-item" :class="viewClasses.problems" @click="setView('problems')"
+            :aria-pressed="view === 'problems' ? 'true' : 'false'"
+            title="问题" aria-label="问题">
+      <svg class="icon" aria-hidden="true"><use href="#i-alert"></use></svg>
+      <span class="activity-badge" x-show="problems.length > 0" x-text="problems.length"></span>
     </button>
   </div>
   <span class="spacer"></span>
@@ -324,21 +334,23 @@
 
     <div class="view" x-show="view === 'tree'">
       <div class="panel-actions">
-        <button @click="treeUp()">上一级</button>
-        <button @click="loadTree(treePath)">刷新</button>
-        <span class="note" x-text="treePath || '/'"></span>
+        <button @click="refreshTree()">刷新</button>
+        <button @click="collapseAllTree()">收起全部</button>
+        <span class="note" x-text="treeRootLoading() ? '加载中…' : ''"></span>
       </div>
-      <input class="tree-search" x-model="treeQuery" placeholder="过滤当前目录…">
+      <input class="tree-search" x-model="treeQuery" placeholder="过滤已加载文件…">
       <template x-for="entry in filteredTreeRows()" :key="entry._key">
-        <div class="tree-row" :class="entry._cls" @click="openTreeEntry(entry)">
+        <div class="tree-row" :class="entry._cls"
+             :style="'padding-left:' + (8 + entry._depth * 14) + 'px'"
+             @click="openTreeEntry(entry)">
           <span class="tree-kind" x-text="entry._kind"></span>
           <span class="tree-name" x-text="entry.name"></span>
           <span class="note" x-text="entry._meta"></span>
           <button class="tree-copy" @click.stop="copyText(entry.path)" title="复制路径">复制路径</button>
         </div>
       </template>
-      <div class="empty" x-show="!treeLoading && filteredTreeRows().length === 0">没有匹配的文件，或目录为空</div>
-      <div class="note">点击文件会在主区打开只读预览。</div>
+      <div class="empty" x-show="!treeRootLoading() && filteredTreeRows().length === 0">没有匹配的文件，或目录为空</div>
+      <div class="note">点击目录展开/折叠；点击文件在主区打开只读预览。</div>
     </div>
 
     <div class="view" x-show="view === 'git'">
@@ -406,6 +418,23 @@
       </template>
       <div class="empty" x-show="audit.length === 0">没有审计记录</div>
     </div>
+
+    <div class="view" x-show="view === 'problems'">
+      <div class="panel-actions">
+        <button @click="clearProblems()">清空</button>
+        <span class="note" x-text="problems.length + ' 个问题'"></span>
+      </div>
+      <template x-for="p in problems" :key="p.id">
+        <div class="problem-card" :class="p._cls">
+          <div class="problem-head">
+            <span class="problem-kind" x-text="p.kind"></span>
+            <span class="problem-title" x-text="p.title"></span>
+          </div>
+          <pre class="problem-detail" x-show="p.detail" x-text="p.detail"></pre>
+        </div>
+      </template>
+      <div class="empty" x-show="problems.length === 0">没有诊断问题</div>
+    </div>
   </div>
 </aside>
 
@@ -415,23 +444,23 @@
 
   <main class="main">
     <div class="main-tabs" role="tablist" aria-label="主区标签">
-      <button class="main-tab" role="tab" :class="mainTabClass('chat')"
-              :aria-selected="mainTab === 'chat' ? 'true' : 'false'" @click="showChat()">
-        <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
-        <span>对话</span>
-      </button>
-      <button class="main-tab" role="tab" :class="mainTabClass('file')" x-show="fileView.path"
-              :aria-selected="mainTab === 'file' ? 'true' : 'false'" @click="showFileTab()">
-        <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
-        <span class="main-tab-label" x-text="fileView.path"></span>
-        <span class="tab-close" role="button" @click.stop="closeFileTab()" title="关闭文件">×</span>
-      </button>
-      <button class="main-tab" role="tab" :class="mainTabClass('diff')" x-show="diffDisplay"
-              :aria-selected="mainTab === 'diff' ? 'true' : 'false'" @click="showDiffTab()">
-        <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
-        <span>Diff</span>
-        <span class="tab-close" role="button" @click.stop="closeDiffTab()" title="关闭 Diff">×</span>
-      </button>
+      <div class="main-tab-list">
+        <button class="main-tab" role="tab" :class="mainTabClass('chat')"
+                :aria-selected="mainTab === 'chat' ? 'true' : 'false'" @click="showChat()">
+          <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
+          <span>对话</span>
+        </button>
+        <template x-for="tab in editorTabs" :key="tab.id">
+          <button class="main-tab" role="tab" :class="editorTabClass(tab.id)"
+                  :aria-selected="mainTab !== 'chat' && activeEditorId === tab.id ? 'true' : 'false'"
+                  @click="activateEditorTab(tab.id)">
+            <svg class="icon" aria-hidden="true" x-show="tab.kind === 'file'"><use href="#i-files"></use></svg>
+            <svg class="icon" aria-hidden="true" x-show="tab.kind === 'diff'"><use href="#i-git"></use></svg>
+            <span class="main-tab-label" x-text="tab.title"></span>
+            <span class="tab-close" role="button" @click.stop="closeEditorTab(tab.id)" title="关闭标签">×</span>
+          </button>
+        </template>
+      </div>
       <div class="main-search" x-show="messageSearchOpen" x-cloak>
         <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
         <input x-ref="messageSearchInput" x-model="messageQuery"
@@ -461,11 +490,13 @@
         <span class="editor-path" x-text="fileView.path"></span>
         <span class="note" x-text="fileView._size"></span>
         <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
+        <span class="note note-bad" x-show="activeEditorTab() && activeEditorTab().stale">文件已变化</span>
         <span class="spacer"></span>
+        <button x-show="activeEditorTab() && activeEditorTab().stale" @click="refreshActiveFile()">刷新</button>
         <button @click="copyText(fileView.path)">复制路径</button>
         <button x-show="canOpenFileInVscode()" @click="openFileInVscode()">在 VS Code 打开</button>
         <button @click="copyText(fileView._text)">复制内容</button>
-        <button @click="closeFileTab()">关闭</button>
+        <button @click="closeActiveEditorTab()">关闭</button>
       </div>
       <pre class="editor-code"><code x-html="fileView._html"></code></pre>
     </section>
@@ -477,7 +508,7 @@
         <span class="spacer"></span>
         <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部</button>
         <button @click="copyText(diffDisplay)">复制</button>
-        <button @click="closeDiffTab()">关闭</button>
+        <button @click="closeActiveEditorTab()">关闭</button>
       </div>
       <div class="diff-view">
         <template x-for="row in diffRows()" :key="row._key">

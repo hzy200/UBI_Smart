@@ -37,6 +37,12 @@
             title="审计" aria-label="审计">
       <svg class="icon" aria-hidden="true"><use href="#i-audit"></use></svg>
     </button>
+    <button class="activity-item" :class="viewClasses.problems" @click="setView('problems')"
+            :aria-pressed="view === 'problems' ? 'true' : 'false'"
+            title="问题" aria-label="问题">
+      <svg class="icon" aria-hidden="true"><use href="#i-alert"></use></svg>
+      <span class="activity-badge" x-show="problems.length > 0" x-text="problems.length"></span>
+    </button>
   </div>
   <span class="spacer"></span>
   <button class="activity-item" @click="toggleSettings()" title="设置" aria-label="设置">
@@ -167,21 +173,23 @@
 
     <div class="view" x-show="view === 'tree'">
       <div class="panel-actions">
-        <button @click="treeUp()">上一级</button>
-        <button @click="loadTree(treePath)">刷新</button>
-        <span class="note" x-text="treePath || '/'"></span>
+        <button @click="refreshTree()">刷新</button>
+        <button @click="collapseAllTree()">收起全部</button>
+        <span class="note" x-text="treeRootLoading() ? '加载中…' : ''"></span>
       </div>
-      <input class="tree-search" x-model="treeQuery" placeholder="过滤当前目录…">
+      <input class="tree-search" x-model="treeQuery" placeholder="过滤已加载文件…">
       <template x-for="entry in filteredTreeRows()" :key="entry._key">
-        <div class="tree-row" :class="entry._cls" @click="openTreeEntry(entry)">
+        <div class="tree-row" :class="entry._cls"
+             :style="'padding-left:' + (8 + entry._depth * 14) + 'px'"
+             @click="openTreeEntry(entry)">
           <span class="tree-kind" x-text="entry._kind"></span>
           <span class="tree-name" x-text="entry.name"></span>
           <span class="note" x-text="entry._meta"></span>
           <button class="tree-copy" @click.stop="copyText(entry.path)" title="复制路径">复制路径</button>
         </div>
       </template>
-      <div class="empty" x-show="!treeLoading && filteredTreeRows().length === 0">没有匹配的文件，或目录为空</div>
-      <div class="note">点击文件会在主区打开只读预览。</div>
+      <div class="empty" x-show="!treeRootLoading() && filteredTreeRows().length === 0">没有匹配的文件，或目录为空</div>
+      <div class="note">点击目录展开/折叠；点击文件在主区打开只读预览。</div>
     </div>
 
     <div class="view" x-show="view === 'git'">
@@ -248,6 +256,23 @@
         </div>
       </template>
       <div class="empty" x-show="audit.length === 0">没有审计记录</div>
+    </div>
+
+    <div class="view" x-show="view === 'problems'">
+      <div class="panel-actions">
+        <button @click="clearProblems()">清空</button>
+        <span class="note" x-text="problems.length + ' 个问题'"></span>
+      </div>
+      <template x-for="p in problems" :key="p.id">
+        <div class="problem-card" :class="p._cls">
+          <div class="problem-head">
+            <span class="problem-kind" x-text="p.kind"></span>
+            <span class="problem-title" x-text="p.title"></span>
+          </div>
+          <pre class="problem-detail" x-show="p.detail" x-text="p.detail"></pre>
+        </div>
+      </template>
+      <div class="empty" x-show="problems.length === 0">没有诊断问题</div>
     </div>
   </div>
 </aside>

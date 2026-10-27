@@ -78,6 +78,31 @@
 .audit-row { display: grid; grid-template-columns: 1.4fr .8fr 2fr; gap: 6px; font-size: 11px; overflow-wrap: anywhere; }
 .memory-item span { flex: 1; }
 
+.problem-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.problem-card.problem-error { border-left-color: var(--bad); }
+.problem-head { display: flex; align-items: center; gap: 8px; }
+.problem-kind { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.problem-title { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.problem-detail {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
 .timeline { display: flex; flex-direction: column; padding-left: 6px; }
 .timeline-item {
   position: relative;

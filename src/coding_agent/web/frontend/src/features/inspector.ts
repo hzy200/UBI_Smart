@@ -135,29 +135,145 @@ export const inspectorMixin = {
 
   async loadDiff(snapshotId, path) {
     if (!this.threadId) return;
+    const id = `diff:${snapshotId || ''}:${path || ''}`;
+    if (this.editorTabs.some((tab) => tab.id === id)) {
+      this.activateEditorTab(id);
+    }
     const params = new URLSearchParams({ thread_id: this.threadId });
     if (snapshotId) params.set('snapshot_id', snapshotId);
     if (path) params.set('path', path);
     try {
       const response = await authFetch(`/api/diff?${params.toString()}`);
       const data = await readJson(response, '读取 diff 失败');
-      this.diffText = data.diff || '（没有差异）';
-      this.diffPath = path || '';
-      const lines = this.diffText.split('\n');
-      this.diffTruncated = lines.length > 200;
-      this.diffExpanded = false;
-      this.diffDisplay = this.diffTruncated
-        ? `${lines.slice(0, 200).join('\n')}\n…（共 ${lines.length} 行，已折叠）`
-        : this.diffText;
-      this.mainTab = 'diff';
+      this.openDiffTab(
+        id,
+        path ? `Diff · ${path}` : 'Diff · 本轮改动',
+        path || '',
+        data.diff || '（没有差异）',
+      );
     } catch (err) {
       this.toastMessage(String(err));
     }
   },
 
-  expandDiff() {
+  openDiffTab(id, title, path, text) {
+    const diffText = String(text || '（没有差异）');
+    const lines = diffText.split('\n');
+    const truncated = lines.length > 200;
+    const display = truncated
+      ? `${lines.slice(0, 200).join('\n')}\n…（共 ${lines.length} 行，已折叠）`
+      : diffText;
+    const payload = {
+      id,
+      kind: 'diff',
+      title,
+      path,
+      diffText,
+      diffDisplay: display,
+      diffTruncated: truncated,
+      diffExpanded: !truncated,
+      diffPath: path,
+    };
+    const existing = this.editorTabs.find((tab) => tab.id === id);
+    if (existing) Object.assign(existing, payload);
+    else this.editorTabs = [...this.editorTabs, payload];
+    this.activateEditorTab(id);
+  },
+
+  async expandDiff() {
     this.diffExpanded = true;
     this.diffDisplay = this.diffText;
+    this.syncActiveEditor();
+  },
+
+  activeEditorTab() {
+    return this.editorTabs.find((tab) => tab.id === this.activeEditorId) || null;
+  },
+
+  editorTabClass(id) {
+    return this.mainTab !== 'chat' && this.activeEditorId === id ? 'active' : '';
+  },
+
+  activateEditorTab(id) {
+    const tab = this.editorTabs.find((item) => item.id === id);
+    if (!tab) return;
+    this.activeEditorId = id;
+    if (tab.kind === 'file') {
+      this.fileView = tab.fileView;
+      this.mainTab = 'file';
+      return;
+    }
+    this.diffText = tab.diffText;
+    this.diffDisplay = tab.diffDisplay;
+    this.diffTruncated = tab.diffTruncated;
+    this.diffExpanded = tab.diffExpanded;
+    this.diffPath = tab.diffPath;
+    this.mainTab = 'diff';
+  },
+
+  syncActiveEditor() {
+    const tab = this.editorTabs.find((item) => item.id === this.activeEditorId);
+    if (!tab) return;
+    if (tab.kind === 'file') {
+      tab.fileView = this.fileView;
+      return;
+    }
+    tab.diffText = this.diffText;
+    tab.diffDisplay = this.diffDisplay;
+    tab.diffTruncated = this.diffTruncated;
+    tab.diffExpanded = this.diffExpanded;
+    tab.diffPath = this.diffPath;
+  },
+
+  closeEditorTab(id) {
+    const index = this.editorTabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    const wasActive = this.activeEditorId === id;
+    this.editorTabs = this.editorTabs.filter((tab) => tab.id !== id);
+    if (this.mainTab === 'chat') {
+      if (wasActive) this.activeEditorId = '';
+      return;
+    }
+    if (!wasActive) return;
+    const next = this.editorTabs[Math.min(index, this.editorTabs.length - 1)];
+    if (next) {
+      this.activateEditorTab(next.id);
+      return;
+    }
+    this.activeEditorId = '';
+    this.mainTab = 'chat';
+    this.fileView = { path: '', size: 0, _text: '', _html: '' };
+    this.diffText = '';
+    this.diffDisplay = '';
+    this.diffPath = '';
+    this.diffTruncated = false;
+    this.diffExpanded = false;
+  },
+
+  closeActiveEditorTab() {
+    if (this.mainTab === 'chat') return;
+    if (this.activeEditorId) this.closeEditorTab(this.activeEditorId);
+  },
+
+  closeOtherEditorTabs() {
+    if (this.mainTab === 'chat') {
+      this.closeAllEditorTabs();
+      return;
+    }
+    const active = this.activeEditorTab();
+    this.editorTabs = active ? [active] : [];
+  },
+
+  closeAllEditorTabs() {
+    this.editorTabs = [];
+    this.activeEditorId = '';
+    this.mainTab = 'chat';
+    this.fileView = { path: '', size: 0, _text: '', _html: '' };
+    this.diffText = '';
+    this.diffDisplay = '';
+    this.diffPath = '';
+    this.diffTruncated = false;
+    this.diffExpanded = false;
   },
 
   async restoreSnapshot(snapshotId, path) {
@@ -187,12 +303,12 @@ export const inspectorMixin = {
     this.toastMessage(`已接受（保留当前内容）：${item.path}`);
   },
 
-  async loadTree(path = '') {
+  async loadTreeDir(path = '') {
     if (!this.threadId) {
       this.toastMessage('请先创建会话');
       return;
     }
-    this.treeLoading = true;
+    this.treeLoadingMap = { ...this.treeLoadingMap, [path]: true };
     try {
       const params = new URLSearchParams({
         thread_id: this.threadId,
@@ -200,26 +316,99 @@ export const inspectorMixin = {
       });
       const response = await authFetch(`/api/files?${params.toString()}`);
       const data = await readJson(response, '读取文件树失败');
-      this.treePath = data.path || '';
-      this.treeTruncated = Boolean(data.truncated);
-      this.treeRows = (data.entries || []).map((entry) => ({
+      const entries = (data.entries || []).map((entry) => ({
         ...entry,
         _key: entry.path,
         _kind: entry.is_dir ? '目录' : '文件',
         _meta: entry.is_dir ? '' : this.formatBytes(entry.size),
         _cls: entry.is_dir ? 'tree-dir' : 'tree-file',
       }));
+      this.treeChildren = { ...this.treeChildren, [path]: entries };
     } catch (err) {
       this.toastMessage(String(err));
     } finally {
-      this.treeLoading = false;
+      this.treeLoadingMap = { ...this.treeLoadingMap, [path]: false };
     }
   },
 
+  async loadTree(path = '') {
+    if (!this.threadId) {
+      this.toastMessage('请先创建会话');
+      return;
+    }
+    if (!this.treeChildren['']) await this.loadTreeDir('');
+    if (path) {
+      this.treeExpanded = { ...this.treeExpanded, [path]: true };
+      if (!this.treeChildren[path]) await this.loadTreeDir(path);
+    }
+  },
+
+  async refreshTree() {
+    if (!this.threadId) {
+      this.toastMessage('请先创建会话');
+      return;
+    }
+    const expanded = Object.keys(this.treeExpanded).filter(
+      (path) => this.treeExpanded[path],
+    );
+    this.treeChildren = {};
+    this.treeLoadingMap = {};
+    await this.loadTreeDir('');
+    for (const path of expanded) {
+      await this.loadTreeDir(path);
+    }
+  },
+
+  async toggleTreeDir(entry) {
+    if (!entry || !entry.is_dir) return;
+    const path = entry.path;
+    const next = !this.treeExpanded[path];
+    this.treeExpanded = { ...this.treeExpanded, [path]: next };
+    if (next && !this.treeChildren[path]) {
+      await this.loadTreeDir(path);
+    }
+  },
+
+  collapseAllTree() {
+    this.treeExpanded = {};
+  },
+
+  treeVisibleRows() {
+    const rows: any[] = [];
+    const walk = (path: string, depth: number) => {
+      for (const entry of this.treeChildren[path] || []) {
+        const expanded = Boolean(this.treeExpanded[entry.path]);
+        const loading = Boolean(this.treeLoadingMap[entry.path]);
+        rows.push({
+          ...entry,
+          _depth: depth,
+          _expanded: expanded,
+          _kind: entry.is_dir ? (loading ? '…' : (expanded ? '▾' : '▸')) : '·',
+        });
+        if (entry.is_dir && expanded) walk(entry.path, depth + 1);
+      }
+    };
+    walk('', 0);
+    return rows;
+  },
+
   filteredTreeRows() {
-    return this.treeRows.filter((entry) => (
+    if (!String(this.treeQuery || '').trim()) return this.treeVisibleRows();
+    const all: any[] = [];
+    const walk = (path: string) => {
+      for (const entry of this.treeChildren[path] || []) {
+        all.push({ ...entry, _depth: 0, _kind: entry.is_dir ? '目录' : '·' });
+        if (entry.is_dir) walk(entry.path);
+      }
+    };
+    walk('');
+    return all.filter((entry) => (
       includesQuery(`${entry.name} ${entry.path}`, this.treeQuery)
     ));
+  },
+
+  treeRootLoading() {
+    return Boolean(this.treeLoadingMap['']);
   },
 
   canOpenFileInVscode() {
@@ -249,22 +438,19 @@ export const inspectorMixin = {
   },
 
   async openTreeEntry(entry) {
-    if (entry.is_dir) {
-      await this.loadTree(entry.path);
-    } else {
-      await this.openFile(entry.path);
-    }
+    if (entry.is_dir) await this.toggleTreeDir(entry);
+    else await this.openFile(entry.path);
   },
 
-  async treeUp() {
-    if (!this.treePath) return;
-    const parts = this.treePath.split('/');
-    parts.pop();
-    await this.loadTree(parts.join('/'));
-  },
-
-  async openFile(path, line = 0) {
+  async openFile(path, line = 0, force = false) {
     if (!this.threadId) return;
+    const id = `file:${path}`;
+    const existing = this.editorTabs.find((tab) => tab.id === id);
+    if (existing && !force) {
+      this.activateEditorTab(id);
+      this.$nextTick(() => this.scrollFileToLine(line));
+      return;
+    }
     try {
       const params = new URLSearchParams({
         thread_id: this.threadId,
@@ -275,17 +461,40 @@ export const inspectorMixin = {
       const text = data.binary
         ? '（二进制文件，不展示内容）'
         : data.content + (data.truncated ? '\n…（已截断）' : '');
-      this.fileView = {
+      const fileView = {
         ...data,
         _size: this.formatBytes(data.size),
         _lang: this.fileLanguage(path),
         _text: text,
         _html: this.highlightCode(path, text, data.binary),
       };
-      this.mainTab = 'file';
+      if (existing) {
+        existing.fileView = fileView;
+        existing.path = data.path || path;
+        existing.title = path;
+        existing.stale = false;
+      } else {
+        this.editorTabs = [...this.editorTabs, {
+          id,
+          kind: 'file',
+          path: data.path || path,
+          title: path,
+          fileView,
+          stale: false,
+        }];
+      }
+      this.activateEditorTab(id);
       this.$nextTick(() => this.scrollFileToLine(line));
     } catch (err) {
       this.toastMessage(String(err));
+    }
+  },
+
+  async refreshActiveFile() {
+    if (this.mainTab !== 'file') return;
+    const tab = this.activeEditorTab();
+    if (tab && tab.kind === 'file') {
+      await this.openFile(tab.path, 0, true);
     }
   },
 
@@ -362,26 +571,12 @@ export const inspectorMixin = {
     this.mainTab = 'chat';
   },
 
-  showFileTab() {
-    if (this.fileView.path) this.mainTab = 'file';
-  },
-
-  showDiffTab() {
-    if (this.diffDisplay) this.mainTab = 'diff';
-  },
-
   closeFileTab() {
-    this.fileView = { path: '', size: 0, _text: '', _html: '' };
-    if (this.mainTab === 'file') this.mainTab = 'chat';
+    this.closeActiveEditorTab();
   },
 
   closeDiffTab() {
-    this.diffText = '';
-    this.diffDisplay = '';
-    this.diffPath = '';
-    this.diffTruncated = false;
-    this.diffExpanded = false;
-    if (this.mainTab === 'diff') this.mainTab = 'chat';
+    this.closeActiveEditorTab();
   },
 
   diffRows() {
@@ -430,12 +625,7 @@ export const inspectorMixin = {
             : '（没有差异）')
         : '';
       if (diff) {
-        this.diffText = this.gitDiffText;
-        this.diffDisplay = this.gitDiffText;
-        this.diffPath = 'Git';
-        this.diffTruncated = false;
-        this.diffExpanded = true;
-        this.mainTab = 'diff';
+        this.openDiffTab('diff:git', 'Git diff', 'Git', this.gitDiffText);
       }
     } catch (err) {
       this.toastMessage(String(err));

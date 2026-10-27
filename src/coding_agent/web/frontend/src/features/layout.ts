@@ -26,6 +26,7 @@ const VIEW_TITLES: Record<string, string> = {
   tasks: '任务',
   memory: '记忆',
   audit: '审计',
+  problems: '问题',
 };
 
 export const layoutMixin = {
@@ -138,7 +139,7 @@ export const layoutMixin = {
     if (name === 'tasks') this.tasksDirty = false;
     if (load) {
       if (name === 'files') this.loadSnapshots();
-      if (name === 'tree') this.loadTree(this.treePath);
+      if (name === 'tree') this.loadTree('');
       if (name === 'git') this.loadGit(false);
       if (name === 'memory') this.loadMemory();
       if (name === 'audit') this.loadAudit();
@@ -261,11 +262,15 @@ export const layoutMixin = {
       { id: 'view-tasks', title: '视图：任务', hint: '导航', run: () => this.setView('tasks') },
       { id: 'view-memory', title: '视图：记忆', hint: '导航', run: () => this.setView('memory') },
       { id: 'view-audit', title: '视图：审计', hint: '导航', run: () => this.setView('audit') },
+      { id: 'view-problems', title: '视图：问题', hint: '导航', run: () => this.setView('problems') },
       { id: 'tab-plan', title: '检查器：计划', hint: '导航', run: () => this.setTab('plan') },
       { id: 'tab-tools', title: '检查器：工具', hint: '导航', run: () => this.setTab('tools') },
       { id: 'tab-timeline', title: '检查器：时间线', hint: '导航', run: () => this.setTab('timeline') },
+      { id: 'close-editor', title: '关闭当前标签', hint: '标签', run: () => this.closeActiveEditorTab() },
+      { id: 'close-other-editors', title: '关闭其他标签', hint: '标签', run: () => this.closeOtherEditorTabs() },
+      { id: 'close-all-editors', title: '关闭所有文件标签', hint: '标签', run: () => this.closeAllEditorTabs() },
       { id: 'refresh-files', title: '刷新文件快照', hint: '文件', run: () => this.loadSnapshots() },
-      { id: 'refresh-tree', title: '刷新文件树', hint: '文件', run: () => this.loadTree(this.treePath) },
+      { id: 'refresh-tree', title: '刷新文件树', hint: '文件', run: () => this.refreshTree() },
       { id: 'git-diff', title: '查看 Git diff', hint: 'Git', run: () => this.loadGit(true) },
       { id: 'theme-dark', title: '主题：深色', hint: '外观', run: () => this.applyTheme('dark') },
       { id: 'theme-light', title: '主题：浅色', hint: '外观', run: () => this.applyTheme('light') },

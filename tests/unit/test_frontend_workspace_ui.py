@@ -264,3 +264,38 @@ def test_m5_windowing_and_a11y_are_guarded() -> None:
     assert (frontend / "tests" / "diff.test.ts").is_file()
     assert (frontend / "tests" / "search.test.ts").is_file()
     assert (frontend / "tests" / "window.test.ts").is_file()
+
+
+def test_m6_editor_tabs_tree_and_problems_are_guarded() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "editorTabs",
+        "editorTabClass",
+        "activateEditorTab",
+        "closeEditorTab",
+        "refreshTree()",
+        "filteredTreeRows()",
+        "problem-card",
+        "activity-badge",
+        "i-alert",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "editorTabs",
+        "activateEditorTab",
+        "closeEditorTab",
+        "openDiffTab",
+        "refreshTree",
+        "treeVisibleRows",
+        "toggleTreeDir",
+        "addProblem",
+        "clearProblemsByKind",
+        "treeLoadingMap",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".activity-badge", ".problem-card", ".problem-detail"):
+        assert marker in css, marker

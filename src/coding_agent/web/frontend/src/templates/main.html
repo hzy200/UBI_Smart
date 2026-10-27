@@ -1,22 +1,22 @@
   <main class="main">
     <div class="main-tabs" role="tablist" aria-label="主区标签">
-      <button class="main-tab" role="tab" :class="mainTabClass('chat')"
-              :aria-selected="mainTab === 'chat' ? 'true' : 'false'" @click="showChat()">
-        <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
-        <span>对话</span>
-      </button>
-      <button class="main-tab" role="tab" :class="mainTabClass('file')" x-show="fileView.path"
-              :aria-selected="mainTab === 'file' ? 'true' : 'false'" @click="showFileTab()">
-        <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
-        <span class="main-tab-label" x-text="fileView.path"></span>
-        <span class="tab-close" role="button" @click.stop="closeFileTab()" title="关闭文件">×</span>
-      </button>
-      <button class="main-tab" role="tab" :class="mainTabClass('diff')" x-show="diffDisplay"
-              :aria-selected="mainTab === 'diff' ? 'true' : 'false'" @click="showDiffTab()">
-        <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
-        <span>Diff</span>
-        <span class="tab-close" role="button" @click.stop="closeDiffTab()" title="关闭 Diff">×</span>
-      </button>
+      <div class="main-tab-list">
+        <button class="main-tab" role="tab" :class="mainTabClass('chat')"
+                :aria-selected="mainTab === 'chat' ? 'true' : 'false'" @click="showChat()">
+          <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
+          <span>对话</span>
+        </button>
+        <template x-for="tab in editorTabs" :key="tab.id">
+          <button class="main-tab" role="tab" :class="editorTabClass(tab.id)"
+                  :aria-selected="mainTab !== 'chat' && activeEditorId === tab.id ? 'true' : 'false'"
+                  @click="activateEditorTab(tab.id)">
+            <svg class="icon" aria-hidden="true" x-show="tab.kind === 'file'"><use href="#i-files"></use></svg>
+            <svg class="icon" aria-hidden="true" x-show="tab.kind === 'diff'"><use href="#i-git"></use></svg>
+            <span class="main-tab-label" x-text="tab.title"></span>
+            <span class="tab-close" role="button" @click.stop="closeEditorTab(tab.id)" title="关闭标签">×</span>
+          </button>
+        </template>
+      </div>
       <div class="main-search" x-show="messageSearchOpen" x-cloak>
         <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
         <input x-ref="messageSearchInput" x-model="messageQuery"
@@ -46,11 +46,13 @@
         <span class="editor-path" x-text="fileView.path"></span>
         <span class="note" x-text="fileView._size"></span>
         <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
+        <span class="note note-bad" x-show="activeEditorTab() && activeEditorTab().stale">文件已变化</span>
         <span class="spacer"></span>
+        <button x-show="activeEditorTab() && activeEditorTab().stale" @click="refreshActiveFile()">刷新</button>
         <button @click="copyText(fileView.path)">复制路径</button>
         <button x-show="canOpenFileInVscode()" @click="openFileInVscode()">在 VS Code 打开</button>
         <button @click="copyText(fileView._text)">复制内容</button>
-        <button @click="closeFileTab()">关闭</button>
+        <button @click="closeActiveEditorTab()">关闭</button>
       </div>
       <pre class="editor-code"><code x-html="fileView._html"></code></pre>
     </section>
@@ -62,7 +64,7 @@
         <span class="spacer"></span>
         <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部</button>
         <button @click="copyText(diffDisplay)">复制</button>
-        <button @click="closeDiffTab()">关闭</button>
+        <button @click="closeActiveEditorTab()">关闭</button>
       </div>
       <div class="diff-view">
         <template x-for="row in diffRows()" :key="row._key">

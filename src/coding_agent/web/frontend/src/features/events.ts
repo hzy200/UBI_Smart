@@ -21,6 +21,7 @@ export const eventsMixin = {
         this._terminal = false;
         this._suspended = false;
         this.timeline = [];
+        this.problems = [];
         this.pushTimeline('start', '开始运行');
         break;
       case 'plan_created':
@@ -86,23 +87,64 @@ export const eventsMixin = {
       case 'file_changed':
         this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
         this.filesDirty = true;
+        for (const tab of this.editorTabs) {
+          if (tab.kind === 'file' && (tab.path === event.path || tab.title === event.path)) {
+            tab.stale = true;
+          }
+        }
         break;
-      case 'verification':
+      case 'verification': {
         this.pushMessage('system', this.verificationText(event));
         this.pushTimeline(
           event.ok === false ? 'error' : 'verify',
           '验证',
           event.summary,
         );
+        this.clearProblemsByKind('verification');
+        const verificationDetail = [
+          ...(event.issues || []),
+          ...(event.failed_tests || []),
+        ].join('\n');
+        if (event.ok === false || verificationDetail) {
+          this.addProblem(
+            'verification',
+            event.ok === false ? 'error' : 'warning',
+            this.verificationText(event),
+            verificationDetail || event.summary,
+          );
+        }
         break;
-      case 'review_finished':
+      }
+      case 'review_finished': {
         this.pushMessage('system', this.reviewText(event));
         this.pushTimeline(
           event.blocked ? 'error' : 'review',
           '审查',
           event.summary,
         );
+        this.clearProblemsByKind('review');
+        if (
+          event.blocked
+          || event.status === 'warned'
+          || (event.findings || []).length
+        ) {
+          const severity = event.blocked ? 'error' : 'warning';
+          const findings = event.findings || [];
+          if (findings.length) {
+            for (const finding of findings) {
+              this.addProblem('review', severity, '审查发现', finding);
+            }
+          } else {
+            this.addProblem(
+              'review',
+              severity,
+              this.reviewText(event),
+              event.summary,
+            );
+          }
+        }
         break;
+      }
       case 'repair_started':
         this.pushMessage('system', `第 ${event.attempt}/${event.limit} 次修复：${event.summary}`);
         break;
@@ -229,6 +271,8 @@ export const eventsMixin = {
         this.connectionState = 'closed';
         this.pushMessage('system', `运行失败：${event.message}`);
         this.pushTimeline('error', '运行失败', event.message);
+        this.clearProblemsByKind('run');
+        this.addProblem('run', 'error', '运行失败', event.message);
         void this.saveTranscript();
         this.notify('CodingAgent 运行失败', event.message || '');
         break;
@@ -484,6 +528,30 @@ export const eventsMixin = {
     existing._worker = existing.worker_id;
     existing._timing = formatDuration(existing.duration_ms);
     existing._tokens = formatTokens(existing.input_tokens, existing.output_tokens);
+  },
+
+  clearProblems() {
+    this.problems = [];
+  },
+
+  clearProblemsByKind(kind) {
+    this.problems = this.problems.filter((problem) => problem.kind !== kind);
+  },
+
+  addProblem(kind, severity, title, detail = '') {
+    const text = String(title || '').trim();
+    if (!text) return;
+    this.problems.push({
+      id: ++this._problemSeq,
+      kind,
+      severity: severity || 'warning',
+      title: text,
+      detail: String(detail || '').slice(0, 4000),
+      _cls: `problem-${severity || 'warning'}`,
+    });
+    if (this.problems.length > 200) {
+      this.problems.splice(0, this.problems.length - 200);
+    }
   },
 
   pushTimeline(kind, title, detail = '') {

@@ -1963,6 +1963,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.kinds = [];
       this.planRows = [];
       this.timeline = [];
+      this.problems = [];
       this.stepIdx = -1;
       this.planDegraded = false;
       this.tools = [];
@@ -1981,6 +1982,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.diffTruncated = false;
       this.diffExpanded = false;
       this.mainTab = "chat";
+      this.editorTabs = [];
+      this.activeEditorId = "";
+      this.fileView = { path: "", size: 0, _text: "", _html: "" };
       this.tasks = [];
       this.audit = [];
       this.uploads = [];
@@ -2035,8 +2039,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
       await this.loadUploads();
       await this.loadApprovals();
-      this.treePath = "";
-      this.treeRows = [];
+      this.treeChildren = {};
+      this.treeExpanded = {};
+      this.treeLoadingMap = {};
       this.fileView = { path: "", size: 0, _text: "", _html: "" };
       this.gitInfo = {
         is_repo: false,
@@ -2657,6 +2662,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this._terminal = false;
           this._suspended = false;
           this.timeline = [];
+          this.problems = [];
           this.pushTimeline("start", "\u5F00\u59CB\u8FD0\u884C");
           break;
         case "plan_created":
@@ -2722,23 +2728,60 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         case "file_changed":
           this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
           this.filesDirty = true;
+          for (const tab of this.editorTabs) {
+            if (tab.kind === "file" && (tab.path === event.path || tab.title === event.path)) {
+              tab.stale = true;
+            }
+          }
           break;
-        case "verification":
+        case "verification": {
           this.pushMessage("system", this.verificationText(event));
           this.pushTimeline(
             event.ok === false ? "error" : "verify",
             "\u9A8C\u8BC1",
             event.summary
           );
+          this.clearProblemsByKind("verification");
+          const verificationDetail = [
+            ...event.issues || [],
+            ...event.failed_tests || []
+          ].join("\n");
+          if (event.ok === false || verificationDetail) {
+            this.addProblem(
+              "verification",
+              event.ok === false ? "error" : "warning",
+              this.verificationText(event),
+              verificationDetail || event.summary
+            );
+          }
           break;
-        case "review_finished":
+        }
+        case "review_finished": {
           this.pushMessage("system", this.reviewText(event));
           this.pushTimeline(
             event.blocked ? "error" : "review",
             "\u5BA1\u67E5",
             event.summary
           );
+          this.clearProblemsByKind("review");
+          if (event.blocked || event.status === "warned" || (event.findings || []).length) {
+            const severity = event.blocked ? "error" : "warning";
+            const findings = event.findings || [];
+            if (findings.length) {
+              for (const finding of findings) {
+                this.addProblem("review", severity, "\u5BA1\u67E5\u53D1\u73B0", finding);
+              }
+            } else {
+              this.addProblem(
+                "review",
+                severity,
+                this.reviewText(event),
+                event.summary
+              );
+            }
+          }
           break;
+        }
         case "repair_started":
           this.pushMessage("system", `\u7B2C ${event.attempt}/${event.limit} \u6B21\u4FEE\u590D\uFF1A${event.summary}`);
           break;
@@ -2859,6 +2902,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.connectionState = "closed";
           this.pushMessage("system", `\u8FD0\u884C\u5931\u8D25\uFF1A${event.message}`);
           this.pushTimeline("error", "\u8FD0\u884C\u5931\u8D25", event.message);
+          this.clearProblemsByKind("run");
+          this.addProblem("run", "error", "\u8FD0\u884C\u5931\u8D25", event.message);
           void this.saveTranscript();
           this.notify("CodingAgent \u8FD0\u884C\u5931\u8D25", event.message || "");
           break;
@@ -3090,6 +3135,27 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       existing._worker = existing.worker_id;
       existing._timing = formatDuration(existing.duration_ms);
       existing._tokens = formatTokens(existing.input_tokens, existing.output_tokens);
+    },
+    clearProblems() {
+      this.problems = [];
+    },
+    clearProblemsByKind(kind) {
+      this.problems = this.problems.filter((problem) => problem.kind !== kind);
+    },
+    addProblem(kind, severity, title, detail = "") {
+      const text = String(title || "").trim();
+      if (!text) return;
+      this.problems.push({
+        id: ++this._problemSeq,
+        kind,
+        severity: severity || "warning",
+        title: text,
+        detail: String(detail || "").slice(0, 4e3),
+        _cls: `problem-${severity || "warning"}`
+      });
+      if (this.problems.length > 200) {
+        this.problems.splice(0, this.problems.length - 200);
+      }
     },
     pushTimeline(kind, title, detail = "") {
       this.timeline.push({
@@ -3449,27 +3515,134 @@ ${paths}
     },
     async loadDiff(snapshotId, path) {
       if (!this.threadId) return;
+      const id = `diff:${snapshotId || ""}:${path || ""}`;
+      if (this.editorTabs.some((tab) => tab.id === id)) {
+        this.activateEditorTab(id);
+      }
       const params = new URLSearchParams({ thread_id: this.threadId });
       if (snapshotId) params.set("snapshot_id", snapshotId);
       if (path) params.set("path", path);
       try {
         const response = await authFetch(`/api/diff?${params.toString()}`);
         const data = await readJson(response, "\u8BFB\u53D6 diff \u5931\u8D25");
-        this.diffText = data.diff || "\uFF08\u6CA1\u6709\u5DEE\u5F02\uFF09";
-        this.diffPath = path || "";
-        const lines = this.diffText.split("\n");
-        this.diffTruncated = lines.length > 200;
-        this.diffExpanded = false;
-        this.diffDisplay = this.diffTruncated ? `${lines.slice(0, 200).join("\n")}
-\u2026\uFF08\u5171 ${lines.length} \u884C\uFF0C\u5DF2\u6298\u53E0\uFF09` : this.diffText;
-        this.mainTab = "diff";
+        this.openDiffTab(
+          id,
+          path ? `Diff \xB7 ${path}` : "Diff \xB7 \u672C\u8F6E\u6539\u52A8",
+          path || "",
+          data.diff || "\uFF08\u6CA1\u6709\u5DEE\u5F02\uFF09"
+        );
       } catch (err) {
         this.toastMessage(String(err));
       }
     },
-    expandDiff() {
+    openDiffTab(id, title, path, text) {
+      const diffText = String(text || "\uFF08\u6CA1\u6709\u5DEE\u5F02\uFF09");
+      const lines = diffText.split("\n");
+      const truncated = lines.length > 200;
+      const display = truncated ? `${lines.slice(0, 200).join("\n")}
+\u2026\uFF08\u5171 ${lines.length} \u884C\uFF0C\u5DF2\u6298\u53E0\uFF09` : diffText;
+      const payload = {
+        id,
+        kind: "diff",
+        title,
+        path,
+        diffText,
+        diffDisplay: display,
+        diffTruncated: truncated,
+        diffExpanded: !truncated,
+        diffPath: path
+      };
+      const existing = this.editorTabs.find((tab) => tab.id === id);
+      if (existing) Object.assign(existing, payload);
+      else this.editorTabs = [...this.editorTabs, payload];
+      this.activateEditorTab(id);
+    },
+    async expandDiff() {
       this.diffExpanded = true;
       this.diffDisplay = this.diffText;
+      this.syncActiveEditor();
+    },
+    activeEditorTab() {
+      return this.editorTabs.find((tab) => tab.id === this.activeEditorId) || null;
+    },
+    editorTabClass(id) {
+      return this.mainTab !== "chat" && this.activeEditorId === id ? "active" : "";
+    },
+    activateEditorTab(id) {
+      const tab = this.editorTabs.find((item) => item.id === id);
+      if (!tab) return;
+      this.activeEditorId = id;
+      if (tab.kind === "file") {
+        this.fileView = tab.fileView;
+        this.mainTab = "file";
+        return;
+      }
+      this.diffText = tab.diffText;
+      this.diffDisplay = tab.diffDisplay;
+      this.diffTruncated = tab.diffTruncated;
+      this.diffExpanded = tab.diffExpanded;
+      this.diffPath = tab.diffPath;
+      this.mainTab = "diff";
+    },
+    syncActiveEditor() {
+      const tab = this.editorTabs.find((item) => item.id === this.activeEditorId);
+      if (!tab) return;
+      if (tab.kind === "file") {
+        tab.fileView = this.fileView;
+        return;
+      }
+      tab.diffText = this.diffText;
+      tab.diffDisplay = this.diffDisplay;
+      tab.diffTruncated = this.diffTruncated;
+      tab.diffExpanded = this.diffExpanded;
+      tab.diffPath = this.diffPath;
+    },
+    closeEditorTab(id) {
+      const index = this.editorTabs.findIndex((tab) => tab.id === id);
+      if (index < 0) return;
+      const wasActive = this.activeEditorId === id;
+      this.editorTabs = this.editorTabs.filter((tab) => tab.id !== id);
+      if (this.mainTab === "chat") {
+        if (wasActive) this.activeEditorId = "";
+        return;
+      }
+      if (!wasActive) return;
+      const next = this.editorTabs[Math.min(index, this.editorTabs.length - 1)];
+      if (next) {
+        this.activateEditorTab(next.id);
+        return;
+      }
+      this.activeEditorId = "";
+      this.mainTab = "chat";
+      this.fileView = { path: "", size: 0, _text: "", _html: "" };
+      this.diffText = "";
+      this.diffDisplay = "";
+      this.diffPath = "";
+      this.diffTruncated = false;
+      this.diffExpanded = false;
+    },
+    closeActiveEditorTab() {
+      if (this.mainTab === "chat") return;
+      if (this.activeEditorId) this.closeEditorTab(this.activeEditorId);
+    },
+    closeOtherEditorTabs() {
+      if (this.mainTab === "chat") {
+        this.closeAllEditorTabs();
+        return;
+      }
+      const active = this.activeEditorTab();
+      this.editorTabs = active ? [active] : [];
+    },
+    closeAllEditorTabs() {
+      this.editorTabs = [];
+      this.activeEditorId = "";
+      this.mainTab = "chat";
+      this.fileView = { path: "", size: 0, _text: "", _html: "" };
+      this.diffText = "";
+      this.diffDisplay = "";
+      this.diffPath = "";
+      this.diffTruncated = false;
+      this.diffExpanded = false;
     },
     async restoreSnapshot(snapshotId, path) {
       if (!this.threadId) return;
@@ -3496,12 +3669,12 @@ ${paths}
       this.files = this.files.filter((row) => row._key !== item._key);
       this.toastMessage(`\u5DF2\u63A5\u53D7\uFF08\u4FDD\u7559\u5F53\u524D\u5185\u5BB9\uFF09\uFF1A${item.path}`);
     },
-    async loadTree(path = "") {
+    async loadTreeDir(path = "") {
       if (!this.threadId) {
         this.toastMessage("\u8BF7\u5148\u521B\u5EFA\u4F1A\u8BDD");
         return;
       }
-      this.treeLoading = true;
+      this.treeLoadingMap = { ...this.treeLoadingMap, [path]: true };
       try {
         const params = new URLSearchParams({
           thread_id: this.threadId,
@@ -3509,23 +3682,90 @@ ${paths}
         });
         const response = await authFetch(`/api/files?${params.toString()}`);
         const data = await readJson(response, "\u8BFB\u53D6\u6587\u4EF6\u6811\u5931\u8D25");
-        this.treePath = data.path || "";
-        this.treeTruncated = Boolean(data.truncated);
-        this.treeRows = (data.entries || []).map((entry) => ({
+        const entries = (data.entries || []).map((entry) => ({
           ...entry,
           _key: entry.path,
           _kind: entry.is_dir ? "\u76EE\u5F55" : "\u6587\u4EF6",
           _meta: entry.is_dir ? "" : this.formatBytes(entry.size),
           _cls: entry.is_dir ? "tree-dir" : "tree-file"
         }));
+        this.treeChildren = { ...this.treeChildren, [path]: entries };
       } catch (err) {
         this.toastMessage(String(err));
       } finally {
-        this.treeLoading = false;
+        this.treeLoadingMap = { ...this.treeLoadingMap, [path]: false };
       }
     },
+    async loadTree(path = "") {
+      if (!this.threadId) {
+        this.toastMessage("\u8BF7\u5148\u521B\u5EFA\u4F1A\u8BDD");
+        return;
+      }
+      if (!this.treeChildren[""]) await this.loadTreeDir("");
+      if (path) {
+        this.treeExpanded = { ...this.treeExpanded, [path]: true };
+        if (!this.treeChildren[path]) await this.loadTreeDir(path);
+      }
+    },
+    async refreshTree() {
+      if (!this.threadId) {
+        this.toastMessage("\u8BF7\u5148\u521B\u5EFA\u4F1A\u8BDD");
+        return;
+      }
+      const expanded = Object.keys(this.treeExpanded).filter(
+        (path) => this.treeExpanded[path]
+      );
+      this.treeChildren = {};
+      this.treeLoadingMap = {};
+      await this.loadTreeDir("");
+      for (const path of expanded) {
+        await this.loadTreeDir(path);
+      }
+    },
+    async toggleTreeDir(entry) {
+      if (!entry || !entry.is_dir) return;
+      const path = entry.path;
+      const next = !this.treeExpanded[path];
+      this.treeExpanded = { ...this.treeExpanded, [path]: next };
+      if (next && !this.treeChildren[path]) {
+        await this.loadTreeDir(path);
+      }
+    },
+    collapseAllTree() {
+      this.treeExpanded = {};
+    },
+    treeVisibleRows() {
+      const rows = [];
+      const walk = (path, depth) => {
+        for (const entry of this.treeChildren[path] || []) {
+          const expanded = Boolean(this.treeExpanded[entry.path]);
+          const loading = Boolean(this.treeLoadingMap[entry.path]);
+          rows.push({
+            ...entry,
+            _depth: depth,
+            _expanded: expanded,
+            _kind: entry.is_dir ? loading ? "\u2026" : expanded ? "\u25BE" : "\u25B8" : "\xB7"
+          });
+          if (entry.is_dir && expanded) walk(entry.path, depth + 1);
+        }
+      };
+      walk("", 0);
+      return rows;
+    },
     filteredTreeRows() {
-      return this.treeRows.filter((entry) => includesQuery(`${entry.name} ${entry.path}`, this.treeQuery));
+      if (!String(this.treeQuery || "").trim()) return this.treeVisibleRows();
+      const all = [];
+      const walk = (path) => {
+        for (const entry of this.treeChildren[path] || []) {
+          all.push({ ...entry, _depth: 0, _kind: entry.is_dir ? "\u76EE\u5F55" : "\xB7" });
+          if (entry.is_dir) walk(entry.path);
+        }
+      };
+      walk("");
+      return all.filter((entry) => includesQuery(`${entry.name} ${entry.path}`, this.treeQuery));
+    },
+    treeRootLoading() {
+      return Boolean(this.treeLoadingMap[""]);
     },
     canOpenFileInVscode() {
       const root = String(this.workspaceInput || this.workspace || "").trim();
@@ -3552,20 +3792,18 @@ ${paths}
       }
     },
     async openTreeEntry(entry) {
-      if (entry.is_dir) {
-        await this.loadTree(entry.path);
-      } else {
-        await this.openFile(entry.path);
-      }
+      if (entry.is_dir) await this.toggleTreeDir(entry);
+      else await this.openFile(entry.path);
     },
-    async treeUp() {
-      if (!this.treePath) return;
-      const parts = this.treePath.split("/");
-      parts.pop();
-      await this.loadTree(parts.join("/"));
-    },
-    async openFile(path, line = 0) {
+    async openFile(path, line = 0, force = false) {
       if (!this.threadId) return;
+      const id = `file:${path}`;
+      const existing = this.editorTabs.find((tab) => tab.id === id);
+      if (existing && !force) {
+        this.activateEditorTab(id);
+        this.$nextTick(() => this.scrollFileToLine(line));
+        return;
+      }
       try {
         const params = new URLSearchParams({
           thread_id: this.threadId,
@@ -3574,17 +3812,39 @@ ${paths}
         const response = await authFetch(`/api/file?${params.toString()}`);
         const data = await readJson(response, "\u8BFB\u53D6\u6587\u4EF6\u5931\u8D25");
         const text = data.binary ? "\uFF08\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u4E0D\u5C55\u793A\u5185\u5BB9\uFF09" : data.content + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "");
-        this.fileView = {
+        const fileView = {
           ...data,
           _size: this.formatBytes(data.size),
           _lang: this.fileLanguage(path),
           _text: text,
           _html: this.highlightCode(path, text, data.binary)
         };
-        this.mainTab = "file";
+        if (existing) {
+          existing.fileView = fileView;
+          existing.path = data.path || path;
+          existing.title = path;
+          existing.stale = false;
+        } else {
+          this.editorTabs = [...this.editorTabs, {
+            id,
+            kind: "file",
+            path: data.path || path,
+            title: path,
+            fileView,
+            stale: false
+          }];
+        }
+        this.activateEditorTab(id);
         this.$nextTick(() => this.scrollFileToLine(line));
       } catch (err) {
         this.toastMessage(String(err));
+      }
+    },
+    async refreshActiveFile() {
+      if (this.mainTab !== "file") return;
+      const tab = this.activeEditorTab();
+      if (tab && tab.kind === "file") {
+        await this.openFile(tab.path, 0, true);
       }
     },
     scrollFileToLine(line) {
@@ -3649,23 +3909,11 @@ ${paths}
     showChat() {
       this.mainTab = "chat";
     },
-    showFileTab() {
-      if (this.fileView.path) this.mainTab = "file";
-    },
-    showDiffTab() {
-      if (this.diffDisplay) this.mainTab = "diff";
-    },
     closeFileTab() {
-      this.fileView = { path: "", size: 0, _text: "", _html: "" };
-      if (this.mainTab === "file") this.mainTab = "chat";
+      this.closeActiveEditorTab();
     },
     closeDiffTab() {
-      this.diffText = "";
-      this.diffDisplay = "";
-      this.diffPath = "";
-      this.diffTruncated = false;
-      this.diffExpanded = false;
-      if (this.mainTab === "diff") this.mainTab = "chat";
+      this.closeActiveEditorTab();
     },
     diffRows() {
       return diffRowsFromText(this.diffDisplay);
@@ -3701,12 +3949,7 @@ ${paths}
         this.gitDiffText = diff ? `${data.diff || ""}
 ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931\u8D25\uFF1A${data.diff_error}` : "\uFF08\u6CA1\u6709\u5DEE\u5F02\uFF09") : "";
         if (diff) {
-          this.diffText = this.gitDiffText;
-          this.diffDisplay = this.gitDiffText;
-          this.diffPath = "Git";
-          this.diffTruncated = false;
-          this.diffExpanded = true;
-          this.mainTab = "diff";
+          this.openDiffTab("diff:git", "Git diff", "Git", this.gitDiffText);
         }
       } catch (err) {
         this.toastMessage(String(err));
@@ -4113,7 +4356,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     git: "Git",
     tasks: "\u4EFB\u52A1",
     memory: "\u8BB0\u5FC6",
-    audit: "\u5BA1\u8BA1"
+    audit: "\u5BA1\u8BA1",
+    problems: "\u95EE\u9898"
   };
   var layoutMixin = {
     initLayout() {
@@ -4213,7 +4457,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (name === "tasks") this.tasksDirty = false;
       if (load) {
         if (name === "files") this.loadSnapshots();
-        if (name === "tree") this.loadTree(this.treePath);
+        if (name === "tree") this.loadTree("");
         if (name === "git") this.loadGit(false);
         if (name === "memory") this.loadMemory();
         if (name === "audit") this.loadAudit();
@@ -4331,11 +4575,15 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         { id: "view-tasks", title: "\u89C6\u56FE\uFF1A\u4EFB\u52A1", hint: "\u5BFC\u822A", run: () => this.setView("tasks") },
         { id: "view-memory", title: "\u89C6\u56FE\uFF1A\u8BB0\u5FC6", hint: "\u5BFC\u822A", run: () => this.setView("memory") },
         { id: "view-audit", title: "\u89C6\u56FE\uFF1A\u5BA1\u8BA1", hint: "\u5BFC\u822A", run: () => this.setView("audit") },
+        { id: "view-problems", title: "\u89C6\u56FE\uFF1A\u95EE\u9898", hint: "\u5BFC\u822A", run: () => this.setView("problems") },
         { id: "tab-plan", title: "\u68C0\u67E5\u5668\uFF1A\u8BA1\u5212", hint: "\u5BFC\u822A", run: () => this.setTab("plan") },
         { id: "tab-tools", title: "\u68C0\u67E5\u5668\uFF1A\u5DE5\u5177", hint: "\u5BFC\u822A", run: () => this.setTab("tools") },
         { id: "tab-timeline", title: "\u68C0\u67E5\u5668\uFF1A\u65F6\u95F4\u7EBF", hint: "\u5BFC\u822A", run: () => this.setTab("timeline") },
+        { id: "close-editor", title: "\u5173\u95ED\u5F53\u524D\u6807\u7B7E", hint: "\u6807\u7B7E", run: () => this.closeActiveEditorTab() },
+        { id: "close-other-editors", title: "\u5173\u95ED\u5176\u4ED6\u6807\u7B7E", hint: "\u6807\u7B7E", run: () => this.closeOtherEditorTabs() },
+        { id: "close-all-editors", title: "\u5173\u95ED\u6240\u6709\u6587\u4EF6\u6807\u7B7E", hint: "\u6807\u7B7E", run: () => this.closeAllEditorTabs() },
         { id: "refresh-files", title: "\u5237\u65B0\u6587\u4EF6\u5FEB\u7167", hint: "\u6587\u4EF6", run: () => this.loadSnapshots() },
-        { id: "refresh-tree", title: "\u5237\u65B0\u6587\u4EF6\u6811", hint: "\u6587\u4EF6", run: () => this.loadTree(this.treePath) },
+        { id: "refresh-tree", title: "\u5237\u65B0\u6587\u4EF6\u6811", hint: "\u6587\u4EF6", run: () => this.refreshTree() },
         { id: "git-diff", title: "\u67E5\u770B Git diff", hint: "Git", run: () => this.loadGit(true) },
         { id: "theme-dark", title: "\u4E3B\u9898\uFF1A\u6DF1\u8272", hint: "\u5916\u89C2", run: () => this.applyTheme("dark") },
         { id: "theme-light", title: "\u4E3B\u9898\uFF1A\u6D45\u8272", hint: "\u5916\u89C2", run: () => this.applyTheme("light") },
@@ -4560,10 +4808,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       sessions: [],
       sessionRows: [],
       sessionQuery: "",
-      treePath: "",
-      treeRows: [],
+      treeChildren: {},
+      treeExpanded: {},
+      treeLoadingMap: {},
       treeQuery: "",
-      treeLoading: false,
       fileView: { path: "", size: 0, _text: "", _html: "" },
       gitInfo: {
         is_repo: false,
@@ -4599,9 +4847,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       decisions: {},
       tab: "plan",
       mainTab: "chat",
+      editorTabs: [],
+      activeEditorId: "",
       diffPath: "",
       view: "sessions",
-      viewClasses: { sessions: "active", files: "", tree: "", git: "", tasks: "", memory: "", audit: "" },
+      viewClasses: { sessions: "active", files: "", tree: "", git: "", tasks: "", memory: "", audit: "", problems: "" },
+      problems: [],
+      _problemSeq: 0,
       filesDirty: false,
       tasksDirty: false,
       sidebarWidth: 280,
