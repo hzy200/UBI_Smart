@@ -17,6 +17,9 @@ packaging/vendor/
 
 .pytest_cache/
 .ruff_cache/
+test-results/
+playwright-report/
+.playwright/
 .idea/
 .vscode/
 .workbuddy/

@@ -837,7 +837,17 @@ export const sessionsMixin = {
   },
 
   async openSession(id) {
+    // 在“新会话”界面先输入、再点已有会话时，把 __new__ 草稿带过去，
+    // 而不是让输入框突然清空。
+    const pendingDraft = this.activeView && !this.activeView.threadId
+      ? String(this.activeView.prompt || '')
+      : '';
     const view = this.activateSessionView(id);
+    if (pendingDraft && !view.prompt) {
+      saveDraft(id, pendingDraft);
+      this.clearDraftFor('');
+      view.prompt = pendingDraft;
+    }
     if (this.splitView && this.splitView.threadId === id) {
       this.closeSplit();
     }

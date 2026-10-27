@@ -25,6 +25,9 @@ jobs:
       - name: 安装前端依赖
         # 前端单测依赖 jsdom，构建依赖 esbuild；锁文件已入库，用 ci 保证可复现。
         working-directory: src/coding_agent/web/frontend
+        env:
+          # E2E 使用 runner 自带的 Chrome（channel: chrome），不下载浏览器。
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: npm ci
       - name: Lint
         run: ruff check src tests
@@ -42,6 +45,10 @@ jobs:
         # frontend 目录下执行；从仓库根直接跑会报 Could not resolve。
         working-directory: src/coding_agent/web/frontend
         run: npm test
+      - name: 前端真实浏览器 E2E
+        # 使用 GitHub runner 自带的 Google Chrome（playwright channel: chrome）。
+        working-directory: src/coding_agent/web/frontend
+        run: npx playwright test
       - name: 上传前端独立产物
         # 独立静态站可直接取这个 artifact；API 托管首页仍保留一个版本作回退。
         uses: actions/upload-artifact@v4
