@@ -755,6 +755,34 @@
     }
   };
 
+  // src/ui/theme.ts
+  var ACCENT_PRESETS = [
+    { key: "blue", label: "\u84DD", color: "#5b9dff" },
+    { key: "violet", label: "\u7D2B", color: "#a78bfa" },
+    { key: "green", label: "\u7EFF", color: "#4cc38a" },
+    { key: "amber", label: "\u7425\u73C0", color: "#e5b567" },
+    { key: "rose", label: "\u73AB\u7EA2", color: "#f472b6" }
+  ];
+  function accentColor(key) {
+    const preset = ACCENT_PRESETS.find((item) => item.key === key);
+    return (preset || ACCENT_PRESETS[0]).color;
+  }
+  function normalizeChoice(value, allowed, fallback) {
+    const text = String(value || "");
+    return allowed.includes(text) ? text : fallback;
+  }
+  function themeBodyClasses(settings) {
+    return [
+      `theme-${normalizeChoice(settings.theme, ["dark", "light", "auto"], "dark")}`,
+      `density-${normalizeChoice(settings.density, ["compact", "normal"], "normal")}`,
+      `font-${normalizeChoice(settings.fontSize, ["small", "normal", "large"], "normal")}`,
+      `family-${normalizeChoice(settings.fontFamily, ["system", "serif", "mono"], "system")}`,
+      `contrast-${normalizeChoice(settings.contrast, ["normal", "high"], "normal")}`,
+      `code-${normalizeChoice(settings.codeFontSize, ["small", "normal", "large"], "normal")}`,
+      `code-lh-${normalizeChoice(settings.codeLineHeight, ["compact", "normal", "relaxed"], "normal")}`
+    ].join(" ");
+  }
+
   // src/features/settings.ts
   var SETTINGS_KEY = "codingagent.settings";
   var settingsMixin = {
@@ -765,6 +793,10 @@
         if (saved.density) this.density = saved.density;
         if (saved.fontSize) this.fontSize = saved.fontSize;
         if (saved.fontFamily) this.fontFamily = saved.fontFamily;
+        if (saved.contrast) this.contrast = saved.contrast;
+        if (saved.accent) this.accent = saved.accent;
+        if (saved.codeFontSize) this.codeFontSize = saved.codeFontSize;
+        if (saved.codeLineHeight) this.codeLineHeight = saved.codeLineHeight;
         if (typeof saved.showReasoning === "boolean") {
           this.showReasoning = saved.showReasoning;
         }
@@ -779,6 +811,10 @@
         density: this.density,
         fontSize: this.fontSize,
         fontFamily: this.fontFamily,
+        contrast: this.contrast,
+        accent: this.accent,
+        codeFontSize: this.codeFontSize,
+        codeLineHeight: this.codeLineHeight,
         showReasoning: this.showReasoning,
         workspace: this.workspaceInput,
         notify: this.notifyEnabled
@@ -794,13 +830,16 @@
       }
     },
     applyBodyClasses() {
-      this.bodyClasses = `theme-${this.theme} density-${this.density} font-${this.fontSize} family-${this.fontFamily}`;
+      this.bodyClasses = themeBodyClasses(this);
+      if (typeof document !== "undefined" && document.body) {
+        document.body.style.setProperty("--accent", accentColor(this.accent));
+      }
     },
     refreshBadgeClass() {
       this.badgeClasses = this.capabilities.read_only ? "badge-read" : "badge-write";
     },
     bodyClass() {
-      return `theme-${this.theme} density-${this.density} font-${this.fontSize} family-${this.fontFamily}`;
+      return themeBodyClasses(this);
     }
   };
 
@@ -6206,9 +6245,17 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         "\u5BC6\u5EA6",
         "\u884C\u9AD8",
         "\u52A8\u6548",
+        "\u5BF9\u6BD4\u5EA6",
+        "\u9AD8\u5BF9\u6BD4",
+        "\u5F3A\u8C03\u8272",
+        "\u4EE3\u7801\u5B57\u53F7",
+        "\u4EE3\u7801\u884C\u9AD8",
         "theme",
         "font",
         "density",
+        "contrast",
+        "accent",
+        "code",
         "appearance"
       ]
     },
@@ -7118,7 +7165,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       density: "normal",
       fontSize: "normal",
       fontFamily: "system",
-      bodyClasses: "theme-dark density-normal font-normal family-system",
+      contrast: "normal",
+      accent: "blue",
+      codeFontSize: "normal",
+      codeLineHeight: "normal",
+      bodyClasses: "theme-dark density-normal font-normal family-system contrast-normal code-normal code-lh-normal",
       tabClasses: { plan: "active", tools: "", timeline: "" },
       timeline: [],
       _timelineSeq: 0,

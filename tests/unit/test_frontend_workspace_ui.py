@@ -384,6 +384,44 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_m13_theme_contrast_accent_and_code_are_guarded() -> None:
+    """高对比度、强调色与代码字号/行高。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        'x-model="contrast"',
+        'x-model="accent"',
+        'x-model="codeFontSize"',
+        'x-model="codeLineHeight"',
+        'value="high"',
+        'value="violet"',
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "ACCENT_PRESETS",
+        "accentColor",
+        "themeBodyClasses",
+        "normalizeChoice",
+        "--accent",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (
+        "--code-size",
+        "--code-line-height",
+        "body.contrast-high",
+        "body.code-large",
+        "body.code-lh-relaxed",
+    ):
+        assert marker in css, marker
+
+    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    assert (frontend / "src" / "ui" / "theme.ts").is_file()
+    assert (frontend / "tests" / "theme.test.ts").is_file()
+
+
 def test_m12_settings_search_skeleton_and_error_banner_are_guarded() -> None:
     """设置搜索、加载骨架与全局错误横幅。"""
     html = (STATIC / "index.html").read_text(encoding="utf-8")

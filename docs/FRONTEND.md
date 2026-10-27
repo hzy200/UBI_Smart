@@ -195,6 +195,8 @@ diff 支持统一/并排视图、行号、增删着色、逐行语法高亮与�
 
 设置按“外观 / 模型 / 工作区 / 诊断 / 高级”分页，顶部搜索框按中英文关键词
 过滤分节；搜索期间可同时看到多个匹配分节，无匹配时显示空态。切换分页会清空搜索。
+外观支持主题、字体、字号、密度、对比度（标准/高）、强调色（蓝/紫/绿/琥珀/玫红）、
+代码字号与代码行高；代码排版统一走 `--code-size` / `--code-line-height`。
 
 设置面板使用左侧分类 + 右侧内容区，分为：
 
@@ -363,6 +365,8 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 - 命令面板、设置、快捷键、恢复中心等模态打开时把焦点移入，`Tab`/`Shift+Tab`
   在模态内循环；`Esc` 关闭后把焦点还给触发元素。
 - 颜色不是唯一信息通道：状态同时有文字徽标/圆点/边框样式。
+- 高对比度模式提高边框/次要文字对比度；强调色通过 body 内联 `--accent`
+  覆盖主题默认值，代码字号与行高使用统一令牌。
 - 窄屏（≤1100px）检查器改为右侧浮层；≤760px 活动栏横向、侧栏限高。
 
 ### 8.3 响应式与滚动
@@ -531,6 +535,7 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | `web/frontend/src/ui/output.ts` | 大工具输出按行分页 |
 | `web/frontend/src/ui/memo.ts` | 派生列表单槽缓存 |
 | `web/frontend/src/ui/settings.ts` | 设置分节关键词搜索 |
+| `web/frontend/src/ui/theme.ts` | 强调色预设与主题 body class |
 | `web/frontend/src/features/errors.ts` | 全局错误横幅与重试动作 |
 | `web/frontend/src/features/focus.ts` | 模态焦点进入/陷阱/恢复 mixin |
 | `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |

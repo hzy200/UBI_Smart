@@ -8,4 +8,5 @@ import './problems.test';
 import './search.test';
 import './sessions.test';
 import './settings.test';
+import './theme.test';
 import './virtual.test';

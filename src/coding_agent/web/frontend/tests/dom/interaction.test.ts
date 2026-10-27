@@ -256,6 +256,45 @@ test('jsdom 交互：会话、文件树、Problems、流式渲染与焦点陷阱
       );
     });
 
+    await t.test('主题设置应用高对比度/强调色/代码排版', async () => {
+      data.contrast = 'high';
+      data.accent = 'violet';
+      data.codeFontSize = 'large';
+      data.codeLineHeight = 'relaxed';
+      data.saveSettings();
+      await waitFor(
+        () => document.body.classList.contains('contrast-high')
+          && document.body.classList.contains('code-large')
+          && document.body.classList.contains('code-lh-relaxed'),
+        '主题 class',
+      );
+      assert.equal(
+        document.body.style.getPropertyValue('--accent'),
+        '#a78bfa',
+      );
+      const saved = JSON.parse(
+        window.localStorage.getItem('codingagent.settings') || '{}',
+      );
+      assert.equal(saved.accent, 'violet');
+      assert.equal(saved.codeFontSize, 'large');
+      assert.equal(saved.codeLineHeight, 'relaxed');
+
+      data.contrast = 'normal';
+      data.accent = 'blue';
+      data.codeFontSize = 'normal';
+      data.codeLineHeight = 'normal';
+      data.saveSettings();
+      await waitFor(
+        () => !document.body.classList.contains('contrast-high')
+          && document.body.classList.contains('code-normal'),
+        '主题恢复',
+      );
+      assert.equal(
+        document.body.style.getPropertyValue('--accent'),
+        '#5b9dff',
+      );
+    });
+
     await t.test('设置搜索按关键词过滤分节', async () => {
       const opener = document.querySelector(
         'header .icon-btn[aria-label="打开设置"]',

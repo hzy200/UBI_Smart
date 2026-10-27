@@ -1,5 +1,6 @@
 /* Alpine mixin: settings。由 app.ts 拆分，方法名保持稳定以兼容模板与构建守卫。 */
 
+import { accentColor, themeBodyClasses } from '../ui/theme';
 
 const SETTINGS_KEY = 'codingagent.settings';
 
@@ -11,6 +12,10 @@ export const settingsMixin = {
       if (saved.density) this.density = saved.density;
       if (saved.fontSize) this.fontSize = saved.fontSize;
       if (saved.fontFamily) this.fontFamily = saved.fontFamily;
+      if (saved.contrast) this.contrast = saved.contrast;
+      if (saved.accent) this.accent = saved.accent;
+      if (saved.codeFontSize) this.codeFontSize = saved.codeFontSize;
+      if (saved.codeLineHeight) this.codeLineHeight = saved.codeLineHeight;
       if (typeof saved.showReasoning === 'boolean') {
         this.showReasoning = saved.showReasoning;
       }
@@ -25,6 +30,10 @@ export const settingsMixin = {
       density: this.density,
       fontSize: this.fontSize,
       fontFamily: this.fontFamily,
+      contrast: this.contrast,
+      accent: this.accent,
+      codeFontSize: this.codeFontSize,
+      codeLineHeight: this.codeLineHeight,
       showReasoning: this.showReasoning,
       workspace: this.workspaceInput,
       notify: this.notifyEnabled,
@@ -41,7 +50,10 @@ export const settingsMixin = {
   },
 
   applyBodyClasses() {
-    this.bodyClasses = `theme-${this.theme} density-${this.density} font-${this.fontSize} family-${this.fontFamily}`;
+    this.bodyClasses = themeBodyClasses(this);
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.style.setProperty('--accent', accentColor(this.accent));
+    }
   },
 
   refreshBadgeClass() {
@@ -51,7 +63,7 @@ export const settingsMixin = {
   },
 
   bodyClass() {
-    return `theme-${this.theme} density-${this.density} font-${this.fontSize} family-${this.fontFamily}`;
+    return themeBodyClasses(this);
   },
 
 };

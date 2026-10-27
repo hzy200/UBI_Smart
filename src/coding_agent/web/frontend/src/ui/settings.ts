@@ -12,7 +12,8 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '外观',
     keywords: [
       '外观', '主题', '深色', '浅色', '跟随系统', '字体', '字号', '密度',
-      '行高', '动效', 'theme', 'font', 'density', 'appearance',
+      '行高', '动效', '对比度', '高对比', '强调色', '代码字号', '代码行高',
+      'theme', 'font', 'density', 'contrast', 'accent', 'code', 'appearance',
     ],
   },
   {

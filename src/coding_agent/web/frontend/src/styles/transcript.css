@@ -124,7 +124,8 @@
 .inline-tool-out {
   margin: 0; padding: 6px 8px; border-radius: 6px;
   background: var(--bg); border: 1px solid var(--border);
-  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  font-family: var(--mono); font-size: var(--code-size);
+  line-height: var(--code-line-height); color: var(--muted);
   white-space: pre-wrap; overflow-wrap: anywhere;
   max-height: 320px; overflow: auto;
 }
@@ -133,6 +134,7 @@
 .msg-body pre {
   background: var(--bg); padding: 10px; border-radius: 8px;
   overflow: auto; max-height: 360px;
+  font-size: var(--code-size); line-height: var(--code-line-height);
 }
 .msg-body code { font-family: var(--mono); }
 .copy-code { display: block; margin: 2px 0 4px auto; font-size: 11px; padding: 2px 8px; }

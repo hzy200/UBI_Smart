@@ -387,8 +387,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg);
   border-right: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--code-size);
+  line-height: var(--code-line-height);
   user-select: none;
 }
 .editor-code {
@@ -400,8 +400,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   overflow: visible;
   background: var(--bg);
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--code-size);
+  line-height: var(--code-line-height);
   tab-size: 4;
   white-space: pre;
 }
@@ -421,8 +421,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   overflow: auto;
   background: var(--bg);
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--code-size);
+  line-height: var(--code-line-height);
 }
 .diff-split-row {
   display: grid;
@@ -449,8 +449,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   overflow: auto;
   background: var(--bg);
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--code-size);
+  line-height: var(--code-line-height);
 }
 .diff-line {
   display: flex;

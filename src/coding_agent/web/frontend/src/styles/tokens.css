@@ -31,6 +31,8 @@
   --font-size: 14px;
   --font: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   --mono: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+  --code-size: 12px;
+  --code-line-height: 1.55;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -92,4 +94,15 @@
 }
 .family-mono {
   --font: var(--mono);
+}
+body.code-small { --code-size: 11px; }
+body.code-large { --code-size: 14px; }
+body.code-lh-compact { --code-line-height: 1.4; }
+body.code-lh-relaxed { --code-line-height: 1.8; }
+body.contrast-high {
+  --border: color-mix(in srgb, var(--text) 38%, var(--bg));
+  --border-subtle: var(--border);
+  --border-strong: var(--text);
+  --muted: color-mix(in srgb, var(--text) 74%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 62%, var(--bg));
 }
