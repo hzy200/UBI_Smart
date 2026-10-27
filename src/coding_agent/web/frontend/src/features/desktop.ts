@@ -71,7 +71,7 @@ export const desktopMixin = {
     this.saveSettings();
   },
 
-  notify(title, body) {
+  notify(title, body, meta: any = {}) {
     const kind = title.includes('失败')
       ? 'error'
       : title.includes('审批')
@@ -79,7 +79,7 @@ export const desktopMixin = {
         : title.includes('完成')
           ? 'success'
           : 'info';
-    this.pushNotification(kind, title, body);
+    this.pushNotification(kind, title, body, meta);
     if (!this.notifyEnabled) return;
     if (!('Notification' in window) || Notification.permission !== 'granted') {
       return;

@@ -356,12 +356,48 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.editor-crumb {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line-input {
+  width: 64px;
+  height: 24px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.editor-code-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+  background: var(--bg);
+}
+.editor-gutter {
+  position: sticky;
+  left: 0;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 12px 8px;
+  text-align: right;
+  color: var(--text-3);
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  user-select: none;
+}
 .editor-code {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   margin: 0;
   padding: 12px 14px;
-  overflow: auto;
+  overflow: visible;
   background: var(--bg);
   font-family: var(--mono);
   font-size: 12px;
@@ -370,6 +406,43 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   white-space: pre;
 }
 .editor-code code { font-family: inherit; }
+.diff-sign {
+  flex: 0 0 14px;
+  color: var(--muted);
+  user-select: none;
+}
+.diff-word {
+  background: color-mix(in srgb, var(--warn) 38%, transparent);
+  border-radius: 2px;
+}
+.diff-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.diff-split-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--border-subtle);
+}
+.diff-split-cell {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-split-cell + .diff-split-cell { border-left: 1px solid var(--border); }
+.diff-split-cell .diff-text { padding-right: 10px; }
+.diff-split-cell.diff-add { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.diff-split-cell.diff-del { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.diff-split-cell.diff-ctx { background: transparent; }
+.diff-split-cell.diff-split-full { grid-column: 1 / -1; }
+.diff-split-full { color: var(--muted); font-weight: 600; }
 .diff-view {
   flex: 1 1 auto;
   min-height: 0;

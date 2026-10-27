@@ -16,6 +16,7 @@ export const cspMixin = {
       case 'inspector-tab': this.setTab(data.tab); break;
       case 'tool-filter': this.setToolFilter(data.filter); break;
       case 'load-git': this.loadGit(data.diff === 'true'); break;
+      case 'diff-view': this.setDiffView(data.view); break;
       case 'steer': this.steer(data.steer); break;
       case 'approval': this.decide(data.allow === 'true'); break;
       case 'consent': this.decideConsent(data.id, data.allow === 'true'); break;
@@ -115,6 +116,11 @@ export const cspMixin = {
     this.onCommandAction(Number(event.currentTarget.dataset.index));
   },
 
+  onProblemClick(event) {
+    const path = event.currentTarget.dataset.path;
+    if (path) void this.openFile(path);
+  },
+
   onRecoveryAction(op, id) {
     if (op === 'delete') { this.deleteSession(id); return; }
     const item = this.recoveryItems.find((row) => row.thread_id === id);
@@ -152,6 +158,52 @@ export const cspMixin = {
 
   selectCurrentProject(event) {
     this.selectProject(event.target.value);
+  },
+
+  loadRecentCommands() {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem('codingagent.recentCommands') || '[]',
+      );
+      this.recentCommands = Array.isArray(saved)
+        ? saved.map((item) => String(item)).filter(Boolean).slice(0, 8)
+        : [];
+    } catch (err) {
+      this.recentCommands = [];
+    }
+  },
+
+  recordCommand(id) {
+    const clean = String(id || '').replace(/^recent:/, '');
+    if (!clean) return;
+    this.recentCommands = [
+      clean,
+      ...this.recentCommands.filter((item) => item !== clean),
+    ].slice(0, 8);
+    try {
+      localStorage.setItem(
+        'codingagent.recentCommands',
+        JSON.stringify(this.recentCommands),
+      );
+    } catch (err) { /* ignore */ }
+  },
+
+  openQuickOpen() {
+    this.commandOpen = true;
+    this.commandQuery = '#';
+    this.commandIndex = 0;
+    this.fileSearchResults = [];
+    this.fileSearchLoading = false;
+    this._searchSeq += 1;
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+    this.$nextTick(() => {
+      const input = this.$refs.commandInput;
+      if (input) input.focus();
+    });
+  },
+
+  commandGroupOrder() {
+    return ['最近使用', '命令', '会话', '文件'];
   },
 
   openShortcuts() { this.shortcutsOpen = true; },
@@ -278,13 +330,21 @@ export const cspMixin = {
   get filteredTreeResults() { return this.filteredTreeRows(); },
   get filteredToolResults() { return this.filteredTools(); },
   get filteredCommandResults() {
-    return this.filteredCommands().map((item, index) => ({
-      ...item,
-      _index: index,
-      _selected: index === this.commandIndex,
-      _cls: index === this.commandIndex ? 'selected' : '',
-      _domId: `command-item-${index}`,
-    }));
+    let lastGroup = '';
+    return this.filteredCommands().map((item, index) => {
+      const groupStart = item.group !== lastGroup;
+      lastGroup = item.group;
+      return {
+        ...item,
+        _index: index,
+        _selected: index === this.commandIndex,
+        _cls: index === this.commandIndex ? 'selected' : '',
+        _domId: `command-item-${index}`,
+        _groupStart: groupStart,
+        _groupLabel: item.group || '',
+        _shortcut: item.shortcut || '',
+      };
+    });
   },
   get shortcutRows() { return this.shortcuts(); },
   get profilesDisabled() { return !this.profilesEnabled; },

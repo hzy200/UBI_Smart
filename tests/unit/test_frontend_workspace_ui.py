@@ -164,7 +164,7 @@ def test_m3_workspace_features_are_guarded() -> None:
     for marker in (
         "mainTabFlags.file",
         "mainTabFlags.diff",
-        "diffResultRows",
+        "diffRowsData",
         "fileView._html",
         "notification-panel",
         "hasUnreadNotifications",
@@ -254,7 +254,7 @@ def test_m5_windowing_and_a11y_are_guarded() -> None:
         "onMessageMeasured",
         "messageHeights",
         "diffRowsFromText",
-        "matchesAllTokens",
+        "parseCommandQuery",
         "includesQuery",
     ):
         assert marker in app, marker
@@ -331,6 +331,56 @@ def test_m7_session_management_is_guarded() -> None:
 
     css = (STATIC / "style.css").read_text(encoding="utf-8")
     for marker in (".session-filters", ".session-pin", ".session-tag"):
+        assert marker in css, marker
+
+
+def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "diffRowsData",
+        "splitDiffRowsData",
+        "diffViewFlags",
+        "editor-gutter",
+        "fileView._lineNumbers",
+        "goToFileLine",
+        "command-group",
+        "command-shortcut",
+        "skip-link",
+        'id="main"',
+        'aria-busy="busy"',
+        "openNotification",
+        "onProblemClick",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "splitDiffRows",
+        "wordDiffMarkers",
+        "rebuildDiffRows",
+        "goToFileLine",
+        "openQuickOpen",
+        "quick-open",
+        "parseCommandQuery",
+        "fuzzyScore",
+        "recentCommands",
+        "loadNotifications",
+        "persistNotifications",
+        "openNotification",
+        "onProblemClick",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (
+        ".editor-gutter",
+        ".diff-split",
+        ".diff-word",
+        ".command-group",
+        ".command-shortcut",
+        ".skip-link",
+        ".problem-clickable",
+    ):
         assert marker in css, marker
 
 

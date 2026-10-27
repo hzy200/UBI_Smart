@@ -5,7 +5,7 @@
  */
 
 import { authFetch, readJson } from '../api/http';
-import { matchesAllTokens } from '../ui/search';
+import { fuzzyScore, parseCommandQuery } from '../ui/search';
 
 const LAYOUT_KEY = 'codingagent.layout';
 const ACTIVITY_WIDTH = 52;
@@ -213,11 +213,19 @@ export const layoutMixin = {
     this.fileSearchLoading = false;
     this._searchSeq += 1;
     if (this._searchTimer) clearTimeout(this._searchTimer);
-    const query = String(this.commandQuery || '').trim();
-    if (query.length < 2 || !this.threadId) return;
-    this._searchTimer = setTimeout(() => {
-      void this.searchFiles(query);
-    }, 220);
+    const parsed = parseCommandQuery(this.commandQuery);
+    if (!this.threadId) return;
+    if (parsed.kind === 'file' && parsed.query.length >= 1) {
+      this._searchTimer = setTimeout(() => {
+        void this.searchFiles(parsed.query);
+      }, 180);
+      return;
+    }
+    if (parsed.kind === 'all' && parsed.query.length >= 2) {
+      this._searchTimer = setTimeout(() => {
+        void this.searchFiles(parsed.query);
+      }, 220);
+    }
   },
 
   async searchFiles(query: string) {
@@ -249,13 +257,14 @@ export const layoutMixin = {
   },
 
   commandItems() {
-    const items: any[] = [
+    const commands = [
+      { id: 'quick-open', title: '快速打开文件…', hint: '文件', shortcut: 'Ctrl+P', run: () => this.openQuickOpen() },
       { id: 'new-session', title: '新建会话', hint: '会话', run: () => this.newSession() },
       { id: 'settings', title: '打开设置', hint: '界面', run: () => this.toggleSettings() },
       { id: 'recovery', title: '打开恢复中心', hint: '界面', run: () => this.openRecovery() },
       { id: 'notifications', title: '通知中心', hint: '界面', run: () => this.toggleNotifications() },
       { id: 'shortcuts', title: '查看快捷键', hint: '帮助', run: () => { this.shortcutsOpen = true; } },
-      { id: 'search-conversation', title: '搜索当前对话', hint: '导航', run: () => { this.showChat(); this.openMessageSearch(); } },
+      { id: 'search-conversation', title: '搜索当前对话', hint: '导航', shortcut: 'Ctrl+Shift+F', run: () => { this.showChat(); this.openMessageSearch(); } },
       { id: 'jump-latest', title: '跳到最新消息', hint: '导航', run: () => this.scrollBottom(true) },
       { id: 'toggle-sidebar', title: '切换侧栏', hint: '布局', run: () => this.toggleSidebar() },
       { id: 'toggle-inspector', title: '切换右侧检查器', hint: '布局', run: () => this.toggleInspector() },
@@ -286,63 +295,104 @@ export const layoutMixin = {
         run: () => this.toggleReasoning(),
       },
       { id: 'reset-layout', title: '重置布局宽度', hint: '布局', run: () => this.resetLayout() },
-    ];
+    ].map((item) => ({ ...item, kind: 'command', group: '命令' }));
     if (this.threadId && !this.busy) {
-      items.push({
+      commands.push({
         id: 'compact',
         title: '压缩上下文并分叉',
         hint: 'Agent',
+        kind: 'command',
+        group: '命令',
         run: () => this.compactContext(),
       });
     }
     const current = this.currentSession();
     if (current) {
-      items.push({
-        id: 'pin-session',
-        title: current.pinned ? '取消置顶当前会话' : '置顶当前会话',
-        hint: '会话',
-        run: () => this.toggleSessionPin(current),
-      });
-      items.push({
-        id: 'archive-session',
-        title: current.archived ? '取消归档当前会话' : '归档当前会话',
-        hint: '会话',
-        run: () => this.toggleSessionArchive(current),
-      });
-      items.push({
-        id: 'tag-session',
-        title: '编辑当前会话标签',
-        hint: '会话',
-        run: () => this.editSessionTags(current),
-      });
+      commands.push(
+        {
+          id: 'pin-session',
+          title: current.pinned ? '取消置顶当前会话' : '置顶当前会话',
+          hint: '会话',
+          kind: 'command',
+          group: '命令',
+          run: () => this.toggleSessionPin(current),
+        },
+        {
+          id: 'archive-session',
+          title: current.archived ? '取消归档当前会话' : '归档当前会话',
+          hint: '会话',
+          kind: 'command',
+          group: '命令',
+          run: () => this.toggleSessionArchive(current),
+        },
+        {
+          id: 'tag-session',
+          title: '编辑当前会话标签',
+          hint: '会话',
+          kind: 'command',
+          group: '命令',
+          run: () => this.editSessionTags(current),
+        },
+      );
     }
-    for (const session of (this.sessions || []).slice(0, 20)) {
-      items.push({
-        id: `session:${session.thread_id}`,
-        title: session.title || session.thread_id,
-        hint: '会话',
-        run: () => this.openSession(session.thread_id),
-      });
-    }
-    for (const row of this.fileSearchResults || []) {
-      items.push({
-        id: `file:${row._key}`,
-        title: row.line ? `${row.path}:${row.line}` : row.path,
-        hint: row._hint || '文件',
-        detail: row.preview || '',
-        run: () => this.openFile(row.path, row.line),
-      });
+    const sessions = (this.sessions || []).slice(0, 20).map((session) => ({
+      id: `session:${session.thread_id}`,
+      title: session.title || session.thread_id,
+      hint: '会话',
+      kind: 'session',
+      group: '会话',
+      run: () => this.openSession(session.thread_id),
+    }));
+    const files = (this.fileSearchResults || []).map((row) => ({
+      id: `file:${row._key}`,
+      title: row.line ? `${row.path}:${row.line}` : row.path,
+      hint: row._hint || '文件',
+      detail: row.preview || '',
+      kind: 'file',
+      group: '文件',
+      run: () => this.openFile(row.path, row.line),
+    }));
+    const items = [...commands, ...sessions, ...files];
+    if (!String(this.commandQuery || '').trim()) {
+      const byId = new Map(commands.map((item) => [item.id, item]));
+      const recent = this.recentCommands
+        .map((id) => byId.get(id))
+        .filter(Boolean)
+        .map((item) => ({
+          ...item,
+          id: `recent:${item.id}`,
+          group: '最近使用',
+        }));
+      return [...recent, ...items];
     }
     return items;
   },
 
   filteredCommands() {
-    const query = String(this.commandQuery || '').trim();
-    return this.commandItems()
-      .filter((item) => matchesAllTokens(
-        `${item.title} ${item.hint} ${item.id} ${item.detail || ''}`,
-        query,
-      ))
+    const parsed = parseCommandQuery(this.commandQuery);
+    const items = this.commandItems().filter(
+      (item) => parsed.kind === 'all' || item.kind === parsed.kind,
+    );
+    if (!parsed.query) return items.slice(0, 40);
+    const order = this.commandGroupOrder();
+    return items
+      .map((item) => ({
+        item,
+        score: Math.max(
+          fuzzyScore(item.title, parsed.query),
+          fuzzyScore(item.hint, parsed.query),
+          fuzzyScore(item.detail || '', parsed.query),
+          fuzzyScore(item.id, parsed.query),
+        ),
+      }))
+      .filter((entry) => entry.score >= 0)
+      .sort((left, right) => {
+        const leftGroup = order.indexOf(left.item.group);
+        const rightGroup = order.indexOf(right.item.group);
+        if (leftGroup !== rightGroup) return leftGroup - rightGroup;
+        return right.score - left.score;
+      })
+      .map((entry) => entry.item)
       .slice(0, 40);
   },
 
@@ -356,6 +406,7 @@ export const layoutMixin = {
 
   runCommand(command: any) {
     if (!command) return;
+    if (command.kind === 'command') this.recordCommand(command.id);
     this.closeCommandPalette();
     command.run();
   },

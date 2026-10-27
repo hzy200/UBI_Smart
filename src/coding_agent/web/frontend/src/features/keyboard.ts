@@ -2,6 +2,7 @@
 
 
 const SHORTCUTS = [
+  { keys: 'Ctrl / Cmd + P', action: '快速打开文件' },
   { keys: 'Ctrl / Cmd + Shift + P', action: '打开命令面板' },
   { keys: 'Ctrl / Cmd + K', action: '聚焦会话搜索' },
   { keys: 'Ctrl / Cmd + Shift + F', action: '搜索当前对话' },
@@ -43,6 +44,11 @@ export const keyboardMixin = {
         event.preventDefault();
         this.closeCommandPalette();
       }
+      return;
+    }
+    if (mod && !event.shiftKey && event.key.toLowerCase() === 'p') {
+      event.preventDefault();
+      this.openQuickOpen();
       return;
     }
     if (mod && event.shiftKey && event.key.toLowerCase() === 'p') {

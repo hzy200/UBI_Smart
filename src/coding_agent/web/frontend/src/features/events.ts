@@ -218,7 +218,11 @@ export const eventsMixin = {
           '等待审批',
           event.command || event.tool || '',
         );
-        this.notify('CodingAgent 需要审批', event.command || event.tool || '');
+        this.notify(
+          'CodingAgent 需要审批',
+          event.command || event.tool || '',
+          { sessionId: this.threadId },
+        );
         break;
       case 'steering_applied':
         if (event.action === 'pause') {
@@ -263,7 +267,11 @@ export const eventsMixin = {
         this.scrollBottom();
         this.pushTimeline('done', '运行完成', event.answer || '');
         void this.saveTranscript();
-        this.notify('CodingAgent 运行完成', event.answer || '');
+        this.notify(
+          'CodingAgent 运行完成',
+          event.answer || '',
+          { sessionId: this.threadId },
+        );
         break;
       case 'run_failed':
         this.stateText = '失败';
@@ -275,7 +283,11 @@ export const eventsMixin = {
         this.clearProblemsByKind('run');
         this.addProblem('run', 'error', '运行失败', event.message);
         void this.saveTranscript();
-        this.notify('CodingAgent 运行失败', event.message || '');
+        this.notify(
+          'CodingAgent 运行失败',
+          event.message || '',
+          { sessionId: this.threadId },
+        );
         break;
       default:
         break;
@@ -558,13 +570,20 @@ export const eventsMixin = {
   addProblem(kind, severity, title, detail = '') {
     const text = String(title || '').trim();
     if (!text) return;
+    const source = `${text}\n${detail || ''}`;
+    const match = source.match(
+      /[A-Za-z0-9_./\\-]+\.(?:py|js|mjs|cjs|ts|tsx|jsx|go|rs|java|kt|css|scss|html|htm|md|json|ya?ml|toml|sh|ps1)\b/,
+    );
+    const path = match ? match[0].replace(/\\/g, '/') : '';
     this.problems.push({
       id: ++this._problemSeq,
       kind,
       severity: severity || 'warning',
       title: text,
       detail: String(detail || '').slice(0, 4000),
-      _cls: `problem-${severity || 'warning'}`,
+      _path: path,
+      _clickable: Boolean(path),
+      _cls: `problem-${severity || 'warning'}${path ? ' problem-clickable' : ''}`,
     });
     if (this.problems.length > 200) {
       this.problems.splice(0, this.problems.length - 200);

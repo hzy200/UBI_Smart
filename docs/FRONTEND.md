@@ -148,7 +148,8 @@ web/static/vendor/*                                (直接由 A2 提供)
 4. **composer**：多行输入、发送/暂停/取消/继续、重试上一条、追加任务、
    重规划、上传文件、拖拽上传；上传列表与配额提示。
 
-文件预览使用 highlight.js 按扩展名高亮；diff 显示行号、增删着色与 hunk 头，
+文件预览使用 highlight.js 按扩展名高亮，带行号、面包屑与“跳转到行”；
+diff 支持统一/并排视图、行号、增删着色、逐行语法高亮与词级高亮，
 超过 200 行默认折叠。文件内容与 diff 都只在主区只读展示。
 
 布局约束：`.main`/`.transcript` 必须允许收缩（`min-height: 0`），
@@ -167,16 +168,20 @@ web/static/vendor/*                                (直接由 A2 提供)
 
 ### 3.5 全局搜索与通知
 
-命令面板（`Ctrl/Cmd+Shift+P`）同时搜索命令、最近会话和工作区文件：
+命令面板（`Ctrl/Cmd+Shift+P`）同时搜索命令、最近会话和工作区文件；
+`Ctrl/Cmd+P` 直接进入 Quick Open（文件模式）：
 
-- 输入至少 2 个字符后，前端 220ms 防抖调用 `GET /api/search`；
+- 支持 fuzzy 排序、分组标题、最近使用命令与快捷键提示；
+- 前缀：`>` 仅命令、`@` 仅会话、`#` 仅文件；
+- 输入至少 2 个字符后，前端防抖调用 `GET /api/search`（`#` 模式 1 个字符即可）；
 - 后端只读检索路径与文本内容，跳过 `.git`、依赖目录、秘密文件与符号链接；
 - sandbox 返回路径与内容命中，host 模式只返回路径命中；
 - 单次最多 100 条结果、最多扫描 5000 个文件，并有 3 秒时间上限；
 - 点击内容命中会打开文件并滚动到对应行。
 
 通知中心（顶栏铃铛）保存最近 100 条站内通知：审批、完成、失败等；
-未读数在铃铛上显示红点，支持全部已读与清空。
+未读数在铃铛上显示红点，支持全部已读与清空；通知持久化到
+`localStorage`，点击可回到对应会话或文件。
 
 ### 3.6 设置
 
@@ -304,9 +309,9 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 - `Enter` 发送；`Shift+Enter` 换行。
 - **输入法保护**：`compositionstart/end`、`isComposing`、`keyCode 229`、
   composition 结束后 80ms 内的 Enter 都不提交，避免中文选词误发。
-- `Ctrl/Cmd+Shift+P` 打开命令面板；`Ctrl/Cmd+K` 聚焦会话搜索；
-  `Ctrl/Cmd+Shift+F` 搜索当前对话；`Ctrl/Cmd+B` 切换侧栏；
-  `Ctrl/Cmd+J` 切换检查器；
+- `Ctrl/Cmd+P` Quick Open；`Ctrl/Cmd+Shift+P` 打开命令面板；
+  `Ctrl/Cmd+K` 聚焦会话搜索；`Ctrl/Cmd+Shift+F` 搜索当前对话；
+  `Ctrl/Cmd+B` 切换侧栏；`Ctrl/Cmd+J` 切换检查器；
   `Ctrl/Cmd+Enter` 发送；`Esc` 关闭命令面板/设置/恢复中心/快捷键；
   `?` 打开快捷键帮助。
 - 命令面板支持键盘上下选择、Enter 执行、Esc 关闭；命令覆盖视图切换、
@@ -333,7 +338,8 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 
 ### 8.2 可访问性
 
-- transcript 使用 `role="log"`、`aria-live="polite"`；按钮/输入有 `aria-label`。
+- transcript 使用 `role="log"`、`aria-live="polite"`，运行中带 `aria-busy`；
+  按钮/输入有 `aria-label`；页面顶部提供“跳到主区”skip link。
 - 主区/检查器标签使用 `role="tab"` + `aria-selected`；活动栏使用 `aria-pressed`；
   侧栏/检查器开关使用 `aria-expanded` + `aria-controls`。
 - 命令面板使用 `aria-activedescendant` 指向当前命令项；toast 使用
@@ -434,7 +440,8 @@ python scripts/probe_frontend_csp.py
 
 覆盖点：构建产物包含项目/工作区流程；页面无构建链；静态资源可访问；
 安全头/CSP；SSE 事件流；审批/steering/恢复端点；工作区绑定与
-transcript 保存。
+transcript 保存。`node test.mjs` 覆盖 diff 解析/split/词级标记、查询匹配/
+fuzzy/前缀解析、虚拟列表区间等纯函数。
 
 分离改造实施后新增契约测试（设计冻结，锚点见验收 `REQ-202`–`REQ-212`）：
 
@@ -483,8 +490,8 @@ transcript 保存。
 | `web/frontend/src/features/csp.ts` | CSP 兼容层：delegated actions 与无参 getter |
 | `web/frontend/src/api/http.ts` | 认证、fetch、401 刷新与 problem+json 解析 |
 | `web/frontend/src/ui/format.ts` | 展示格式化与 Markdown 清洗 |
-| `web/frontend/src/ui/diff.ts` | 统一 diff 的纯解析逻辑 |
-| `web/frontend/src/ui/search.ts` | 查询匹配纯函数 |
+| `web/frontend/src/ui/diff.ts` | diff 解析、并排视图配对与词级标记 |
+| `web/frontend/src/ui/search.ts` | 查询匹配、fuzzy 排序与命令前缀解析 |
 | `web/frontend/src/ui/virtual.ts` | 变量高度虚拟列表区间计算 |
 | `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |
 | `web/frontend/src/state/runtime.ts` | 非响应式 Map 缓冲 |

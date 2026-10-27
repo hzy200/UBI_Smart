@@ -55,6 +55,20 @@ input:focus, select:focus, textarea:focus {
 textarea { resize: none; }
 h3 { margin: 0; font-size: 14px; }
 
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 8px 12px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  transform: translateY(-160%);
+}
+.skip-link:focus { transform: translateY(0); }
+
 #login, #boot, #config-error, #version-error {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center;

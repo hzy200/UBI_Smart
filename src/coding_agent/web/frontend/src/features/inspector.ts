@@ -5,7 +5,11 @@ import {
   readJson,
 } from '../api/http';
 import { escapeHtml } from '../ui/format';
-import { diffRowsFromText } from '../ui/diff';
+import {
+  diffRowsFromText,
+  splitDiffRows,
+  wordDiffMarkers,
+} from '../ui/diff';
 import { includesQuery } from '../ui/search';
 
 export const inspectorMixin = {
@@ -187,7 +191,86 @@ export const inspectorMixin = {
   async expandDiff() {
     this.diffExpanded = true;
     this.diffDisplay = this.diffText;
+    this.rebuildDiffRows();
     this.syncActiveEditor();
+  },
+
+  setDiffView(name) {
+    this.diffView = name;
+    this.diffViewFlags = {
+      unified: name === 'unified',
+      split: name === 'split',
+    };
+    this.diffViewClasses = {
+      unified: name === 'unified' ? 'active' : '',
+      split: name === 'split' ? 'active' : '',
+    };
+  },
+
+  renderMarkedDiff(marked, path) {
+    const html = this.highlightCode(path, marked);
+    const replace = (value) => value
+      .replaceAll('\u0001', '<mark class="diff-word">')
+      .replaceAll('\u0002', '</mark>');
+    if (html.includes('\u0001') || html.includes('\u0002')) {
+      return replace(html);
+    }
+    return replace(escapeHtml(marked));
+  },
+
+  rebuildDiffRows() {
+    const raw = diffRowsFromText(this.diffDisplay);
+    const path = this.diffPath && this.diffPath !== 'Git'
+      ? this.diffPath
+      : '';
+    let index = 0;
+    while (index < raw.length) {
+      const row = raw[index];
+      if (row._kind === 'del') {
+        const dels = [];
+        const adds = [];
+        while (index < raw.length && raw[index]._kind === 'del') {
+          dels.push(raw[index]);
+          index += 1;
+        }
+        while (index < raw.length && raw[index]._kind === 'add') {
+          adds.push(raw[index]);
+          index += 1;
+        }
+        const count = Math.max(dels.length, adds.length);
+        for (let i = 0; i < count; i += 1) {
+          const left = dels[i];
+          const right = adds[i];
+          if (left && right) {
+            const marks = wordDiffMarkers(left._code, right._code);
+            left._html = this.renderMarkedDiff(marks.old, path);
+            right._html = this.renderMarkedDiff(marks.new, path);
+          } else if (left) {
+            left._html = this.highlightCode(path, left._code);
+          } else if (right) {
+            right._html = this.highlightCode(path, right._code);
+          }
+        }
+        continue;
+      }
+      if (row._kind === 'add' || row._kind === 'ctx') {
+        row._html = this.highlightCode(path, row._code);
+      } else {
+        row._html = escapeHtml(row.text);
+      }
+      index += 1;
+    }
+    this.diffRowsData = raw;
+    this.splitDiffRowsData = splitDiffRows(raw);
+  },
+
+  goToFileLine() {
+    const line = Number.parseInt(this.fileLineInput, 10);
+    if (!Number.isFinite(line) || line <= 0) {
+      this.toastMessage('请输入有效行号');
+      return;
+    }
+    this.scrollFileToLine(line);
   },
 
   activeEditorTab() {
@@ -230,6 +313,7 @@ export const inspectorMixin = {
     this.diffTruncated = tab.diffTruncated;
     this.diffExpanded = tab.diffExpanded;
     this.diffPath = tab.diffPath;
+    this.rebuildDiffRows();
     this.mainTab = 'diff';
     this.setMainTabFlags('diff');
   },
@@ -272,6 +356,8 @@ export const inspectorMixin = {
     this.diffPath = '';
     this.diffTruncated = false;
     this.diffExpanded = false;
+    this.diffRowsData = [];
+    this.splitDiffRowsData = [];
   },
 
   closeActiveEditorTab() {
@@ -299,6 +385,9 @@ export const inspectorMixin = {
     this.diffPath = '';
     this.diffTruncated = false;
     this.diffExpanded = false;
+    this.diffRowsData = [];
+    this.splitDiffRowsData = [];
+    this.fileLineInput = '';
   },
 
   async restoreSnapshot(snapshotId, path) {
@@ -493,12 +582,18 @@ export const inspectorMixin = {
       const text = data.binary
         ? '（二进制文件，不展示内容）'
         : data.content + (data.truncated ? '\n…（已截断）' : '');
+      const lines = text.split('\n').length;
       const fileView = {
         ...data,
         _size: this.formatBytes(data.size),
         _lang: this.fileLanguage(path),
         _text: text,
         _html: this.highlightCode(path, text, data.binary),
+        _lineNumbers: Array.from(
+          { length: lines },
+          (_, index) => String(index + 1),
+        ).join('\n'),
+        _crumb: String(path || '').split('/').join(' › '),
       };
       if (existing) {
         existing.fileView = fileView;

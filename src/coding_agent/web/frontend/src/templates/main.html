@@ -1,4 +1,4 @@
-  <main class="main">
+  <main class="main" id="main" tabindex="-1">
     <div class="main-tabs" role="tablist" aria-label="主区标签">
       <div class="main-tab-list">
         <button class="main-tab" role="tab" :class="mainTabClasses.chat"
@@ -43,18 +43,24 @@
 
     <section class="editor-view" x-show="mainTabFlags.file" x-cloak>
       <div class="editor-toolbar">
-        <span class="editor-path" x-text="fileView.path"></span>
+        <span class="editor-crumb" x-text="fileView._crumb"></span>
         <span class="note" x-text="fileView._size"></span>
         <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
         <span class="note note-bad" x-show="activeEditorStale">文件已变化</span>
         <span class="spacer"></span>
+        <input class="line-input" x-model="fileLineInput" @keydown.enter.prevent="goToFileLine"
+               placeholder="行号" aria-label="跳转到行">
+        <button @click="goToFileLine">跳转</button>
         <button x-show="activeEditorStale" @click="refreshActiveFile">刷新</button>
         <button @click="copyActiveFilePath">复制路径</button>
         <button x-show="fileInVscodeAvailable" @click="openFileInVscode">在 VS Code 打开</button>
         <button @click="copyActiveFileContent">复制内容</button>
         <button @click="closeActiveEditorTab">关闭</button>
       </div>
-      <pre class="editor-code"><code x-html="fileView._html"></code></pre>
+      <div class="editor-code-wrap">
+        <pre class="editor-gutter" x-text="fileView._lineNumbers"></pre>
+        <pre class="editor-code"><code x-html="fileView._html"></code></pre>
+      </div>
     </section>
 
     <section class="editor-view" x-show="mainTabFlags.diff" x-cloak>
@@ -62,15 +68,34 @@
         <span class="editor-path">Diff</span>
         <span class="note" x-text="diffPathLabel"></span>
         <span class="spacer"></span>
+        <button :class="diffViewClasses.unified" data-action="diff-view" data-view="unified" @click="onAction">统一</button>
+        <button :class="diffViewClasses.split" data-action="diff-view" data-view="split" @click="onAction">并排</button>
         <button x-show="canExpandDiff" @click="expandDiff">展开全部</button>
         <button @click="copyActiveDiff">复制</button>
         <button @click="closeActiveEditorTab">关闭</button>
       </div>
-      <div class="diff-view">
-        <template x-for="row in diffResultRows" :key="row._key">
+      <div class="diff-view" x-show="diffViewFlags.unified">
+        <template x-for="row in diffRowsData" :key="row._key">
           <div class="diff-line" :class="row._cls">
             <span class="diff-no" x-text="row._no"></span>
-            <span class="diff-text" x-text="row.text"></span>
+            <span class="diff-sign" x-text="row._sign"></span>
+            <span class="diff-text" x-html="row._html"></span>
+          </div>
+        </template>
+      </div>
+      <div class="diff-split" x-show="diffViewFlags.split">
+        <template x-for="row in splitDiffRowsData" :key="row._key">
+          <div class="diff-split-row" :class="row._cls">
+            <div class="diff-split-cell" :class="row._leftClass">
+              <span class="diff-no" x-text="row._leftNo"></span>
+              <span class="diff-sign" x-text="row._leftSign"></span>
+              <span class="diff-text" x-html="row._leftHtml"></span>
+            </div>
+            <div class="diff-split-cell" :class="row._rightClass" x-show="row._hasRight">
+              <span class="diff-no" x-text="row._rightNo"></span>
+              <span class="diff-sign" x-text="row._rightSign"></span>
+              <span class="diff-text" x-html="row._rightHtml"></span>
+            </div>
           </div>
         </template>
       </div>
@@ -86,7 +111,7 @@
       </template>
     </div>
     <div class="transcript" :class="transcriptClassValue" x-ref="transcript" role="log"
-         aria-live="polite" aria-label="对话记录" @scroll="onTranscriptScroll">
+         aria-live="polite" :aria-busy="busy" aria-label="对话记录" @scroll="onTranscriptScroll">
       <div class="virtual-spacer" :style="virtualTopStyle"></div>
       <template x-for="m in virtualMessageResults" :key="m.id">
         <div class="msg" :class="m._renderClass" :data-message-id="m.id">

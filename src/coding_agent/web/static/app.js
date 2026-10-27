@@ -486,6 +486,8 @@
       });
       this.loadSettings();
       this.initLayout();
+      this.loadRecentCommands();
+      this.loadNotifications();
       this.applyBodyClasses();
       this.refreshBadgeClass();
       window.addEventListener("keydown", (event) => this.onGlobalKeydown(event));
@@ -2111,6 +2113,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.diffPath = "";
       this.diffTruncated = false;
       this.diffExpanded = false;
+      this.diffRowsData = [];
+      this.splitDiffRowsData = [];
+      this.diffView = "unified";
+      this.diffViewFlags = { unified: true, split: false };
+      this.diffViewClasses = { unified: "active", split: "" };
+      this.fileLineInput = "";
       this.mainTab = "chat";
       this.mainTabFlags = { chat: true, file: false, diff: false };
       this.editorTabs = [];
@@ -2214,11 +2222,36 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     if (!needle) return true;
     return String(haystack || "").toLowerCase().includes(needle);
   }
-  function matchesAllTokens(haystack, query) {
+  function parseCommandQuery(input) {
+    const text = String(input || "").trimStart();
+    if (text.startsWith(">")) {
+      return { kind: "command", query: text.slice(1).trim() };
+    }
+    if (text.startsWith("@")) {
+      return { kind: "session", query: text.slice(1).trim() };
+    }
+    if (text.startsWith("#")) {
+      return { kind: "file", query: text.slice(1).trim() };
+    }
+    return { kind: "all", query: text.trim() };
+  }
+  function fuzzyScore(haystack, query) {
     const text = String(haystack || "").toLowerCase();
-    const tokens = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (!tokens.length) return true;
-    return tokens.every((token) => text.includes(token));
+    const needle = String(query || "").trim().toLowerCase();
+    if (!needle) return 0;
+    const direct = text.indexOf(needle);
+    if (direct >= 0) {
+      return 1e3 - direct * 2 - Math.max(0, text.length - needle.length);
+    }
+    let position = -1;
+    let score = 0;
+    for (const char of needle) {
+      const next = text.indexOf(char, position + 1);
+      if (next < 0) return -1;
+      score += 1 + (next === position + 1 ? 2 : 0);
+      position = next;
+    }
+    return score;
   }
 
   // src/ui/virtual.ts
@@ -3138,7 +3171,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
             "\u7B49\u5F85\u5BA1\u6279",
             event.command || event.tool || ""
           );
-          this.notify("CodingAgent \u9700\u8981\u5BA1\u6279", event.command || event.tool || "");
+          this.notify(
+            "CodingAgent \u9700\u8981\u5BA1\u6279",
+            event.command || event.tool || "",
+            { sessionId: this.threadId }
+          );
           break;
         case "steering_applied":
           if (event.action === "pause") {
@@ -3177,7 +3214,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.scrollBottom();
           this.pushTimeline("done", "\u8FD0\u884C\u5B8C\u6210", event.answer || "");
           void this.saveTranscript();
-          this.notify("CodingAgent \u8FD0\u884C\u5B8C\u6210", event.answer || "");
+          this.notify(
+            "CodingAgent \u8FD0\u884C\u5B8C\u6210",
+            event.answer || "",
+            { sessionId: this.threadId }
+          );
           break;
         case "run_failed":
           this.stateText = "\u5931\u8D25";
@@ -3189,7 +3230,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.clearProblemsByKind("run");
           this.addProblem("run", "error", "\u8FD0\u884C\u5931\u8D25", event.message);
           void this.saveTranscript();
-          this.notify("CodingAgent \u8FD0\u884C\u5931\u8D25", event.message || "");
+          this.notify(
+            "CodingAgent \u8FD0\u884C\u5931\u8D25",
+            event.message || "",
+            { sessionId: this.threadId }
+          );
           break;
         default:
           break;
@@ -3443,13 +3488,21 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     addProblem(kind, severity, title, detail = "") {
       const text = String(title || "").trim();
       if (!text) return;
+      const source = `${text}
+${detail || ""}`;
+      const match = source.match(
+        /[A-Za-z0-9_./\\-]+\.(?:py|js|mjs|cjs|ts|tsx|jsx|go|rs|java|kt|css|scss|html|htm|md|json|ya?ml|toml|sh|ps1)\b/
+      );
+      const path = match ? match[0].replace(/\\/g, "/") : "";
       this.problems.push({
         id: ++this._problemSeq,
         kind,
         severity: severity || "warning",
         title: text,
         detail: String(detail || "").slice(0, 4e3),
-        _cls: `problem-${severity || "warning"}`
+        _path: path,
+        _clickable: Boolean(path),
+        _cls: `problem-${severity || "warning"}${path ? " problem-clickable" : ""}`
       });
       if (this.problems.length > 200) {
         this.problems.splice(0, this.problems.length - 200);
@@ -3655,10 +3708,15 @@ ${paths}`);
     for (const raw of source.split("\n")) {
       let cls = "diff-line";
       let no = "";
+      let sign = "";
+      let code = raw;
+      let kind = "meta";
       if (raw.startsWith("+++") || raw.startsWith("---")) {
         cls += " diff-file";
+        kind = "file";
       } else if (raw.startsWith("@@")) {
         cls += " diff-hunk";
+        kind = "hunk";
         const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
         if (match) {
           oldLine = Number(match[1]);
@@ -3668,15 +3726,24 @@ ${paths}`);
         cls += " diff-add";
         no = `+${newLine}`;
         newLine += 1;
+        sign = "+";
+        code = raw.slice(1);
+        kind = "add";
       } else if (raw.startsWith("-")) {
         cls += " diff-del";
         no = `-${oldLine}`;
         oldLine += 1;
+        sign = "-";
+        code = raw.slice(1);
+        kind = "del";
       } else if (raw.startsWith(" ")) {
         cls += " diff-ctx";
         no = String(newLine);
         newLine += 1;
         oldLine += 1;
+        sign = " ";
+        code = raw.slice(1);
+        kind = "ctx";
       } else {
         cls += " diff-meta";
       }
@@ -3684,10 +3751,143 @@ ${paths}`);
         _key: `${rows.length}:${raw}`,
         text: raw,
         _cls: cls,
-        _no: no
+        _no: no,
+        _sign: sign,
+        _code: code,
+        _kind: kind
       });
     }
     return rows;
+  }
+  function splitDiffRows(rows) {
+    const result = [];
+    let index = 0;
+    while (index < rows.length) {
+      const row = rows[index];
+      if (row._kind === "del" || row._kind === "add") {
+        const dels = [];
+        const adds = [];
+        while (index < rows.length && rows[index]._kind === "del") {
+          dels.push(rows[index]);
+          index += 1;
+        }
+        while (index < rows.length && rows[index]._kind === "add") {
+          adds.push(rows[index]);
+          index += 1;
+        }
+        const count = Math.max(dels.length, adds.length);
+        for (let i = 0; i < count; i += 1) {
+          const left = dels[i];
+          const right = adds[i];
+          result.push({
+            _key: `${result.length}:${left ? left._key : ""}:${right ? right._key : ""}`,
+            _cls: "diff-split-row",
+            _leftClass: left ? "diff-split-cell diff-del" : "diff-split-cell diff-empty",
+            _rightClass: right ? "diff-split-cell diff-add" : "diff-split-cell diff-empty",
+            _leftNo: left ? left._no : "",
+            _rightNo: right ? right._no : "",
+            _leftSign: left ? left._sign : "",
+            _rightSign: right ? right._sign : "",
+            _leftHtml: left ? left._html || "" : "",
+            _rightHtml: right ? right._html || "" : "",
+            _hasRight: Boolean(right),
+            _full: false
+          });
+        }
+        continue;
+      }
+      if (row._kind === "ctx") {
+        result.push({
+          _key: row._key,
+          _cls: "diff-split-row",
+          _leftClass: "diff-split-cell diff-ctx",
+          _rightClass: "diff-split-cell diff-ctx",
+          _leftNo: row._no,
+          _rightNo: row._no,
+          _leftSign: " ",
+          _rightSign: " ",
+          _leftHtml: row._html || "",
+          _rightHtml: row._html || "",
+          _hasRight: true,
+          _full: false
+        });
+      } else {
+        result.push({
+          _key: row._key,
+          _cls: "diff-split-row diff-split-full",
+          _leftClass: "diff-split-cell diff-split-full",
+          _rightClass: "diff-split-cell",
+          _leftNo: "",
+          _rightNo: "",
+          _leftSign: "",
+          _rightSign: "",
+          _leftHtml: row._html || "",
+          _rightHtml: "",
+          _hasRight: false,
+          _full: true
+        });
+      }
+      index += 1;
+    }
+    return result;
+  }
+  function tokenize(text) {
+    return String(text || "").match(/\s+|[A-Za-z0-9_]+|[^\sA-Za-z0-9_]/g) || [];
+  }
+  function markTokens(tokens, keep, open, close) {
+    let output = "";
+    let marked = false;
+    for (let index = 0; index < tokens.length; index += 1) {
+      const changed = !keep[index];
+      if (changed && !marked) {
+        output += open;
+        marked = true;
+      } else if (!changed && marked) {
+        output += close;
+        marked = false;
+      }
+      output += tokens[index];
+    }
+    if (marked) output += close;
+    return output;
+  }
+  function wordDiffMarkers(oldText, newText) {
+    const left = tokenize(oldText);
+    const right = tokenize(newText);
+    const n = left.length;
+    const m = right.length;
+    if (n * m > 25e4) {
+      return { old: String(oldText || ""), new: String(newText || "") };
+    }
+    const dp = Array.from(
+      { length: n + 1 },
+      () => new Array(m + 1).fill(0)
+    );
+    for (let i2 = n - 1; i2 >= 0; i2 -= 1) {
+      for (let j2 = m - 1; j2 >= 0; j2 -= 1) {
+        dp[i2][j2] = left[i2] === right[j2] ? dp[i2 + 1][j2 + 1] + 1 : Math.max(dp[i2 + 1][j2], dp[i2][j2 + 1]);
+      }
+    }
+    const keepLeft = new Array(n).fill(false);
+    const keepRight = new Array(m).fill(false);
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      if (left[i] === right[j]) {
+        keepLeft[i] = true;
+        keepRight[j] = true;
+        i += 1;
+        j += 1;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        i += 1;
+      } else {
+        j += 1;
+      }
+    }
+    return {
+      old: markTokens(left, keepLeft, "", ""),
+      new: markTokens(right, keepRight, "", "")
+    };
   }
 
   // src/features/inspector.ts
@@ -3862,7 +4062,78 @@ ${paths}
     async expandDiff() {
       this.diffExpanded = true;
       this.diffDisplay = this.diffText;
+      this.rebuildDiffRows();
       this.syncActiveEditor();
+    },
+    setDiffView(name) {
+      this.diffView = name;
+      this.diffViewFlags = {
+        unified: name === "unified",
+        split: name === "split"
+      };
+      this.diffViewClasses = {
+        unified: name === "unified" ? "active" : "",
+        split: name === "split" ? "active" : ""
+      };
+    },
+    renderMarkedDiff(marked, path) {
+      const html = this.highlightCode(path, marked);
+      const replace = (value) => value.replaceAll("", '<mark class="diff-word">').replaceAll("", "</mark>");
+      if (html.includes("") || html.includes("")) {
+        return replace(html);
+      }
+      return replace(escapeHtml(marked));
+    },
+    rebuildDiffRows() {
+      const raw = diffRowsFromText(this.diffDisplay);
+      const path = this.diffPath && this.diffPath !== "Git" ? this.diffPath : "";
+      let index = 0;
+      while (index < raw.length) {
+        const row = raw[index];
+        if (row._kind === "del") {
+          const dels = [];
+          const adds = [];
+          while (index < raw.length && raw[index]._kind === "del") {
+            dels.push(raw[index]);
+            index += 1;
+          }
+          while (index < raw.length && raw[index]._kind === "add") {
+            adds.push(raw[index]);
+            index += 1;
+          }
+          const count = Math.max(dels.length, adds.length);
+          for (let i = 0; i < count; i += 1) {
+            const left = dels[i];
+            const right = adds[i];
+            if (left && right) {
+              const marks = wordDiffMarkers(left._code, right._code);
+              left._html = this.renderMarkedDiff(marks.old, path);
+              right._html = this.renderMarkedDiff(marks.new, path);
+            } else if (left) {
+              left._html = this.highlightCode(path, left._code);
+            } else if (right) {
+              right._html = this.highlightCode(path, right._code);
+            }
+          }
+          continue;
+        }
+        if (row._kind === "add" || row._kind === "ctx") {
+          row._html = this.highlightCode(path, row._code);
+        } else {
+          row._html = escapeHtml(row.text);
+        }
+        index += 1;
+      }
+      this.diffRowsData = raw;
+      this.splitDiffRowsData = splitDiffRows(raw);
+    },
+    goToFileLine() {
+      const line = Number.parseInt(this.fileLineInput, 10);
+      if (!Number.isFinite(line) || line <= 0) {
+        this.toastMessage("\u8BF7\u8F93\u5165\u6709\u6548\u884C\u53F7");
+        return;
+      }
+      this.scrollFileToLine(line);
     },
     activeEditorTab() {
       return this.editorTabs.find((tab) => tab.id === this.activeEditorId) || null;
@@ -3901,6 +4172,7 @@ ${paths}
       this.diffTruncated = tab.diffTruncated;
       this.diffExpanded = tab.diffExpanded;
       this.diffPath = tab.diffPath;
+      this.rebuildDiffRows();
       this.mainTab = "diff";
       this.setMainTabFlags("diff");
     },
@@ -3941,6 +4213,8 @@ ${paths}
       this.diffPath = "";
       this.diffTruncated = false;
       this.diffExpanded = false;
+      this.diffRowsData = [];
+      this.splitDiffRowsData = [];
     },
     closeActiveEditorTab() {
       if (this.mainTab === "chat") return;
@@ -3965,6 +4239,9 @@ ${paths}
       this.diffPath = "";
       this.diffTruncated = false;
       this.diffExpanded = false;
+      this.diffRowsData = [];
+      this.splitDiffRowsData = [];
+      this.fileLineInput = "";
     },
     async restoreSnapshot(snapshotId, path) {
       if (!this.threadId) return;
@@ -4141,12 +4418,18 @@ ${paths}
         const response = await authFetch(`/api/file?${params.toString()}`);
         const data = await readJson(response, "\u8BFB\u53D6\u6587\u4EF6\u5931\u8D25");
         const text = data.binary ? "\uFF08\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u4E0D\u5C55\u793A\u5185\u5BB9\uFF09" : data.content + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "");
+        const lines = text.split("\n").length;
         const fileView = {
           ...data,
           _size: this.formatBytes(data.size),
           _lang: this.fileLanguage(path),
           _text: text,
-          _html: this.highlightCode(path, text, data.binary)
+          _html: this.highlightCode(path, text, data.binary),
+          _lineNumbers: Array.from(
+            { length: lines },
+            (_, index) => String(index + 1)
+          ).join("\n"),
+          _crumb: String(path || "").split("/").join(" \u203A ")
         };
         if (existing) {
           existing.fileView = fileView;
@@ -4482,9 +4765,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       }
       this.saveSettings();
     },
-    notify(title, body) {
+    notify(title, body, meta = {}) {
       const kind = title.includes("\u5931\u8D25") ? "error" : title.includes("\u5BA1\u6279") ? "warning" : title.includes("\u5B8C\u6210") ? "success" : "info";
-      this.pushNotification(kind, title, body);
+      this.pushNotification(kind, title, body, meta);
       if (!this.notifyEnabled) return;
       if (!("Notification" in window) || Notification.permission !== "granted") {
         return;
@@ -4554,6 +4837,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
 
   // src/features/keyboard.ts
   var SHORTCUTS = [
+    { keys: "Ctrl / Cmd + P", action: "\u5FEB\u901F\u6253\u5F00\u6587\u4EF6" },
     { keys: "Ctrl / Cmd + Shift + P", action: "\u6253\u5F00\u547D\u4EE4\u9762\u677F" },
     { keys: "Ctrl / Cmd + K", action: "\u805A\u7126\u4F1A\u8BDD\u641C\u7D22" },
     { keys: "Ctrl / Cmd + Shift + F", action: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD" },
@@ -4589,6 +4873,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           event.preventDefault();
           this.closeCommandPalette();
         }
+        return;
+      }
+      if (mod && !event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        this.openQuickOpen();
         return;
       }
       if (mod && event.shiftKey && event.key.toLowerCase() === "p") {
@@ -4857,11 +5146,19 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.fileSearchLoading = false;
       this._searchSeq += 1;
       if (this._searchTimer) clearTimeout(this._searchTimer);
-      const query = String(this.commandQuery || "").trim();
-      if (query.length < 2 || !this.threadId) return;
-      this._searchTimer = setTimeout(() => {
-        void this.searchFiles(query);
-      }, 220);
+      const parsed = parseCommandQuery(this.commandQuery);
+      if (!this.threadId) return;
+      if (parsed.kind === "file" && parsed.query.length >= 1) {
+        this._searchTimer = setTimeout(() => {
+          void this.searchFiles(parsed.query);
+        }, 180);
+        return;
+      }
+      if (parsed.kind === "all" && parsed.query.length >= 2) {
+        this._searchTimer = setTimeout(() => {
+          void this.searchFiles(parsed.query);
+        }, 220);
+      }
     },
     async searchFiles(query) {
       if (!this.threadId) return;
@@ -4891,7 +5188,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       }
     },
     commandItems() {
-      const items = [
+      const commands = [
+        { id: "quick-open", title: "\u5FEB\u901F\u6253\u5F00\u6587\u4EF6\u2026", hint: "\u6587\u4EF6", shortcut: "Ctrl+P", run: () => this.openQuickOpen() },
         { id: "new-session", title: "\u65B0\u5EFA\u4F1A\u8BDD", hint: "\u4F1A\u8BDD", run: () => this.newSession() },
         { id: "settings", title: "\u6253\u5F00\u8BBE\u7F6E", hint: "\u754C\u9762", run: () => this.toggleSettings() },
         { id: "recovery", title: "\u6253\u5F00\u6062\u590D\u4E2D\u5FC3", hint: "\u754C\u9762", run: () => this.openRecovery() },
@@ -4899,7 +5197,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         { id: "shortcuts", title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9", run: () => {
           this.shortcutsOpen = true;
         } },
-        { id: "search-conversation", title: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD", hint: "\u5BFC\u822A", run: () => {
+        { id: "search-conversation", title: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD", hint: "\u5BFC\u822A", shortcut: "Ctrl+Shift+F", run: () => {
           this.showChat();
           this.openMessageSearch();
         } },
@@ -4933,61 +5231,96 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           run: () => this.toggleReasoning()
         },
         { id: "reset-layout", title: "\u91CD\u7F6E\u5E03\u5C40\u5BBD\u5EA6", hint: "\u5E03\u5C40", run: () => this.resetLayout() }
-      ];
+      ].map((item) => ({ ...item, kind: "command", group: "\u547D\u4EE4" }));
       if (this.threadId && !this.busy) {
-        items.push({
+        commands.push({
           id: "compact",
           title: "\u538B\u7F29\u4E0A\u4E0B\u6587\u5E76\u5206\u53C9",
           hint: "Agent",
+          kind: "command",
+          group: "\u547D\u4EE4",
           run: () => this.compactContext()
         });
       }
       const current = this.currentSession();
       if (current) {
-        items.push({
-          id: "pin-session",
-          title: current.pinned ? "\u53D6\u6D88\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD" : "\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD",
-          hint: "\u4F1A\u8BDD",
-          run: () => this.toggleSessionPin(current)
-        });
-        items.push({
-          id: "archive-session",
-          title: current.archived ? "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD" : "\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD",
-          hint: "\u4F1A\u8BDD",
-          run: () => this.toggleSessionArchive(current)
-        });
-        items.push({
-          id: "tag-session",
-          title: "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E",
-          hint: "\u4F1A\u8BDD",
-          run: () => this.editSessionTags(current)
-        });
+        commands.push(
+          {
+            id: "pin-session",
+            title: current.pinned ? "\u53D6\u6D88\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD" : "\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD",
+            hint: "\u4F1A\u8BDD",
+            kind: "command",
+            group: "\u547D\u4EE4",
+            run: () => this.toggleSessionPin(current)
+          },
+          {
+            id: "archive-session",
+            title: current.archived ? "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD" : "\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD",
+            hint: "\u4F1A\u8BDD",
+            kind: "command",
+            group: "\u547D\u4EE4",
+            run: () => this.toggleSessionArchive(current)
+          },
+          {
+            id: "tag-session",
+            title: "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E",
+            hint: "\u4F1A\u8BDD",
+            kind: "command",
+            group: "\u547D\u4EE4",
+            run: () => this.editSessionTags(current)
+          }
+        );
       }
-      for (const session of (this.sessions || []).slice(0, 20)) {
-        items.push({
-          id: `session:${session.thread_id}`,
-          title: session.title || session.thread_id,
-          hint: "\u4F1A\u8BDD",
-          run: () => this.openSession(session.thread_id)
-        });
-      }
-      for (const row of this.fileSearchResults || []) {
-        items.push({
-          id: `file:${row._key}`,
-          title: row.line ? `${row.path}:${row.line}` : row.path,
-          hint: row._hint || "\u6587\u4EF6",
-          detail: row.preview || "",
-          run: () => this.openFile(row.path, row.line)
-        });
+      const sessions = (this.sessions || []).slice(0, 20).map((session) => ({
+        id: `session:${session.thread_id}`,
+        title: session.title || session.thread_id,
+        hint: "\u4F1A\u8BDD",
+        kind: "session",
+        group: "\u4F1A\u8BDD",
+        run: () => this.openSession(session.thread_id)
+      }));
+      const files = (this.fileSearchResults || []).map((row) => ({
+        id: `file:${row._key}`,
+        title: row.line ? `${row.path}:${row.line}` : row.path,
+        hint: row._hint || "\u6587\u4EF6",
+        detail: row.preview || "",
+        kind: "file",
+        group: "\u6587\u4EF6",
+        run: () => this.openFile(row.path, row.line)
+      }));
+      const items = [...commands, ...sessions, ...files];
+      if (!String(this.commandQuery || "").trim()) {
+        const byId = new Map(commands.map((item) => [item.id, item]));
+        const recent = this.recentCommands.map((id) => byId.get(id)).filter(Boolean).map((item) => ({
+          ...item,
+          id: `recent:${item.id}`,
+          group: "\u6700\u8FD1\u4F7F\u7528"
+        }));
+        return [...recent, ...items];
       }
       return items;
     },
     filteredCommands() {
-      const query = String(this.commandQuery || "").trim();
-      return this.commandItems().filter((item) => matchesAllTokens(
-        `${item.title} ${item.hint} ${item.id} ${item.detail || ""}`,
-        query
-      )).slice(0, 40);
+      const parsed = parseCommandQuery(this.commandQuery);
+      const items = this.commandItems().filter(
+        (item) => parsed.kind === "all" || item.kind === parsed.kind
+      );
+      if (!parsed.query) return items.slice(0, 40);
+      const order = this.commandGroupOrder();
+      return items.map((item) => ({
+        item,
+        score: Math.max(
+          fuzzyScore(item.title, parsed.query),
+          fuzzyScore(item.hint, parsed.query),
+          fuzzyScore(item.detail || "", parsed.query),
+          fuzzyScore(item.id, parsed.query)
+        )
+      })).filter((entry) => entry.score >= 0).sort((left, right) => {
+        const leftGroup = order.indexOf(left.item.group);
+        const rightGroup = order.indexOf(right.item.group);
+        if (leftGroup !== rightGroup) return leftGroup - rightGroup;
+        return right.score - left.score;
+      }).map((entry) => entry.item).slice(0, 40);
     },
     commandClass(index) {
       return index === this.commandIndex ? "selected" : "";
@@ -4997,6 +5330,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     runCommand(command) {
       if (!command) return;
+      if (command.kind === "command") this.recordCommand(command.id);
       this.closeCommandPalette();
       command.run();
     },
@@ -5028,8 +5362,48 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
 
   // src/features/notifications.ts
   var MAX_NOTIFICATIONS = 100;
+  var STORAGE_KEY = "codingagent.notifications";
   var notificationsMixin = {
-    pushNotification(kind, title, body = "") {
+    loadNotifications() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        if (!Array.isArray(saved)) return;
+        this.notifications = saved.filter((item) => item && item.title).slice(0, MAX_NOTIFICATIONS).map((item) => ({
+          id: Number(item.id) || ++this._notificationSeq,
+          kind: String(item.kind || "info"),
+          title: String(item.title || ""),
+          body: String(item.body || ""),
+          time: String(item.time || ""),
+          _sessionId: String(item._sessionId || ""),
+          _path: String(item._path || ""),
+          _clickable: Boolean(item._sessionId || item._path),
+          _cls: `notif-${item.kind || "info"}`
+        }));
+        this._notificationSeq = this.notifications.reduce(
+          (max, item) => Math.max(max, Number(item.id) || 0),
+          0
+        );
+        this.unreadNotifications = 0;
+      } catch (err) {
+        this.notifications = [];
+      }
+    },
+    persistNotifications() {
+      try {
+        const rows = this.notifications.slice(0, 50).map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          title: item.title,
+          body: item.body,
+          time: item.time,
+          _sessionId: item._sessionId || "",
+          _path: item._path || ""
+        }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+      } catch (err) {
+      }
+    },
+    pushNotification(kind, title, body = "", meta = {}) {
       const text = String(title || "").trim();
       if (!text) return;
       const item = {
@@ -5038,11 +5412,26 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         title: text,
         body: String(body || "").slice(0, 300),
         time: (/* @__PURE__ */ new Date()).toLocaleTimeString(),
+        _sessionId: String(meta.sessionId || ""),
+        _path: String(meta.path || ""),
+        _clickable: Boolean(meta.sessionId || meta.path),
         _cls: `notif-${kind || "info"}`
       };
       this.notifications = [item, ...this.notifications].slice(0, MAX_NOTIFICATIONS);
       if (this.notificationsOpen) this.unreadNotifications = 0;
       else this.unreadNotifications += 1;
+      this.persistNotifications();
+    },
+    openNotification(event) {
+      const id = Number(event.currentTarget.dataset.id);
+      const item = this.notifications.find((row) => row.id === id);
+      this.closeNotifications();
+      if (!item) return;
+      if (item._sessionId) {
+        this.openSession(item._sessionId);
+        return;
+      }
+      if (item._path) this.openFile(item._path);
     },
     toggleNotifications() {
       this.notificationsOpen = !this.notificationsOpen;
@@ -5057,6 +5446,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     clearNotifications() {
       this.notifications = [];
       this.unreadNotifications = 0;
+      this.persistNotifications();
     },
     notificationClass(item) {
       return `notif-${item && item.kind ? item.kind : "info"}`;
@@ -5087,6 +5477,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           break;
         case "load-git":
           this.loadGit(data.diff === "true");
+          break;
+        case "diff-view":
+          this.setDiffView(data.view);
           break;
         case "steer":
           this.steer(data.steer);
@@ -5236,6 +5629,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     onCommandClick(event) {
       this.onCommandAction(Number(event.currentTarget.dataset.index));
     },
+    onProblemClick(event) {
+      const path = event.currentTarget.dataset.path;
+      if (path) void this.openFile(path);
+    },
     onRecoveryAction(op, id) {
       if (op === "delete") {
         this.deleteSession(id);
@@ -5269,6 +5666,47 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     selectCurrentProject(event) {
       this.selectProject(event.target.value);
+    },
+    loadRecentCommands() {
+      try {
+        const saved = JSON.parse(
+          localStorage.getItem("codingagent.recentCommands") || "[]"
+        );
+        this.recentCommands = Array.isArray(saved) ? saved.map((item) => String(item)).filter(Boolean).slice(0, 8) : [];
+      } catch (err) {
+        this.recentCommands = [];
+      }
+    },
+    recordCommand(id) {
+      const clean = String(id || "").replace(/^recent:/, "");
+      if (!clean) return;
+      this.recentCommands = [
+        clean,
+        ...this.recentCommands.filter((item) => item !== clean)
+      ].slice(0, 8);
+      try {
+        localStorage.setItem(
+          "codingagent.recentCommands",
+          JSON.stringify(this.recentCommands)
+        );
+      } catch (err) {
+      }
+    },
+    openQuickOpen() {
+      this.commandOpen = true;
+      this.commandQuery = "#";
+      this.commandIndex = 0;
+      this.fileSearchResults = [];
+      this.fileSearchLoading = false;
+      this._searchSeq += 1;
+      if (this._searchTimer) clearTimeout(this._searchTimer);
+      this.$nextTick(() => {
+        const input = this.$refs.commandInput;
+        if (input) input.focus();
+      });
+    },
+    commandGroupOrder() {
+      return ["\u6700\u8FD1\u4F7F\u7528", "\u547D\u4EE4", "\u4F1A\u8BDD", "\u6587\u4EF6"];
     },
     openShortcuts() {
       this.shortcutsOpen = true;
@@ -5506,13 +5944,21 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       return this.filteredTools();
     },
     get filteredCommandResults() {
-      return this.filteredCommands().map((item, index) => ({
-        ...item,
-        _index: index,
-        _selected: index === this.commandIndex,
-        _cls: index === this.commandIndex ? "selected" : "",
-        _domId: `command-item-${index}`
-      }));
+      let lastGroup = "";
+      return this.filteredCommands().map((item, index) => {
+        const groupStart = item.group !== lastGroup;
+        lastGroup = item.group;
+        return {
+          ...item,
+          _index: index,
+          _selected: index === this.commandIndex,
+          _cls: index === this.commandIndex ? "selected" : "",
+          _domId: `command-item-${index}`,
+          _groupStart: groupStart,
+          _groupLabel: item.group || "",
+          _shortcut: item.shortcut || ""
+        };
+      });
     },
     get shortcutRows() {
       return this.shortcuts();
@@ -5708,6 +6154,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       tabFlags: { plan: true, tools: false, timeline: false },
       mainTabFlags: { chat: true, file: false, diff: false },
       mainTabClasses: { chat: "active", file: "", diff: "" },
+      diffRowsData: [],
+      splitDiffRowsData: [],
+      diffView: "unified",
+      diffViewFlags: { unified: true, split: false },
+      diffViewClasses: { unified: "active", split: "" },
+      fileLineInput: "",
       problems: [],
       _problemSeq: 0,
       filesDirty: false,
@@ -5719,6 +6171,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       commandOpen: false,
       commandQuery: "",
       commandIndex: 0,
+      recentCommands: [],
       notifications: [],
       notificationsOpen: false,
       unreadNotifications: 0,

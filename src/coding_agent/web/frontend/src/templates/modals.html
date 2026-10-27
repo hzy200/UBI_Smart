@@ -10,20 +10,25 @@
              @keydown="onCommandKeydown"
              :aria-activedescendant="'command-item-' + commandIndex"
              aria-controls="command-list"
-             placeholder="输入命令、会话或文件…" aria-label="命令面板搜索">
+             placeholder="输入命令、会话或文件；支持 > 命令 / @ 会话 / # 文件"
+             aria-label="命令面板搜索">
       <kbd>Esc</kbd>
     </div>
     <div class="command-list" id="command-list" role="listbox" aria-label="命令列表">
       <template x-for="cmd in filteredCommandResults" :key="cmd.id">
-        <button class="command-item" :id="cmd._domId" :class="cmd._cls"
-                role="option" :aria-selected="cmd._selected"
-                :data-index="cmd._index" @mouseenter="onCommandHover" @click="onCommandClick">
-          <span class="command-main">
-            <span class="command-title" x-text="cmd.title"></span>
-            <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>
-          </span>
-          <span class="command-hint" x-text="cmd.hint"></span>
-        </button>
+        <div class="command-entry">
+          <div class="command-group" x-show="cmd._groupStart" x-text="cmd._groupLabel"></div>
+          <button class="command-item" :id="cmd._domId" :class="cmd._cls"
+                  role="option" :aria-selected="cmd._selected"
+                  :data-index="cmd._index" @mouseenter="onCommandHover" @click="onCommandClick">
+            <span class="command-main">
+              <span class="command-title" x-text="cmd.title"></span>
+              <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>
+            </span>
+            <kbd class="command-shortcut" x-show="cmd._shortcut" x-text="cmd._shortcut"></kbd>
+            <span class="command-hint" x-text="cmd.hint"></span>
+          </button>
+        </div>
       </template>
       <div class="note" x-show="fileSearchLoading">正在搜索文件…</div>
       <div class="empty" x-show="noCommands">没有匹配的命令</div>

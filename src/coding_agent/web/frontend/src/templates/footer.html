@@ -13,7 +13,8 @@
   </div>
   <div class="notification-list" aria-live="polite">
     <template x-for="item in notifications" :key="item.id">
-      <div class="notification-item" :class="item._cls">
+      <div class="notification-item" :class="item._cls"
+           :data-id="item.id" @click="openNotification">
         <div class="notification-title" x-text="item.title"></div>
         <div class="notification-body" x-show="item.body" x-text="item.body"></div>
         <div class="notification-time" x-text="item.time"></div>

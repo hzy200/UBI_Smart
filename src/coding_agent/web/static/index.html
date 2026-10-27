@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body x-data="agentApp" :class="bodyClasses">
+<a class="skip-link" href="#main">跳到主区</a>
 <div id="app-root">
 <div id="boot" x-show="bootVisible" x-cloak>
   <div class="login-box">
@@ -441,10 +442,11 @@
         <span class="note" x-text="problemsCountText"></span>
       </div>
       <template x-for="p in problems" :key="p.id">
-        <div class="problem-card" :class="p._cls">
+        <div class="problem-card" :class="p._cls" :data-path="p._path" @click="onProblemClick">
           <div class="problem-head">
             <span class="problem-kind" x-text="p.kind"></span>
             <span class="problem-title" x-text="p.title"></span>
+            <span class="note" x-show="p._clickable">打开文件 ↗</span>
           </div>
           <pre class="problem-detail" x-show="p.detail" x-text="p.detail"></pre>
         </div>
@@ -458,7 +460,7 @@
      data-side="sidebar" @pointerdown="onStartResize"
      role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度"></div>
 
-  <main class="main">
+  <main class="main" id="main" tabindex="-1">
     <div class="main-tabs" role="tablist" aria-label="主区标签">
       <div class="main-tab-list">
         <button class="main-tab" role="tab" :class="mainTabClasses.chat"
@@ -503,18 +505,24 @@
 
     <section class="editor-view" x-show="mainTabFlags.file" x-cloak>
       <div class="editor-toolbar">
-        <span class="editor-path" x-text="fileView.path"></span>
+        <span class="editor-crumb" x-text="fileView._crumb"></span>
         <span class="note" x-text="fileView._size"></span>
         <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
         <span class="note note-bad" x-show="activeEditorStale">文件已变化</span>
         <span class="spacer"></span>
+        <input class="line-input" x-model="fileLineInput" @keydown.enter.prevent="goToFileLine"
+               placeholder="行号" aria-label="跳转到行">
+        <button @click="goToFileLine">跳转</button>
         <button x-show="activeEditorStale" @click="refreshActiveFile">刷新</button>
         <button @click="copyActiveFilePath">复制路径</button>
         <button x-show="fileInVscodeAvailable" @click="openFileInVscode">在 VS Code 打开</button>
         <button @click="copyActiveFileContent">复制内容</button>
         <button @click="closeActiveEditorTab">关闭</button>
       </div>
-      <pre class="editor-code"><code x-html="fileView._html"></code></pre>
+      <div class="editor-code-wrap">
+        <pre class="editor-gutter" x-text="fileView._lineNumbers"></pre>
+        <pre class="editor-code"><code x-html="fileView._html"></code></pre>
+      </div>
     </section>
 
     <section class="editor-view" x-show="mainTabFlags.diff" x-cloak>
@@ -522,15 +530,34 @@
         <span class="editor-path">Diff</span>
         <span class="note" x-text="diffPathLabel"></span>
         <span class="spacer"></span>
+        <button :class="diffViewClasses.unified" data-action="diff-view" data-view="unified" @click="onAction">统一</button>
+        <button :class="diffViewClasses.split" data-action="diff-view" data-view="split" @click="onAction">并排</button>
         <button x-show="canExpandDiff" @click="expandDiff">展开全部</button>
         <button @click="copyActiveDiff">复制</button>
         <button @click="closeActiveEditorTab">关闭</button>
       </div>
-      <div class="diff-view">
-        <template x-for="row in diffResultRows" :key="row._key">
+      <div class="diff-view" x-show="diffViewFlags.unified">
+        <template x-for="row in diffRowsData" :key="row._key">
           <div class="diff-line" :class="row._cls">
             <span class="diff-no" x-text="row._no"></span>
-            <span class="diff-text" x-text="row.text"></span>
+            <span class="diff-sign" x-text="row._sign"></span>
+            <span class="diff-text" x-html="row._html"></span>
+          </div>
+        </template>
+      </div>
+      <div class="diff-split" x-show="diffViewFlags.split">
+        <template x-for="row in splitDiffRowsData" :key="row._key">
+          <div class="diff-split-row" :class="row._cls">
+            <div class="diff-split-cell" :class="row._leftClass">
+              <span class="diff-no" x-text="row._leftNo"></span>
+              <span class="diff-sign" x-text="row._leftSign"></span>
+              <span class="diff-text" x-html="row._leftHtml"></span>
+            </div>
+            <div class="diff-split-cell" :class="row._rightClass" x-show="row._hasRight">
+              <span class="diff-no" x-text="row._rightNo"></span>
+              <span class="diff-sign" x-text="row._rightSign"></span>
+              <span class="diff-text" x-html="row._rightHtml"></span>
+            </div>
           </div>
         </template>
       </div>
@@ -546,7 +573,7 @@
       </template>
     </div>
     <div class="transcript" :class="transcriptClassValue" x-ref="transcript" role="log"
-         aria-live="polite" aria-label="对话记录" @scroll="onTranscriptScroll">
+         aria-live="polite" :aria-busy="busy" aria-label="对话记录" @scroll="onTranscriptScroll">
       <div class="virtual-spacer" :style="virtualTopStyle"></div>
       <template x-for="m in virtualMessageResults" :key="m.id">
         <div class="msg" :class="m._renderClass" :data-message-id="m.id">
@@ -757,20 +784,25 @@
              @keydown="onCommandKeydown"
              :aria-activedescendant="'command-item-' + commandIndex"
              aria-controls="command-list"
-             placeholder="输入命令、会话或文件…" aria-label="命令面板搜索">
+             placeholder="输入命令、会话或文件；支持 > 命令 / @ 会话 / # 文件"
+             aria-label="命令面板搜索">
       <kbd>Esc</kbd>
     </div>
     <div class="command-list" id="command-list" role="listbox" aria-label="命令列表">
       <template x-for="cmd in filteredCommandResults" :key="cmd.id">
-        <button class="command-item" :id="cmd._domId" :class="cmd._cls"
-                role="option" :aria-selected="cmd._selected"
-                :data-index="cmd._index" @mouseenter="onCommandHover" @click="onCommandClick">
-          <span class="command-main">
-            <span class="command-title" x-text="cmd.title"></span>
-            <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>
-          </span>
-          <span class="command-hint" x-text="cmd.hint"></span>
-        </button>
+        <div class="command-entry">
+          <div class="command-group" x-show="cmd._groupStart" x-text="cmd._groupLabel"></div>
+          <button class="command-item" :id="cmd._domId" :class="cmd._cls"
+                  role="option" :aria-selected="cmd._selected"
+                  :data-index="cmd._index" @mouseenter="onCommandHover" @click="onCommandClick">
+            <span class="command-main">
+              <span class="command-title" x-text="cmd.title"></span>
+              <span class="command-detail" x-show="cmd.detail" x-text="cmd.detail"></span>
+            </span>
+            <kbd class="command-shortcut" x-show="cmd._shortcut" x-text="cmd._shortcut"></kbd>
+            <span class="command-hint" x-text="cmd.hint"></span>
+          </button>
+        </div>
       </template>
       <div class="note" x-show="fileSearchLoading">正在搜索文件…</div>
       <div class="empty" x-show="noCommands">没有匹配的命令</div>
@@ -1064,7 +1096,8 @@
   </div>
   <div class="notification-list" aria-live="polite">
     <template x-for="item in notifications" :key="item.id">
-      <div class="notification-item" :class="item._cls">
+      <div class="notification-item" :class="item._cls"
+           :data-id="item.id" @click="openNotification">
         <div class="notification-title" x-text="item.title"></div>
         <div class="notification-body" x-show="item.body" x-text="item.body"></div>
         <div class="notification-time" x-text="item.time"></div>

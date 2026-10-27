@@ -201,6 +201,10 @@ def main() -> int:
         results["command_focus"] = window.evaluate_js(
             "document.activeElement && document.activeElement.getAttribute('aria-label')"
         )
+        results["command_group"] = window.evaluate_js(
+            "document.querySelector('.command-group')"
+            " ? document.querySelector('.command-group').textContent.trim() : ''"
+        )
         window.evaluate_js(
             "document.querySelectorAll('.session-filters button')[1].click()"
         )
@@ -228,6 +232,17 @@ def main() -> int:
         time.sleep(0.3)
         results["theme_class"] = window.evaluate_js("document.body.className")
         results["theme_light"] = "theme-light" in results["theme_class"]
+        window.evaluate_js(
+            "window.dispatchEvent(new KeyboardEvent('keydown',"
+            "{key:'p',ctrlKey:true,bubbles:true}))"
+        )
+        time.sleep(0.4)
+        results["quickopen_display"] = window.evaluate_js(
+            "getComputedStyle(document.querySelector('.command-modal')).display"
+        )
+        results["quickopen_value"] = window.evaluate_js(
+            "document.querySelector('.command-input-row input').value"
+        )
         print(json.dumps(results, ensure_ascii=False))
         window.destroy()
 

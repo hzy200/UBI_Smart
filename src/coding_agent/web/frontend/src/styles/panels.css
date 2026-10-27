@@ -87,6 +87,8 @@
   margin-bottom: 6px;
 }
 .problem-card.problem-error { border-left-color: var(--bad); }
+.problem-card.problem-clickable { cursor: pointer; }
+.problem-card.problem-clickable:hover { border-color: var(--accent); }
 .problem-head { display: flex; align-items: center; gap: 8px; }
 .problem-kind { color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .problem-title { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
