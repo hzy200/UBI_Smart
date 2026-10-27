@@ -34,6 +34,7 @@
   <span class="status-item status-workspace" x-text="workspaceLabel()"></span>
   <span class="status-item" x-show="gitInfo._branch" x-text="gitInfo._branch"></span>
   <span class="spacer"></span>
+  <span class="status-item" x-show="usageText()" :title="usageTitle()" x-text="usageText()"></span>
   <span class="status-item" x-text="costText"></span>
   <span class="status-item status-health" x-text="healthText"></span>
   <button class="status-item status-command" @click="openCommandPalette()" title="打开命令面板">

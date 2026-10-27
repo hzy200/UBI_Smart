@@ -214,6 +214,40 @@ export const inspectorMixin = {
     }
   },
 
+  filteredTreeRows() {
+    const query = String(this.treeQuery || '').trim().toLowerCase();
+    if (!query) return this.treeRows;
+    return this.treeRows.filter((entry) => (
+      `${entry.name} ${entry.path}`.toLowerCase().includes(query)
+    ));
+  },
+
+  canOpenFileInVscode() {
+    const root = String(this.workspaceInput || this.workspace || '').trim();
+    return Boolean(
+      this.desktopAvailable && this.fileView.path && root.startsWith('/')
+    );
+  },
+
+  async openFileInVscode() {
+    const bridge = window.pywebview && window.pywebview.api;
+    if (!bridge) {
+      this.toastMessage('浏览器模式不支持在 VS Code 打开');
+      return;
+    }
+    const root = String(this.workspaceInput || this.workspace || '').replace(/\/+$/, '');
+    if (!root.startsWith('/') || !this.fileView.path) {
+      this.toastMessage('仅支持 WSL 工作区中的文件');
+      return;
+    }
+    try {
+      const result = await bridge.open_in_vscode(`${root}/${this.fileView.path}`);
+      this.toastMessage(result.ok ? '已在 VS Code 打开' : result.error);
+    } catch (err) {
+      this.toastMessage(String(err));
+    }
+  },
+
   async openTreeEntry(entry) {
     if (entry.is_dir) {
       await this.loadTree(entry.path);

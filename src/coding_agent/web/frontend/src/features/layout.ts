@@ -249,6 +249,8 @@ export const layoutMixin = {
       { id: 'recovery', title: '打开恢复中心', hint: '界面', run: () => this.openRecovery() },
       { id: 'notifications', title: '通知中心', hint: '界面', run: () => this.toggleNotifications() },
       { id: 'shortcuts', title: '查看快捷键', hint: '帮助', run: () => { this.shortcutsOpen = true; } },
+      { id: 'search-conversation', title: '搜索当前对话', hint: '导航', run: () => { this.showChat(); this.openMessageSearch(); } },
+      { id: 'jump-latest', title: '跳到最新消息', hint: '导航', run: () => this.scrollBottom(true) },
       { id: 'toggle-sidebar', title: '切换侧栏', hint: '布局', run: () => this.toggleSidebar() },
       { id: 'toggle-inspector', title: '切换右侧检查器', hint: '布局', run: () => this.toggleInspector() },
       { id: 'view-sessions', title: '视图：会话', hint: '导航', run: () => this.setView('sessions') },

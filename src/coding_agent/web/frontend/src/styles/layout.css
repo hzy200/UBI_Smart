@@ -268,11 +268,42 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .main-tab-state { color: var(--muted); font-size: 11px; }
 
 .main-chat {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+}
+.main-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 320px;
+  max-width: 460px;
+  min-width: 0;
+}
+.main-search input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.main-search .note { flex: 0 0 auto; padding: 0; font-size: 11px; }
+.main-search button { padding: 1px 6px; font-size: 11px; }
+.jump-latest {
+  position: absolute;
+  right: 24px;
+  bottom: 104px;
+  z-index: 6;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
 }
 .editor-view {
   display: flex;

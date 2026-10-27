@@ -26,3 +26,12 @@
 }
 .tree-row:hover { background: var(--panel-2); }
 .tree-kind { color: var(--muted); font-size: 10px; width: 26px; }
+.tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-search { margin-bottom: 6px; }
+.tree-copy {
+  display: none;
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  font-size: 10px;
+}
+.tree-row:hover .tree-copy { display: inline-flex; }

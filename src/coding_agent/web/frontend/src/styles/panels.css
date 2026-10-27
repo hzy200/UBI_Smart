@@ -40,6 +40,23 @@
 .tool-copy { font-size: 10px; padding: 2px 6px; }
 .tool-summary { padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tool-preview { padding: 0 10px 8px; color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+.tool-filters button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.tool-search { margin-bottom: 8px; }
+.tool-detail { border-top: 1px solid var(--border); padding: 8px 10px; }
+.tool-detail summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.tool-detail pre {
+  margin: 6px 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.tool-detail button { font-size: 10px; padding: 2px 6px; }
 .tool-ok { border-left: 3px solid var(--ok); }
 .tool-error, .tool-rejected, .tool-interrupted { border-left: 3px solid var(--bad); }
 .tool-skipped { border-left: 3px solid var(--warn); }

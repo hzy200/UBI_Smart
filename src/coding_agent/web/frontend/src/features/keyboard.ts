@@ -4,6 +4,7 @@
 const SHORTCUTS = [
   { keys: 'Ctrl / Cmd + Shift + P', action: '打开命令面板' },
   { keys: 'Ctrl / Cmd + K', action: '聚焦会话搜索' },
+  { keys: 'Ctrl / Cmd + Shift + F', action: '搜索当前对话' },
   { keys: 'Ctrl / Cmd + B', action: '切换侧栏' },
   { keys: 'Ctrl / Cmd + J', action: '切换右侧检查器' },
   { keys: 'Ctrl / Cmd + Enter', action: '发送任务' },
@@ -49,6 +50,12 @@ export const keyboardMixin = {
       this.openCommandPalette();
       return;
     }
+    if (mod && event.shiftKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      this.showChat();
+      this.openMessageSearch();
+      return;
+    }
     if (mod && event.key.toLowerCase() === 'k') {
       event.preventDefault();
       this.setView('sessions', false, true);
@@ -74,6 +81,7 @@ export const keyboardMixin = {
       return;
     }
     if (event.key === 'Escape') {
+      if (this.messageSearchOpen) { this.closeMessageSearch(); return; }
       if (this.notificationsOpen) { this.closeNotifications(); return; }
       if (this.shortcutsOpen) { this.shortcutsOpen = false; return; }
       if (this.showSettings) { this.showSettings = false; return; }

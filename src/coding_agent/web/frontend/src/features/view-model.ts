@@ -121,6 +121,19 @@ export const view_modelMixin = {
   accessDisabled() {
     return !this.capabilities.server_write_enabled;
   },
+  usageText() {
+    if (!this.usage.input && !this.usage.output) return '';
+    return `${this.usage.input} in / ${this.usage.output} out`;
+  },
+  usageTitle() {
+    const parts = [];
+    if (this.usage.cost) parts.push(`费用 $${this.usage.cost.toFixed(4)}`);
+    if (this.usage.budget) {
+      parts.push(`预算 $${this.usage.budget.toFixed(2)}（${Math.round(this.usage.ratio * 100)}%）`);
+    }
+    if (this.usage.cache) parts.push(`cache hit ${this.usage.cache}`);
+    return parts.join(' · ') || '本轮 token 用量';
+  },
   escapeHtml(text) { return escapeHtml(text); },
   renderMarkdown(text) { return renderMarkdown(text); },
 

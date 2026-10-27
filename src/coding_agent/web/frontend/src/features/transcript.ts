@@ -202,7 +202,7 @@ export const transcriptMixin = {
         target.text = raw;
         target.html = renderMarkdown(raw);
       }
-      this.scrollBottom();
+      this.scrollBottom(false);
     }, 60));
   },
 
@@ -231,11 +231,101 @@ export const transcriptMixin = {
     this.$nextTick(() => this.decorateTranscript());
   },
 
-  scrollBottom() {
+  scrollBottom(force = true) {
     this.$nextTick(() => {
       const element = this.$refs.transcript;
-      if (element) element.scrollTop = element.scrollHeight;
+      if (!element) return;
+      if (!force && this.showJumpLatest) return;
+      element.scrollTop = element.scrollHeight;
+      this.showJumpLatest = false;
     });
+  },
+
+  onTranscriptScroll(event) {
+    const element = event && event.target;
+    if (!element) return;
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+    this.showJumpLatest = remaining > 120;
+  },
+
+  messageClass(message) {
+    const hit = this.messageMatches.includes(message.id) ? ' msg-hit' : '';
+    return `${message._cls || ''}${hit}`;
+  },
+
+  editMessage(message) {
+    if (!message || message.role !== 'user') return;
+    this.prompt = String(message.text || '');
+    this.closeMessageSearch();
+    this.$nextTick(() => {
+      const composer = document.querySelector('.composer textarea') as HTMLTextAreaElement | null;
+      if (composer) composer.focus();
+    });
+    this.toastMessage('已填入输入框；发送后会作为新一轮');
+  },
+
+  regenerate() {
+    if (this._lastPrompt && !this.busy) this.retry();
+  },
+
+  openMessageSearch() {
+    this.showChat();
+    this.messageSearchOpen = true;
+    this.$nextTick(() => {
+      const input = this.$refs.messageSearchInput as HTMLInputElement | null;
+      if (input) input.focus();
+    });
+  },
+
+  closeMessageSearch() {
+    this.messageSearchOpen = false;
+    this.messageQuery = '';
+    this.messageMatches = [];
+    this.messageMatchIndex = 0;
+  },
+
+  searchMessages(query) {
+    this.messageQuery = query;
+    const needle = String(query || '').trim().toLowerCase();
+    if (!needle) {
+      this.messageMatches = [];
+      this.messageMatchIndex = 0;
+      return;
+    }
+    this.messageMatches = this.messages
+      .filter((message) => {
+        const haystack = (
+          `${message.text || ''} ${message.summary || ''} ${message.name || ''}`
+        ).toLowerCase();
+        return haystack.includes(needle);
+      })
+      .map((message) => message.id);
+    this.messageMatchIndex = 0;
+    this.scrollToMessageMatch();
+  },
+
+  scrollToMessageMatch() {
+    const id = this.messageMatches[this.messageMatchIndex];
+    if (id === undefined) return;
+    this.$nextTick(() => {
+      const element = document.querySelector(
+        `[data-message-id="${id}"]`,
+      ) as HTMLElement | null;
+      if (element) element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  },
+
+  nextMessageMatch(delta) {
+    if (!this.messageMatches.length) return;
+    this.messageMatchIndex = (
+      this.messageMatchIndex + delta + this.messageMatches.length
+    ) % this.messageMatches.length;
+    this.scrollToMessageMatch();
+  },
+
+  messageMatchLabel() {
+    if (!this.messageMatches.length) return this.messageQuery ? '0/0' : '';
+    return `${this.messageMatchIndex + 1}/${this.messageMatches.length}`;
   },
 
 };

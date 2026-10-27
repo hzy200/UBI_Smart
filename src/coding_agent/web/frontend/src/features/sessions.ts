@@ -329,6 +329,9 @@ export const sessionsMixin = {
     this.stepIdx = -1;
     this.planDegraded = false;
     this.tools = [];
+    this.toolFilter = 'all';
+    this.toolQuery = '';
+    this.treeQuery = '';
     toolMap.clear();
     renderTimers.forEach((timer) => clearTimeout(timer));
     renderTimers.clear();
@@ -348,6 +351,12 @@ export const sessionsMixin = {
     this.approval = null;
     this.decisions = {};
     this.costText = '';
+    this.usage = { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 };
+    this.messageSearchOpen = false;
+    this.messageQuery = '';
+    this.messageMatches = [];
+    this.messageMatchIndex = 0;
+    this.showJumpLatest = false;
     this.paused = false;
     this.stateText = '就绪';
   },

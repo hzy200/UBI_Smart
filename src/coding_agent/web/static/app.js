@@ -1552,6 +1552,19 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     accessDisabled() {
       return !this.capabilities.server_write_enabled;
     },
+    usageText() {
+      if (!this.usage.input && !this.usage.output) return "";
+      return `${this.usage.input} in / ${this.usage.output} out`;
+    },
+    usageTitle() {
+      const parts = [];
+      if (this.usage.cost) parts.push(`\u8D39\u7528 $${this.usage.cost.toFixed(4)}`);
+      if (this.usage.budget) {
+        parts.push(`\u9884\u7B97 $${this.usage.budget.toFixed(2)}\uFF08${Math.round(this.usage.ratio * 100)}%\uFF09`);
+      }
+      if (this.usage.cache) parts.push(`cache hit ${this.usage.cache}`);
+      return parts.join(" \xB7 ") || "\u672C\u8F6E token \u7528\u91CF";
+    },
     escapeHtml(text) {
       return escapeHtml(text);
     },
@@ -1953,6 +1966,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.stepIdx = -1;
       this.planDegraded = false;
       this.tools = [];
+      this.toolFilter = "all";
+      this.toolQuery = "";
+      this.treeQuery = "";
       toolMap.clear();
       renderTimers.forEach((timer) => clearTimeout(timer));
       renderTimers.clear();
@@ -1972,6 +1988,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.approval = null;
       this.decisions = {};
       this.costText = "";
+      this.usage = { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 };
+      this.messageSearchOpen = false;
+      this.messageQuery = "";
+      this.messageMatches = [];
+      this.messageMatchIndex = 0;
+      this.showJumpLatest = false;
       this.paused = false;
       this.stateText = "\u5C31\u7EEA";
     },
@@ -2213,7 +2235,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           target.text = raw;
           target.html = renderMarkdown(raw);
         }
-        this.scrollBottom();
+        this.scrollBottom(false);
       }, 60));
     },
     flushAssistantToken(id) {
@@ -2239,11 +2261,85 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this._currentNode = "";
       this.$nextTick(() => this.decorateTranscript());
     },
-    scrollBottom() {
+    scrollBottom(force = true) {
       this.$nextTick(() => {
         const element = this.$refs.transcript;
-        if (element) element.scrollTop = element.scrollHeight;
+        if (!element) return;
+        if (!force && this.showJumpLatest) return;
+        element.scrollTop = element.scrollHeight;
+        this.showJumpLatest = false;
       });
+    },
+    onTranscriptScroll(event) {
+      const element = event && event.target;
+      if (!element) return;
+      const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+      this.showJumpLatest = remaining > 120;
+    },
+    messageClass(message) {
+      const hit = this.messageMatches.includes(message.id) ? " msg-hit" : "";
+      return `${message._cls || ""}${hit}`;
+    },
+    editMessage(message) {
+      if (!message || message.role !== "user") return;
+      this.prompt = String(message.text || "");
+      this.closeMessageSearch();
+      this.$nextTick(() => {
+        const composer = document.querySelector(".composer textarea");
+        if (composer) composer.focus();
+      });
+      this.toastMessage("\u5DF2\u586B\u5165\u8F93\u5165\u6846\uFF1B\u53D1\u9001\u540E\u4F1A\u4F5C\u4E3A\u65B0\u4E00\u8F6E");
+    },
+    regenerate() {
+      if (this._lastPrompt && !this.busy) this.retry();
+    },
+    openMessageSearch() {
+      this.showChat();
+      this.messageSearchOpen = true;
+      this.$nextTick(() => {
+        const input = this.$refs.messageSearchInput;
+        if (input) input.focus();
+      });
+    },
+    closeMessageSearch() {
+      this.messageSearchOpen = false;
+      this.messageQuery = "";
+      this.messageMatches = [];
+      this.messageMatchIndex = 0;
+    },
+    searchMessages(query) {
+      this.messageQuery = query;
+      const needle = String(query || "").trim().toLowerCase();
+      if (!needle) {
+        this.messageMatches = [];
+        this.messageMatchIndex = 0;
+        return;
+      }
+      this.messageMatches = this.messages.filter((message) => {
+        const haystack = `${message.text || ""} ${message.summary || ""} ${message.name || ""}`.toLowerCase();
+        return haystack.includes(needle);
+      }).map((message) => message.id);
+      this.messageMatchIndex = 0;
+      this.scrollToMessageMatch();
+    },
+    scrollToMessageMatch() {
+      const id = this.messageMatches[this.messageMatchIndex];
+      if (id === void 0) return;
+      this.$nextTick(() => {
+        const element = document.querySelector(
+          `[data-message-id="${id}"]`
+        );
+        if (element) element.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    },
+    nextMessageMatch(delta) {
+      if (!this.messageMatches.length) return;
+      this.messageMatchIndex = (this.messageMatchIndex + delta + this.messageMatches.length) % this.messageMatches.length;
+      this.scrollToMessageMatch();
+    },
+    messageMatchLabel() {
+      if (!this.messageMatches.length) return this.messageQuery ? "0/0" : "";
+      return `${this.messageMatchIndex + 1}/${this.messageMatches.length}`;
     }
   };
 
@@ -2650,6 +2746,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           break;
         case "cost_report":
           this.costText = this.formatCost(event);
+          this.usage = {
+            input: Number(event.input_tokens || 0),
+            output: Number(event.output_tokens || 0),
+            cost: Number(event.cost_usd || 0),
+            budget: Number(event.budget_usd || 0),
+            ratio: Number(event.ratio || 0),
+            cache: Number(event.cache_hit_tokens || 0)
+          };
           for (const alert of event.alerts || []) this.toastMessage(alert);
           this.pushTimeline("cost", "\u6210\u672C", this.costText);
           break;
@@ -2744,6 +2848,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         existing.name = event.name || existing.name;
         existing.summary = event.summary || existing.summary;
         existing.level = event.level || existing.level;
+        existing._start = {
+          ...existing._start || {},
+          name: existing.name,
+          summary: existing.summary,
+          level: existing.level,
+          args: event.args || existing._start && existing._start.args || {}
+        };
+        this.refreshToolDetail(existing);
         return;
       }
       const tool = {
@@ -2754,8 +2866,18 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         level: event.level || "",
         state: "running",
         preview: "",
-        _cls: "tool-running"
+        _cls: "tool-running",
+        _start: {
+          call_id: event.call_id || key,
+          name: event.name || "tool",
+          summary: event.summary || "",
+          level: event.level || "",
+          args: event.args || {}
+        },
+        _finish: null,
+        _detail: ""
       };
+      this.refreshToolDetail(tool);
       toolMap.set(key, tool);
       this.tools.unshift(tool);
     },
@@ -2785,6 +2907,48 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       else if (event.exit_code !== null && event.exit_code !== void 0) {
         tool.preview = `exit=${event.exit_code}`;
       }
+      tool._finish = {
+        ok: Boolean(event.ok),
+        rejected: Boolean(event.rejected),
+        skipped: Boolean(event.skipped),
+        interrupted: Boolean(event.interrupted),
+        decision: event.decision || "",
+        exit_code: event.exit_code,
+        duration_ms: event.duration_ms,
+        preview: String(event.preview || "").slice(0, 4e3)
+      };
+      this.refreshToolDetail(tool);
+    },
+    refreshToolDetail(tool) {
+      tool._detail = JSON.stringify({
+        call_id: tool.call_id,
+        name: tool.name,
+        level: tool.level,
+        state: tool.state,
+        summary: tool.summary,
+        start: tool._start || null,
+        finish: tool._finish || null
+      }, null, 2);
+    },
+    setToolFilter(name) {
+      this.toolFilter = name;
+    },
+    toolFilterClass(name) {
+      return this.toolFilter === name ? "active" : "";
+    },
+    filteredTools() {
+      const query = String(this.toolQuery || "").trim().toLowerCase();
+      return this.tools.filter((tool) => {
+        const state = tool.state || "running";
+        if (this.toolFilter === "running" && state !== "running") return false;
+        if (this.toolFilter === "ok" && state !== "ok") return false;
+        if (this.toolFilter === "error" && !["error", "rejected", "interrupted"].includes(state)) {
+          return false;
+        }
+        if (!query) return true;
+        const haystack = `${tool.name} ${tool.summary} ${tool.preview}`.toLowerCase();
+        return haystack.includes(query);
+      });
     },
     toolMessageKey(event) {
       return event.call_id || event.name || "";
@@ -3272,6 +3436,35 @@ ${paths}
         this.treeLoading = false;
       }
     },
+    filteredTreeRows() {
+      const query = String(this.treeQuery || "").trim().toLowerCase();
+      if (!query) return this.treeRows;
+      return this.treeRows.filter((entry) => `${entry.name} ${entry.path}`.toLowerCase().includes(query));
+    },
+    canOpenFileInVscode() {
+      const root = String(this.workspaceInput || this.workspace || "").trim();
+      return Boolean(
+        this.desktopAvailable && this.fileView.path && root.startsWith("/")
+      );
+    },
+    async openFileInVscode() {
+      const bridge = window.pywebview && window.pywebview.api;
+      if (!bridge) {
+        this.toastMessage("\u6D4F\u89C8\u5668\u6A21\u5F0F\u4E0D\u652F\u6301\u5728 VS Code \u6253\u5F00");
+        return;
+      }
+      const root = String(this.workspaceInput || this.workspace || "").replace(/\/+$/, "");
+      if (!root.startsWith("/") || !this.fileView.path) {
+        this.toastMessage("\u4EC5\u652F\u6301 WSL \u5DE5\u4F5C\u533A\u4E2D\u7684\u6587\u4EF6");
+        return;
+      }
+      try {
+        const result = await bridge.open_in_vscode(`${root}/${this.fileView.path}`);
+        this.toastMessage(result.ok ? "\u5DF2\u5728 VS Code \u6253\u5F00" : result.error);
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
     async openTreeEntry(entry) {
       if (entry.is_dir) {
         await this.loadTree(entry.path);
@@ -3742,6 +3935,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   var SHORTCUTS = [
     { keys: "Ctrl / Cmd + Shift + P", action: "\u6253\u5F00\u547D\u4EE4\u9762\u677F" },
     { keys: "Ctrl / Cmd + K", action: "\u805A\u7126\u4F1A\u8BDD\u641C\u7D22" },
+    { keys: "Ctrl / Cmd + Shift + F", action: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD" },
     { keys: "Ctrl / Cmd + B", action: "\u5207\u6362\u4FA7\u680F" },
     { keys: "Ctrl / Cmd + J", action: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668" },
     { keys: "Ctrl / Cmd + Enter", action: "\u53D1\u9001\u4EFB\u52A1" },
@@ -3781,6 +3975,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         this.openCommandPalette();
         return;
       }
+      if (mod && event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        this.showChat();
+        this.openMessageSearch();
+        return;
+      }
       if (mod && event.key.toLowerCase() === "k") {
         event.preventDefault();
         this.setView("sessions", false, true);
@@ -3806,6 +4006,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         return;
       }
       if (event.key === "Escape") {
+        if (this.messageSearchOpen) {
+          this.closeMessageSearch();
+          return;
+        }
         if (this.notificationsOpen) {
           this.closeNotifications();
           return;
@@ -4069,6 +4273,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         { id: "shortcuts", title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9", run: () => {
           this.shortcutsOpen = true;
         } },
+        { id: "search-conversation", title: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD", hint: "\u5BFC\u822A", run: () => {
+          this.showChat();
+          this.openMessageSearch();
+        } },
+        { id: "jump-latest", title: "\u8DF3\u5230\u6700\u65B0\u6D88\u606F", hint: "\u5BFC\u822A", run: () => this.scrollBottom(true) },
         { id: "toggle-sidebar", title: "\u5207\u6362\u4FA7\u680F", hint: "\u5E03\u5C40", run: () => this.toggleSidebar() },
         { id: "toggle-inspector", title: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668", hint: "\u5E03\u5C40", run: () => this.toggleInspector() },
         { id: "view-sessions", title: "\u89C6\u56FE\uFF1A\u4F1A\u8BDD", hint: "\u5BFC\u822A", run: () => this.setView("sessions") },
@@ -4270,6 +4479,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       threadId: "",
       stateText: "\u5C31\u7EEA",
       costText: "",
+      usage: { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 },
       busy: false,
       paused: false,
       reasoningBlocks: [],
@@ -4284,12 +4494,19 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       _retryTimer: null,
       _lastPrompt: "",
       messages: [],
+      messageSearchOpen: false,
+      messageQuery: "",
+      messageMatches: [],
+      messageMatchIndex: 0,
+      showJumpLatest: false,
       plan: [],
       kinds: [],
       planRows: [],
       stepIdx: -1,
       planDegraded: false,
       tools: [],
+      toolFilter: "all",
+      toolQuery: "",
       files: [],
       checkpoints: [],
       diffText: "",
@@ -4303,6 +4520,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       sessionQuery: "",
       treePath: "",
       treeRows: [],
+      treeQuery: "",
       treeLoading: false,
       fileView: { path: "", size: 0, _text: "", _html: "" },
       gitInfo: {

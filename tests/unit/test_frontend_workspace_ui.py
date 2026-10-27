@@ -189,3 +189,40 @@ def test_m3_workspace_features_are_guarded() -> None:
     css = (STATIC / "style.css").read_text(encoding="utf-8")
     for marker in (".editor-code", ".diff-add", ".notification-panel", ".timeline-item"):
         assert marker in css, marker
+
+
+def test_m4_conversation_and_tools_are_guarded() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "messageSearchOpen",
+        "data-message-id",
+        "editMessage(m)",
+        "regenerate()",
+        "openMessageSearch()",
+        "jump-latest",
+        "filteredTools()",
+        "toolFilterClass",
+        "tool-detail",
+        "filteredTreeRows()",
+        "openFileInVscode()",
+        "usageText()",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "searchMessages",
+        "editMessage",
+        "regenerate",
+        "onTranscriptScroll",
+        "filteredTools",
+        "refreshToolDetail",
+        "filteredTreeRows",
+        "openFileInVscode",
+        "usageText",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".main-search", ".jump-latest", ".msg-hit", ".tool-detail", ".tree-copy"):
+        assert marker in css, marker

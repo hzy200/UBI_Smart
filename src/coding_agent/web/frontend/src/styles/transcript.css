@@ -6,6 +6,11 @@
   padding: 18px 22px; display: flex; flex-direction: column; gap: 14px;
 }
 .msg { display: flex; flex-direction: column; gap: 4px; max-width: 92%; }
+.msg-hit {
+  outline: 1px dashed var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-md);
+}
 .msg-user { align-self: flex-end; align-items: flex-end; }
 .msg-head { display: flex; align-items: center; gap: 8px; }
 .msg-role { color: var(--muted); font-size: 11px; }

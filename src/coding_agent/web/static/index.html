@@ -317,14 +317,16 @@
         <button @click="loadTree(treePath)">刷新</button>
         <span class="note" x-text="treePath || '/'"></span>
       </div>
-      <template x-for="entry in treeRows" :key="entry._key">
+      <input class="tree-search" x-model="treeQuery" placeholder="过滤当前目录…">
+      <template x-for="entry in filteredTreeRows()" :key="entry._key">
         <div class="tree-row" :class="entry._cls" @click="openTreeEntry(entry)">
           <span class="tree-kind" x-text="entry._kind"></span>
-          <span x-text="entry.name"></span>
+          <span class="tree-name" x-text="entry.name"></span>
           <span class="note" x-text="entry._meta"></span>
+          <button class="tree-copy" @click.stop="copyText(entry.path)" title="复制路径">复制路径</button>
         </div>
       </template>
-      <div class="empty" x-show="!treeLoading && treeRows.length === 0">空目录，或先创建会话</div>
+      <div class="empty" x-show="!treeLoading && filteredTreeRows().length === 0">没有匹配的文件，或目录为空</div>
       <div class="note">点击文件会在主区打开只读预览。</div>
     </div>
 
@@ -418,9 +420,25 @@
         <span>Diff</span>
         <span class="tab-close" role="button" @click.stop="closeDiffTab()" title="关闭 Diff">×</span>
       </button>
-      <span class="main-tab-title" x-text="currentSessionTitle()"></span>
+      <div class="main-search" x-show="messageSearchOpen" x-cloak>
+        <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+        <input x-ref="messageSearchInput" x-model="messageQuery"
+               @input="searchMessages(messageQuery)"
+               @keydown.enter.prevent="nextMessageMatch(1)"
+               @keydown.escape="closeMessageSearch()"
+               placeholder="搜索对话…" aria-label="搜索对话">
+        <span class="note" x-text="messageMatchLabel()"></span>
+        <button @click="nextMessageMatch(-1)" title="上一个">↑</button>
+        <button @click="nextMessageMatch(1)" title="下一个">↓</button>
+        <button @click="closeMessageSearch()" title="关闭搜索">×</button>
+      </div>
+      <span class="main-tab-title" x-show="!messageSearchOpen" x-text="currentSessionTitle()"></span>
       <span class="spacer"></span>
-      <span class="main-tab-state" x-text="stateText"></span>
+      <span class="main-tab-state" x-show="!messageSearchOpen" x-text="stateText"></span>
+      <button class="icon-btn" x-show="!messageSearchOpen" @click="openMessageSearch()"
+              title="搜索对话（Ctrl+Shift+F）" aria-label="搜索对话">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+      </button>
       <button class="icon-btn" @click="openCommandPalette()" title="命令面板" aria-label="命令面板">
         <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
       </button>
@@ -432,7 +450,9 @@
         <span class="note" x-text="fileView._size"></span>
         <span class="note" x-show="fileView._lang" x-text="fileView._lang"></span>
         <span class="spacer"></span>
-        <button @click="copyText(fileView._text)">复制</button>
+        <button @click="copyText(fileView.path)">复制路径</button>
+        <button x-show="canOpenFileInVscode()" @click="openFileInVscode()">在 VS Code 打开</button>
+        <button @click="copyText(fileView._text)">复制内容</button>
         <button @click="closeFileTab()">关闭</button>
       </div>
       <pre class="editor-code"><code x-html="fileView._html"></code></pre>
@@ -467,15 +487,20 @@
       </template>
     </div>
     <div class="transcript" x-ref="transcript" role="log" aria-live="polite"
-         aria-label="对话记录">
+         aria-label="对话记录" @scroll="onTranscriptScroll($event)">
       <template x-for="m in messages" :key="m.id">
-        <div class="msg" :class="m._cls">
+        <div class="msg" :class="messageClass(m)" :data-message-id="m.id">
           <div class="msg-head">
             <span class="msg-badge"
                   :class="'badge-' + (m.phase || m.role)"
                   x-text="messageLabel(m)"></span>
             <button class="msg-copy" @click="copyTranscriptMessage(m)"
                     title="复制这条消息">复制</button>
+            <button class="msg-copy" x-show="m.role === 'user'"
+                    @click="editMessage(m)" title="编辑后重新发送">编辑重发</button>
+            <button class="msg-copy"
+                    x-show="m.role === 'assistant' && m.phase === 'final' && _lastPrompt && !busy"
+                    @click="regenerate()" title="重新生成">重新生成</button>
           </div>
           <template x-if="m.kind === 'tool'">
             <div class="inline-tool" :class="m._cls">
@@ -542,6 +567,10 @@
       </div>
     </div>
 
+    <button class="jump-latest" x-show="showJumpLatest" @click="scrollBottom(true)">
+      跳到最新 ↓
+    </button>
+
     <div class="composer" @dragover.prevent @drop.prevent="dropFiles($event)">
       <textarea x-model="prompt" @keydown="onEnter($event)"
                 @compositionstart="onCompositionStart()"
@@ -607,7 +636,14 @@
   </div>
 
   <div class="panel" x-show="tab === 'tools'">
-    <template x-for="t in tools" :key="t.key">
+    <div class="panel-actions tool-filters">
+      <button :class="toolFilterClass('all')" @click="setToolFilter('all')">全部</button>
+      <button :class="toolFilterClass('running')" @click="setToolFilter('running')">运行中</button>
+      <button :class="toolFilterClass('ok')" @click="setToolFilter('ok')">成功</button>
+      <button :class="toolFilterClass('error')" @click="setToolFilter('error')">失败</button>
+    </div>
+    <input class="tool-search" x-model="toolQuery" placeholder="搜索工具名称或输出…">
+    <template x-for="t in filteredTools()" :key="t.key">
       <div class="tool-card" :class="t._cls">
         <div class="tool-head">
           <span class="tool-name" x-text="t.name"></span>
@@ -618,9 +654,14 @@
         </div>
         <div class="tool-summary" x-text="t.summary"></div>
         <div class="tool-preview" x-show="t.preview" x-text="t.preview"></div>
+        <details class="tool-detail">
+          <summary>详情</summary>
+          <pre x-text="t._detail"></pre>
+          <button @click="copyText(t._detail)">复制详情</button>
+        </details>
       </div>
     </template>
-    <div class="empty" x-show="tools.length === 0">没有工具调用</div>
+    <div class="empty" x-show="filteredTools().length === 0">没有匹配的工具调用</div>
   </div>
 
   <div class="panel" x-show="tab === 'timeline'">
@@ -942,6 +983,7 @@
   <span class="status-item status-workspace" x-text="workspaceLabel()"></span>
   <span class="status-item" x-show="gitInfo._branch" x-text="gitInfo._branch"></span>
   <span class="spacer"></span>
+  <span class="status-item" x-show="usageText()" :title="usageTitle()" x-text="usageText()"></span>
   <span class="status-item" x-text="costText"></span>
   <span class="status-item status-health" x-text="healthText"></span>
   <button class="status-item status-command" @click="openCommandPalette()" title="打开命令面板">

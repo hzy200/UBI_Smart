@@ -164,14 +164,16 @@
         <button @click="loadTree(treePath)">刷新</button>
         <span class="note" x-text="treePath || '/'"></span>
       </div>
-      <template x-for="entry in treeRows" :key="entry._key">
+      <input class="tree-search" x-model="treeQuery" placeholder="过滤当前目录…">
+      <template x-for="entry in filteredTreeRows()" :key="entry._key">
         <div class="tree-row" :class="entry._cls" @click="openTreeEntry(entry)">
           <span class="tree-kind" x-text="entry._kind"></span>
-          <span x-text="entry.name"></span>
+          <span class="tree-name" x-text="entry.name"></span>
           <span class="note" x-text="entry._meta"></span>
+          <button class="tree-copy" @click.stop="copyText(entry.path)" title="复制路径">复制路径</button>
         </div>
       </template>
-      <div class="empty" x-show="!treeLoading && treeRows.length === 0">空目录，或先创建会话</div>
+      <div class="empty" x-show="!treeLoading && filteredTreeRows().length === 0">没有匹配的文件，或目录为空</div>
       <div class="note">点击文件会在主区打开只读预览。</div>
     </div>
 

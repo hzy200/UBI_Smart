@@ -26,7 +26,14 @@
   </div>
 
   <div class="panel" x-show="tab === 'tools'">
-    <template x-for="t in tools" :key="t.key">
+    <div class="panel-actions tool-filters">
+      <button :class="toolFilterClass('all')" @click="setToolFilter('all')">全部</button>
+      <button :class="toolFilterClass('running')" @click="setToolFilter('running')">运行中</button>
+      <button :class="toolFilterClass('ok')" @click="setToolFilter('ok')">成功</button>
+      <button :class="toolFilterClass('error')" @click="setToolFilter('error')">失败</button>
+    </div>
+    <input class="tool-search" x-model="toolQuery" placeholder="搜索工具名称或输出…">
+    <template x-for="t in filteredTools()" :key="t.key">
       <div class="tool-card" :class="t._cls">
         <div class="tool-head">
           <span class="tool-name" x-text="t.name"></span>
@@ -37,9 +44,14 @@
         </div>
         <div class="tool-summary" x-text="t.summary"></div>
         <div class="tool-preview" x-show="t.preview" x-text="t.preview"></div>
+        <details class="tool-detail">
+          <summary>详情</summary>
+          <pre x-text="t._detail"></pre>
+          <button @click="copyText(t._detail)">复制详情</button>
+        </details>
       </div>
     </template>
-    <div class="empty" x-show="tools.length === 0">没有工具调用</div>
+    <div class="empty" x-show="filteredTools().length === 0">没有匹配的工具调用</div>
   </div>
 
   <div class="panel" x-show="tab === 'timeline'">

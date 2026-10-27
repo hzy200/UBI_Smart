@@ -152,6 +152,14 @@ export const eventsMixin = {
         break;
       case 'cost_report':
         this.costText = this.formatCost(event);
+        this.usage = {
+          input: Number(event.input_tokens || 0),
+          output: Number(event.output_tokens || 0),
+          cost: Number(event.cost_usd || 0),
+          budget: Number(event.budget_usd || 0),
+          ratio: Number(event.ratio || 0),
+          cache: Number(event.cache_hit_tokens || 0),
+        };
         for (const alert of event.alerts || []) this.toastMessage(alert);
         this.pushTimeline('cost', '成本', this.costText);
         break;
@@ -256,6 +264,14 @@ export const eventsMixin = {
       existing.name = event.name || existing.name;
       existing.summary = event.summary || existing.summary;
       existing.level = event.level || existing.level;
+      existing._start = {
+        ...(existing._start || {}),
+        name: existing.name,
+        summary: existing.summary,
+        level: existing.level,
+        args: event.args || (existing._start && existing._start.args) || {},
+      };
+      this.refreshToolDetail(existing);
       return;
     }
     const tool = {
@@ -267,7 +283,17 @@ export const eventsMixin = {
       state: 'running',
       preview: '',
       _cls: 'tool-running',
+      _start: {
+        call_id: event.call_id || key,
+        name: event.name || 'tool',
+        summary: event.summary || '',
+        level: event.level || '',
+        args: event.args || {},
+      },
+      _finish: null,
+      _detail: '',
     };
+    this.refreshToolDetail(tool);
     toolMap.set(key, tool);
     this.tools.unshift(tool);
   },
@@ -298,6 +324,55 @@ export const eventsMixin = {
     else if (event.exit_code !== null && event.exit_code !== undefined) {
       tool.preview = `exit=${event.exit_code}`;
     }
+    tool._finish = {
+      ok: Boolean(event.ok),
+      rejected: Boolean(event.rejected),
+      skipped: Boolean(event.skipped),
+      interrupted: Boolean(event.interrupted),
+      decision: event.decision || '',
+      exit_code: event.exit_code,
+      duration_ms: event.duration_ms,
+      preview: String(event.preview || '').slice(0, 4000),
+    };
+    this.refreshToolDetail(tool);
+  },
+
+  refreshToolDetail(tool) {
+    tool._detail = JSON.stringify({
+      call_id: tool.call_id,
+      name: tool.name,
+      level: tool.level,
+      state: tool.state,
+      summary: tool.summary,
+      start: tool._start || null,
+      finish: tool._finish || null,
+    }, null, 2);
+  },
+
+  setToolFilter(name) {
+    this.toolFilter = name;
+  },
+
+  toolFilterClass(name) {
+    return this.toolFilter === name ? 'active' : '';
+  },
+
+  filteredTools() {
+    const query = String(this.toolQuery || '').trim().toLowerCase();
+    return this.tools.filter((tool) => {
+      const state = tool.state || 'running';
+      if (this.toolFilter === 'running' && state !== 'running') return false;
+      if (this.toolFilter === 'ok' && state !== 'ok') return false;
+      if (
+        this.toolFilter === 'error'
+        && !['error', 'rejected', 'interrupted'].includes(state)
+      ) {
+        return false;
+      }
+      if (!query) return true;
+      const haystack = `${tool.name} ${tool.summary} ${tool.preview}`.toLowerCase();
+      return haystack.includes(query);
+    });
   },
 
   toolMessageKey(event) {
