@@ -17,14 +17,42 @@ jobs:
           python-version: "3.12"
       - name: 安装（开发 + 界面 + 控制面数据库依赖）
         run: pip install -e ".[dev,ui,web,db]"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/coding_agent/web/frontend/package-lock.json
+      - name: 安装前端依赖
+        # 前端单测依赖 jsdom，构建依赖 esbuild；锁文件已入库，用 ci 保证可复现。
+        working-directory: src/coding_agent/web/frontend
+        run: npm ci
       - name: Lint
         run: ruff check src tests
-      - name: 前端构建与类型检查
+      - name: 前端构建
         # static/app.js 是生成物：源码改了但没重建会让 CI 红。
         run: |
           python scripts/build_frontend.py
           git diff --exit-code -- src/coding_agent/web/static/app.js
-          npx --yes -p typescript@5.9.3 tsc --noEmit -p src/coding_agent/web/frontend/tsconfig.json
+      - name: 前端类型检查
+        # 用 npm ci 装好的本地 tsc，避免与运行时测试使用两套 TypeScript 版本。
+        working-directory: src/coding_agent/web/frontend
+        run: npx tsc --noEmit
+      - name: 前端单元测试
+        # test.mjs / test-dom.mjs 依赖 cwd 解析 tests/*.test.ts，必须在
+        # frontend 目录下执行；从仓库根直接跑会报 Could not resolve。
+        working-directory: src/coding_agent/web/frontend
+        run: npm test
+      - name: 上传前端独立产物
+        # 独立静态站可直接取这个 artifact；API 托管首页仍保留一个版本作回退。
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static
+          path: |
+            src/coding_agent/web/static/app.js
+            src/coding_agent/web/static/index.html
+            src/coding_agent/web/static/style.css
+            src/coding_agent/web/static/vendor
+          retention-days: 14
       - name: 测试 + 覆盖率
         # 门槛（fail_under=76）与说明在 pyproject.toml 的 [tool.coverage.report]。
         # term-missing 是刻意的：沙箱层与能力层的缺口必须留在日志里能看见。
