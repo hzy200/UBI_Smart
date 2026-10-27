@@ -1949,6 +1949,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       view.lastActiveAt = Date.now();
       this.splitView = view;
       this.splitOpen = true;
+      this.activePane = "split";
       this.splitSessionId = id;
       this.splitError = "";
       this.splitInput = "";
@@ -1990,6 +1991,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     closeSplit() {
       this.splitOpen = false;
+      this.activePane = "main";
       this.splitSessionId = "";
       this.splitView = null;
       this.splitInput = "";
@@ -2806,15 +2808,29 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           } catch (e) {
           }
         }
-        if (pre.dataset.copyReady) return;
-        pre.dataset.copyReady = "1";
+        if (pre.closest(".code-block")) return;
+        const language = (code && code.className.match(/language-([\w+-]+)/) || [])[1] || "text";
+        const source = code ? code.textContent || "" : pre.textContent || "";
+        const lineCount = source.replace(/\n$/, "").split("\n").length;
         const button = document.createElement("button");
         button.type = "button";
         button.className = "copy-code";
-        button.textContent = "\u590D\u5236\u4EE3\u7801";
+        button.textContent = "\u590D\u5236";
         button.setAttribute("aria-label", "\u590D\u5236\u4EE3\u7801\u5757");
         button.addEventListener("click", () => this.copyCode(pre));
-        pre.insertAdjacentElement("beforebegin", button);
+        const wrapper = document.createElement("div");
+        wrapper.className = "code-block";
+        const head = document.createElement("div");
+        head.className = "code-block-head";
+        const lang = document.createElement("span");
+        lang.className = "code-lang";
+        lang.textContent = language;
+        const lines = document.createElement("span");
+        lines.className = "code-lines";
+        lines.textContent = `${lineCount} \u884C`;
+        head.append(lang, lines, button);
+        pre.parentNode?.insertBefore(wrapper, pre);
+        wrapper.append(head, pre);
       });
       if (!this.virtualEnabled() || !window.ResizeObserver) return;
       const key = "__codingAgentMessageObserver";
@@ -4438,6 +4454,65 @@ ${paths}`);
     };
   }
 
+  // src/ui/file-icons.ts
+  var ICONS = {
+    py: { id: "i-file-code", cls: "icon-py" },
+    js: { id: "i-file-code", cls: "icon-js" },
+    mjs: { id: "i-file-code", cls: "icon-js" },
+    cjs: { id: "i-file-code", cls: "icon-js" },
+    jsx: { id: "i-file-code", cls: "icon-js" },
+    ts: { id: "i-file-code", cls: "icon-ts" },
+    tsx: { id: "i-file-code", cls: "icon-ts" },
+    json: { id: "i-file-data", cls: "icon-data" },
+    yaml: { id: "i-file-data", cls: "icon-data" },
+    yml: { id: "i-file-data", cls: "icon-data" },
+    toml: { id: "i-file-data", cls: "icon-data" },
+    ini: { id: "i-file-data", cls: "icon-data" },
+    md: { id: "i-file-text", cls: "icon-text" },
+    mdx: { id: "i-file-text", cls: "icon-text" },
+    txt: { id: "i-file-text", cls: "icon-text" },
+    rst: { id: "i-file-text", cls: "icon-text" },
+    png: { id: "i-file-image", cls: "icon-image" },
+    jpg: { id: "i-file-image", cls: "icon-image" },
+    jpeg: { id: "i-file-image", cls: "icon-image" },
+    gif: { id: "i-file-image", cls: "icon-image" },
+    webp: { id: "i-file-image", cls: "icon-image" },
+    bmp: { id: "i-file-image", cls: "icon-image" },
+    ico: { id: "i-file-image", cls: "icon-image" },
+    svg: { id: "i-file-image", cls: "icon-image" },
+    css: { id: "i-file-style", cls: "icon-style" },
+    scss: { id: "i-file-style", cls: "icon-style" },
+    sass: { id: "i-file-style", cls: "icon-style" },
+    html: { id: "i-file-html", cls: "icon-html" },
+    htm: { id: "i-file-html", cls: "icon-html" },
+    xml: { id: "i-file-html", cls: "icon-html" },
+    sh: { id: "i-file-shell", cls: "icon-shell" },
+    bash: { id: "i-file-shell", cls: "icon-shell" },
+    ps1: { id: "i-file-shell", cls: "icon-shell" }
+  };
+  function fileIcon(name, isDir, expanded = false) {
+    if (isDir) {
+      return {
+        _iconId: expanded ? "#i-folder-open" : "#i-folder",
+        _iconCls: "tree-icon icon-folder"
+      };
+    }
+    const base = String(name || "").split("/").pop() || "";
+    const ext = base.includes(".") ? base.split(".").pop().toLowerCase() : "";
+    const icon = ICONS[ext] || { id: "i-file", cls: "icon-default" };
+    return {
+      _iconId: `#${icon.id}`,
+      _iconCls: `tree-icon ${icon.cls}`
+    };
+  }
+  function treeGuides(depth) {
+    const total = Math.max(0, Number(depth) || 0);
+    return Array.from({ length: total }, (_, index) => ({
+      _key: `guide-${index}`,
+      _style: `left:${14 * (index + 1)}px`
+    }));
+  }
+
   // src/ui/git.ts
   var GIT_LABELS = {
     M: "\u5DF2\u4FEE\u6539",
@@ -5039,6 +5114,8 @@ ${paths}
           rows.push({
             ...entry,
             ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
+            ...fileIcon(entry.name, entry.is_dir, expanded),
+            _guides: treeGuides(depth),
             _depth: depth,
             _level: depth + 1,
             _expanded: expanded,
@@ -5064,6 +5141,8 @@ ${paths}
           all.push({
             ...entry,
             ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
+            ...fileIcon(entry.name, entry.is_dir, Boolean(this.treeExpanded[entry.path])),
+            _guides: [],
             _depth: 0,
             _level: 1,
             _expanded: Boolean(this.treeExpanded[entry.path]),
@@ -5628,11 +5707,27 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   ];
   var keyboardMixin = {
     toastMessage(text) {
-      this.toast = text;
-      clearTimeout(this._toastTimer);
-      this._toastTimer = setTimeout(() => {
-        this.toast = "";
-      }, 3200);
+      const value = String(text || "").trim();
+      if (!value) return;
+      const kind = /失败|错误|无法|不支持|异常|断开/.test(value) ? "error" : /请先|审批|警告|暂停/.test(value) ? "warn" : /已|完成|成功|通过/.test(value) ? "success" : "info";
+      const icons = {
+        error: "#i-alert",
+        warn: "#i-alert",
+        success: "#i-check",
+        info: "#i-bell"
+      };
+      const id = ++this._toastSeq;
+      const item = {
+        id,
+        text: value,
+        _cls: `toast toast-${kind}`,
+        _icon: icons[kind]
+      };
+      this.toasts = [...this.toasts, item].slice(-3);
+      const timeout = kind === "error" ? 5200 : 3200;
+      setTimeout(() => {
+        this.toasts = this.toasts.filter((toast) => toast.id !== id);
+      }, timeout);
     },
     toggleReasoning() {
       this.showReasoning = !this.showReasoning;
@@ -5883,6 +5978,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   var MAX_SIDEBAR = 460;
   var MIN_INSPECTOR = 260;
   var MAX_INSPECTOR = 560;
+  var MIN_SPLIT = 320;
+  var MAX_SPLIT = 760;
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
   }
@@ -5908,6 +6005,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           if (Number.isFinite(saved.inspectorWidth)) {
             this.inspectorWidth = clamp(saved.inspectorWidth, MIN_INSPECTOR, MAX_INSPECTOR);
           }
+          if (Number.isFinite(saved.splitWidth)) {
+            this.splitWidth = clamp(saved.splitWidth, MIN_SPLIT, MAX_SPLIT);
+          }
           this.sidebarCollapsed = Boolean(saved.sidebarCollapsed);
           this.inspectorCollapsed = Boolean(saved.inspectorCollapsed);
         } else if (window.innerWidth < 1100) {
@@ -5922,6 +6022,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         localStorage.setItem(LAYOUT_KEY, JSON.stringify({
           sidebarWidth: this.sidebarWidth,
           inspectorWidth: this.inspectorWidth,
+          splitWidth: this.splitWidth,
           sidebarCollapsed: this.sidebarCollapsed,
           inspectorCollapsed: this.inspectorCollapsed
         }));
@@ -5931,6 +6032,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     resetLayout() {
       this.sidebarWidth = 280;
       this.inspectorWidth = 340;
+      this.splitWidth = 480;
       this.sidebarCollapsed = false;
       this.inspectorCollapsed = false;
       this.saveLayout();
@@ -5938,7 +6040,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     get layoutStyle() {
       const sidebar = this.sidebarCollapsed ? 0 : this.sidebarWidth;
       const inspector = this.inspectorCollapsed ? 0 : this.inspectorWidth;
-      return `--sidebar-width: ${sidebar}px; --inspector-width: ${inspector}px;`;
+      return `--sidebar-width: ${sidebar}px; --inspector-width: ${inspector}px; --split-width: ${this.splitWidth}px;`;
+    },
+    focusPaneMain() {
+      this.activePane = "main";
+    },
+    focusPaneSplit() {
+      this.activePane = "split";
     },
     toggleSidebar() {
       this.sidebarCollapsed = !this.sidebarCollapsed;
@@ -5977,6 +6085,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           MIN_INSPECTOR,
           MAX_INSPECTOR
         );
+      } else if (this._resizing === "split") {
+        const main = document.querySelector(".main");
+        const right = main ? main.getBoundingClientRect().right : window.innerWidth;
+        const max = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, right * 0.7));
+        this.splitWidth = clamp(right - event.clientX, MIN_SPLIT, max);
       }
     },
     applyViewClasses() {
@@ -6874,6 +6987,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     get chatTabIndex() {
       return this.mainTab === "chat" ? 0 : -1;
     },
+    get mainPaneClass() {
+      return this.splitOpen && this.activePane === "main" ? "pane-active" : "";
+    },
+    get splitPaneClass() {
+      return this.splitOpen && this.activePane === "split" ? "pane-active split-pane-active" : "";
+    },
     get settingsViewVisible() {
       return settingsVisibility(this.settingsQuery);
     },
@@ -7189,6 +7308,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       plan: [],
       kinds: [],
       planRows: [],
+      timeline: [],
       stepIdx: -1,
       planDegraded: false,
       tools: [],
@@ -7246,6 +7366,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     "plan",
     "kinds",
     "planRows",
+    "timeline",
     "stepIdx",
     "planDegraded",
     "tools",
@@ -7531,6 +7652,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       _problemSeq: 0,
       sidebarWidth: 280,
       inspectorWidth: 340,
+      splitWidth: 480,
+      activePane: "main",
       sidebarCollapsed: false,
       inspectorCollapsed: false,
       commandOpen: false,
@@ -7568,12 +7691,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       codeLineHeight: "normal",
       bodyClasses: "theme-dark density-normal font-normal family-system contrast-normal code-normal code-lh-normal",
       tabClasses: { plan: "active", tools: "", timeline: "" },
-      timeline: [],
       _timelineSeq: 0,
       badgeClasses: "badge-read",
-      toast: "",
+      toasts: [],
       _msgSeq: 0,
-      _toastTimer: null,
+      _toastSeq: 0,
       _boundProjectId: "",
       _composing: false,
       _compositionEndAt: 0,

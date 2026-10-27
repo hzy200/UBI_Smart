@@ -1,8 +1,8 @@
-/* 单会话视图模型：阶段 1 只做状态归属，尚未并发多流。
+/* 单会话视图模型。
  *
- * 会话级字段集中在这里；app.ts 通过 facade getter/setter 代理到 activeView，
- * 模板与现有 mixin 暂时无需改动。阶段 3 会把 activeView 换成按 threadId
- * 的 SessionStore，并去掉临时切换。
+ * 会话级字段集中在这里；app 通过 facade getter/setter 代理到 activeView，
+ * SessionStore 按 threadId 复用视图，SSE 与审批绑定发起视图。主区与分屏
+ * 可同时运行两个视图。
  */
 
 export function createSessionView(threadId = '') {
@@ -44,6 +44,7 @@ export function createSessionView(threadId = '') {
     plan: [],
     kinds: [],
     planRows: [],
+    timeline: [],
     stepIdx: -1,
     planDegraded: false,
 

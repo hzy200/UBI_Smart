@@ -48,6 +48,7 @@ export const SESSION_VIEW_FIELDS = [
   'plan',
   'kinds',
   'planRows',
+  'timeline',
   'stepIdx',
   'planDegraded',
   'tools',

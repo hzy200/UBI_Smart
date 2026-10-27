@@ -229,12 +229,27 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .split-pane {
   position: absolute;
   top: 38px; right: 0; bottom: 0;
-  width: min(46%, 560px);
+  width: min(var(--split-width, 480px), 70%);
   display: flex; flex-direction: column;
   background: var(--panel);
-  border-left: 1px solid var(--border);
+  border-left: 2px solid var(--border);
   box-shadow: var(--shadow-md);
   z-index: 8;
+  transition: border-color var(--motion-fast);
+}
+.split-pane.pane-active {
+  border-left-color: var(--accent);
+  box-shadow: -10px 0 28px color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.main-chat.pane-active .composer {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.splitter-split {
+  position: absolute;
+  top: 38px; bottom: 0;
+  right: min(var(--split-width, 480px), 70%);
+  z-index: 9;
+  margin-right: -2px;
 }
 .split-pane-head {
   flex: 0 0 auto;
@@ -269,6 +284,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .split-composer textarea { flex: 1; min-height: 54px; resize: none; }
 @media (max-width: 760px) {
   .split-pane { width: 100%; top: 0; }
+  .splitter-split { display: none; }
 }
 .main-tabs {
   flex: 0 0 38px;
@@ -295,22 +311,35 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 100%;
-  padding: 0 10px;
+  height: calc(100% - 6px);
+  margin-top: 6px;
+  padding: 0 12px;
   font-size: 12px;
   color: var(--muted);
   background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
 }
 .main-tab:hover {
   color: var(--text);
   background: var(--panel-2);
-  border-color: transparent;
-  border-bottom-color: var(--border-strong);
+  border-color: var(--border-subtle);
+  border-bottom-color: transparent;
 }
-.main-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.main-tab.active {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+  border-bottom-color: var(--bg);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.tab-dirty {
+  flex: 0 0 6px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
 .main-tab-label {
   max-width: 220px;
   overflow: hidden;
@@ -558,9 +587,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 var(--statusbar-height);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 10px;
-  background: var(--panel);
+  gap: 4px;
+  padding: 0 8px;
+  background: var(--panel-2);
   border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 11px;
@@ -571,17 +600,35 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  height: 100%;
+  padding: 0 6px;
+  border-radius: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: background var(--motion-fast), color var(--motion-fast);
 }
-.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
-.status-dot.status-dot-warn { background: var(--warn); }
-.status-dot.status-dot-bad { background: var(--bad); }
+.status-item:hover { background: var(--panel); color: var(--text); }
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.status-dot.status-dot-warn {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 16%, transparent);
+}
+.status-dot.status-dot-bad {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 16%, transparent);
+}
 .status-workspace { max-width: 32vw; }
 .status-health { max-width: 22vw; }
-.status-command { background: transparent; border: 0; padding: 0; color: var(--muted); font-size: 11px; }
-.status-command:hover { color: var(--accent); }
+.status-command {
+  background: transparent; border: 1px solid transparent; padding: 0 6px;
+  color: var(--muted); font-size: 11px;
+}
+.status-command:hover { color: var(--accent); background: var(--panel); }
 .statusbar .badge { font-size: 10px; padding: 1px 6px; }
 .error-banner {
   display: flex; align-items: center; gap: 8px;

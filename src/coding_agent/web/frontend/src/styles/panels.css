@@ -83,17 +83,36 @@
 .problem-group { margin-bottom: 10px; }
 .problem-group-head {
   display: flex; align-items: center; gap: 6px; width: 100%;
-  padding: 4px 2px; border: 0; background: transparent;
+  padding: 5px 6px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent;
   color: var(--muted); font-size: 11px; text-align: left; cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
 }
-.problem-group-head:hover { color: var(--text); }
-.problem-group-toggle { width: 10px; font-size: 10px; }
+.problem-group-head:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--border-subtle);
+}
+.problem-group-toggle { width: 10px; font-size: 10px; color: var(--text-3); }
 .problem-group-label {
   flex: 1; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; font-weight: 600;
 }
 .problem-group.has-error .problem-group-label { color: var(--bad); }
-.problem-group-count { color: var(--muted); font-size: 10px; }
+.problem-group-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+.problem-group.has-error .problem-group-count {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 35%, var(--border));
+  background: var(--bad-soft);
+}
 .problem-group-items { padding-left: 4px; }
 .problem-card {
   border: 1px solid var(--border);
@@ -102,13 +121,17 @@
   background: var(--panel-2);
   padding: 8px 10px;
   margin-bottom: 6px;
+  transition: border-color var(--motion-fast), background var(--motion-fast);
 }
 .problem-card.problem-error { border-left-color: var(--bad); }
 .problem-card.problem-clickable { cursor: pointer; }
-.problem-card.problem-clickable:hover { border-color: var(--accent); }
+.problem-card.problem-clickable:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel-2));
+}
 .problem-head { display: flex; align-items: center; gap: 8px; }
 .problem-kind { color: var(--muted); font-size: 10px; text-transform: uppercase; }
-.problem-title { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.problem-title { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; line-height: 1.45; }
 .problem-detail {
   margin: 6px 0 0;
   padding: 6px 8px;

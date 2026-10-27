@@ -349,11 +349,15 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 `style.css` 中的 CSS 变量是唯一视觉事实源：
 
 - 深色 / 浅色 / 跟随系统（`theme-dark|light|auto`）；
-- 字号（small/normal/large）、密度（compact/normal）、字体（system/serif/mono）；
+- 字号（small/normal/large）、密度（compact/normal）、字体（system/serif/mono）、
+  高对比度、强调色（5 个预设）、代码字号与代码行高；
 - 这些偏好存 `localStorage`（`codingagent.settings`），不存敏感信息。
-- 表面层级 `--surface-0..3`、文本层级 `--text-1..3`、边框/语义色、
+- 表面层级 `--surface-0..3`、文本层级 `--text-1..3`、代码字号/行高、边框/语义色、
   间距 4/8、圆角、阴影与动效令牌；阶段/工具/授权卡片的颜色都从这些派生。
-- 布局宽度与折叠状态单独存 `codingagent.layout`。
+- 对话 Markdown 有独立 prose 层级；代码块带语言/行数标题栏；文件树使用
+  类型图标与层级引导线；Toast 堆叠并按语义着色。
+- 侧栏、检查器与分屏宽度都存 `codingagent.layout`；分屏可拖拽，活跃 pane
+  使用 accent 边框。
 
 ### 8.2 可访问性
 
@@ -486,13 +490,14 @@ python scripts/probe_frontend_csp.py
 
 覆盖点：构建产物包含项目/工作区流程；页面无构建链；静态资源可访问；
 安全头/CSP；SSE 事件流；审批/steering/恢复端点；工作区绑定与
-transcript 保存。当前 38 个纯函数用例 + 26 个 jsdom 交互用例。
+transcript 保存。当前 40 个纯函数用例 + 27 个 jsdom 交互用例。
 `node test.mjs` 覆盖 diff 解析/split/词级标记、查询匹配/
 fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、增量 Markdown、
 会话摘要与焦点循环等纯函数。`node test-dom.mjs` 用 jsdom 真实加载
 `static/index.html`、vendored Alpine CSP 与 `app.js`，桩掉后端 API 后验证
 会话未读/摘要/批量选择、文件树 Git 标记与键盘导航、Problems 折叠、流式渲染、
-大工具输出分页与派生缓存、阶段播报、主题设置、模态焦点陷阱、审批批准/全部拒绝、
+大工具输出分页与派生缓存、阶段播报、主题设置、Markdown 代码块标题、文件树
+图标/引导线、Toast 堆叠、可拖拽分屏、模态焦点陷阱、审批批准/全部拒绝、
 侧栏/检查器拖拽与宽度持久化、图片预览与实时会话分屏、两个 SessionView 的
 事件状态隔离、SessionStore 视图复用/LRU/重复打开不重置、后台 SSE 事件隔离与
 后台完成未读、实时分屏双流/独立发送，并把 Alpine 表达式错误作为失败。
@@ -525,9 +530,9 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | 限制 | 影响 | 备注 |
 |---|---|---|
 | 顶栏右侧按钮在部分 DPI 下不绘制/被裁切 | 设置入口不可见 | 侧栏已提供设置/+ 本机兜底 |
-| 无 Playwright 真实浏览器 E2E | 交互回归主要靠 jsdom + pywebview 探针 | 已有 38 个纯函数与 26 个 jsdom 交互用例 |
+| 无 Playwright 真实浏览器 E2E | 交互回归主要靠 jsdom + pywebview 探针 | 已有 40 个纯函数与 27 个 jsdom 交互用例 |
 | 编辑器标签/焦点仍是全局的 | 切换会话会清空标签；分屏不共享标签焦点 | 后续可做每会话 editorTabs |
-| 分屏宽度固定、审批不内联 | 分屏约 46% 宽，审批需切回主区 | 可做拖拽分栏与分屏审批卡 |
+| 分屏审批不内联 | 分屏只提示待审批，操作需切回主区 | 可做分屏内审批卡 |
 | 轨迹只在桌面 UI 运行时保存 | 旧会话/CLI 运行无工具卡片 | 不替代 checkpoint/审计 |
 | 轨迹优先于 checkpoint | CLI 追加的运行可能被旧轨迹遮住 | 桌面单用户场景可接受 |
 | 单条超大工具输出按行分页 | 首次只渲染 40 行，需手动加载更多 | 避免一次性塞满 DOM |
@@ -550,6 +555,7 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | `web/frontend/src/ui/search.ts` | 查询匹配、fuzzy 排序与命令前缀解析 |
 | `web/frontend/src/ui/virtual.ts` | 变量高度虚拟列表区间计算 |
 | `web/frontend/src/ui/git.ts` | Git porcelain 状态归一与文件树标记 |
+| `web/frontend/src/ui/file-icons.ts` | 文件树类型图标与层级引导线 |
 | `web/frontend/src/ui/problems.ts` | Problems 按文件/来源聚合 |
 | `web/frontend/src/ui/markdown.ts` | 流式 Markdown 稳定块切分与增量渲染 |
 | `web/frontend/src/ui/focus.ts` | 模态 Tab 循环计算 |

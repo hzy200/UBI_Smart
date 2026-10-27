@@ -178,6 +178,7 @@ export const sessionsMixin = {
     view.lastActiveAt = Date.now();
     this.splitView = view;
     this.splitOpen = true;
+    this.activePane = 'split';
     this.splitSessionId = id;
     this.splitError = '';
     this.splitInput = '';
@@ -222,6 +223,7 @@ export const sessionsMixin = {
 
   closeSplit() {
     this.splitOpen = false;
+    this.activePane = 'main';
     this.splitSessionId = '';
     this.splitView = null;
     this.splitInput = '';

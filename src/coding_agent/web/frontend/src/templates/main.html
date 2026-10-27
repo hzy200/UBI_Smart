@@ -18,6 +18,7 @@
             <svg class="icon" aria-hidden="true" x-show="tab._isFile"><use href="#i-files"></use></svg>
             <svg class="icon" aria-hidden="true" x-show="tab._isDiff"><use href="#i-git"></use></svg>
             <span class="main-tab-label" x-text="tab.title"></span>
+            <span class="tab-dirty" x-show="tab.stale" title="文件已变化"></span>
             <span class="tab-close" role="button" data-action="editor-tab" data-op="close" :data-id="tab.id" @click.stop="onAction" title="关闭标签">×</span>
           </button>
         </template>
@@ -116,7 +117,8 @@
       </div>
     </section>
 
-    <div class="main-chat" x-show="mainTabFlags.chat">
+    <div class="main-chat" x-show="mainTabFlags.chat"
+         :class="mainPaneClass" @pointerdown="focusPaneMain" @focusin="focusPaneMain">
     <div class="reasoning" x-show="hasReasoning" x-cloak>
       <template x-for="(block, index) in reasoningBlocks" :key="index">
         <details class="reasoning-block" :open="block._open">
@@ -251,7 +253,12 @@
     </div>
     </div>
 
-    <section class="split-pane" x-show="splitOpen" aria-label="会话分屏">
+    <div class="splitter splitter-split" x-show="splitOpen" x-cloak
+         data-side="split" @pointerdown="onStartResize"
+         role="separator" aria-orientation="vertical" aria-label="调整分屏宽度"></div>
+    <section class="split-pane" :class="splitPaneClass" x-show="splitOpen"
+             @pointerdown="focusPaneSplit" @focusin="focusPaneSplit"
+             aria-label="会话分屏">
       <header class="split-pane-head">
         <span class="split-pane-title" x-text="splitTitle"></span>
         <span class="note" x-text="splitStatusText"></span>

@@ -11,6 +11,7 @@ import {
   wordDiffMarkers,
 } from '../ui/diff';
 import { includesQuery } from '../ui/search';
+import { fileIcon, treeGuides } from '../ui/file-icons';
 import { buildGitStatusMap, gitTreeFields } from '../ui/git';
 
 export const inspectorMixin = {
@@ -585,6 +586,8 @@ export const inspectorMixin = {
         rows.push({
           ...entry,
           ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
+          ...fileIcon(entry.name, entry.is_dir, expanded),
+          _guides: treeGuides(depth),
           _depth: depth,
           _level: depth + 1,
           _expanded: expanded,
@@ -611,6 +614,8 @@ export const inspectorMixin = {
         all.push({
           ...entry,
           ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
+          ...fileIcon(entry.name, entry.is_dir, Boolean(this.treeExpanded[entry.path])),
+          _guides: [],
           _depth: 0,
           _level: 1,
           _expanded: Boolean(this.treeExpanded[entry.path]),

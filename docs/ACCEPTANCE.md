@@ -512,7 +512,7 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] 长会话 `content-visibility: auto`；
 - [x] 前端资产测试与 CI 构建漂移/类型检查门禁；
 - [x] 变量高度虚拟列表、流式 Markdown 增量渲染与大工具输出分页；
-- [x] 38 个纯函数 + 26 个 jsdom 交互用例；pywebview 严格 CSP 探针；
+- [x] 40 个纯函数 + 27 个 jsdom 交互用例；pywebview 严格 CSP 探针；
 - [ ] 尚无 Playwright 真实浏览器 E2E；手测清单见 PHASE_E.md / FRONTEND.md。
 
 ### 5.16 Phase F：安全与性能验收（已实现，平台门禁见下）
@@ -539,8 +539,10 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] 主区与分屏并行运行，分屏可独立发送、显示状态与审批提示；
 - [x] 每视图 AbortController，删除/清空会话时中止；
 - [x] 会话未读/摘要/批量操作、主题对比度/强调色/代码排版、图片预览；
-- [x] jsdom 覆盖视图隔离、后台流、实时分屏、审批、拖拽与主题；
-- [ ] 编辑器标签/焦点尚未按会话隔离；分屏宽度固定、审批不内联。
+- [x] Markdown prose/代码块标题、文件树类型图标与引导线、Toast 堆叠、可拖拽分屏；
+- [x] jsdom 覆盖视图隔离、后台流、实时分屏、审批、拖拽、主题与视觉组件；
+- [x] 分屏宽度可拖拽并持久化；活跃 pane 有强调边框；
+- [ ] 编辑器标签/焦点尚未按会话隔离；分屏审批仍只提示，操作需切回主区。
 
 ## 6. 冻结
 

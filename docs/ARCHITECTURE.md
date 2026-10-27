@@ -788,7 +788,7 @@ Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL�
 发起时绑定自己的 view，切换会话不中断后台流，主区与分屏可同时运行。长会话使用
 变量高度虚拟列表，流式 Markdown 做块级增量渲染，单条超大工具输出按行分页。
 
-测试：38 个纯函数用例（`node test.mjs`）+ 26 个 jsdom 交互用例
+测试：40 个纯函数用例（`node test.mjs`）+ 27 个 jsdom 交互用例
 （`node test-dom.mjs`）+ pywebview 严格 CSP 探针；尚无 Playwright 真实浏览器 E2E。
 手测清单见 [FRONTEND.md](FRONTEND.md) 第 12 节。
 

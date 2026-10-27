@@ -36,8 +36,8 @@ review_cadence: 测试分层、标记或 CI 口径变动时
 cd src/coding_agent/web/frontend
 node node_modules/typescript/bin/tsc --noEmit
 node esbuild.mjs
-node test.mjs        # 38 个纯函数用例
-node test-dom.mjs    # 26 个 jsdom 交互用例（加载真实 static 产物 + Alpine CSP）
+node test.mjs        # 40 个纯函数用例
+node test-dom.mjs    # 27 个 jsdom 交互用例（加载真实 static 产物 + Alpine CSP）
 python ../../../../scripts/probe_frontend_csp.py   # pywebview 手工/本机探针
 ```
 

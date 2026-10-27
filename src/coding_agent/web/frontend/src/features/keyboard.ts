@@ -16,9 +16,33 @@ const SHORTCUTS = [
 
 export const keyboardMixin = {
   toastMessage(text) {
-    this.toast = text;
-    clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => { this.toast = ''; }, 3200);
+    const value = String(text || '').trim();
+    if (!value) return;
+    const kind = /失败|错误|无法|不支持|异常|断开/.test(value)
+      ? 'error'
+      : /请先|审批|警告|暂停/.test(value)
+        ? 'warn'
+        : /已|完成|成功|通过/.test(value)
+          ? 'success'
+          : 'info';
+    const icons = {
+      error: '#i-alert',
+      warn: '#i-alert',
+      success: '#i-check',
+      info: '#i-bell',
+    };
+    const id = ++this._toastSeq;
+    const item = {
+      id,
+      text: value,
+      _cls: `toast toast-${kind}`,
+      _icon: icons[kind],
+    };
+    this.toasts = [...this.toasts, item].slice(-3);
+    const timeout = kind === 'error' ? 5200 : 3200;
+    setTimeout(() => {
+      this.toasts = this.toasts.filter((toast) => toast.id !== id);
+    }, timeout);
   },
 
   toggleReasoning() {

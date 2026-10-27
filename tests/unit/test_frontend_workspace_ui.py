@@ -657,6 +657,55 @@ def test_m12_settings_search_skeleton_and_error_banner_are_guarded() -> None:
     assert (frontend / "tests" / "settings.test.ts").is_file()
 
 
+def test_visual_polish_round_is_guarded() -> None:
+    """Markdown/代码块、文件树图标、按钮层级、Toast、会话卡与可拖拽分屏。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        "tree-icon",
+        "tree-guide",
+        "toast-stack",
+        "toast-progress",
+        "splitter-split",
+        "tab-dirty",
+        "splitPaneClass",
+        "mainPaneClass",
+        "focusPaneMain",
+        "focusPaneSplit",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "fileIcon",
+        "treeGuides",
+        "code-block-head",
+        "toasts",
+        "_toastSeq",
+        "splitWidth",
+        "focusPaneSplit",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (
+        ".code-block",
+        ".code-block-head",
+        ".tree-guide",
+        ".tree-icon",
+        "button.ghost",
+        ".toast-stack",
+        ".toast-error",
+        ".problem-group-count",
+        ".splitter-split",
+        ".pane-active",
+    ):
+        assert marker in css, marker
+
+    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    assert (frontend / "src" / "ui" / "file-icons.ts").is_file()
+    assert (frontend / "tests" / "file-icons.test.ts").is_file()
+
+
 def test_m11_tool_output_paging_and_memo_are_guarded() -> None:
     """大工具输出分页与派生列表缓存。"""
     html = (STATIC / "index.html").read_text(encoding="utf-8")

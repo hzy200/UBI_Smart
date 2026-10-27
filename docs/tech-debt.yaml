@@ -224,7 +224,7 @@ paid_off:
   - id: TD-018
     title: 前端交互测试未进 CI，且没有 Playwright 真实浏览器 E2E
     where: .github/workflows/ci.yml, web/frontend/tests/
-    why_now: 已有 38 个纯函数 + 26 个 jsdom 用例与 pywebview 探针，但 CI 只跑
+    why_now: 已有 40 个纯函数 + 27 个 jsdom 用例与 pywebview 探针，但 CI 只跑
       构建漂移与 tsc；真实浏览器布局、下载与原生事件仍靠手工冒烟
     debt_type: 测试
     severity: low

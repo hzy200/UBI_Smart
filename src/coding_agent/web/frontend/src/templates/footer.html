@@ -43,7 +43,15 @@
   </button>
 </footer>
 
-<div class="toast" role="status" aria-live="polite" x-show="toast" x-text="toast" x-cloak></div>
+<div class="toast-stack" aria-live="polite">
+  <template x-for="item in toasts" :key="item.id">
+    <div class="toast" :class="item._cls" role="status">
+      <svg class="icon" aria-hidden="true"><use :href="item._icon"></use></svg>
+      <span x-text="item.text"></span>
+      <span class="toast-progress" aria-hidden="true"></span>
+    </div>
+  </template>
+</div>
 </div>
 
 <script src="/static/vendor/marked.min.js"></script>

@@ -105,6 +105,14 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
         cancelable: true,
       }));
       await waitFor(() => rows().length === 4, '展开目录');
+      assert.equal(
+        rows()[0].querySelector('.tree-icon use')?.getAttribute('href'),
+        '#i-file-code',
+      );
+      const child = rows().find(
+        (row) => row.getAttribute('data-path') === 'src/b.ts',
+      ) as HTMLElement;
+      assert.equal(child.querySelectorAll('.tree-guide').length, 1);
       srcRow.dispatchEvent(new window.KeyboardEvent('keydown', {
         key: 'ArrowLeft',
         bubbles: true,
@@ -198,6 +206,38 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
         '分屏实时更新',
       );
 
+      assert.ok(pane.classList.contains('split-pane-active'));
+
+      const mainEl = document.querySelector('.main') as HTMLElement;
+      const originalRect = mainEl.getBoundingClientRect.bind(mainEl);
+      mainEl.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 1000, bottom: 900,
+        width: 1000, height: 900, x: 0, y: 0,
+        toJSON() { return {}; },
+      } as DOMRect);
+      const splitter = document.querySelector('.splitter-split') as HTMLElement;
+      splitter.dispatchEvent(new window.MouseEvent('pointerdown', {
+        clientX: 500,
+        bubbles: true,
+        cancelable: true,
+      }));
+      window.dispatchEvent(new window.MouseEvent('pointermove', {
+        clientX: 600,
+      }));
+      assert.equal(data.splitWidth, 400);
+      window.dispatchEvent(new window.MouseEvent('pointerup'));
+      const layout = JSON.parse(
+        window.localStorage.getItem('codingagent.layout') || '{}',
+      );
+      assert.equal(layout.splitWidth, 400);
+      mainEl.getBoundingClientRect = originalRect;
+      data.resetLayout();
+
+      data.focusPaneMain();
+      assert.equal(data.activePane, 'main');
+      data.focusPaneSplit();
+      assert.equal(data.activePane, 'split');
+
       data.splitInput = '分屏任务';
       await data.sendSplit();
       await waitFor(
@@ -263,6 +303,32 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       assert.match(message.html, /hello/);
       assert.match(message.html, /const a = 1/);
       data.finishAssistant();
+      await waitFor(
+        () => document.querySelector('.code-block .code-lang')?.textContent === 'js',
+        '代码块标题',
+      );
+      assert.ok(document.querySelector('.code-block .copy-code'));
+      assert.equal(
+        document.querySelector('.code-block .code-lines')?.textContent?.trim(),
+        '1 行',
+      );
+    });
+
+    await t.test('Toast 堆叠与语义色', async () => {
+      data.toasts = [];
+      data.toastMessage('已保存');
+      data.toastMessage('保存失败');
+      await waitFor(
+        () => document.querySelectorAll('.toast').length === 2,
+        'toast 堆叠',
+      );
+      assert.equal(data.toasts[0]._cls, 'toast toast-success');
+      assert.equal(data.toasts[1]._cls, 'toast toast-error');
+      assert.equal(
+        document.querySelector('.toast-error .icon use')?.getAttribute('href'),
+        '#i-alert',
+      );
+      data.toasts = [];
     });
 
     await t.test('大工具输出分页渲染且派生列表复用缓存', async () => {

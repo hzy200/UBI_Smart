@@ -123,6 +123,46 @@
   <symbol id="i-check" viewBox="0 0 24 24">
     <path d="m5 12 4 4L19 6"/>
   </symbol>
+  <symbol id="i-file" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6"/>
+  </symbol>
+  <symbol id="i-file-code" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6M10 13l-2 2 2 2M14 13l2 2-2 2"/>
+  </symbol>
+  <symbol id="i-file-data" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6M8 14h8M8 18h5"/>
+  </symbol>
+  <symbol id="i-file-text" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6M8 13h8M8 17h6"/>
+  </symbol>
+  <symbol id="i-file-image" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6M8 17l3-3 2 2 2-2 3 3"/>
+    <circle cx="9" cy="11" r="1"/>
+  </symbol>
+  <symbol id="i-file-style" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6M8 13h8M8 17h8"/>
+  </symbol>
+  <symbol id="i-file-html" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6M9 13l-2 2 2 2M15 13l2 2-2 2"/>
+  </symbol>
+  <symbol id="i-file-shell" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6M8 14l3 2-3 2M13 18h4"/>
+  </symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24">
+    <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>
+  </symbol>
+  <symbol id="i-folder-open" viewBox="0 0 24 24">
+    <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v2H3Z"/>
+    <path d="M3 9h18l-2 9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>
+  </symbol>
 </svg>
 
 <header x-show="ready" x-cloak>
@@ -390,7 +430,12 @@
                role="treeitem" :aria-level="entry._level" :aria-expanded="entry._expandAttr"
                :tabindex="entry._tabindex" @focus="onTreeFocus"
                data-action="tree" :data-path="entry.path" :data-dir="entry.is_dir" @click="onAction">
-          <span class="tree-kind" x-text="entry._kind"></span>
+          <template x-for="g in entry._guides" :key="g._key">
+            <span class="tree-guide" :style="g._style" aria-hidden="true"></span>
+          </template>
+          <span class="tree-kind" aria-hidden="true">
+            <svg class="tree-icon" :class="entry._iconCls"><use :href="entry._iconId"></use></svg>
+          </span>
           <span class="tree-git" :class="entry._gitCls" :title="entry._gitTitle"
                 x-show="entry._git" x-text="entry._git"></span>
           <span class="tree-name" x-text="entry.name"></span>
@@ -527,6 +572,7 @@
             <svg class="icon" aria-hidden="true" x-show="tab._isFile"><use href="#i-files"></use></svg>
             <svg class="icon" aria-hidden="true" x-show="tab._isDiff"><use href="#i-git"></use></svg>
             <span class="main-tab-label" x-text="tab.title"></span>
+            <span class="tab-dirty" x-show="tab.stale" title="文件已变化"></span>
             <span class="tab-close" role="button" data-action="editor-tab" data-op="close" :data-id="tab.id" @click.stop="onAction" title="关闭标签">×</span>
           </button>
         </template>
@@ -625,7 +671,8 @@
       </div>
     </section>
 
-    <div class="main-chat" x-show="mainTabFlags.chat">
+    <div class="main-chat" x-show="mainTabFlags.chat"
+         :class="mainPaneClass" @pointerdown="focusPaneMain" @focusin="focusPaneMain">
     <div class="reasoning" x-show="hasReasoning" x-cloak>
       <template x-for="(block, index) in reasoningBlocks" :key="index">
         <details class="reasoning-block" :open="block._open">
@@ -760,7 +807,12 @@
     </div>
     </div>
 
-    <section class="split-pane" x-show="splitOpen" aria-label="会话分屏">
+    <div class="splitter splitter-split" x-show="splitOpen" x-cloak
+         data-side="split" @pointerdown="onStartResize"
+         role="separator" aria-orientation="vertical" aria-label="调整分屏宽度"></div>
+    <section class="split-pane" :class="splitPaneClass" x-show="splitOpen"
+             @pointerdown="focusPaneSplit" @focusin="focusPaneSplit"
+             aria-label="会话分屏">
       <header class="split-pane-head">
         <span class="split-pane-title" x-text="splitTitle"></span>
         <span class="note" x-text="splitStatusText"></span>
@@ -1275,7 +1327,15 @@
   </button>
 </footer>
 
-<div class="toast" role="status" aria-live="polite" x-show="toast" x-text="toast" x-cloak></div>
+<div class="toast-stack" aria-live="polite">
+  <template x-for="item in toasts" :key="item.id">
+    <div class="toast" :class="item._cls" role="status">
+      <svg class="icon" aria-hidden="true"><use :href="item._icon"></use></svg>
+      <span x-text="item.text"></span>
+      <span class="toast-progress" aria-hidden="true"></span>
+    </div>
+  </template>
+</div>
 </div>
 
 <script src="/static/vendor/marked.min.js"></script>

@@ -1,4 +1,5 @@
 import './diff.test';
+import './file-icons.test';
 import './focus.test';
 import './git.test';
 import './markdown.test';

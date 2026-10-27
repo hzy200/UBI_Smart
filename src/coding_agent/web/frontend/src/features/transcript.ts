@@ -195,15 +195,31 @@ export const transcriptMixin = {
       if (window.hljs && code && !code.dataset.highlighted) {
         try { window.hljs.highlightElement(code); } catch (e) { /* ignore */ }
       }
-      if (pre.dataset.copyReady) return;
-      pre.dataset.copyReady = '1';
+      if (pre.closest('.code-block')) return;
+      const language = (
+        (code && code.className.match(/language-([\w+-]+)/)) || []
+      )[1] || 'text';
+      const source = code ? code.textContent || '' : pre.textContent || '';
+      const lineCount = source.replace(/\n$/, '').split('\n').length;
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'copy-code';
-      button.textContent = '复制代码';
+      button.textContent = '复制';
       button.setAttribute('aria-label', '复制代码块');
       button.addEventListener('click', () => this.copyCode(pre));
-      pre.insertAdjacentElement('beforebegin', button);
+      const wrapper = document.createElement('div');
+      wrapper.className = 'code-block';
+      const head = document.createElement('div');
+      head.className = 'code-block-head';
+      const lang = document.createElement('span');
+      lang.className = 'code-lang';
+      lang.textContent = language;
+      const lines = document.createElement('span');
+      lines.className = 'code-lines';
+      lines.textContent = `${lineCount} 行`;
+      head.append(lang, lines, button);
+      pre.parentNode?.insertBefore(wrapper, pre);
+      wrapper.append(head, pre);
     });
     if (!this.virtualEnabled() || !window.ResizeObserver) return;
     const key = '__codingAgentMessageObserver';

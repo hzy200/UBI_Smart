@@ -228,7 +228,12 @@
                role="treeitem" :aria-level="entry._level" :aria-expanded="entry._expandAttr"
                :tabindex="entry._tabindex" @focus="onTreeFocus"
                data-action="tree" :data-path="entry.path" :data-dir="entry.is_dir" @click="onAction">
-          <span class="tree-kind" x-text="entry._kind"></span>
+          <template x-for="g in entry._guides" :key="g._key">
+            <span class="tree-guide" :style="g._style" aria-hidden="true"></span>
+          </template>
+          <span class="tree-kind" aria-hidden="true">
+            <svg class="tree-icon" :class="entry._iconCls"><use :href="entry._iconId"></use></svg>
+          </span>
           <span class="tree-git" :class="entry._gitCls" :title="entry._gitTitle"
                 x-show="entry._git" x-text="entry._git"></span>
           <span class="tree-name" x-text="entry.name"></span>

@@ -36,9 +36,22 @@ button:hover { border-color: var(--accent); }
 button:active { transform: translateY(1px); }
 button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.primary:hover { filter: brightness(1.06); }
+button.primary:hover { filter: brightness(1.06); border-color: var(--accent); }
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+button.ghost:hover { background: var(--panel-2); border-color: transparent; color: var(--text); }
+button.subtle { background: transparent; border-color: var(--border-subtle); }
+button.subtle:hover { background: var(--panel-2); border-color: var(--border); }
+button.icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+}
+button.small { padding: 2px 8px; font-size: 11px; }
 button.danger { color: var(--bad); }
-button.danger:hover { border-color: var(--bad); }
+button.danger:hover { border-color: var(--bad); background: var(--bad-soft); }
 input, select, textarea {
   background: var(--bg);
   border: 1px solid var(--border);

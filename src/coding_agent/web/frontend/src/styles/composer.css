@@ -19,13 +19,38 @@
   cursor: pointer; padding: 0 0 0 4px; font-size: 12px;
 }
 .tree-row {
+  position: relative;
   display: flex; gap: 8px; align-items: center; padding: 5px 8px;
   border-radius: var(--radius-sm); cursor: pointer; font-size: 13px;
   overflow-wrap: anywhere;
   transition: background var(--motion-fast);
 }
 .tree-row:hover { background: var(--panel-2); }
-.tree-kind { color: var(--muted); font-size: 10px; width: 26px; }
+.tree-row:focus-visible { background: var(--panel-2); }
+.tree-guide {
+  position: absolute; top: 2px; bottom: 2px; width: 1px;
+  background: var(--border-subtle); pointer-events: none;
+}
+.tree-kind {
+  flex: 0 0 16px; width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted);
+}
+.tree-icon {
+  width: 14px; height: 14px;
+  fill: none; stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.tree-icon.icon-py { color: #4b8bbe; }
+.tree-icon.icon-js { color: #e5b567; }
+.tree-icon.icon-ts { color: #5b9dff; }
+.tree-icon.icon-data { color: #e5b567; }
+.tree-icon.icon-text { color: var(--muted); }
+.tree-icon.icon-image { color: var(--ok); }
+.tree-icon.icon-style { color: #a78bfa; }
+.tree-icon.icon-html { color: #ef6b73; }
+.tree-icon.icon-shell { color: var(--ok); }
+.tree-icon.icon-folder { color: var(--warn); }
 .tree-git {
   flex: 0 0 auto; min-width: 12px; text-align: center;
   font-family: var(--mono); font-size: 10px; font-weight: 700;

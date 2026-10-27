@@ -93,12 +93,46 @@
 }
 .approval-level { color: var(--warn); font-weight: 700; }
 .approval-actions, .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.toast {
+.toast-stack {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
-  background: var(--panel-2); border: 1px solid var(--accent);
-  padding: 8px 14px; border-radius: 999px; z-index: 60; font-size: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  width: min(520px, 90vw); z-index: 60;
   /* 提示条不能挡住输入区的按钮。 */
   pointer-events: none;
+}
+.toast {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 8px 14px 9px; border-radius: 10px;
+  font-size: 12px; box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: toast-in 160ms ease;
+}
+.toast .icon { width: 14px; height: 14px; flex: 0 0 14px; color: var(--accent); }
+.toast-success { border-left-color: var(--ok); }
+.toast-success .icon { color: var(--ok); }
+.toast-warn { border-left-color: var(--warn); }
+.toast-warn .icon { color: var(--warn); }
+.toast-error { border-left-color: var(--bad); }
+.toast-error .icon { color: var(--bad); }
+.toast-progress {
+  position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: toast-progress 3.2s linear forwards;
+}
+.toast-warn .toast-progress { background: var(--warn); }
+.toast-error .toast-progress { background: var(--bad); animation-duration: 5.2s; }
+.toast-success .toast-progress { background: var(--ok); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-progress {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
 }
 
 .density-compact .transcript { padding: 10px 14px; gap: 8px; }

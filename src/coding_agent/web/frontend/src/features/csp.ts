@@ -256,6 +256,14 @@ export const cspMixin = {
   get authBffVisible() { return this.authMode === 'bff-cookie'; },
   get authModeText() { return `认证方式：${this.authModeLabel}`; },
   get chatTabIndex() { return this.mainTab === 'chat' ? 0 : -1; },
+  get mainPaneClass() {
+    return this.splitOpen && this.activePane === 'main' ? 'pane-active' : '';
+  },
+  get splitPaneClass() {
+    return this.splitOpen && this.activePane === 'split'
+      ? 'pane-active split-pane-active'
+      : '';
+  },
   get settingsViewVisible() { return settingsVisibility(this.settingsQuery); },
   get settingsMatchCount() {
     return Object.values(this.settingsViewVisible).filter(Boolean).length;

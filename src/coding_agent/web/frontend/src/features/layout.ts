@@ -13,6 +13,8 @@ const MIN_SIDEBAR = 220;
 const MAX_SIDEBAR = 460;
 const MIN_INSPECTOR = 260;
 const MAX_INSPECTOR = 560;
+const MIN_SPLIT = 320;
+const MAX_SPLIT = 760;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -41,6 +43,9 @@ export const layoutMixin = {
         if (Number.isFinite(saved.inspectorWidth)) {
           this.inspectorWidth = clamp(saved.inspectorWidth, MIN_INSPECTOR, MAX_INSPECTOR);
         }
+        if (Number.isFinite(saved.splitWidth)) {
+          this.splitWidth = clamp(saved.splitWidth, MIN_SPLIT, MAX_SPLIT);
+        }
         this.sidebarCollapsed = Boolean(saved.sidebarCollapsed);
         this.inspectorCollapsed = Boolean(saved.inspectorCollapsed);
       } else if (window.innerWidth < 1100) {
@@ -58,6 +63,7 @@ export const layoutMixin = {
       localStorage.setItem(LAYOUT_KEY, JSON.stringify({
         sidebarWidth: this.sidebarWidth,
         inspectorWidth: this.inspectorWidth,
+        splitWidth: this.splitWidth,
         sidebarCollapsed: this.sidebarCollapsed,
         inspectorCollapsed: this.inspectorCollapsed,
       }));
@@ -69,6 +75,7 @@ export const layoutMixin = {
   resetLayout() {
     this.sidebarWidth = 280;
     this.inspectorWidth = 340;
+    this.splitWidth = 480;
     this.sidebarCollapsed = false;
     this.inspectorCollapsed = false;
     this.saveLayout();
@@ -77,7 +84,15 @@ export const layoutMixin = {
   get layoutStyle() {
     const sidebar = this.sidebarCollapsed ? 0 : this.sidebarWidth;
     const inspector = this.inspectorCollapsed ? 0 : this.inspectorWidth;
-    return `--sidebar-width: ${sidebar}px; --inspector-width: ${inspector}px;`;
+    return `--sidebar-width: ${sidebar}px; --inspector-width: ${inspector}px; --split-width: ${this.splitWidth}px;`;
+  },
+
+  focusPaneMain() {
+    this.activePane = 'main';
+  },
+
+  focusPaneSplit() {
+    this.activePane = 'split';
   },
 
   toggleSidebar() {
@@ -120,6 +135,11 @@ export const layoutMixin = {
         MIN_INSPECTOR,
         MAX_INSPECTOR,
       );
+    } else if (this._resizing === 'split') {
+      const main = document.querySelector('.main') as HTMLElement | null;
+      const right = main ? main.getBoundingClientRect().right : window.innerWidth;
+      const max = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, right * 0.7));
+      this.splitWidth = clamp(right - event.clientX, MIN_SPLIT, max);
     }
   },
 
