@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
-from coding_agent.config import Settings
+from coding_agent.config import Settings, get_settings
 from coding_agent.sandbox.wsl_exec import WslSandbox
 
 
@@ -50,6 +52,28 @@ def _forbid_real_wsl_unless_marked(request: pytest.FixtureRequest, monkeypatch) 
     # 两条执行入口都要挡住，否则漏标的用例会悄悄跑真实沙箱。
     monkeypatch.setattr(WslSandbox, "_exec", _boom)
     monkeypatch.setattr(WslSandbox, "_run_in_session", _boom)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_agent_data_dirs(tmp_path, monkeypatch) -> Iterator[None]:
+    """把宿主侧数据目录重定向到临时目录。
+
+    默认落在 `<cwd>/.agent`，且 `pytest-xdist` 多个 worker 共享同一目录；
+    共享的 checkpoint 与限流状态会让本次结果依赖此前运行，产生“像回归”
+    的噪声。显式传 `checkpoint_path=":memory:"` 的用例仍以自己的参数为准。
+    """
+    monkeypatch.setenv("AGENT_CHECKPOINT_PATH", str(tmp_path / "checkpoints.sqlite"))
+    monkeypatch.setenv("AGENT_AUDIT_DIR", str(tmp_path / "audit"))
+    monkeypatch.setenv("AGENT_STEERING_DIR", str(tmp_path / "steering"))
+    monkeypatch.setenv(
+        "AGENT_RATE_LIMIT_STATE_PATH", str(tmp_path / "rate_limits.json")
+    )
+    monkeypatch.setenv("AGENT_WEB_DATA_ROOT", str(tmp_path / "web"))
+    monkeypatch.setenv("AGENT_AGENT_DATA_ROOT", str(tmp_path / "agent"))
+    # get_settings 是 lru_cache：不清理会把上一个测试的路径带进来。
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture
