@@ -27,7 +27,7 @@
 
 | extra | 装了它才能用 | 依赖 |
 |---|---|---|
-| `dev` | pytest / ruff / pytest-xdist / pytest-cov —— 跑测试与 lint | `pytest>=8.2`, `ruff>=0.5`, `pytest-xdist>=3.6`, `pytest-cov>=5.0` |
+| `dev` | pytest / ruff / pytest-xdist / pytest-cov —— 跑测试与 lint | `pytest>=8.2`, `ruff>=0.5`, `cryptography>=42`, `pytest-xdist>=3.6`, `pytest-cov>=5.0` |
 | `ui` | `agent tui`（Textual） | `textual>=0.80` |
 | `web` | `agent web`（FastAPI + uvicorn） | `fastapi>=0.115`, `uvicorn>=0.30`, `python-multipart>=0.0.9` |
 | `desktop` | `agent gui`（pywebview 桌面窗口） | `pywebview>=5.0` |

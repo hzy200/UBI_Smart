@@ -29,6 +29,8 @@ dependencies = [
 dev = [
     "pytest>=8.2",
     "ruff>=0.5",
+    # mTLS 协议测试用真实自签证书生成
+    "cryptography>=42",
     # 集成测试全是 wsl.exe 进程启动，串行跑要十分钟；并行后 1 分钟内
     "pytest-xdist>=3.6",
     "pytest-cov>=5.0",
