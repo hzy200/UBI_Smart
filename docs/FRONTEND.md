@@ -55,6 +55,8 @@ web/static/vendor/*                                (直接由 A2 提供)
 - `app.js`、`index.html`、`style.css` 都是生成物，**不要手改**；
   改 `frontend/src` 后必须重建（`node esbuild.mjs` 会同时构建三者）。
 - `features/*.ts` 是按域拆分的 Alpine mixin；`app.ts` 只保留初始状态与组合。
+  mixin 必须用 `Object.defineProperties` 组合，不能用对象展开——展开会在
+  构造时求值 getter，导致 CSP 构建下失去响应性。
 - `contracts/events.generated.ts` 由 `scripts/gen_contracts.py` 从
   `src/coding_agent/events.py` 生成，禁止手改。
 - 守卫测试：`tests/unit/test_frontend_workspace_ui.py` 检查构建产物是否

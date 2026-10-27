@@ -254,6 +254,8 @@ const agentApp = () => {
     notificationsMixin,
     cspMixin,
   ];
+  // 不能用对象展开：展开会在构造时求值 getter，失去响应性。
+  // 用属性描述符保留 getter/method 的原始定义。
   for (const mixin of mixins) {
     Object.defineProperties(app, Object.getOwnPropertyDescriptors(mixin));
   }
