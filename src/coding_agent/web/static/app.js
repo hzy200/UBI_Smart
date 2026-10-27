@@ -720,7 +720,7 @@
       }
       setToken("");
       this.tokenInput = "";
-      this.threadId = "";
+      this.activateSessionView("");
       this._boundProjectId = "";
       this.resetConversation();
       this.ready = false;
@@ -1038,7 +1038,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.rememberWorkspace();
       }
       if (changed) {
-        this.threadId = "";
+        this.activateSessionView("");
         this._boundProjectId = "";
         this.resetConversation();
         this.toastMessage("\u5DF2\u5207\u6362\u9879\u76EE\uFF1B\u53D1\u9001\u65F6\u4F1A\u65B0\u5EFA\u4F1A\u8BDD");
@@ -2203,7 +2203,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         body: JSON.stringify(body)
       });
       const data = await readJson(response, "\u521B\u5EFA\u4F1A\u8BDD\u5931\u8D25");
-      this.threadId = data.thread_id;
+      this.activateSessionView(data.thread_id);
       this._boundProjectId = data.workspace_id || "";
       if (data.workspace_id) this.projectId = data.workspace_id;
       const project = this.selectedProject();
@@ -2265,7 +2265,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         );
         await readJson(response, "\u5220\u9664\u5931\u8D25");
         if (this.threadId === id) {
-          this.threadId = "";
+          this.activateSessionView("");
           this._boundProjectId = "";
           this.resetConversation();
         }
@@ -2301,7 +2301,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.toastMessage("\u5F53\u524D\u4EFB\u52A1\u8FD0\u884C\u4E2D\u6216\u6302\u8D77\u4E2D\uFF0C\u5148\u5904\u7406\u5BA1\u6279/\u6682\u505C");
         return;
       }
-      this.threadId = "";
+      this.activateSessionView("");
       this._boundProjectId = "";
       this.resetConversation();
       await this.loadSessions();
@@ -2395,7 +2395,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.toastMessage("\u5F53\u524D\u4EFB\u52A1\u8FD0\u884C\u4E2D\u6216\u6302\u8D77\u4E2D\uFF0C\u5148\u5904\u7406\u5BA1\u6279/\u6682\u505C");
         return;
       }
-      this.threadId = id;
+      this.activateSessionView(id);
       this.markSessionRead(id);
       const row = this.sessions.find((item) => item.thread_id === id);
       this._boundProjectId = row && row.workspace_id ? row.workspace_id : "";
@@ -2852,10 +2852,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
       const id = this._currentMessage.id;
       tokenBuffers.set(id, (tokenBuffers.get(id) || "") + text);
+      const view = this.activeView;
       if (renderTimers.has(id)) return;
       renderTimers.set(id, setTimeout(() => {
         renderTimers.delete(id);
-        const target = this.messages.find((item) => item.id === id);
+        const target = view.messages.find((item) => item.id === id);
         const raw = tokenBuffers.get(id) || "";
         if (target) {
           let cache = markdownCaches.get(id);
@@ -2867,7 +2868,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           target.html = renderMarkdownIncremental(raw, cache, renderMarkdown);
           this.decorateMessage(target);
         }
-        this.scrollBottom(false);
+        if (view === this.activeView) this.scrollBottom(false);
       }, 60));
     },
     flushAssistantToken(id) {
@@ -2915,6 +2916,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     virtualMessages() {
       const key = [
+        this.threadId,
         this._msgSeq,
         this.virtualStart,
         this.virtualEnd,
@@ -3230,14 +3232,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.afterStream();
       }
     },
-    prompt: "",
     async consume(response) {
       this.connectionState = "streaming";
       await consumeSse(
         response,
         ({ event, seq }) => {
           if (Number.isFinite(seq)) this.lastSeq = Math.max(this.lastSeq, seq);
-          this.handleEvent(event);
+          this.applyEvent(this.activeView, event);
         },
         {
           getLastSeq: () => this.lastSeq,
@@ -3659,9 +3660,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
       return text;
     },
+    toolStoreKey(key) {
+      return `${this.threadId || "-"}::${key}`;
+    },
     upsertTool(event) {
       const key = event.call_id || event.name || `${this.tools.length}`;
-      const existing = toolMap.get(key);
+      const storeKey = this.toolStoreKey(key);
+      const existing = toolMap.get(storeKey);
       if (existing) {
         existing.name = event.name || existing.name;
         existing.summary = event.summary || existing.summary;
@@ -3697,13 +3702,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _detail: ""
       };
       this.refreshToolDetail(tool);
-      toolMap.set(key, tool);
+      toolMap.set(storeKey, tool);
       this.tools.unshift(tool);
       this._toolsVersion += 1;
     },
     finishTool(event) {
       const key = event.call_id || event.name || "";
-      let tool = key ? toolMap.get(key) : null;
+      let tool = key ? toolMap.get(this.toolStoreKey(key)) : null;
       if (!tool) {
         tool = {
           key: key || `${event.name}-${this.tools.length}`,
@@ -3714,7 +3719,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           state: "running",
           preview: ""
         };
-        toolMap.set(tool.key, tool);
+        toolMap.set(this.toolStoreKey(tool.key), tool);
         this.tools.unshift(tool);
       }
       if (event.rejected) tool.state = "rejected";
@@ -3773,7 +3778,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return this.toolFilter === name ? "active" : "";
     },
     filteredTools() {
-      const key = `${this._toolsVersion}|${this.toolFilter}|${this.toolQuery}`;
+      const key = `${this.threadId}|${this._toolsVersion}|${this.toolFilter}|${this.toolQuery}`;
       return memoize(filteredToolsSlot, key, () => this.tools.filter((tool) => {
         const state = tool.state || "running";
         if (this.toolFilter === "running" && state !== "running") return false;
@@ -7023,9 +7028,155 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     }
   };
 
+  // src/state/session-view.ts
+  function createSessionView(threadId = "") {
+    return {
+      threadId,
+      stateText: "\u5C31\u7EEA",
+      costText: "",
+      usage: { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 },
+      busy: false,
+      paused: false,
+      reasoningBlocks: [],
+      lastSeq: 0,
+      canReconnect: false,
+      connectionState: "idle",
+      _terminal: false,
+      _suspended: false,
+      _retryCount: 0,
+      _retryTimer: null,
+      _lastPrompt: "",
+      _currentMessage: null,
+      _currentNode: "",
+      prompt: "",
+      messages: [],
+      virtualStart: 0,
+      virtualEnd: 0,
+      virtualTop: 0,
+      virtualBottom: 0,
+      _virtualRaf: 0,
+      messageSearchOpen: false,
+      messageQuery: "",
+      messageMatches: [],
+      messageMatchIndex: 0,
+      showJumpLatest: false,
+      plan: [],
+      kinds: [],
+      planRows: [],
+      stepIdx: -1,
+      planDegraded: false,
+      tools: [],
+      toolFilter: "all",
+      toolFilterClasses: { all: "active", running: "", ok: "", error: "" },
+      toolQuery: "",
+      _toolsVersion: 0,
+      files: [],
+      checkpoints: [],
+      filesDirty: false,
+      tasks: [],
+      tasksDirty: false,
+      uploads: [],
+      uploadQuota: "",
+      approvals: [],
+      approval: null,
+      approvalPosition: "",
+      decisions: {},
+      problems: [],
+      problemExpanded: {}
+    };
+  }
+
+  // src/features/session-view.ts
+  var SESSION_VIEW_FIELDS = [
+    "threadId",
+    "stateText",
+    "costText",
+    "usage",
+    "busy",
+    "paused",
+    "reasoningBlocks",
+    "lastSeq",
+    "canReconnect",
+    "connectionState",
+    "_terminal",
+    "_suspended",
+    "_retryCount",
+    "_retryTimer",
+    "_lastPrompt",
+    "_currentMessage",
+    "_currentNode",
+    "prompt",
+    "messages",
+    "virtualStart",
+    "virtualEnd",
+    "virtualTop",
+    "virtualBottom",
+    "_virtualRaf",
+    "messageSearchOpen",
+    "messageQuery",
+    "messageMatches",
+    "messageMatchIndex",
+    "showJumpLatest",
+    "plan",
+    "kinds",
+    "planRows",
+    "stepIdx",
+    "planDegraded",
+    "tools",
+    "toolFilter",
+    "toolFilterClasses",
+    "toolQuery",
+    "_toolsVersion",
+    "files",
+    "checkpoints",
+    "filesDirty",
+    "tasks",
+    "tasksDirty",
+    "uploads",
+    "uploadQuota",
+    "approvals",
+    "approval",
+    "approvalPosition",
+    "decisions",
+    "problems",
+    "problemExpanded"
+  ];
+  var mixin = {
+    activateSessionView(threadId = "") {
+      this.activeView = createSessionView(String(threadId || ""));
+    },
+    createSessionView(threadId = "") {
+      return createSessionView(String(threadId || ""));
+    },
+    applyEvent(view, event) {
+      if (!view || !event) return;
+      const previous = this.activeView;
+      this.activeView = view;
+      try {
+        this.handleEvent(event);
+      } finally {
+        this.activeView = previous;
+      }
+    }
+  };
+  for (const field of SESSION_VIEW_FIELDS) {
+    Object.defineProperty(mixin, field, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return this.activeView ? this.activeView[field] : void 0;
+      },
+      set(value) {
+        if (this.activeView) this.activeView[field] = value;
+      }
+    });
+  }
+  var sessionViewMixin = mixin;
+
   // src/app.ts
   var agentApp = () => {
     const app = {
+      activeView: createSessionView(""),
       ready: false,
       configLoaded: false,
       configError: "",
@@ -7085,52 +7236,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       canCopyWorkspace: false,
       copyBusy: false,
       copyMessage: "",
-      threadId: "",
-      stateText: "\u5C31\u7EEA",
-      costText: "",
-      usage: { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 },
-      busy: false,
-      paused: false,
-      reasoningBlocks: [],
       showReasoning: false,
-      lastSeq: 0,
-      canReconnect: false,
-      connectionState: "idle",
       shortcutsOpen: false,
-      _terminal: false,
-      _suspended: false,
-      _retryCount: 0,
-      _retryTimer: null,
-      _lastPrompt: "",
-      messages: [],
-      virtualStart: 0,
-      virtualEnd: 0,
-      virtualTop: 0,
-      virtualBottom: 0,
-      _virtualRaf: 0,
-      messageSearchOpen: false,
-      messageQuery: "",
-      messageMatches: [],
-      messageMatchIndex: 0,
-      showJumpLatest: false,
-      plan: [],
-      kinds: [],
-      planRows: [],
-      stepIdx: -1,
-      planDegraded: false,
-      tools: [],
-      toolFilter: "all",
-      toolFilterClasses: { all: "active", running: "", ok: "", error: "" },
-      toolQuery: "",
-      _toolsVersion: 0,
-      files: [],
-      checkpoints: [],
       diffText: "",
-      tasks: [],
       memory: [],
       memoryText: "",
       audit: [],
-      uploads: [],
       sessions: [],
       sessionRows: [],
       sessionQuery: "",
@@ -7183,7 +7294,6 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       updateInfo: null,
       diagnosticsPath: "",
       diagnosticsBusy: false,
-      uploadQuota: "",
       showRecovery: false,
       recoveryItems: [],
       profiles: [],
@@ -7195,10 +7305,6 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       modelOptionsText: "",
       notifyEnabled: false,
       limitsText: "",
-      approvals: [],
-      approval: null,
-      approvalPosition: "",
-      decisions: {},
       tab: "plan",
       mainTab: "chat",
       editorTabs: [],
@@ -7218,11 +7324,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       diffViewFlags: { unified: true, split: false },
       diffViewClasses: { unified: "active", split: "" },
       fileLineInput: "",
-      problems: [],
-      problemExpanded: {},
       _problemSeq: 0,
-      filesDirty: false,
-      tasksDirty: false,
       sidebarWidth: 280,
       inspectorWidth: 340,
       sidebarCollapsed: false,
@@ -7267,8 +7369,6 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       badgeClasses: "badge-read",
       toast: "",
       _msgSeq: 0,
-      _currentNode: "",
-      _currentMessage: null,
       _toastTimer: null,
       _boundProjectId: "",
       _composing: false,
@@ -7280,6 +7380,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     const mixins = [
       bootMixin,
       authMixin,
+      sessionViewMixin,
       settingsMixin,
       workspaceMixin,
       view_modelMixin,
@@ -7303,8 +7404,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       notificationsMixin,
       cspMixin
     ];
-    for (const mixin of mixins) {
-      Object.defineProperties(app, Object.getOwnPropertyDescriptors(mixin));
+    for (const mixin2 of mixins) {
+      Object.defineProperties(app, Object.getOwnPropertyDescriptors(mixin2));
     }
     return app;
   };

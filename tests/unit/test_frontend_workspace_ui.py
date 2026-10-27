@@ -384,6 +384,29 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_stage1_session_view_facade_is_guarded() -> None:
+    """阶段 1：会话状态归属 activeView，事件入口为 applyEvent。"""
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "activeView",
+        "createSessionView",
+        "activateSessionView",
+        "applyEvent",
+        "SESSION_VIEW_FIELDS",
+        "toolStoreKey",
+    ):
+        assert marker in app, marker
+
+    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    assert (frontend / "src" / "state" / "session-view.ts").is_file()
+    assert (frontend / "src" / "features" / "session-view.ts").is_file()
+    interaction = (
+        frontend / "tests" / "dom" / "interaction.test.ts"
+    ).read_text(encoding="utf-8")
+    assert "按会话视图隔离状态" in interaction
+    assert "applyEvent(viewA" in interaction
+
+
 def test_image_preview_and_split_session_are_guarded() -> None:
     """图片预览与只读会话分屏。"""
     html = (STATIC / "index.html").read_text(encoding="utf-8")

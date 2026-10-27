@@ -443,6 +443,87 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       await waitFor(() => document.activeElement === trigger, '焦点回到触发元素');
     });
 
+    await t.test('applyEvent 按会话视图隔离状态', async () => {
+      const original = data.activeView;
+      const viewA = data.createSessionView('thread-a');
+      const viewB = data.createSessionView('thread-b');
+
+      data.applyEvent(viewA, { type: 'run_started' });
+      data.applyEvent(viewA, {
+        type: 'plan_created',
+        steps: ['A1', 'A2'],
+        kinds: ['x', 'y'],
+      });
+      data.applyEvent(viewA, {
+        type: 'tool_call_started',
+        call_id: 'same',
+        name: 'tool',
+        summary: 'A tool',
+      });
+      data.applyEvent(viewA, {
+        type: 'tool_call_finished',
+        call_id: 'same',
+        name: 'tool',
+        ok: true,
+        preview: 'A out',
+      });
+      data.applyEvent(viewA, {
+        type: 'assistant_token',
+        node: 'n',
+        text: 'A text',
+      });
+      data.applyEvent(viewA, {
+        type: 'verification',
+        ok: false,
+        summary: 'A verify',
+        issues: ['a.py:1'],
+      });
+
+      data.applyEvent(viewB, { type: 'run_started' });
+      data.applyEvent(viewB, {
+        type: 'plan_created',
+        steps: ['B1'],
+        kinds: ['z'],
+      });
+      data.applyEvent(viewB, {
+        type: 'tool_call_started',
+        call_id: 'same',
+        name: 'tool',
+        summary: 'B tool',
+      });
+      data.applyEvent(viewB, {
+        type: 'tool_call_finished',
+        call_id: 'same',
+        name: 'tool',
+        ok: false,
+        preview: 'B out',
+      });
+      data.applyEvent(viewB, {
+        type: 'assistant_token',
+        node: 'n',
+        text: 'B text',
+      });
+
+      assert.equal(data.activeView, original);
+      assert.deepEqual(viewA.plan, ['A1', 'A2']);
+      assert.deepEqual(viewB.plan, ['B1']);
+      assert.equal(viewA.tools.length, 1);
+      assert.equal(viewB.tools.length, 1);
+      assert.equal(viewA.tools[0].summary, 'A tool');
+      assert.equal(viewB.tools[0].summary, 'B tool');
+      assert.equal(viewA.tools[0].state, 'ok');
+      assert.equal(viewB.tools[0].state, 'error');
+      assert.equal(viewA.problems.length, 1);
+      assert.equal(viewB.problems.length, 0);
+      assert.notEqual(viewA.messages[0].id, viewB.messages[0].id);
+
+      await waitFor(
+        () => viewA.messages.some((m) => m.text === 'A text')
+          && viewB.messages.some((m) => m.text === 'B text'),
+        '会话 token 渲染',
+      );
+    });
+
     await t.test('审批弹窗批准/全部拒绝后关闭', async () => {
       data.handleEvent({
         type: 'approval_requested',
@@ -534,6 +615,20 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       assert.equal(data.inspectorWidth, 374);
       window.dispatchEvent(new window.MouseEvent('pointerup'));
       data.resetLayout();
+    });
+
+    await t.test('切换 activeView 后模板与状态跟随新会话', async () => {
+      const previous = data.activeView;
+      data.activateSessionView('thread-switched');
+      data.pushMessage('assistant', '视图切换消息', true, 'final');
+      await waitFor(
+        () => (document.querySelector('.transcript')?.textContent || '')
+          .includes('视图切换消息'),
+        '新视图渲染',
+      );
+      assert.notEqual(data.activeView, previous);
+      assert.equal(data.messages.length, 1);
+      assert.equal(previous.messages.length > 1, true);
     });
 
     await t.test('没有 Alpine CSP 表达式错误', () => {
