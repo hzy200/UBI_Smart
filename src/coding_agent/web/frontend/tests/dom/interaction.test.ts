@@ -891,6 +891,51 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       assert.doesNotMatch(window.location.search, /session=/);
     });
 
+    await t.test('系统通知只在页面隐藏且已授权时触发', () => {
+      const calls: Array<{ title: string; options: any }> = [];
+      const originalNotification = (window as any).Notification;
+      (window as any).Notification = class {
+        static permission = 'granted';
+        constructor(title: string, options: any) {
+          calls.push({ title, options });
+        }
+      };
+      const descriptor = Object.getOwnPropertyDescriptor(
+        document,
+        'visibilityState',
+      );
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'hidden',
+      });
+
+      data.notifyEnabled = true;
+      data.notify('CodingAgent 运行完成', '答案', {
+        sessionId: 'thread-dom-test',
+      });
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].title, 'CodingAgent 运行完成');
+
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'visible',
+      });
+      data.notify('CodingAgent 运行失败', '错误');
+      assert.equal(calls.length, 1, '页面可见时不重复弹系统通知');
+
+      data.notifyEnabled = false;
+      if (originalNotification === undefined) {
+        delete (window as any).Notification;
+      } else {
+        (window as any).Notification = originalNotification;
+      }
+      if (descriptor) {
+        Object.defineProperty(document, 'visibilityState', descriptor);
+      } else {
+        delete (document as any).visibilityState;
+      }
+    });
+
     await t.test('没有 Alpine CSP 表达式错误', () => {
       const errors = app.warnings.filter(
         (line) => line.includes('unable to interpret'),

@@ -13,6 +13,7 @@ import {
   ConfigError,
   currentRuntimeConfig,
 } from '../runtime-config';
+import { clearHistoryCache } from '../state/history-cache';
 import {
   VersionError,
 } from '../version';
@@ -89,6 +90,7 @@ export const authMixin = {
     }
     setToken('');
     clearGetCache();
+    void clearHistoryCache();
     this.tokenInput = '';
     this.clearAllDrafts();
     this.resetSessionViews();

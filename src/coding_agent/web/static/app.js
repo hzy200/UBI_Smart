@@ -727,6 +727,151 @@
     }
   };
 
+  // src/state/history-cache.ts
+  var DB_NAME = "codingagent-cache";
+  var DB_VERSION = 1;
+  var SESSIONS_STORE = "sessions";
+  var TRANSCRIPT_STORE = "transcripts";
+  var SESSIONS_KEY = "list";
+  var MAX_TRANSCRIPTS = 40;
+  var MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
+  var dbPromise = null;
+  function openDb() {
+    if (typeof indexedDB === "undefined") return Promise.resolve(null);
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve) => {
+      let request;
+      try {
+        request = indexedDB.open(DB_NAME, DB_VERSION);
+      } catch (err) {
+        resolve(null);
+        return;
+      }
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
+          db.createObjectStore(SESSIONS_STORE);
+        }
+        if (!db.objectStoreNames.contains(TRANSCRIPT_STORE)) {
+          db.createObjectStore(TRANSCRIPT_STORE);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+      request.onblocked = () => resolve(null);
+    });
+    return dbPromise;
+  }
+  function txDone(tx) {
+    return new Promise((resolve) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    });
+  }
+  async function put(store, key, payload) {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const tx = db.transaction(store, "readwrite");
+      tx.objectStore(store).put({ at: Date.now(), payload }, key);
+      await txDone(tx);
+    } catch (err) {
+    }
+  }
+  async function read(store, key) {
+    const db = await openDb();
+    if (!db) return null;
+    try {
+      const tx = db.transaction(store, "readonly");
+      const request = tx.objectStore(store).get(key);
+      const entry = await new Promise((resolve) => {
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => resolve(null);
+      });
+      if (!entry || !entry.payload) return null;
+      if (!Number.isFinite(entry.at) || Date.now() - entry.at > MAX_AGE_MS) {
+        return null;
+      }
+      return entry.payload;
+    } catch (err) {
+      return null;
+    }
+  }
+  async function remove(store, key) {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const tx = db.transaction(store, "readwrite");
+      tx.objectStore(store).delete(key);
+      await txDone(tx);
+    } catch (err) {
+    }
+  }
+  async function pruneTranscripts() {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const readTx = db.transaction(TRANSCRIPT_STORE, "readonly");
+      const store = readTx.objectStore(TRANSCRIPT_STORE);
+      const keysRequest = store.getAllKeys();
+      const valuesRequest = store.getAll();
+      const keys = await new Promise((resolve) => {
+        keysRequest.onsuccess = () => resolve(keysRequest.result || []);
+        keysRequest.onerror = () => resolve([]);
+      });
+      const values = await new Promise((resolve) => {
+        valuesRequest.onsuccess = () => resolve(valuesRequest.result || []);
+        valuesRequest.onerror = () => resolve([]);
+      });
+      if (keys.length <= MAX_TRANSCRIPTS) return;
+      const rows = keys.map((key, index) => ({
+        key,
+        at: Number(values[index] && values[index].at) || 0
+      })).sort((a, b) => a.at - b.at);
+      const tx = db.transaction(TRANSCRIPT_STORE, "readwrite");
+      for (const row of rows.slice(0, rows.length - MAX_TRANSCRIPTS)) {
+        tx.objectStore(TRANSCRIPT_STORE).delete(row.key);
+      }
+      await txDone(tx);
+    } catch (err) {
+    }
+  }
+  async function readCachedSessions() {
+    return read(SESSIONS_STORE, SESSIONS_KEY);
+  }
+  async function writeCachedSessions(payload) {
+    if (!payload || !Array.isArray(payload.sessions)) return;
+    await put(SESSIONS_STORE, SESSIONS_KEY, payload);
+  }
+  async function readCachedTranscript(threadId) {
+    if (!threadId) return null;
+    return read(TRANSCRIPT_STORE, threadId);
+  }
+  async function writeCachedTranscript(threadId, payload) {
+    if (!threadId || !payload) return;
+    await put(TRANSCRIPT_STORE, threadId, payload);
+    void pruneTranscripts();
+  }
+  async function deleteCachedTranscript(threadId) {
+    if (!threadId) return;
+    await remove(TRANSCRIPT_STORE, threadId);
+  }
+  async function clearHistoryCache() {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const tx = db.transaction(
+        [SESSIONS_STORE, TRANSCRIPT_STORE],
+        "readwrite"
+      );
+      tx.objectStore(SESSIONS_STORE).clear();
+      tx.objectStore(TRANSCRIPT_STORE).clear();
+      await txDone(tx);
+    } catch (err) {
+    }
+  }
+
   // src/features/auth.ts
   var authMixin = {
     applyAuthConfig(config) {
@@ -794,6 +939,7 @@
       }
       setToken("");
       clearGetCache();
+      void clearHistoryCache();
       this.tokenInput = "";
       this.clearAllDrafts();
       this.resetSessionViews();
@@ -1973,6 +2119,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         exit_code: message.exit_code ?? null,
         ok: message.ok ?? null
       }));
+      void writeCachedTranscript(threadId, { transcript: messages });
       try {
         const response = await authFetch(
           `/api/thread/${encodeURIComponent(threadId)}/transcript`,
@@ -2059,28 +2206,42 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       row._cls = classes.join(" ");
       return row;
     },
+    applySessionPayload(data) {
+      const rows = (data && data.sessions || []).map((item) => this.decorateSession({
+        ...item,
+        tags: Array.isArray(item.tags) ? item.tags : []
+      }));
+      const known = new Set(rows.map((row) => row.thread_id));
+      const selected = {};
+      for (const [id, active] of Object.entries(this.sessionSelected)) {
+        if (active && known.has(id)) selected[id] = true;
+      }
+      this.sessionSelected = selected;
+      this.sessions = rows;
+      this.filterSessions();
+    },
     async loadSessions(force = false) {
       this.sessionsLoading = true;
+      let usedCache = false;
+      if (!force && !this.sessions.length) {
+        const cached = await readCachedSessions();
+        if (cached && !this.sessions.length) {
+          this.applySessionPayload(cached);
+          usedCache = true;
+          this.sessionsLoading = false;
+        }
+      }
       try {
         const data = await cachedJson(
           "/api/sessions?limit=50&include_archived=true",
           "\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD",
           { ttlMs: 1500, force }
         );
-        const rows = (data.sessions || []).map((item) => this.decorateSession({
-          ...item,
-          tags: Array.isArray(item.tags) ? item.tags : []
-        }));
-        const known = new Set(rows.map((row) => row.thread_id));
-        const selected = {};
-        for (const [id, active] of Object.entries(this.sessionSelected)) {
-          if (active && known.has(id)) selected[id] = true;
-        }
-        this.sessionSelected = selected;
-        this.sessions = rows;
-        this.filterSessions();
+        this.applySessionPayload(data);
+        void writeCachedSessions(data);
       } catch (e) {
-        this.reportError(`\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD\uFF1A${e}`, "sessions");
+        if (usedCache) this.toastMessage(`\u4F1A\u8BDD\u5217\u8868\u5237\u65B0\u5931\u8D25\uFF1A${e}`);
+        else this.reportError(`\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD\uFF1A${e}`, "sessions");
       } finally {
         this.sessionsLoading = false;
       }
@@ -2103,7 +2264,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.splitTitle = row && (row._title || row.title) || id;
       this.markSessionRead(id);
       this.splitLoading = !view.loaded;
-      if (!view.loaded) {
+      if (!view.loaded || view._cacheOnly) {
         const loaded = await this.loadSessionHistory(view);
         view.loaded = loaded;
         if (!loaded) this.splitError = "\u8BFB\u53D6\u5206\u5C4F\u4F1A\u8BDD\u5931\u8D25";
@@ -2118,7 +2279,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         void this.reconnect(view);
         return;
       }
-      if (!view.loaded) {
+      if (!view.loaded || view._cacheOnly) {
         this.splitLoading = true;
         void this.loadSessionHistory(view).then((loaded) => {
           view.loaded = loaded;
@@ -2443,6 +2604,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         const wasActive = this.threadId === id;
         const wasSplit = this.splitSessionId === id;
         this.clearDraftFor(id);
+        void deleteCachedTranscript(id);
         this.disposeSessionView(id);
         if (wasSplit) this.closeSplit();
         if (wasActive) {
@@ -2638,7 +2800,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
       this.resetSessionUi();
       await this.loadCapabilities();
-      if (!view.loaded) {
+      if (!view.loaded || view._cacheOnly) {
         const loaded = await this.loadSessionHistory(view);
         if (loaded) view.loaded = true;
       }
@@ -2648,22 +2810,39 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       await this.loadSessions(true);
       this.syncUrlState();
     },
+    applyHistoryPayload(data) {
+      this.messages = [];
+      this.reasoningBlocks = [];
+      if (Array.isArray(data.transcript) && data.transcript.length) {
+        this.restoreTranscript(data.transcript);
+      } else {
+        for (const item of data.messages || []) {
+          this.pushMessage(item.role, item.text, true);
+        }
+      }
+    },
     async loadSessionHistory(view = this.activeView) {
       const id = view.threadId;
+      if (!id) return false;
+      let cacheApplied = false;
+      const cached = await readCachedTranscript(id);
+      if (cached) {
+        this.withView(view, () => this.applyHistoryPayload(cached));
+        cacheApplied = true;
+      }
       try {
         const response = await authFetch(`/api/thread/${encodeURIComponent(id)}`);
         const data = await readJson(response, "\u8BFB\u53D6\u5386\u53F2\u5931\u8D25");
-        this.withView(view, () => {
-          if (Array.isArray(data.transcript) && data.transcript.length) {
-            this.restoreTranscript(data.transcript);
-          } else {
-            for (const item of data.messages || []) {
-              this.pushMessage(item.role, item.text, true);
-            }
-          }
-        });
+        this.withView(view, () => this.applyHistoryPayload(data));
+        view._cacheOnly = false;
+        void writeCachedTranscript(id, data);
         return true;
       } catch (e) {
+        if (cacheApplied) {
+          view._cacheOnly = true;
+          this.toastMessage("\u7F51\u7EDC\u4E0D\u53EF\u7528\uFF0C\u6B63\u5728\u663E\u793A\u672C\u5730\u7F13\u5B58");
+          return true;
+        }
         this.toastMessage(String(e));
         return false;
       }
@@ -5729,6 +5908,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     }
   };
 
+  // src/ui/notifications.ts
+  function shouldSystemNotify(state) {
+    return Boolean(
+      state.enabled && state.hidden && state.supported && state.permission === "granted"
+    );
+  }
+
   // src/features/desktop.ts
   var desktopMixin = {
     async collectDiagnostics() {
@@ -5798,10 +5984,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     notify(title, body, meta = {}) {
       const kind = title.includes("\u5931\u8D25") ? "error" : title.includes("\u5BA1\u6279") ? "warning" : title.includes("\u5B8C\u6210") ? "success" : "info";
       this.pushNotification(kind, title, body, meta);
-      if (!this.notifyEnabled) return;
-      if (!("Notification" in window) || Notification.permission !== "granted") {
-        return;
-      }
+      const supported = "Notification" in window;
+      if (!shouldSystemNotify({
+        enabled: Boolean(this.notifyEnabled),
+        hidden: this.sessionHidden(),
+        supported,
+        permission: supported ? Notification.permission : "default"
+      })) return;
       try {
         new Notification(title, { body: String(body || "").slice(0, 120) });
       } catch (err) {
@@ -7448,6 +7637,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     return {
       threadId,
       loaded: false,
+      _cacheOnly: false,
       lastActiveAt: 0,
       _abort: null,
       stateText: "\u5C31\u7EEA",

@@ -1,5 +1,6 @@
 /* Alpine mixin: desktop。由 app.ts 拆分，方法名保持稳定以兼容模板与构建守卫。 */
 
+import { shouldSystemNotify } from '../ui/notifications';
 
 export const desktopMixin = {
   async collectDiagnostics() {
@@ -80,10 +81,13 @@ export const desktopMixin = {
           ? 'success'
           : 'info';
     this.pushNotification(kind, title, body, meta);
-    if (!this.notifyEnabled) return;
-    if (!('Notification' in window) || Notification.permission !== 'granted') {
-      return;
-    }
+    const supported = 'Notification' in window;
+    if (!shouldSystemNotify({
+      enabled: Boolean(this.notifyEnabled),
+      hidden: this.sessionHidden(),
+      supported,
+      permission: supported ? Notification.permission : 'default',
+    })) return;
     try {
       new Notification(title, { body: String(body || '').slice(0, 120) });
     } catch (err) { /* ignore */ }

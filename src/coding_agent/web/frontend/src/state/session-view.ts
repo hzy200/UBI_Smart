@@ -9,6 +9,7 @@ export function createSessionView(threadId = '') {
   return {
     threadId,
     loaded: false,
+    _cacheOnly: false,
     lastActiveAt: 0,
     _abort: null,
     stateText: '就绪',

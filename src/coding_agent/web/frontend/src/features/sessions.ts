@@ -8,6 +8,13 @@ import {
 } from '../api/http';
 import { clearDraft, draftText, saveDraft } from '../state/drafts';
 import {
+  deleteCachedTranscript,
+  readCachedSessions,
+  readCachedTranscript,
+  writeCachedSessions,
+  writeCachedTranscript,
+} from '../state/history-cache';
+import {
   renderMarkdown,
 } from '../ui/format';
 import {
@@ -40,6 +47,8 @@ export const sessionsMixin = {
       exit_code: message.exit_code ?? null,
       ok: message.ok ?? null,
     }));
+    // 先写本地缓存：即使服务端保存失败，下次打开仍能立即看到最近轨迹。
+    void writeCachedTranscript(threadId, { transcript: messages });
     try {
       const response = await authFetch(
         `/api/thread/${encodeURIComponent(threadId)}/transcript`,
@@ -143,30 +152,45 @@ export const sessionsMixin = {
     return row;
   },
 
+  applySessionPayload(data) {
+    const rows = ((data && data.sessions) || []).map((item) => (
+      this.decorateSession({
+        ...item,
+        tags: Array.isArray(item.tags) ? item.tags : [],
+      })
+    ));
+    const known = new Set(rows.map((row) => row.thread_id));
+    const selected = {};
+    for (const [id, active] of Object.entries(this.sessionSelected)) {
+      if (active && known.has(id)) selected[id] = true;
+    }
+    this.sessionSelected = selected;
+    this.sessions = rows;
+    this.filterSessions();
+  },
+
   async loadSessions(force = false) {
     this.sessionsLoading = true;
+    let usedCache = false;
+    if (!force && !this.sessions.length) {
+      const cached = await readCachedSessions();
+      if (cached && !this.sessions.length) {
+        this.applySessionPayload(cached);
+        usedCache = true;
+        this.sessionsLoading = false;
+      }
+    }
     try {
       const data = await cachedJson(
         '/api/sessions?limit=50&include_archived=true',
         '无法读取会话',
         { ttlMs: 1500, force },
       );
-      const rows = (data.sessions || []).map((item) => (
-        this.decorateSession({
-          ...item,
-          tags: Array.isArray(item.tags) ? item.tags : [],
-        })
-      ));
-      const known = new Set(rows.map((row) => row.thread_id));
-      const selected = {};
-      for (const [id, active] of Object.entries(this.sessionSelected)) {
-        if (active && known.has(id)) selected[id] = true;
-      }
-      this.sessionSelected = selected;
-      this.sessions = rows;
-      this.filterSessions();
+      this.applySessionPayload(data);
+      void writeCachedSessions(data);
     } catch (e) {
-      this.reportError(`无法读取会话：${e}`, 'sessions');
+      if (usedCache) this.toastMessage(`会话列表刷新失败：${e}`);
+      else this.reportError(`无法读取会话：${e}`, 'sessions');
     } finally {
       this.sessionsLoading = false;
     }
@@ -190,7 +214,7 @@ export const sessionsMixin = {
     this.splitTitle = (row && (row._title || row.title)) || id;
     this.markSessionRead(id);
     this.splitLoading = !view.loaded;
-    if (!view.loaded) {
+    if (!view.loaded || view._cacheOnly) {
       const loaded = await this.loadSessionHistory(view);
       view.loaded = loaded;
       if (!loaded) this.splitError = '读取分屏会话失败';
@@ -206,7 +230,7 @@ export const sessionsMixin = {
       void this.reconnect(view);
       return;
     }
-    if (!view.loaded) {
+    if (!view.loaded || view._cacheOnly) {
       this.splitLoading = true;
       void this.loadSessionHistory(view).then((loaded) => {
         view.loaded = loaded;
@@ -584,6 +608,7 @@ export const sessionsMixin = {
       const wasActive = this.threadId === id;
       const wasSplit = this.splitSessionId === id;
       this.clearDraftFor(id);
+      void deleteCachedTranscript(id);
       this.disposeSessionView(id);
       if (wasSplit) this.closeSplit();
       if (wasActive) {
@@ -778,7 +803,7 @@ export const sessionsMixin = {
     }
     this.resetSessionUi();
     await this.loadCapabilities();
-    if (!view.loaded) {
+    if (!view.loaded || view._cacheOnly) {
       const loaded = await this.loadSessionHistory(view);
       if (loaded) view.loaded = true;
     }
@@ -789,23 +814,41 @@ export const sessionsMixin = {
     this.syncUrlState();
   },
 
+  applyHistoryPayload(data) {
+    this.messages = [];
+    this.reasoningBlocks = [];
+    if (Array.isArray(data.transcript) && data.transcript.length) {
+      // 桌面 UI 保存过完整轨迹：包含工具卡片、步骤和最终回答。
+      this.restoreTranscript(data.transcript);
+    } else {
+      for (const item of data.messages || []) {
+        this.pushMessage(item.role, item.text, true);
+      }
+    }
+  },
+
   async loadSessionHistory(view = this.activeView) {
     const id = view.threadId;
+    if (!id) return false;
+    let cacheApplied = false;
+    const cached = await readCachedTranscript(id);
+    if (cached) {
+      this.withView(view, () => this.applyHistoryPayload(cached));
+      cacheApplied = true;
+    }
     try {
       const response = await authFetch(`/api/thread/${encodeURIComponent(id)}`);
       const data = await readJson(response, '读取历史失败');
-      this.withView(view, () => {
-        if (Array.isArray(data.transcript) && data.transcript.length) {
-          // 桌面 UI 保存过完整轨迹：包含工具卡片、步骤和最终回答。
-          this.restoreTranscript(data.transcript);
-        } else {
-          for (const item of data.messages || []) {
-            this.pushMessage(item.role, item.text, true);
-          }
-        }
-      });
+      this.withView(view, () => this.applyHistoryPayload(data));
+      view._cacheOnly = false;
+      void writeCachedTranscript(id, data);
       return true;
     } catch (e) {
+      if (cacheApplied) {
+        view._cacheOnly = true;
+        this.toastMessage('网络不可用，正在显示本地缓存');
+        return true;
+      }
       this.toastMessage(String(e));
       return false;
     }
