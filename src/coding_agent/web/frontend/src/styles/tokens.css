@@ -1,0 +1,46 @@
+:root {
+  --bg: #0f1117;
+  --panel: #161a23;
+  --panel-2: #1d2230;
+  --border: #2b3242;
+  --text: #e6e9f0;
+  --muted: #8b93a7;
+  --accent: #5b9dff;
+  --ok: #4cc38a;
+  --warn: #e5b567;
+  --bad: #ef6b73;
+  --radius: 10px;
+  --font-size: 14px;
+  --font: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+}
+
+.theme-light {
+  --bg: #f5f7fb;
+  --panel: #ffffff;
+  --panel-2: #eef2f8;
+  --border: #d8dfeb;
+  --text: #1d2433;
+  --muted: #65708a;
+  --accent: #2563eb;
+}
+
+.theme-auto { color-scheme: light dark; }
+@media (prefers-color-scheme: light) {
+  .theme-auto {
+    --bg: #f5f7fb;
+    --panel: #ffffff;
+    --panel-2: #eef2f8;
+    --border: #d8dfeb;
+    --text: #1d2433;
+    --muted: #65708a;
+    --accent: #2563eb;
+  }
+}
+
+.family-serif {
+  --font: Georgia, "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+}
+.family-mono {
+  --font: var(--mono);
+}

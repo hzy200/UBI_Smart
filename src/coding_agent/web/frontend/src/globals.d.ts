@@ -9,6 +9,7 @@ declare global {
       sanitize: (html: string, options?: Record<string, unknown>) => string;
     };
     pywebview?: { api: Record<string, (...args: any[]) => any> };
+    __APP_CONFIG__?: Record<string, unknown>;
     hljs?: { highlightElement: (element: Element) => void };
     Alpine?: {
       data: (name: string, factory: (...args: any[]) => unknown) => void;

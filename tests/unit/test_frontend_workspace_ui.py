@@ -16,6 +16,7 @@ def test_app_js_contains_workspace_flow() -> None:
     text = (STATIC / "app.js").read_text(encoding="utf-8")
     for marker in (
         "loadProjects",
+        "registerHostWorkspace",
         "importLocalProject",
         "uploadProject",
         "pollProjectJob",
@@ -30,6 +31,40 @@ def test_app_js_contains_workspace_flow() -> None:
         "projectProgressText",
         "projectBarStyle",
         "XMLHttpRequest",
+        "_boundProjectId",
+        "copyTranscriptMessage",
+        "upsertToolMessage",
+        "dedupeAssistantMessages",
+        "tokenBuffers",
+        "sessionWorkspaceLabel",
+        "messageLabel",
+        "markFinalAnswer",
+        "saveTranscript",
+        "restoreTranscript",
+        "moveFinalAnswerLast",
+        "loadRuntimeConfig",
+        "validateRuntimeConfig",
+        "config.invalid",
+        "apiUrl",
+        "checkVersion",
+        "compareSemver",
+        "min_frontend_version",
+        "X-Frontend-Version",
+        "version.frontend_too_old",
+        "refreshPromise",
+        "codingagent:auth-required",
+        "bff-cookie",
+        "X-CSRF-Token",
+        "startLogin",
+        "logout",
+        "withCredentials",
+        "ProblemError",
+        "request_id=",
+        "idleTimeoutMs",
+        "SseIdleError",
+        "Idempotency-Key",
+        "installDesktopBridgeGuard",
+        "window.top !== window",
     ):
         assert marker in text, marker
 
@@ -38,7 +73,8 @@ def test_index_contains_registry_section() -> None:
     text = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "项目（工作区注册表）" in text
     assert "capabilities.workspace_registry" in text
-    assert "导入本地文件夹" in text
+    assert "导入到 WSL 工作区" in text
+    assert "添加本机工作区" in text
     assert "上传并创建项目" in text
     assert "取消任务" in text
     assert "onProjectDrop" in text
@@ -49,6 +85,23 @@ def test_index_contains_registry_section() -> None:
     assert 'aria-label="项目归档文件"' in text
     assert 'class="progress-bar"' in text
     assert 'x-text="projectProgressText"' in text
+    assert 'class="msg-copy"' in text
+    assert 'class="inline-tool"' in text
+    assert "copyTranscriptMessage(m)" in text
+    assert "consent-card" in text
+    assert 'class="session-group"' in text
+    assert 'class="msg-badge"' in text
+    assert 'id="boot"' in text
+    assert 'id="config-error"' in text
+    assert "configError" in text
+    assert "configLoaded" in text
+    assert 'id="version-error"' in text
+    assert "versionChecked" in text
+    assert "versionError" in text
+    assert "authMode === 'bff-cookie'" in text
+    assert "startLogin()" in text
+    assert "logout()" in text
+    assert "authModeLabel()" in text
 
 
 def test_style_has_narrow_layout_and_focus() -> None:
@@ -56,3 +109,12 @@ def test_style_has_narrow_layout_and_focus() -> None:
     assert "@media (max-width: 760px)" in text
     assert "focus-visible" in text
     assert "prefers-reduced-motion" in text
+
+
+def test_layout_can_shrink_so_composer_stays_visible() -> None:
+    """长对话时 transcript 自己滚动，不能把输入区挤出视口。"""
+    text = (STATIC / "style.css").read_text(encoding="utf-8")
+    assert "#app-root" in text
+    assert "min-height: 0" in text
+    assert "overflow-y: auto" in text
+    assert "pointer-events: none" in text

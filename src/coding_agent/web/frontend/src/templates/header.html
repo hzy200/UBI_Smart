@@ -1,0 +1,13 @@
+<header x-show="ready" x-cloak>
+  <span class="name">CodingAgent</span>
+  <span class="meta" x-text="healthText"></span>
+  <span class="badge" :class="badgeClasses" x-text="accessLabel()"></span>
+  <span class="meta" x-text="workspaceLabel()"></span>
+  <span class="spacer"></span>
+  <span class="meta" x-text="stateText"></span>
+  <span class="meta connection" x-show="connectionText()" x-cloak x-text="connectionText()"></span>
+  <span class="meta" x-text="costText"></span>
+  <button @click="openRecovery()" aria-label="打开恢复中心">恢复中心</button>
+  <button @click="shortcutsOpen = true" aria-label="查看快捷键">快捷键</button>
+  <button @click="toggleSettings()" aria-label="打开设置">设置</button>
+</header>

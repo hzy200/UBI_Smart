@@ -1,0 +1,117 @@
+  <main class="main">
+    <div class="reasoning" x-show="showReasoning && reasoningBlocks.length" x-cloak>
+      <template x-for="(block, index) in reasoningBlocks" :key="index">
+        <details class="reasoning-block" :open="index === reasoningBlocks.length - 1">
+          <summary>模型思考 <span x-text="block.node"></span></summary>
+          <pre x-text="block.text"></pre>
+        </details>
+      </template>
+    </div>
+    <div class="transcript" x-ref="transcript" role="log" aria-live="polite"
+         aria-label="对话记录">
+      <template x-for="m in messages" :key="m.id">
+        <div class="msg" :class="m._cls">
+          <div class="msg-head">
+            <span class="msg-badge"
+                  :class="'badge-' + (m.phase || m.role)"
+                  x-text="messageLabel(m)"></span>
+            <button class="msg-copy" @click="copyTranscriptMessage(m)"
+                    title="复制这条消息">复制</button>
+          </div>
+          <template x-if="m.kind === 'tool'">
+            <div class="inline-tool" :class="m._cls">
+              <div class="inline-tool-head">
+                <span class="tool-dot"
+                      :class="m._cls.includes('tool-ok') ? 'dot-ok'
+                        : (m._cls.includes('tool-error') || m._cls.includes('tool-rejected')) ? 'dot-bad'
+                        : 'dot-run'"></span>
+                <span class="tool-name" x-text="m.name"></span>
+                <span class="tool-level" x-text="m.level"></span>
+                <span class="tool-meta"
+                      x-text="m.duration_ms != null ? `${m.duration_ms}ms`
+                        : (m.exit_code != null ? `exit ${m.exit_code}` : '')"></span>
+                <span class="tool-state" x-text="m.state"></span>
+              </div>
+              <div class="inline-tool-cmd" x-show="m.summary"
+                   x-text="m.summary"></div>
+              <pre class="inline-tool-out" x-show="m.preview"
+                   x-text="m.preview"
+                   :class="{ 'is-collapsed': !m._expanded && (m.preview || '').length > 800 }"></pre>
+              <button class="msg-toggle"
+                      x-show="(m.preview || '').length > 800"
+                      @click="m._expanded = !m._expanded"
+                      x-text="m._expanded ? '收起输出' : '展开输出'"></button>
+            </div>
+          </template>
+          <template x-if="m.kind !== 'tool'">
+            <div class="msg-text">
+              <div class="msg-body"
+                   :class="{ 'msg-collapsed': !m._expanded && isAnswerLong(m) }"
+                   x-html="m.html"></div>
+              <button class="msg-toggle" x-show="isAnswerLong(m)"
+                      @click="m._expanded = !m._expanded"
+                      x-text="m._expanded ? '收起全文' : '展开全文'"></button>
+            </div>
+          </template>
+        </div>
+      </template>
+      <template x-for="c in consents" :key="c.id">
+        <div class="consent-card" role="alert">
+          <div class="consent-head">
+            <span class="consent-title">本机文件访问授权</span>
+            <span class="consent-sensitive" x-show="c.sensitive">敏感路径</span>
+          </div>
+          <div class="consent-row">
+            <span>操作</span><span x-text="consentVerbs(c.verbs)"></span>
+          </div>
+          <div class="consent-row" x-show="c.reason">
+            <span>原因</span><span x-text="c.reason"></span>
+          </div>
+          <div class="consent-scope">
+            <template x-for="s in c.scope" :key="s">
+              <code x-text="s"></code>
+            </template>
+          </div>
+          <div class="consent-actions">
+            <button class="danger" @click="decideConsent(c.id, false)">拒绝</button>
+            <button class="primary" @click="decideConsent(c.id, true)">允许本次</button>
+          </div>
+        </div>
+      </template>
+      <div class="empty" x-show="messages.length === 0 && consents.length === 0">
+        输入任务开始。默认只读：Agent 只能读取文件，不能运行命令或测试。
+      </div>
+    </div>
+
+    <div class="composer" @dragover.prevent @drop.prevent="dropFiles($event)">
+      <textarea x-model="prompt" @keydown="onEnter($event)"
+                @compositionstart="onCompositionStart()"
+                @compositionend="onCompositionEnd()"
+                aria-label="任务输入"
+                placeholder="输入任务，Enter 发送，Shift+Enter 换行"></textarea>
+      <div class="composer-actions">
+        <button @click="send()" :disabled="sendDisabled()">发送</button>
+        <button @click="steer('pause')" :disabled="!busy">暂停</button>
+        <button @click="steer('cancel')" :disabled="!busy && !paused">取消</button>
+        <button @click="resumeSteering()" :disabled="!paused">继续</button>
+        <button @click="reconnect()" x-show="canReconnect">重连事件流</button>
+        <button @click="retry()" x-show="_lastPrompt && !busy">重试上一条</button>
+        <button @click="openNewSettings()" :disabled="!busy">追加任务</button>
+        <button @click="replan()" :disabled="!busy">重规划</button>
+        <label class="upload-label">
+          上传文件
+          <input type="file" multiple @change="uploadFiles($event)">
+        </label>
+      </div>
+      <div class="upload-list" x-show="uploads.length > 0">
+        <template x-for="u in uploads" :key="u.relative_path">
+          <span class="upload-chip" :title="u.relative_path">
+            <span x-text="u._name"></span>
+            <span class="upload-size" x-text="u._size"></span>
+            <button class="chip-delete" @click="deleteUpload(u.relative_path)">×</button>
+          </span>
+        </template>
+      </div>
+      <div class="note" x-show="uploadQuota" x-text="uploadQuota"></div>
+    </div>
+  </main>

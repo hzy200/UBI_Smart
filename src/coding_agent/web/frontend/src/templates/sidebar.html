@@ -1,0 +1,80 @@
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h3>会话</h3>
+      <div class="row">
+        <button @click="toggleSettings()">设置</button>
+        <button @click="newSession()">新会话</button>
+      </div>
+    </div>
+    <div class="session-form">
+      <div x-show="capabilities.workspace_registry">
+        <label>项目</label>
+        <div class="row">
+          <select x-model="projectId" @change="selectProject(projectId)"
+                  aria-label="选择项目">
+            <option value="">选择项目…</option>
+            <template x-for="p in projects" :key="p.workspace_id">
+              <option :value="p.workspace_id" x-text="projectLabel(p)"></option>
+            </template>
+          </select>
+          <button @click="registerHostWorkspace()" :disabled="projectBusy"
+                  title="选择一个本机文件夹作为工作区">+ 本机</button>
+        </div>
+        <div class="note" x-show="projects.length === 0">
+          还没有项目；在设置里导入文件夹或上传归档。
+        </div>
+        <div class="note">
+          切换项目后，发送时会自动新建会话（已有会话的工作区不可改绑）。
+        </div>
+        <div class="note note-ok" x-show="threadId">
+          当前会话绑定：<span x-text="workspace || '未知'"></span>（不可更改）
+        </div>
+        <input x-model="workspaceInput" readonly
+               :placeholder="capabilities.host_mode
+                 ? '本机项目由客户端选择并登记'
+                 : '选择项目后自动填入工作区'">
+      </div>
+      <div x-show="!capabilities.workspace_registry">
+        <label>工作区</label>
+        <div class="row">
+          <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
+          <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace()">选择…</button>
+        </div>
+      </div>
+      <label>文件权限</label>
+      <select x-model="accessMode" :disabled="accessDisabled()">
+        <option value="read_only">只读（不可运行）</option>
+        <option value="write_ask" x-show="capabilities.server_write_enabled">审批写</option>
+        <option value="write_auto" x-show="capabilities.server_write_enabled">自动写</option>
+      </select>
+      <label>模型</label>
+      <select x-model="model" @change="syncModel()">
+        <option value="">默认模型</option>
+        <template x-for="p in providers" :key="p._key">
+          <option :value="p.model" x-text="p._label"></option>
+        </template>
+      </select>
+      <button @click="switchModel()" :disabled="!threadId || busy">应用到当前会话</button>
+      <button class="primary" @click="createSession()" :disabled="busy || approvals.length || paused">创建会话</button>
+    </div>
+    <input class="session-search" x-model="sessionQuery" @input="filterSessions()"
+           placeholder="搜索会话…">
+    <div class="session-list">
+      <template x-for="s in sessionRows" :key="s.thread_id">
+        <div class="session-entry">
+          <div class="session-group" x-show="s._showGroup"
+               x-text="s._groupLabel"></div>
+          <div class="session-item" :class="s._cls" @click="openSession(s.thread_id)">
+            <div class="t" x-text="s._title"></div>
+            <div class="m" x-text="s._meta"></div>
+            <div class="session-actions">
+              <button @click.stop="renameSession(s.thread_id)">改名</button>
+              <button @click.stop="exportSession(s.thread_id)">导出</button>
+              <button class="danger" @click.stop="deleteSession(s.thread_id)">删除</button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div class="empty" x-show="sessionRows.length === 0">没有匹配的会话</div>
+    </div>
+  </aside>

@@ -6,13 +6,44 @@
 <title>CodingAgent</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body x-data="agentApp" x-init="init()" :class="bodyClasses">
-<div id="login" x-show="ready === false" x-cloak>
+<body x-data="window.agentAppData" :class="bodyClasses">
+<div id="app-root">
+<div id="boot" x-show="(!configLoaded || !versionChecked) && !configError && !versionError" x-cloak>
+  <div class="login-box">
+    <h2>CodingAgent</h2>
+    <p x-text="!configLoaded ? '正在加载运行时配置…' : '正在校验前后端版本…'"></p>
+  </div>
+</div>
+
+<div id="config-error" x-show="configError" x-cloak role="alert">
+  <div class="login-box">
+    <h2>配置错误</h2>
+    <p x-text="configError"></p>
+    <p class="note" x-show="configErrorCode" x-text="'错误码：' + configErrorCode"></p>
+    <p class="note">运行时配置不合法；为避免请求发往错误地址，界面已停止加载。</p>
+    <button @click="reloadPage()">重新加载</button>
+  </div>
+</div>
+
+<div id="version-error" x-show="versionError" x-cloak role="alert">
+  <div class="login-box">
+    <h2>版本不兼容</h2>
+    <p x-text="versionError"></p>
+    <p class="note" x-show="versionErrorCode" x-text="'错误码：' + versionErrorCode"></p>
+    <p class="note">前端与 API 的契约版本不一致；升级到兼容版本后再试。</p>
+    <button @click="reloadPage()">重新加载</button>
+  </div>
+</div>
+
+<div id="login" x-show="ready === false && configLoaded && versionChecked && !configError && !versionError" x-cloak>
   <div class="login-box">
     <h2>CodingAgent</h2>
     <p x-text="loginMessage()"></p>
-    <input type="password" x-model="tokenInput" autocomplete="off" placeholder="Bearer token">
-    <button @click="saveToken()">进入</button>
+    <input type="password" x-model="tokenInput" autocomplete="off"
+           placeholder="Bearer token" x-show="authMode !== 'bff-cookie'">
+    <button @click="saveToken()" x-show="authMode !== 'bff-cookie'">进入</button>
+    <button class="primary" @click="startLogin()"
+            x-show="authMode === 'bff-cookie'">统一登录</button>
   </div>
 </div>
 
@@ -34,23 +65,38 @@
   <aside class="sidebar">
     <div class="sidebar-head">
       <h3>会话</h3>
-      <button @click="newSession()">新会话</button>
+      <div class="row">
+        <button @click="toggleSettings()">设置</button>
+        <button @click="newSession()">新会话</button>
+      </div>
     </div>
     <div class="session-form">
       <div x-show="capabilities.workspace_registry">
         <label>项目</label>
-        <select x-model="projectId" @change="selectProject(projectId)"
-                aria-label="选择项目">
-          <option value="">选择项目…</option>
-          <template x-for="p in projects" :key="p.workspace_id">
-            <option :value="p.workspace_id" x-text="projectLabel(p)"></option>
-          </template>
-        </select>
+        <div class="row">
+          <select x-model="projectId" @change="selectProject(projectId)"
+                  aria-label="选择项目">
+            <option value="">选择项目…</option>
+            <template x-for="p in projects" :key="p.workspace_id">
+              <option :value="p.workspace_id" x-text="projectLabel(p)"></option>
+            </template>
+          </select>
+          <button @click="registerHostWorkspace()" :disabled="projectBusy"
+                  title="选择一个本机文件夹作为工作区">+ 本机</button>
+        </div>
         <div class="note" x-show="projects.length === 0">
           还没有项目；在设置里导入文件夹或上传归档。
         </div>
+        <div class="note">
+          切换项目后，发送时会自动新建会话（已有会话的工作区不可改绑）。
+        </div>
+        <div class="note note-ok" x-show="threadId">
+          当前会话绑定：<span x-text="workspace || '未知'"></span>（不可更改）
+        </div>
         <input x-model="workspaceInput" readonly
-               placeholder="选择项目后自动填入工作区">
+               :placeholder="capabilities.host_mode
+                 ? '本机项目由客户端选择并登记'
+                 : '选择项目后自动填入工作区'">
       </div>
       <div x-show="!capabilities.workspace_registry">
         <label>工作区</label>
@@ -79,13 +125,17 @@
            placeholder="搜索会话…">
     <div class="session-list">
       <template x-for="s in sessionRows" :key="s.thread_id">
-        <div class="session-item" :class="s._cls" @click="openSession(s.thread_id)">
-          <div class="t" x-text="s._title"></div>
-          <div class="m" x-text="s._meta"></div>
-          <div class="session-actions">
-            <button @click.stop="renameSession(s.thread_id)">改名</button>
-            <button @click.stop="exportSession(s.thread_id)">导出</button>
-            <button class="danger" @click.stop="deleteSession(s.thread_id)">删除</button>
+        <div class="session-entry">
+          <div class="session-group" x-show="s._showGroup"
+               x-text="s._groupLabel"></div>
+          <div class="session-item" :class="s._cls" @click="openSession(s.thread_id)">
+            <div class="t" x-text="s._title"></div>
+            <div class="m" x-text="s._meta"></div>
+            <div class="session-actions">
+              <button @click.stop="renameSession(s.thread_id)">改名</button>
+              <button @click.stop="exportSession(s.thread_id)">导出</button>
+              <button class="danger" @click.stop="deleteSession(s.thread_id)">删除</button>
+            </div>
           </div>
         </div>
       </template>
@@ -106,17 +156,82 @@
          aria-label="对话记录">
       <template x-for="m in messages" :key="m.id">
         <div class="msg" :class="m._cls">
-          <div class="msg-role" x-text="m.role"></div>
-          <div class="msg-body" x-html="m.html"></div>
+          <div class="msg-head">
+            <span class="msg-badge"
+                  :class="'badge-' + (m.phase || m.role)"
+                  x-text="messageLabel(m)"></span>
+            <button class="msg-copy" @click="copyTranscriptMessage(m)"
+                    title="复制这条消息">复制</button>
+          </div>
+          <template x-if="m.kind === 'tool'">
+            <div class="inline-tool" :class="m._cls">
+              <div class="inline-tool-head">
+                <span class="tool-dot"
+                      :class="m._cls.includes('tool-ok') ? 'dot-ok'
+                        : (m._cls.includes('tool-error') || m._cls.includes('tool-rejected')) ? 'dot-bad'
+                        : 'dot-run'"></span>
+                <span class="tool-name" x-text="m.name"></span>
+                <span class="tool-level" x-text="m.level"></span>
+                <span class="tool-meta"
+                      x-text="m.duration_ms != null ? `${m.duration_ms}ms`
+                        : (m.exit_code != null ? `exit ${m.exit_code}` : '')"></span>
+                <span class="tool-state" x-text="m.state"></span>
+              </div>
+              <div class="inline-tool-cmd" x-show="m.summary"
+                   x-text="m.summary"></div>
+              <pre class="inline-tool-out" x-show="m.preview"
+                   x-text="m.preview"
+                   :class="{ 'is-collapsed': !m._expanded && (m.preview || '').length > 800 }"></pre>
+              <button class="msg-toggle"
+                      x-show="(m.preview || '').length > 800"
+                      @click="m._expanded = !m._expanded"
+                      x-text="m._expanded ? '收起输出' : '展开输出'"></button>
+            </div>
+          </template>
+          <template x-if="m.kind !== 'tool'">
+            <div class="msg-text">
+              <div class="msg-body"
+                   :class="{ 'msg-collapsed': !m._expanded && isAnswerLong(m) }"
+                   x-html="m.html"></div>
+              <button class="msg-toggle" x-show="isAnswerLong(m)"
+                      @click="m._expanded = !m._expanded"
+                      x-text="m._expanded ? '收起全文' : '展开全文'"></button>
+            </div>
+          </template>
         </div>
       </template>
-      <div class="empty" x-show="messages.length === 0">
+      <template x-for="c in consents" :key="c.id">
+        <div class="consent-card" role="alert">
+          <div class="consent-head">
+            <span class="consent-title">本机文件访问授权</span>
+            <span class="consent-sensitive" x-show="c.sensitive">敏感路径</span>
+          </div>
+          <div class="consent-row">
+            <span>操作</span><span x-text="consentVerbs(c.verbs)"></span>
+          </div>
+          <div class="consent-row" x-show="c.reason">
+            <span>原因</span><span x-text="c.reason"></span>
+          </div>
+          <div class="consent-scope">
+            <template x-for="s in c.scope" :key="s">
+              <code x-text="s"></code>
+            </template>
+          </div>
+          <div class="consent-actions">
+            <button class="danger" @click="decideConsent(c.id, false)">拒绝</button>
+            <button class="primary" @click="decideConsent(c.id, true)">允许本次</button>
+          </div>
+        </div>
+      </template>
+      <div class="empty" x-show="messages.length === 0 && consents.length === 0">
         输入任务开始。默认只读：Agent 只能读取文件，不能运行命令或测试。
       </div>
     </div>
 
     <div class="composer" @dragover.prevent @drop.prevent="dropFiles($event)">
       <textarea x-model="prompt" @keydown="onEnter($event)"
+                @compositionstart="onCompositionStart()"
+                @compositionend="onCompositionEnd()"
                 aria-label="任务输入"
                 placeholder="输入任务，Enter 发送，Shift+Enter 换行"></textarea>
       <div class="composer-actions">
@@ -356,6 +471,10 @@
      role="dialog" aria-modal="true" aria-labelledby="settings-title">
   <div class="modal-box">
     <h3 id="settings-title">界面设置</h3>
+    <div class="panel-actions">
+      <span class="note" x-text="'认证方式：' + authModeLabel()"></span>
+      <button class="danger" @click="logout()">退出登录</button>
+    </div>
     <label>主题</label>
     <select x-model="theme" @change="saveSettings()">
       <option value="dark">深色</option>
@@ -427,7 +546,8 @@
     <h3>工作区与 Python</h3>
     <div class="project-report" x-text="projectReport"></div>
     <div class="panel-actions">
-      <button x-show="desktopAvailable" @click="pickWorkspace()">选择文件夹</button>
+      <button x-show="desktopAvailable && !capabilities.host_mode"
+              @click="pickWorkspace()">选择文件夹</button>
       <button @click="probeProject()" :disabled="projectLoading">重新探测</button>
       <button x-show="desktopAvailable" @click="openInVscode()">在 VS Code 打开</button>
       <button x-show="canCopyWorkspace" @click="copyWorkspace()" :disabled="copyBusy">复制到 WSL 原生目录</button>
@@ -441,7 +561,10 @@
          @drop.prevent="onProjectDrop($event)">
       <div class="panel-actions">
         <button x-show="desktopAvailable" @click="importLocalProject()"
-                :disabled="projectBusy">导入本地文件夹</button>
+                :disabled="projectBusy">导入到 WSL 工作区</button>
+        <button @click="registerHostWorkspace()" :disabled="projectBusy">
+          添加本机工作区
+        </button>
         <button @click="refreshProjects()" :disabled="projectBusy">刷新项目</button>
         <button class="danger" x-show="projectBusy && projectJobId"
                 @click="cancelProjectJob()">取消任务</button>
@@ -537,11 +660,12 @@
 </div>
 
 <div class="toast" x-show="toast" x-text="toast" x-cloak></div>
+</div>
 
 <script src="/static/vendor/marked.min.js"></script>
 <script src="/static/vendor/purify.min.js"></script>
 <script src="/static/vendor/highlight.min.js"></script>
-<script type="module" src="/static/app.js"></script>
-<script src="/static/vendor/alpine-csp.min.js" defer></script>
+<script src="/static/vendor/alpine.min.js"></script>
+<script src="/static/app.js"></script>
 </body>
 </html>

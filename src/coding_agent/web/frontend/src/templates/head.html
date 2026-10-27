@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodingAgent</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body x-data="window.agentAppData" :class="bodyClasses">
+<div id="app-root">
+<div id="boot" x-show="(!configLoaded || !versionChecked) && !configError && !versionError" x-cloak>
+  <div class="login-box">
+    <h2>CodingAgent</h2>
+    <p x-text="!configLoaded ? '正在加载运行时配置…' : '正在校验前后端版本…'"></p>
+  </div>
+</div>
+
+<div id="config-error" x-show="configError" x-cloak role="alert">
+  <div class="login-box">
+    <h2>配置错误</h2>
+    <p x-text="configError"></p>
+    <p class="note" x-show="configErrorCode" x-text="'错误码：' + configErrorCode"></p>
+    <p class="note">运行时配置不合法；为避免请求发往错误地址，界面已停止加载。</p>
+    <button @click="reloadPage()">重新加载</button>
+  </div>
+</div>
+
+<div id="version-error" x-show="versionError" x-cloak role="alert">
+  <div class="login-box">
+    <h2>版本不兼容</h2>
+    <p x-text="versionError"></p>
+    <p class="note" x-show="versionErrorCode" x-text="'错误码：' + versionErrorCode"></p>
+    <p class="note">前端与 API 的契约版本不一致；升级到兼容版本后再试。</p>
+    <button @click="reloadPage()">重新加载</button>
+  </div>
+</div>
+
+<div id="login" x-show="ready === false && configLoaded && versionChecked && !configError && !versionError" x-cloak>
+  <div class="login-box">
+    <h2>CodingAgent</h2>
+    <p x-text="loginMessage()"></p>
+    <input type="password" x-model="tokenInput" autocomplete="off"
+           placeholder="Bearer token" x-show="authMode !== 'bff-cookie'">
+    <button @click="saveToken()" x-show="authMode !== 'bff-cookie'">进入</button>
+    <button class="primary" @click="startLogin()"
+            x-show="authMode === 'bff-cookie'">统一登录</button>
+  </div>
+</div>

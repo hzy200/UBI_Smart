@@ -1,0 +1,26 @@
+.composer { flex: 0 0 auto; border-top: 1px solid var(--border); padding: 10px 14px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.composer textarea { height: 72px; }
+.composer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.upload-label {
+  display: inline-flex; align-items: center; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  font-size: 13px;
+}
+.upload-label input { display: none; }
+.upload-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.upload-chip {
+  display: inline-flex; align-items: center;
+  font-size: 11px; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 2px 8px;
+}
+.upload-size { margin-left: 4px; opacity: .7; }
+.chip-delete {
+  border: 0; background: transparent; color: var(--muted);
+  cursor: pointer; padding: 0 0 0 4px; font-size: 12px;
+}
+.tree-row {
+  display: flex; gap: 8px; align-items: center; padding: 5px 8px;
+  border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.tree-row:hover { background: var(--panel-2); }
+.tree-kind { color: var(--muted); font-size: 10px; width: 26px; }

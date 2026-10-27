@@ -1,4 +1,6 @@
 import * as esbuild from "esbuild";
+import { watch as watchFs } from "node:fs";
+import { buildUi } from "./build-ui.mjs";
 
 const watch = process.argv.includes("--watch");
 
@@ -15,11 +17,36 @@ const options = {
   },
 };
 
+async function buildUiQuiet() {
+  const outputs = await buildUi();
+  for (const file of outputs) console.log(`built ${file}`);
+}
+
 if (watch) {
   const ctx = await esbuild.context(options);
   await ctx.watch();
+  await buildUiQuiet();
+  let timer = null;
+  const rebuild = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      buildUiQuiet().catch((err) => console.error(err));
+    }, 80);
+  };
+  for (const [dir, name] of [
+    ["src/templates", "templates"],
+    ["src/styles", "styles"],
+  ]) {
+    try {
+      watchFs(dir, { recursive: true }, rebuild);
+    } catch (err) {
+      // 目录尚未创建或平台不支持递归监听时，仍可用手动构建。
+      console.warn(`watch ${name} unavailable: ${err.message}`);
+    }
+  }
   console.log("watching frontend...");
 } else {
   await esbuild.build(options);
   console.log("built ../static/app.js");
+  await buildUiQuiet();
 }

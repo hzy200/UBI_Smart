@@ -29,6 +29,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src" / "coding_agent"
 OUT = ROOT / "docs" / "contracts"
+FRONTEND_EVENTS = (
+    ROOT / "src" / "coding_agent" / "web" / "frontend" / "src" / "contracts"
+    / "events.generated.ts"
+)
 
 GENERATED_BANNER = (
     "<!-- 由 scripts/gen_contracts.py 从源码生成，禁止手改。"
@@ -231,6 +235,84 @@ def render_events(events: list[dict[str, Any]]) -> tuple[str, str]:
         md.append("")
 
     return json_text, "\n".join(md) + "\n"
+
+
+def _split_generic(text: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    current = ""
+    for char in text:
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append(current.strip())
+            current = ""
+        else:
+            current += char
+    if current.strip():
+        parts.append(current.strip())
+    return parts
+
+
+def _ts_type(annotation: str) -> str:
+    text = annotation.strip()
+    nullable = False
+    if "|" in text:
+        pieces = [piece.strip() for piece in text.split("|")]
+        if "None" in pieces:
+            nullable = True
+            pieces = [piece for piece in pieces if piece != "None"]
+        text = " | ".join(pieces)
+    if text == "str":
+        base = "string"
+    elif text in ("int", "float"):
+        base = "number"
+    elif text == "bool":
+        base = "boolean"
+    elif text == "Any":
+        base = "any"
+    elif text.startswith("list[") and text.endswith("]"):
+        base = f"Array<{_ts_type(text[5:-1])}>"
+    elif text.startswith("dict[") and text.endswith("]"):
+        pieces = _split_generic(text[5:-1])
+        value = pieces[1] if len(pieces) > 1 else "Any"
+        base = f"Record<string, {_ts_type(value)}>"
+    elif text == "dict":
+        base = "Record<string, any>"
+    else:
+        base = "any"
+    return f"{base} | null" if nullable else base
+
+
+def render_frontend_events(events: list[dict[str, Any]]) -> str:
+    """生成前端事件 union，避免手写契约字段漂移。"""
+    lines = [
+        "/* 由 scripts/gen_contracts.py 从 docs/contracts/events.json 生成，禁止手改。 */",
+        "",
+    ]
+    for event in events:
+        lines.append(f"export interface {event['class']}Event {{")
+        lines.append(f'  type: "{event["event_type"]}";')
+        for field in event["fields"]:
+            lines.append(f'  {field["name"]}: {_ts_type(field["type"])};')
+        lines.append("}")
+        lines.append("")
+    names = [f"{event['class']}Event" for event in events]
+    lines.append("export type AgentEvent =")
+    for index, name in enumerate(names):
+        suffix = ";" if index == len(names) - 1 else ""
+        lines.append(f"  | {name}{suffix}")
+    lines.append("")
+    lines.append("export const AGENT_EVENT_TYPES = [")
+    for event in events:
+        lines.append(f'  "{event["event_type"]}",')
+    lines.append("] as const;")
+    lines.append("")
+    lines.append("export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];")
+    lines.append("")
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -879,6 +961,7 @@ def main() -> int:
 
     check_only = "--check" in sys.argv
     files = build()
+    frontend_events = render_frontend_events(collect_events())
 
     if check_only:
         drift = []
@@ -888,18 +971,25 @@ def main() -> int:
                 drift.append(f"{name}（缺失）")
             elif path.read_text(encoding="utf-8") != text:
                 drift.append(name)
+        if not FRONTEND_EVENTS.exists():
+            drift.append(f"{FRONTEND_EVENTS.name}（缺失）")
+        elif FRONTEND_EVENTS.read_text(encoding="utf-8") != frontend_events:
+            drift.append(str(FRONTEND_EVENTS.relative_to(ROOT)))
         if drift:
             print("契约与源码不一致，请重跑 `python scripts/gen_contracts.py`：")
             for name in drift:
-                print(f"  - docs/contracts/{name}")
+                print(f"  - {name}")
             return 1
-        print(f"契约一致（{len(files)} 个文件）")
+        print(f"契约一致（{len(files) + 1} 个文件）")
         return 0
 
     OUT.mkdir(parents=True, exist_ok=True)
     for name, text in files.items():
         (OUT / name).write_text(text, encoding="utf-8")
         print(f"生成 docs/contracts/{name}")
+    FRONTEND_EVENTS.parent.mkdir(parents=True, exist_ok=True)
+    FRONTEND_EVENTS.write_text(frontend_events, encoding="utf-8", newline="\n")
+    print(f"生成 {FRONTEND_EVENTS.relative_to(ROOT)}")
     return 0
 
 

@@ -1,0 +1,37 @@
+header {
+  height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 12px;
+  padding: 0 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+header .name { font-weight: 700; color: var(--accent); }
+header .meta { color: var(--muted); font-size: 12px; }
+header .spacer { flex: 1; }
+.badge {
+  font-size: 12px; padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.badge-read { color: var(--ok); border-color: var(--ok); }
+.badge-write { color: var(--warn); border-color: var(--warn); }
+
+#app-root {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#app {
+  display: grid;
+  grid-template-columns: 280px minmax(420px, 1fr) minmax(320px, 38%);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+.sidebar, .inspector { background: var(--panel); overflow: auto; min-height: 0; }
+.sidebar { border-right: 1px solid var(--border); padding: 12px; }
+.inspector { border-left: 1px solid var(--border); }
+.main {
+  display: flex; flex-direction: column;
+  min-width: 0; min-height: 0; overflow: hidden;
+}

@@ -20,6 +20,13 @@ def main() -> int:
     if shutil.which("npx") is None and shutil.which("npx.cmd") is None:
         print("未找到 npx；请安装 Node.js 18+")
         return 2
+    node = shutil.which("node") or shutil.which("node.exe")
+    if node is None:
+        print("未找到 node；请安装 Node.js 18+")
+        return 2
+    ui = subprocess.run([node, "build-ui.mjs"], cwd=FRONTEND, check=False)
+    if ui.returncode != 0:
+        return int(ui.returncode)
     npx = [
         "npx",
         "--yes",

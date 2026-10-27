@@ -1,0 +1,86 @@
+.modal {
+  position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-box {
+  width: min(620px, 92vw); max-height: 86vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.modal-box pre { background: var(--bg); padding: 10px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-level { color: var(--warn); font-weight: 700; }
+.approval-actions, .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  background: var(--panel-2); border: 1px solid var(--accent);
+  padding: 8px 14px; border-radius: 999px; z-index: 60; font-size: 12px;
+  /* 提示条不能挡住输入区的按钮。 */
+  pointer-events: none;
+}
+
+.density-compact .transcript { padding: 10px 14px; gap: 8px; }
+.density-compact .msg-body { padding: 7px 9px; }
+.font-small { --font-size: 13px; }
+.font-large { --font-size: 16px; }
+
+@media (max-width: 1100px) {
+  #app { grid-template-columns: 240px 1fr; }
+  .inspector { display: none; }
+}
+
+@media (max-width: 760px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr);
+  }
+  .sidebar {
+    max-height: 45vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .composer { max-height: 45vh; }
+  .inspector { display: none; }
+  .modal-box {
+    width: 94vw;
+    max-height: 90vh;
+  }
+  button { min-height: 36px; }
+}
+
+.progress {
+  height: 8px;
+  margin: 8px 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+}
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width .2s ease;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.connection { color: var(--warn); }
+.reasoning-block { padding: 4px 0; border-bottom: 1px dashed var(--border); }
+.reasoning-block:last-child { border-bottom: 0; }
+.reasoning-block summary { cursor: pointer; }
+.reasoning-block pre { margin-top: 6px; }
+
+.shortcuts { display: flex; flex-direction: column; gap: 8px; }
+.shortcut-row { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.shortcut-row kbd {
+  min-width: 150px; padding: 3px 8px; border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 6px; background: var(--panel-2);
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+}
