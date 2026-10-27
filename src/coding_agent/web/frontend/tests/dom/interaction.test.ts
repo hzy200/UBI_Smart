@@ -1174,6 +1174,24 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       data.clientErrors = [];
     });
 
+    await t.test('编辑器标签与文件视图按会话隔离', async () => {
+      data.resetSessionViews();
+      data.activateSessionView('tabs-a', true);
+      await data.openFile('a.py');
+      await waitFor(() => data.editorTabs.length === 1, '会话 A 标签');
+      assert.equal(data.mainTab, 'file');
+      assert.equal(data.fileView.path, 'a.py');
+
+      data.activateSessionView('tabs-b', true);
+      assert.equal(data.editorTabs.length, 0);
+      assert.equal(data.mainTab, 'chat');
+
+      data.activateSessionView('tabs-a');
+      assert.equal(data.editorTabs.length, 1);
+      assert.equal(data.fileView.path, 'a.py');
+      data.resetSessionViews();
+    });
+
     await t.test('没有 Alpine CSP 表达式错误', () => {
       const errors = app.warnings.filter(
         (line) => line.includes('unable to interpret'),

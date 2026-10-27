@@ -151,6 +151,14 @@ items:
 # 已还清（保留作历史，避免重复讨论）
 # ===========================================================================
 paid_off:
+  - id: TD-017
+    title: 前端会话视图已隔离，但编辑器标签与焦点仍是全局的
+    resolved: 2026-10-27
+    how: editorTabs/activeEditorId/mainTab/fileView/diff 状态迁入 SessionView，
+      切换会话保留各自标签；打开新会话仍重置编辑器。键盘焦点仍是浏览器全局。
+    regression: tests/dom/interaction.test.ts（编辑器标签与文件视图按会话隔离）
+    see: web/frontend/src/state/session-view.ts
+
   - id: TD-007
     title: 快照落在工作区内，工作区可写时 agent 能改自己的留底
     resolved: 2026-10-27
@@ -206,27 +214,14 @@ paid_off:
     due: 多实例 Web 部署时
     do_not: 不要把明文 key 写进租户 JSON、.env 或前端 localStorage
 
-  - id: TD-017
-    title: 前端会话视图已隔离，但编辑器标签与焦点仍是全局的
-    where: web/frontend/src/features/sessions.ts, features/inspector.ts
-    why_now: 阶段 5 已让消息/SSE/审批按 SessionView 隔离，主区与分屏可并行；
-      但 editorTabs、activeEditorId 与键盘焦点仍挂在根对象，切换会话会清空标签，
-      分屏也不共享标签焦点
-    debt_type: 结构
-    severity: low
-    workaround: 切换会话时重置编辑器区域；分屏只做对话/任务，不做文件编辑
-    owner: 项目作者
-    due: 需要多会话文件编辑或分屏内打开文件时
-    do_not: 不要在未隔离状态下让两个会话同时操作同一 editorTabs 数组
-
   - id: TD-018
-    title: 前端交互测试未进 CI，且没有 Playwright 真实浏览器 E2E
+    title: 缺少 Playwright 真实浏览器 E2E
     where: .github/workflows/ci.yml, web/frontend/tests/
-    why_now: 已有 40 个纯函数 + 27 个 jsdom 用例与 pywebview 探针，但 CI 只跑
-      构建漂移与 tsc；真实浏览器布局、下载与原生事件仍靠手工冒烟
+    why_now: 纯函数与 jsdom 用例已进 CI（npm ci && npm test），但真实浏览器
+      布局、下载与原生事件仍靠手工冒烟
     debt_type: 测试
     severity: low
-    workaround: 发版前本地跑 node test.mjs / test-dom.mjs / probe_frontend_csp.py
+    workaround: 发版前本地跑 probe_frontend_csp.py 或手工冒烟
     owner: 项目作者
     due: 前端发版流水线稳定后
     do_not: 不要把 jsdom 用例当作真实浏览器 E2E 的替代品

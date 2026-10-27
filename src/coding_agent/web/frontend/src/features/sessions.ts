@@ -730,6 +730,9 @@ export const sessionsMixin = {
       _changes: [], _commits: [],
     };
     this.gitDiffText = '';
+  },
+
+  resetEditorUi() {
     this.diffText = '';
     this.diffDisplay = '';
     this.diffPath = '';
@@ -816,6 +819,7 @@ export const sessionsMixin = {
     this.stateText = this.t('status.ready');
     if (this.activeView) this.activeView.loaded = false;
     this.resetSessionUi();
+    this.resetEditorUi();
     // 只清理当前视图的缓存，避免打断其他会话仍在进行的流。
     const prefix = `${threadKey}::`;
     for (const key of Array.from(toolMap.keys())) {
