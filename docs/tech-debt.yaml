@@ -6,7 +6,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-25
 review_cadence: 每次发版前过一遍；超过 due 的条目必须在 PR 里说明
 
 items:
@@ -16,7 +16,7 @@ items:
     why_now: 事件翻译天然分支多；拆分需要行为绝对不变，风险中
     debt_type: 结构
     severity: medium
-    plan: per-node 分支拆成 `_emit_*` 或 `{node: handler}` 表驱动
+    plan: "per-node 分支拆成 `_emit_*` 或 `{node: handler}` 表驱动"
     blocked_by: 需要先把事件流测试铺满（已有 test_runtime_stream.py）
     owner: 项目作者
     due: 下一个重构窗口
@@ -106,6 +106,80 @@ items:
     owner: 项目作者
     due: 下次 README 编辑时
     do_not: 不要在各文档之间互相抄数字 —— 抄一次错一次
+
+  - id: TD-011
+    title: Windows host 后端没有等价 bwrap，user-t1 只是 T1
+    where: host_broker/policy.py, host_broker/paths.py
+    why_now: lowpriv + ACL 能强制 ZX，但不是内核级隔离；AppContainer 更受限但
+      不适合作为默认；Phase 1 只做只读，尚未验证写/执行/安装路径
+    debt_type: 安全
+    severity: high
+    workaround: 默认关闭 A2L；默认 lowpriv + ACL；appcontainer 仅受限只读；不可信仓库留在 sandbox
+    owner: 项目作者
+    due: 开放 host.exec/host.install 之前
+    do_not: 不要把 user-t1 写成 T2，也不要用“绝对禁止”包装策略 glob
+
+  - id: TD-012
+    title: host/sandbox 跨 kind 编译/验证不支持
+    where: execution/router.py, workspace/model.py
+    why_now: 批准时选择“源码与产物在同一侧”，避免跨挂载与不一致；跨 kind 需要
+      显式同步与新的授权模型
+    debt_type: 能力缺口
+    severity: medium
+    workaround: host 项目全程 host；Linux/不可信项目全程 sandbox；冲突时拒绝
+    owner: 项目作者
+    due: 出现同一项目既要本机工具链又要 WSL 隔离时
+    do_not: 不要用 `/mnt` 或 `\\wsl$` 偷偷桥接 —— 那会绕开路径与加固边界
+
+  - id: TD-013
+    title: A2L 是 T4 横向执行面，服务端失陷可触达所有客户端
+    where: host_broker/server.py, host_broker/consent.py
+    why_now: 本地否决权/只外连/设备证书能降低概率，但不能消除；Phase 1 尚未做
+      企业设备注册与红队演练
+    debt_type: 安全
+    severity: high
+    workaround: 默认关闭；企业先小范围部署；本地日志面板可逐条回放
+    owner: 项目作者
+    due: 企业批量分发之前
+    do_not: 不要让服务端推送自动更新或下发 grant scope
+
+  - id: TD-014
+    title: A2L 生命周期管理与企业分发未实现
+    where: host_broker/lifecycle.py, desktop/supervisor.py, packaging/
+    why_now: P1 只做客户端子进程/托盘；随客户端启停、崩溃恢复、签名更新、
+      客户端安装包、设备注册都在 P4
+    debt_type: 能力缺口
+    severity: medium
+    workaround: P1 由客户端 supervisor 拉起/终止；客户端退出时 A2L 必须退出
+    owner: 项目作者
+    due: 企业批量部署之前
+    do_not: 不要把 A2L 做成独立系统服务或开机自启；也不要接服务端静默自动更新
+
+  - id: TD-015
+    title: P1 host 工作区只支持 Windows 本地固定 NTFS
+    where: host_broker/paths.py, host_broker/store.py
+    why_now: 云盘/网络盘/UNC/reparse 的句柄、锁与同步语义不同，P1 直接拒绝；
+      Linux/macOS 等价实现未做
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 项目放本地 NTFS；OneDrive/网络盘先同步到本地再注册
+    owner: 项目作者
+    due: 需要跨平台或网络盘工作区时
+    do_not: 不要用字符串判断文件系统类型，也不要用 `/mnt` 或 `\\wsl$` 绕过
+
+  - id: TD-016
+    title: 前端改用标准 Alpine，CSP 需要 unsafe-eval
+    where: web/static/index.html, web/static/vendor/alpine.min.js, web/middleware.py
+    why_now: Alpine CSP 构建在 pywebview 里无法稳定把 data 挂到根节点，
+      按钮全部失效；标准构建需要 Function 解析 x-* 表达式。
+      当前有 76 处 CSP 不兼容表达式，已加测试锁定基线，防止继续增长
+    debt_type: 安全
+    severity: medium
+    workaround: 仅本机 loopback 桌面使用；HTML 仍经 DOMPurify/CSP 其他指令约束；
+      迁移前先用 test_frontend_workspace_ui 的 CSP 表达式守卫控制范围
+    owner: 项目作者
+    due: 找到 CSP 构建兼容方案，或移除 Alpine 改用手写 DOM
+    do_not: 不要把带 unsafe-eval 的 CSP 直接用于公网多用户 Web 而不复核
 
 # ===========================================================================
 # 已还清（保留作历史，避免重复讨论）

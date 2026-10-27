@@ -85,12 +85,10 @@
         </details>
       </template>
     </div>
-    <div class="transcript" x-ref="transcript" role="log" aria-live="polite"
-         aria-label="对话记录" @scroll="onTranscriptScroll($event)">
-      <button class="load-older" x-show="hiddenMessageCount() > 0" @click="showOlderMessages()">
-        显示更早消息（还有 <span x-text="hiddenMessageCount()"></span> 条）
-      </button>
-      <template x-for="m in visibleMessages()" :key="m.id">
+    <div class="transcript" :class="transcriptClass()" x-ref="transcript" role="log"
+         aria-live="polite" aria-label="对话记录" @scroll="onTranscriptScroll($event)">
+      <div class="virtual-spacer" :style="'height:' + virtualTop + 'px'"></div>
+      <template x-for="m in virtualMessages()" :key="m.id">
         <div class="msg" :class="messageClass(m)" :data-message-id="m.id">
           <div class="msg-head">
             <span class="msg-badge"
@@ -141,6 +139,7 @@
           </template>
         </div>
       </template>
+      <div class="virtual-spacer" :style="'height:' + virtualBottom + 'px'"></div>
       <template x-for="c in consents" :key="c.id">
         <div class="consent-card" role="alert">
           <div class="consent-head">

@@ -1523,6 +1523,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       };
       if (open && this.inspectorCollapsed) this.inspectorCollapsed = false;
     },
+    setSettingsTab(name) {
+      this.settingsTab = name;
+    },
+    settingsTabClass(name) {
+      return this.settingsTab === name ? "active" : "";
+    },
     toggleSettings() {
       this.showSettings = !this.showSettings;
       if (this.showSettings) {
@@ -1686,6 +1692,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
   var toolMap = /* @__PURE__ */ new Map();
   var renderTimers = /* @__PURE__ */ new Map();
   var tokenBuffers = /* @__PURE__ */ new Map();
+  var messageHeights = /* @__PURE__ */ new Map();
 
   // src/features/sessions.ts
   var sessionsMixin = {
@@ -1763,7 +1770,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         });
       }
       this.moveFinalAnswerLast();
-      this.$nextTick(() => this.decorateTranscript());
+      this.$nextTick(() => {
+        this.scrollBottom(true);
+        this.decorateTranscript();
+      });
     },
     async loadSessions() {
       try {
@@ -2061,7 +2071,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.decisions = {};
       this.costText = "";
       this.usage = { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 };
-      this.messageWindow = 120;
+      messageHeights.clear();
+      if (this._virtualRaf) cancelAnimationFrame(this._virtualRaf);
+      this._virtualRaf = 0;
+      this.virtualStart = 0;
+      this.virtualEnd = 0;
+      this.virtualTop = 0;
+      this.virtualBottom = 0;
       this.messageSearchOpen = false;
       this.messageQuery = "";
       this.messageMatches = [];
@@ -2152,14 +2168,35 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     return tokens.every((token) => text.includes(token));
   }
 
-  // src/ui/window.ts
-  function tailSlice(items, count) {
-    const size = Math.max(0, Math.floor(Number(count) || 0));
-    if (!size) return [];
-    return items.slice(Math.max(0, items.length - size));
+  // src/ui/virtual.ts
+  function computeVirtualRange(heights, scrollTop, viewportHeight, overscan = 6) {
+    const total = heights.length;
+    if (!total) return { start: 0, end: 0, top: 0, bottom: 0 };
+    const prefix = new Array(total + 1).fill(0);
+    for (let index = 0; index < total; index += 1) {
+      prefix[index + 1] = prefix[index] + Math.max(0, Number(heights[index]) || 0);
+    }
+    const top = Math.max(0, Number(scrollTop) || 0);
+    const viewport = Math.max(0, Number(viewportHeight) || 0);
+    let start = 0;
+    while (start < total && prefix[start + 1] <= top) start += 1;
+    let end = start;
+    const limit = top + viewport;
+    while (end < total && prefix[end] < limit) end += 1;
+    start = Math.max(0, start - Math.max(0, overscan));
+    end = Math.min(total, end + Math.max(0, overscan));
+    return {
+      start,
+      end,
+      top: prefix[start],
+      bottom: prefix[total] - prefix[end]
+    };
   }
 
   // src/features/transcript.ts
+  var VIRTUAL_THRESHOLD = 200;
+  var MESSAGE_GAP = 14;
+  var OVERSCAN = 6;
   var transcriptMixin = {
     pushMessage(role, text, done = true, phase = "") {
       if (role === "assistant") {
@@ -2181,6 +2218,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       };
       this.messages.push(message);
       this.scrollBottom(role === "user" || resolvedPhase === "final");
+      this.scheduleVirtualRange();
       this.$nextTick(() => this.decorateTranscript());
       return message;
     },
@@ -2267,6 +2305,27 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         button.setAttribute("aria-label", "\u590D\u5236\u4EE3\u7801\u5757");
         button.addEventListener("click", () => this.copyCode(pre));
         pre.insertAdjacentElement("beforebegin", button);
+      });
+      if (!this.virtualEnabled() || !window.ResizeObserver) return;
+      const key = "__codingAgentMessageObserver";
+      if (!root[key]) {
+        root[key] = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            const element = entry.target;
+            const id = Number(element.getAttribute("data-message-id"));
+            if (!id) continue;
+            const oldHeight = messageHeights.get(id) || 0;
+            const height = element.getBoundingClientRect().height + MESSAGE_GAP;
+            if (oldHeight && Math.abs(oldHeight - height) < 1) continue;
+            messageHeights.set(id, height);
+            this.onMessageMeasured(id, oldHeight, height);
+          }
+        });
+      }
+      const observer = root[key];
+      observer.disconnect();
+      root.querySelectorAll(".msg[data-message-id]").forEach((element) => {
+        observer.observe(element);
       });
     },
     async copyText(text) {
@@ -2355,35 +2414,79 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this._currentNode = "";
       this.$nextTick(() => this.decorateTranscript());
     },
-    visibleMessages() {
-      return tailSlice(this.messages, this.messageWindow);
+    virtualEnabled() {
+      return this.messages.length > VIRTUAL_THRESHOLD;
     },
-    hiddenMessageCount() {
-      return Math.max(0, this.messages.length - this.messageWindow);
+    transcriptClass() {
+      return this.virtualEnabled() ? "is-virtual" : "";
     },
-    showOlderMessages() {
-      const element = this.$refs.transcript;
-      const anchor = element ? element.scrollHeight - element.scrollTop : 0;
-      this.messageWindow += 100;
-      this.$nextTick(() => {
-        if (element) element.scrollTop = element.scrollHeight - anchor;
+    estimateMessageHeight(message) {
+      if (!message) return 80;
+      if (message.kind === "tool") return 90;
+      if (message.role === "system") return 40;
+      if (message.role === "user") return 72;
+      return 120;
+    },
+    virtualHeights() {
+      return this.messages.map((message) => (messageHeights.get(message.id) || this.estimateMessageHeight(message)) + MESSAGE_GAP);
+    },
+    virtualMessages() {
+      if (!this.virtualEnabled()) return this.messages;
+      if (!this.virtualEnd) {
+        return this.messages.slice(Math.max(0, this.messages.length - 80));
+      }
+      return this.messages.slice(this.virtualStart, this.virtualEnd);
+    },
+    scheduleVirtualRange() {
+      if (!this.virtualEnabled() || this._virtualRaf) return;
+      this._virtualRaf = requestAnimationFrame(() => {
+        this._virtualRaf = 0;
+        this.recomputeVirtualRange();
       });
     },
-    revealMessage(id) {
-      const index = this.messages.findIndex((message) => message.id === id);
-      if (index < 0) return;
-      const start = Math.max(0, this.messages.length - this.messageWindow);
-      if (index < start) {
-        this.messageWindow = this.messages.length - index + 20;
+    recomputeVirtualRange() {
+      const root = this.$refs.transcript;
+      if (!root || !this.virtualEnabled()) {
+        this.virtualStart = 0;
+        this.virtualEnd = this.messages.length;
+        this.virtualTop = 0;
+        this.virtualBottom = 0;
+        return;
       }
+      const range = computeVirtualRange(
+        this.virtualHeights(),
+        root.scrollTop,
+        root.clientHeight,
+        OVERSCAN
+      );
+      const changed = this.virtualStart !== range.start || this.virtualEnd !== range.end;
+      this.virtualStart = range.start;
+      this.virtualEnd = range.end;
+      this.virtualTop = range.top;
+      this.virtualBottom = range.bottom;
+      if (changed) this.$nextTick(() => this.decorateTranscript());
+    },
+    onMessageMeasured(id, oldHeight, newHeight) {
+      if (!this.virtualEnabled()) return;
+      const index = this.messages.findIndex((message) => message.id === id);
+      if (index >= 0 && index < this.virtualStart && oldHeight > 0) {
+        const root = this.$refs.transcript;
+        if (root) root.scrollTop += newHeight - oldHeight;
+      }
+      this.scheduleVirtualRange();
     },
     scrollBottom(force = true) {
       this.$nextTick(() => {
         const element = this.$refs.transcript;
         if (!element) return;
         if (!force && this.showJumpLatest) return;
-        element.scrollTop = element.scrollHeight;
-        this.showJumpLatest = false;
+        const apply = () => {
+          element.scrollTop = element.scrollHeight;
+          this.showJumpLatest = false;
+        };
+        apply();
+        this.recomputeVirtualRange();
+        this.$nextTick(apply);
       });
     },
     onTranscriptScroll(event) {
@@ -2391,6 +2494,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       if (!element) return;
       const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
       this.showJumpLatest = remaining > 120;
+      this.scheduleVirtualRange();
     },
     messageClass(message) {
       const hit = this.messageMatches.includes(message.id) ? " msg-hit" : "";
@@ -2440,12 +2544,35 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     scrollToMessageMatch() {
       const id = this.messageMatches[this.messageMatchIndex];
       if (id === void 0) return;
-      this.revealMessage(id);
+      const index = this.messages.findIndex((message) => message.id === id);
+      if (index >= 0) this.scrollToMessageIndex(index);
+    },
+    scrollToMessageIndex(index) {
+      if (index < 0 || index >= this.messages.length) return;
+      const root = this.$refs.transcript;
+      if (!root) return;
+      if (this.virtualEnabled()) {
+        const heights = this.virtualHeights();
+        const offset = heights.slice(0, index).reduce((sum, height) => sum + height, 0);
+        root.scrollTop = Math.max(0, offset - 80);
+        this.recomputeVirtualRange();
+      }
+      const id = this.messages[index].id;
       this.$nextTick(() => {
-        const element = document.querySelector(
+        const find = () => root.querySelector(
           `[data-message-id="${id}"]`
         );
-        if (element) element.scrollIntoView({ block: "center", behavior: "smooth" });
+        const first = find();
+        if (first) {
+          first.scrollIntoView({ block: "center", behavior: "smooth" });
+          return;
+        }
+        this.$nextTick(() => {
+          const second = find();
+          if (second) {
+            second.scrollIntoView({ block: "center", behavior: "smooth" });
+          }
+        });
       });
     },
     nextMessageMatch(delta) {
@@ -4872,7 +4999,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       _retryTimer: null,
       _lastPrompt: "",
       messages: [],
-      messageWindow: 120,
+      virtualStart: 0,
+      virtualEnd: 0,
+      virtualTop: 0,
+      virtualBottom: 0,
+      _virtualRaf: 0,
       messageSearchOpen: false,
       messageQuery: "",
       messageMatches: [],
@@ -4963,6 +5094,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       _searchSeq: 0,
       _resizing: "",
       showSettings: false,
+      settingsTab: "appearance",
       providerName: "deepseek",
       providerKeyInput: "",
       theme: "dark",

@@ -8,6 +8,7 @@ import {
   renderMarkdown,
 } from '../ui/format';
 import {
+  messageHeights,
   renderTimers,
   tokenBuffers,
   toolMap,
@@ -103,7 +104,10 @@ export const sessionsMixin = {
     }
     // 兼容旧轨迹：即使保存时尾部有过程提示，也把最终回答放回最后。
     this.moveFinalAnswerLast();
-    this.$nextTick(() => this.decorateTranscript());
+    this.$nextTick(() => {
+      this.scrollBottom(true);
+      this.decorateTranscript();
+    });
   },
 
   async loadSessions() {
@@ -437,7 +441,13 @@ export const sessionsMixin = {
     this.decisions = {};
     this.costText = '';
     this.usage = { input: 0, output: 0, cost: 0, budget: 0, ratio: 0, cache: 0 };
-    this.messageWindow = 120;
+    messageHeights.clear();
+    if (this._virtualRaf) cancelAnimationFrame(this._virtualRaf);
+    this._virtualRaf = 0;
+    this.virtualStart = 0;
+    this.virtualEnd = 0;
+    this.virtualTop = 0;
+    this.virtualBottom = 0;
     this.messageSearchOpen = false;
     this.messageQuery = '';
     this.messageMatches = [];

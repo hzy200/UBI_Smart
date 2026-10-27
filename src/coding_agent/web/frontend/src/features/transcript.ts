@@ -4,11 +4,16 @@ import {
   renderMarkdown,
 } from '../ui/format';
 import {
+  messageHeights,
   renderTimers,
   tokenBuffers,
 } from '../state/runtime';
 import { includesQuery } from '../ui/search';
-import { tailSlice } from '../ui/window';
+import { computeVirtualRange } from '../ui/virtual';
+
+const VIRTUAL_THRESHOLD = 200;
+const MESSAGE_GAP = 14;
+const OVERSCAN = 6;
 
 export const transcriptMixin = {
   pushMessage(role, text, done = true, phase = '') {
@@ -38,6 +43,7 @@ export const transcriptMixin = {
     };
     this.messages.push(message);
     this.scrollBottom(role === 'user' || resolvedPhase === 'final');
+    this.scheduleVirtualRange();
     this.$nextTick(() => this.decorateTranscript());
     return message;
   },
@@ -136,6 +142,27 @@ export const transcriptMixin = {
       button.addEventListener('click', () => this.copyCode(pre));
       pre.insertAdjacentElement('beforebegin', button);
     });
+    if (!this.virtualEnabled() || !window.ResizeObserver) return;
+    const key = '__codingAgentMessageObserver';
+    if (!(root as any)[key]) {
+      (root as any)[key] = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const element = entry.target as HTMLElement;
+          const id = Number(element.getAttribute('data-message-id'));
+          if (!id) continue;
+          const oldHeight = messageHeights.get(id) || 0;
+          const height = element.getBoundingClientRect().height + MESSAGE_GAP;
+          if (oldHeight && Math.abs(oldHeight - height) < 1) continue;
+          messageHeights.set(id, height);
+          this.onMessageMeasured(id, oldHeight, height);
+        }
+      });
+    }
+    const observer = (root as any)[key] as ResizeObserver;
+    observer.disconnect();
+    root.querySelectorAll('.msg[data-message-id]').forEach((element) => {
+      observer.observe(element);
+    });
   },
 
   async copyText(text) {
@@ -233,30 +260,78 @@ export const transcriptMixin = {
     this.$nextTick(() => this.decorateTranscript());
   },
 
-  visibleMessages() {
-    return tailSlice(this.messages, this.messageWindow);
+  virtualEnabled() {
+    return this.messages.length > VIRTUAL_THRESHOLD;
   },
 
-  hiddenMessageCount() {
-    return Math.max(0, this.messages.length - this.messageWindow);
+  transcriptClass() {
+    return this.virtualEnabled() ? 'is-virtual' : '';
   },
 
-  showOlderMessages() {
-    const element = this.$refs.transcript as HTMLElement | null;
-    const anchor = element ? element.scrollHeight - element.scrollTop : 0;
-    this.messageWindow += 100;
-    this.$nextTick(() => {
-      if (element) element.scrollTop = element.scrollHeight - anchor;
+  estimateMessageHeight(message) {
+    if (!message) return 80;
+    if (message.kind === 'tool') return 90;
+    if (message.role === 'system') return 40;
+    if (message.role === 'user') return 72;
+    return 120;
+  },
+
+  virtualHeights() {
+    return this.messages.map((message) => (
+      (messageHeights.get(message.id) || this.estimateMessageHeight(message))
+      + MESSAGE_GAP
+    ));
+  },
+
+  virtualMessages() {
+    if (!this.virtualEnabled()) return this.messages;
+    if (!this.virtualEnd) {
+      return this.messages.slice(Math.max(0, this.messages.length - 80));
+    }
+    return this.messages.slice(this.virtualStart, this.virtualEnd);
+  },
+
+  scheduleVirtualRange() {
+    if (!this.virtualEnabled() || this._virtualRaf) return;
+    this._virtualRaf = requestAnimationFrame(() => {
+      this._virtualRaf = 0;
+      this.recomputeVirtualRange();
     });
   },
 
-  revealMessage(id) {
-    const index = this.messages.findIndex((message) => message.id === id);
-    if (index < 0) return;
-    const start = Math.max(0, this.messages.length - this.messageWindow);
-    if (index < start) {
-      this.messageWindow = this.messages.length - index + 20;
+  recomputeVirtualRange() {
+    const root = this.$refs.transcript as HTMLElement | null;
+    if (!root || !this.virtualEnabled()) {
+      this.virtualStart = 0;
+      this.virtualEnd = this.messages.length;
+      this.virtualTop = 0;
+      this.virtualBottom = 0;
+      return;
     }
+    const range = computeVirtualRange(
+      this.virtualHeights(),
+      root.scrollTop,
+      root.clientHeight,
+      OVERSCAN,
+    );
+    const changed = (
+      this.virtualStart !== range.start || this.virtualEnd !== range.end
+    );
+    this.virtualStart = range.start;
+    this.virtualEnd = range.end;
+    this.virtualTop = range.top;
+    this.virtualBottom = range.bottom;
+    if (changed) this.$nextTick(() => this.decorateTranscript());
+  },
+
+  onMessageMeasured(id, oldHeight, newHeight) {
+    if (!this.virtualEnabled()) return;
+    const index = this.messages.findIndex((message) => message.id === id);
+    if (index >= 0 && index < this.virtualStart && oldHeight > 0) {
+      const root = this.$refs.transcript as HTMLElement | null;
+      if (root) root.scrollTop += newHeight - oldHeight;
+    }
+    this.scheduleVirtualRange();
   },
 
   scrollBottom(force = true) {
@@ -264,8 +339,13 @@ export const transcriptMixin = {
       const element = this.$refs.transcript;
       if (!element) return;
       if (!force && this.showJumpLatest) return;
-      element.scrollTop = element.scrollHeight;
-      this.showJumpLatest = false;
+      const apply = () => {
+        element.scrollTop = element.scrollHeight;
+        this.showJumpLatest = false;
+      };
+      apply();
+      this.recomputeVirtualRange();
+      this.$nextTick(apply);
     });
   },
 
@@ -274,6 +354,7 @@ export const transcriptMixin = {
     if (!element) return;
     const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
     this.showJumpLatest = remaining > 120;
+    this.scheduleVirtualRange();
   },
 
   messageClass(message) {
@@ -332,12 +413,38 @@ export const transcriptMixin = {
   scrollToMessageMatch() {
     const id = this.messageMatches[this.messageMatchIndex];
     if (id === undefined) return;
-    this.revealMessage(id);
+    const index = this.messages.findIndex((message) => message.id === id);
+    if (index >= 0) this.scrollToMessageIndex(index);
+  },
+
+  scrollToMessageIndex(index) {
+    if (index < 0 || index >= this.messages.length) return;
+    const root = this.$refs.transcript as HTMLElement | null;
+    if (!root) return;
+    if (this.virtualEnabled()) {
+      const heights = this.virtualHeights();
+      const offset = heights
+        .slice(0, index)
+        .reduce((sum, height) => sum + height, 0);
+      root.scrollTop = Math.max(0, offset - 80);
+      this.recomputeVirtualRange();
+    }
+    const id = this.messages[index].id;
     this.$nextTick(() => {
-      const element = document.querySelector(
+      const find = () => root.querySelector(
         `[data-message-id="${id}"]`,
       ) as HTMLElement | null;
-      if (element) element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      const first = find();
+      if (first) {
+        first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+      this.$nextTick(() => {
+        const second = find();
+        if (second) {
+          second.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      });
     });
   },
 

@@ -231,10 +231,11 @@ def test_m4_conversation_and_tools_are_guarded() -> None:
 def test_m5_windowing_and_a11y_are_guarded() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     for marker in (
-        "visibleMessages()",
-        "hiddenMessageCount()",
-        "showOlderMessages()",
-        "load-older",
+        "virtualMessages()",
+        "virtualTop",
+        "virtualBottom",
+        "virtual-spacer",
+        "transcriptClass()",
         'aria-selected',
         'aria-pressed',
         'aria-activedescendant',
@@ -246,10 +247,12 @@ def test_m5_windowing_and_a11y_are_guarded() -> None:
 
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     for marker in (
-        "visibleMessages",
-        "tailSlice",
-        "showOlderMessages",
-        "revealMessage",
+        "virtualMessages",
+        "computeVirtualRange",
+        "scheduleVirtualRange",
+        "recomputeVirtualRange",
+        "onMessageMeasured",
+        "messageHeights",
         "diffRowsFromText",
         "matchesAllTokens",
         "includesQuery",
@@ -257,13 +260,14 @@ def test_m5_windowing_and_a11y_are_guarded() -> None:
         assert marker in app, marker
 
     css = (STATIC / "style.css").read_text(encoding="utf-8")
-    assert ".load-older" in css
+    assert ".virtual-spacer" in css
+    assert ".transcript.is-virtual" in css
 
     frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
     assert (frontend / "test.mjs").is_file()
     assert (frontend / "tests" / "diff.test.ts").is_file()
     assert (frontend / "tests" / "search.test.ts").is_file()
-    assert (frontend / "tests" / "window.test.ts").is_file()
+    assert (frontend / "tests" / "virtual.test.ts").is_file()
 
 
 def test_m6_editor_tabs_tree_and_problems_are_guarded() -> None:
@@ -328,3 +332,24 @@ def test_m7_session_management_is_guarded() -> None:
     css = (STATIC / "style.css").read_text(encoding="utf-8")
     for marker in (".session-filters", ".session-pin", ".session-tag"):
         assert marker in css, marker
+
+
+def test_csp_unsafe_eval_expression_inventory_does_not_grow() -> None:
+    """TD-016：切到 Alpine CSP 构建前，先把这些表达式改成方法调用。"""
+    import re
+
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    attrs = re.findall(
+        r'\b(?:x-[a-z-]+|@[a-z.:-]+|:[a-z-]+)="([^"]*)"', html
+    )
+    incompatible = [
+        expr for expr in attrs
+        if expr.strip() and re.search(
+            r"(\s=\s|===|!==|==|!=|\|\||&&|[?:]|\.\.\.|\{|\}|;|=>)", expr
+        )
+    ]
+    # 当前基线；新增表达式不应让 CSP 迁移成本继续变大。
+    assert len(incompatible) <= 76, (
+        "CSP 不兼容表达式增加了："
+        f"{len(incompatible)} > 76；请改用组件方法/计算属性"
+    )

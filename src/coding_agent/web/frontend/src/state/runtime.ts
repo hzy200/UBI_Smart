@@ -7,3 +7,5 @@
 export const toolMap = new Map<string, any>();
 export const renderTimers = new Map<number, any>();
 export const tokenBuffers = new Map<number, string>();
+// 消息 id -> 实测高度（含消息间距）；虚拟列表的非响应式缓存。
+export const messageHeights = new Map<number, number>();

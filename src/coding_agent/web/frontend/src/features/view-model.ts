@@ -100,6 +100,12 @@ export const view_modelMixin = {
     };
     if (open && this.inspectorCollapsed) this.inspectorCollapsed = false;
   },
+  setSettingsTab(name) {
+    this.settingsTab = name;
+  },
+  settingsTabClass(name) {
+    return this.settingsTab === name ? 'active' : '';
+  },
   toggleSettings() {
     this.showSettings = !this.showSettings;
     if (this.showSettings) {
