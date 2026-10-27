@@ -877,7 +877,15 @@
       consentAllow: "\u5141\u8BB8\u672C\u6B21",
       fileChanged: "\u6587\u4EF6\u5DF2\u53D8\u5316",
       expandAll: "\u5C55\u5F00\u5168\u90E8",
-      copy: "\u590D\u5236"
+      copy: "\u590D\u5236",
+      openInEditor: "\u5728 VS Code \u6253\u5F00",
+      revealInExplorer: "\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A",
+      openedInEditor: "\u5DF2\u5728 VS Code \u6253\u5F00",
+      revealedInExplorer: "\u5DF2\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A",
+      editorOpenFailed: "\u6253\u5F00\u5931\u8D25\uFF1A{error}",
+      browserNoEditor: "\u6D4F\u89C8\u5668\u6A21\u5F0F\u4E0D\u652F\u6301\u6253\u5F00\u672C\u673A\u6587\u4EF6",
+      editorPathUnsupported: "\u4EC5\u652F\u6301 WSL \u6216\u672C\u673A\u5DE5\u4F5C\u533A\u4E2D\u7684\u6587\u4EF6",
+      revealUnsupported: "\u4EC5\u672C\u673A\u5DE5\u4F5C\u533A\u652F\u6301\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A"
     },
     split: {
       close: "\u5173\u95ED\u5206\u5C4F",
@@ -1049,7 +1057,15 @@
       consentAllow: "Allow once",
       fileChanged: "File changed",
       expandAll: "Expand all",
-      copy: "Copy"
+      copy: "Copy",
+      openInEditor: "Open in VS Code",
+      revealInExplorer: "Reveal in file manager",
+      openedInEditor: "Opened in VS Code",
+      revealedInExplorer: "Revealed in file manager",
+      editorOpenFailed: "Open failed: {error}",
+      browserNoEditor: "Browser mode cannot open local files",
+      editorPathUnsupported: "Only WSL or native workspace files are supported",
+      revealUnsupported: "Reveal is only available for native workspaces"
     },
     split: {
       close: "Close split pane",
@@ -5471,6 +5487,15 @@ ${paths}`);
     };
   }
 
+  // src/ui/paths.ts
+  function isWslPath(value) {
+    return String(value || "").trim().startsWith("/");
+  }
+  function isWindowsPath(value) {
+    const text = String(value || "").trim();
+    return /^[A-Za-z]:[\\/]/.test(text) || text.startsWith("\\\\");
+  }
+
   // src/ui/file-icons.ts
   var ICONS = {
     py: { id: "i-file-code", cls: "icon-py" },
@@ -6184,23 +6209,51 @@ ${paths}
     canOpenFileInVscode() {
       const root = String(this.workspaceInput || this.workspace || "").trim();
       return Boolean(
-        this.desktopAvailable && this.fileView.path && root.startsWith("/")
+        this.desktopAvailable && this.fileView.path && (isWslPath(root) || isWindowsPath(root))
+      );
+    },
+    canRevealInExplorer() {
+      const root = String(this.workspaceInput || this.workspace || "").trim();
+      return Boolean(
+        this.desktopAvailable && this.fileView.path && isWindowsPath(root)
       );
     },
     async openFileInVscode() {
       const bridge = window.pywebview && window.pywebview.api;
       if (!bridge) {
-        this.toastMessage("\u6D4F\u89C8\u5668\u6A21\u5F0F\u4E0D\u652F\u6301\u5728 VS Code \u6253\u5F00");
+        this.toastMessage(this.t("main.browserNoEditor"));
         return;
       }
       const root = String(this.workspaceInput || this.workspace || "").replace(/\/+$/, "");
-      if (!root.startsWith("/") || !this.fileView.path) {
-        this.toastMessage("\u4EC5\u652F\u6301 WSL \u5DE5\u4F5C\u533A\u4E2D\u7684\u6587\u4EF6");
+      if (!this.fileView.path || !isWslPath(root) && !isWindowsPath(root)) {
+        this.toastMessage(this.t("main.editorPathUnsupported"));
         return;
       }
       try {
-        const result = await bridge.open_in_vscode(`${root}/${this.fileView.path}`);
-        this.toastMessage(result.ok ? "\u5DF2\u5728 VS Code \u6253\u5F00" : result.error);
+        const result = isWslPath(root) ? await bridge.open_in_vscode(`${root}/${this.fileView.path}`) : await bridge.open_host_in_vscode(root, this.fileView.path);
+        this.toastMessage(
+          result.ok ? this.t("main.openedInEditor") : this.t("main.editorOpenFailed", { error: result.error })
+        );
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    async revealFileInExplorer() {
+      const bridge = window.pywebview && window.pywebview.api;
+      if (!bridge) {
+        this.toastMessage(this.t("main.browserNoEditor"));
+        return;
+      }
+      const root = String(this.workspaceInput || this.workspace || "").trim();
+      if (!isWindowsPath(root) || !this.fileView.path) {
+        this.toastMessage(this.t("main.revealUnsupported"));
+        return;
+      }
+      try {
+        const result = await bridge.reveal_in_explorer(root, this.fileView.path);
+        this.toastMessage(
+          result.ok ? this.t("main.revealedInExplorer") : this.t("main.editorOpenFailed", { error: result.error })
+        );
       } catch (err) {
         this.toastMessage(String(err));
       }
@@ -8263,6 +8316,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     get fileInVscodeAvailable() {
       return this.canOpenFileInVscode();
+    },
+    get fileInExplorerAvailable() {
+      return this.canRevealInExplorer();
     },
     get connectionLabel() {
       return this.connectionText();

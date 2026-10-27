@@ -13,6 +13,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import uuid
 import webbrowser
@@ -30,6 +31,31 @@ _LOG = logging.getLogger(__name__)
 
 def _text(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace").strip()
+
+
+def _host_target(
+    root: str, relative_path: str
+) -> tuple[Path | None, dict | None]:
+    """把本机工作区内的相对路径解析成绝对路径。
+
+    拒绝绝对路径与 `..`，并用 resolve 后的再次包含判断挡住符号链接逃逸。
+    """
+    root_text = str(root or "").strip()
+    rel_text = str(relative_path or "").strip().replace("\\", "/")
+    if not root_text or not os.path.isabs(root_text):
+        return None, {"ok": False, "error": "工作区必须是本机绝对路径"}
+    rel = Path(rel_text)
+    if rel.is_absolute() or ".." in rel.parts:
+        return None, {"ok": False, "error": "路径必须位于工作区内"}
+    root_path = Path(root_text).expanduser().resolve()
+    target = (root_path / rel).resolve()
+    try:
+        target.relative_to(root_path)
+    except ValueError:
+        return None, {"ok": False, "error": "路径必须位于工作区内"}
+    if not target.exists():
+        return None, {"ok": False, "error": "文件不存在"}
+    return target, None
 
 
 def origin_of(url: str) -> str:
@@ -146,6 +172,57 @@ class DesktopApi:
         except OSError as exc:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         return {"ok": True, "target": target}
+
+    @_requires_trust(_DENIED)
+    def open_host_in_vscode(self, root: str, relative_path: str = "") -> dict:
+        """在 VS Code 打开本机工作区内的文件。"""
+        target, error = _host_target(root, relative_path)
+        if error is not None:
+            return error
+        code = shutil.which("code") or shutil.which("code.cmd")
+        if not code:
+            return {
+                "ok": False,
+                "error": "未找到 VS Code 的 code 命令；请确认已安装并加入 PATH",
+            }
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        try:
+            subprocess.Popen(  # noqa: S603 - 列表参数，无 shell
+                [code, str(target)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
+            )
+        except OSError as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True, "target": str(target)}
+
+    @_requires_trust(_DENIED)
+    def reveal_in_explorer(self, root: str, relative_path: str = "") -> dict:
+        """在系统文件管理器中定位本机工作区内的文件。"""
+        target, error = _host_target(root, relative_path)
+        if error is not None:
+            return error
+        if os.name == "nt":
+            args = ["explorer.exe", f"/select,{target}"]
+            flags = 0
+        elif sys.platform == "darwin":
+            args = ["open", "-R", str(target)]
+            flags = 0
+        else:
+            folder = target if target.is_dir() else target.parent
+            args = ["xdg-open", str(folder)]
+            flags = 0
+        try:
+            subprocess.Popen(  # noqa: S603 - 列表参数，无 shell
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
+            )
+        except OSError as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True, "target": str(target)}
 
     @_requires_trust(_DENIED)
     def copy_to_wsl(self, source: str, name: str = "") -> dict:

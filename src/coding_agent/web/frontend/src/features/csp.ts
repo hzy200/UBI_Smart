@@ -422,6 +422,7 @@ export const cspMixin = {
     return `${this.usage.input} in / ${this.usage.output} out`;
   },
   get fileInVscodeAvailable() { return this.canOpenFileInVscode(); },
+  get fileInExplorerAvailable() { return this.canRevealInExplorer(); },
   get connectionLabel() { return this.connectionText(); },
   get transcriptEmpty() {
     return this.messages.length === 0 && this.consents.length === 0;

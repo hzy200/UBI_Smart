@@ -58,6 +58,34 @@ def test_open_in_vscode_builds_wsl_remote_command(monkeypatch) -> None:
     assert _bridge().open_in_vscode("relative")["ok"] is False
 
 
+def test_host_editor_and_reveal_respect_workspace(monkeypatch, tmp_path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    target = root / "a.py"
+    target.write_text("print(1)", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    class FakePopen:
+        def __init__(self, args, **kwargs) -> None:
+            calls.append(list(args))
+
+    monkeypatch.setattr(desktop_api.shutil, "which", lambda name: "code")
+    monkeypatch.setattr(desktop_api.subprocess, "Popen", FakePopen)
+    bridge = _bridge()
+
+    opened = bridge.open_host_in_vscode(str(root), "a.py")
+    assert opened["ok"] is True
+    assert calls[-1] == ["code", str(target)]
+
+    assert bridge.open_host_in_vscode(str(root), "../etc/passwd")["ok"] is False
+    assert bridge.open_host_in_vscode(str(root), "missing.py")["ok"] is False
+    assert bridge.open_host_in_vscode(str(root), str(target))["ok"] is False
+
+    revealed = bridge.reveal_in_explorer(str(root), "a.py")
+    assert revealed["ok"] is True
+    assert calls[-1][0] in {"explorer.exe", "open", "xdg-open"}
+
+
 def test_copy_runs_cp_without_shell_and_reports_done(monkeypatch) -> None:
     calls: list[list[str]] = []
 

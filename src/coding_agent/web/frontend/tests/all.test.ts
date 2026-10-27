@@ -11,6 +11,7 @@ import './memo.test';
 import './multi-tab.test';
 import './notifications.test';
 import './output.test';
+import './paths.test';
 import './problems.test';
 import './request-cache.test';
 import './search.test';

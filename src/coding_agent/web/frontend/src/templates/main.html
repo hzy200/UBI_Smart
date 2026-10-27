@@ -61,7 +61,8 @@
         <button x-show="fileView._isText" @click="goToFileLine">跳转</button>
         <button x-show="activeEditorStale" @click="refreshActiveFile">刷新</button>
         <button @click="copyActiveFilePath">复制路径</button>
-        <button x-show="fileInVscodeAvailable" @click="openFileInVscode">在 VS Code 打开</button>
+        <button x-show="fileInVscodeAvailable" @click="openFileInVscode" x-text="i18n.main.openInEditor"></button>
+        <button x-show="fileInExplorerAvailable" @click="revealFileInExplorer" x-text="i18n.main.revealInExplorer"></button>
         <button @click="copyActiveFileContent">复制内容</button>
         <button @click="closeActiveEditorTab">关闭</button>
       </div>

@@ -1036,6 +1036,40 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       await waitFor(() => data.threadId === 'thread-dom-test', '恢复测试会话');
     });
 
+    await t.test('本机工作区可在 VS Code/文件管理器打开', async () => {
+      const calls: any[] = [];
+      const original = (window as any).pywebview;
+      (window as any).pywebview = {
+        api: {
+          open_host_in_vscode: async (root: string, relative: string) => {
+            calls.push(['code', root, relative]);
+            return { ok: true };
+          },
+          reveal_in_explorer: async (root: string, relative: string) => {
+            calls.push(['reveal', root, relative]);
+            return { ok: true };
+          },
+        },
+      };
+      const beforeDesktop = data.desktopAvailable;
+      const beforeWorkspace = data.workspaceInput;
+      const beforePath = data.fileView.path;
+      data.desktopAvailable = true;
+      data.workspaceInput = 'D:\\proj';
+      data.fileView.path = 'src/a.py';
+      await data.openFileInVscode();
+      await data.revealFileInExplorer();
+      assert.deepEqual(calls, [
+        ['code', 'D:\\proj', 'src/a.py'],
+        ['reveal', 'D:\\proj', 'src/a.py'],
+      ]);
+      data.desktopAvailable = beforeDesktop;
+      data.workspaceInput = beforeWorkspace;
+      data.fileView.path = beforePath;
+      if (original === undefined) delete (window as any).pywebview;
+      else (window as any).pywebview = original;
+    });
+
     await t.test('语言切换更新壳层文案并持久化', async () => {
       data.setView('sessions');
       data.changeLocale({ target: { value: 'en-US' } });

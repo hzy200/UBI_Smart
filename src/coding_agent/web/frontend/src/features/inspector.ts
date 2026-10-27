@@ -10,6 +10,7 @@ import {
   splitDiffRows,
   wordDiffMarkers,
 } from '../ui/diff';
+import { isWindowsPath, isWslPath } from '../ui/paths';
 import { includesQuery } from '../ui/search';
 import { fileIcon, treeGuides } from '../ui/file-icons';
 import { buildGitStatusMap, gitTreeFields } from '../ui/git';
@@ -646,24 +647,62 @@ export const inspectorMixin = {
   canOpenFileInVscode() {
     const root = String(this.workspaceInput || this.workspace || '').trim();
     return Boolean(
-      this.desktopAvailable && this.fileView.path && root.startsWith('/')
+      this.desktopAvailable
+      && this.fileView.path
+      && (isWslPath(root) || isWindowsPath(root))
+    );
+  },
+
+  canRevealInExplorer() {
+    const root = String(this.workspaceInput || this.workspace || '').trim();
+    return Boolean(
+      this.desktopAvailable && this.fileView.path && isWindowsPath(root)
     );
   },
 
   async openFileInVscode() {
     const bridge = window.pywebview && window.pywebview.api;
     if (!bridge) {
-      this.toastMessage('浏览器模式不支持在 VS Code 打开');
+      this.toastMessage(this.t('main.browserNoEditor'));
       return;
     }
     const root = String(this.workspaceInput || this.workspace || '').replace(/\/+$/, '');
-    if (!root.startsWith('/') || !this.fileView.path) {
-      this.toastMessage('仅支持 WSL 工作区中的文件');
+    if (!this.fileView.path || (!isWslPath(root) && !isWindowsPath(root))) {
+      this.toastMessage(this.t('main.editorPathUnsupported'));
       return;
     }
     try {
-      const result = await bridge.open_in_vscode(`${root}/${this.fileView.path}`);
-      this.toastMessage(result.ok ? '已在 VS Code 打开' : result.error);
+      const result = isWslPath(root)
+        ? await bridge.open_in_vscode(`${root}/${this.fileView.path}`)
+        : await bridge.open_host_in_vscode(root, this.fileView.path);
+      this.toastMessage(
+        result.ok
+          ? this.t('main.openedInEditor')
+          : this.t('main.editorOpenFailed', { error: result.error }),
+      );
+    } catch (err) {
+      this.toastMessage(String(err));
+    }
+  },
+
+  async revealFileInExplorer() {
+    const bridge = window.pywebview && window.pywebview.api;
+    if (!bridge) {
+      this.toastMessage(this.t('main.browserNoEditor'));
+      return;
+    }
+    const root = String(this.workspaceInput || this.workspace || '').trim();
+    if (!isWindowsPath(root) || !this.fileView.path) {
+      this.toastMessage(this.t('main.revealUnsupported'));
+      return;
+    }
+    try {
+      const result = await bridge.reveal_in_explorer(root, this.fileView.path);
+      this.toastMessage(
+        result.ok
+          ? this.t('main.revealedInExplorer')
+          : this.t('main.editorOpenFailed', { error: result.error }),
+      );
     } catch (err) {
       this.toastMessage(String(err));
     }
