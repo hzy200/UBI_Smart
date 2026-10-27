@@ -168,59 +168,65 @@ export const sessionsMixin = {
     }
   },
 
-  decorateSplitMessage(item, index) {
-    const role = String((item && item.role) || '');
-    const text = String((item && item.text) || '');
-    return {
-      id: `split-${index}`,
-      _label: role === 'user'
-        ? '你'
-        : role === 'assistant'
-          ? '助手'
-          : role || '消息',
-      _cls: `split-msg split-${role || 'system'}`,
-      _html: renderMarkdown(text),
-    };
-  },
-
   async openSplitSession(id) {
     if (!id) return;
+    if (id === this.threadId) {
+      this.toastMessage('该会话已在主区');
+      return;
+    }
+    const view = this.ensureSessionView(id);
+    view.lastActiveAt = Date.now();
+    this.splitView = view;
     this.splitOpen = true;
     this.splitSessionId = id;
-    this.splitLoading = true;
     this.splitError = '';
-    this.splitMessages = [];
+    this.splitInput = '';
     const row = this.sessions.find((item) => item.thread_id === id);
     this.splitTitle = (row && (row._title || row.title)) || id;
-    try {
-      const response = await authFetch(
-        `/api/thread/${encodeURIComponent(id)}`,
-      );
-      const data = await readJson(response, '读取分屏会话失败');
-      const source = Array.isArray(data.transcript) && data.transcript.length
-        ? data.transcript
-        : (data.messages || []);
-      this.splitMessages = source
-        .filter((item) => item && item.kind !== 'tool' && item.role !== '工具')
-        .slice(-200)
-        .map((item, index) => this.decorateSplitMessage(item, index));
-    } catch (err) {
-      this.splitError = String(err);
-      this.splitMessages = [];
-    } finally {
-      this.splitLoading = false;
+    this.markSessionRead(id);
+    this.splitLoading = !view.loaded;
+    if (!view.loaded) {
+      const loaded = await this.loadSessionHistory(view);
+      view.loaded = loaded;
+      if (!loaded) this.splitError = '读取分屏会话失败';
     }
+    this.splitLoading = false;
   },
 
   refreshSplit() {
-    if (this.splitSessionId) void this.openSplitSession(this.splitSessionId);
+    const view = this.splitView;
+    if (!view) return;
+    if (view.busy || view.connectionState === 'reconnecting') {
+      void this.reconnect(view);
+      return;
+    }
+    if (!view.loaded) {
+      this.splitLoading = true;
+      void this.loadSessionHistory(view).then((loaded) => {
+        view.loaded = loaded;
+        if (!loaded) this.splitError = '读取分屏会话失败';
+        this.splitLoading = false;
+      });
+      return;
+    }
+    this.toastMessage('分屏实时更新，无需刷新');
+  },
+
+  async sendSplit() {
+    const view = this.splitView;
+    const text = String(this.splitInput || '').trim();
+    if (!view || !text || view.busy) return;
+    this.splitInput = '';
+    await this.sendToView(view, text, true);
   },
 
   closeSplit() {
     this.splitOpen = false;
     this.splitSessionId = '';
-    this.splitMessages = [];
+    this.splitView = null;
+    this.splitInput = '';
     this.splitError = '';
+    this.splitLoading = false;
   },
 
   openSplitInMain() {
@@ -556,7 +562,9 @@ export const sessionsMixin = {
       );
       await readJson(response, '删除失败');
       const wasActive = this.threadId === id;
+      const wasSplit = this.splitSessionId === id;
       this.disposeSessionView(id);
+      if (wasSplit) this.closeSplit();
       if (wasActive) {
         this._boundProjectId = '';
         this.resetConversation();
@@ -717,6 +725,9 @@ export const sessionsMixin = {
 
   async openSession(id) {
     const view = this.activateSessionView(id);
+    if (this.splitView && this.splitView.threadId === id) {
+      this.closeSplit();
+    }
     this.markSessionRead(id);
     const row = this.sessions.find((item) => item.thread_id === id);
     this._boundProjectId = row && row.workspace_id ? row.workspace_id : '';
@@ -742,26 +753,30 @@ export const sessionsMixin = {
     this.resetSessionUi();
     await this.loadCapabilities();
     if (!view.loaded) {
-      const loaded = await this.loadSessionHistory(id);
+      const loaded = await this.loadSessionHistory(view);
       if (loaded) view.loaded = true;
     }
+    this.$nextTick(() => this.recomputeVirtualRange());
     await this.loadUploads();
     await this.loadApprovals();
     await this.loadSessions();
   },
 
-  async loadSessionHistory(id) {
+  async loadSessionHistory(view = this.activeView) {
+    const id = view.threadId;
     try {
       const response = await authFetch(`/api/thread/${encodeURIComponent(id)}`);
       const data = await readJson(response, '读取历史失败');
-      if (Array.isArray(data.transcript) && data.transcript.length) {
-        // 桌面 UI 保存过完整轨迹：包含工具卡片、步骤和最终回答。
-        this.restoreTranscript(data.transcript);
-      } else {
-        for (const item of data.messages || []) {
-          this.pushMessage(item.role, item.text, true);
+      this.withView(view, () => {
+        if (Array.isArray(data.transcript) && data.transcript.length) {
+          // 桌面 UI 保存过完整轨迹：包含工具卡片、步骤和最终回答。
+          this.restoreTranscript(data.transcript);
+        } else {
+          for (const item of data.messages || []) {
+            this.pushMessage(item.role, item.text, true);
+          }
         }
-      }
+      });
       return true;
     } catch (e) {
       this.toastMessage(String(e));

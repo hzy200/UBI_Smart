@@ -251,12 +251,12 @@
     </div>
     </div>
 
-    <section class="split-pane" x-show="splitOpen" aria-label="只读分屏会话">
+    <section class="split-pane" x-show="splitOpen" aria-label="会话分屏">
       <header class="split-pane-head">
         <span class="split-pane-title" x-text="splitTitle"></span>
-        <span class="note">只读分屏</span>
+        <span class="note" x-text="splitStatusText"></span>
         <span class="spacer"></span>
-        <button @click="refreshSplit">刷新</button>
+        <button @click="refreshSplit">重连/刷新</button>
         <button @click="openSplitInMain">在主区打开</button>
         <button class="icon-btn" @click="closeSplit" aria-label="关闭分屏">×</button>
       </header>
@@ -267,13 +267,28 @@
           <div class="skeleton skeleton-row"></div>
         </div>
         <div class="note note-bad" x-show="splitError" x-text="splitError"></div>
-        <template x-for="m in splitMessages" :key="m.id">
-          <div class="split-msg" :class="m._cls">
+        <div class="note note-bad" x-show="splitHasApprovals">
+          该会话有待审批，请切到主区处理。
+          <button @click="openSplitInMain">切到主区</button>
+        </div>
+        <template x-for="m in splitPaneMessages" :key="m.id">
+          <div class="split-msg" :class="m._renderClass">
             <div class="split-msg-label" x-text="m._label"></div>
-            <div class="split-msg-body" x-html="m._html"></div>
+            <template x-if="m._notTool">
+              <div class="split-msg-body" x-html="m.html"></div>
+            </template>
+            <template x-if="m._isTool">
+              <pre class="split-msg-body split-tool" x-text="m._outputText"></pre>
+            </template>
           </div>
         </template>
         <div class="empty" x-show="splitEmpty">这个会话还没有消息</div>
+      </div>
+      <div class="split-composer">
+        <textarea x-model="splitInput" @keydown.enter.prevent="sendSplit"
+                  placeholder="在该会话中发送任务，Enter 发送"
+                  aria-label="分屏输入"></textarea>
+        <button @click="sendSplit" :disabled="splitSendDisabled">发送</button>
       </div>
     </section>
   </main>

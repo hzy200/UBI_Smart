@@ -167,7 +167,7 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       data.closeActiveEditorTab();
     });
 
-    await t.test('会话可打开只读分屏并关闭', async () => {
+    await t.test('会话可打开实时分屏、接收事件并独立发送', async () => {
       assert.ok(
         document.querySelector('[data-action="session"][data-op="split"]'),
       );
@@ -182,7 +182,33 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
         () => (pane.textContent || '').includes('分屏回答'),
         '分屏消息',
       );
-      assert.equal(data.splitMessages.length, 2);
+      assert.equal(data.splitView.messages.length, 2);
+
+      const frame = {
+        type: 'assistant_token',
+        node: 'split-node',
+        text: '分屏实时消息',
+      };
+      await data.consume(
+        new Response(`id: 1\ndata: ${JSON.stringify(frame)}\n\n`, { status: 200 }),
+        data.splitView,
+      );
+      await waitFor(
+        () => (pane.textContent || '').includes('分屏实时消息'),
+        '分屏实时更新',
+      );
+
+      data.splitInput = '分屏任务';
+      await data.sendSplit();
+      await waitFor(
+        () => data.splitView.messages.some((m) => m.text === '分屏任务'),
+        '分屏发送',
+      );
+      assert.equal(
+        data.messages.some((m) => m.text === '分屏任务'),
+        false,
+      );
+
       data.closeSplit();
       await waitFor(() => pane.style.display === 'none', '分屏关闭');
     });

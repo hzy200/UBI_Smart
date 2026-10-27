@@ -275,10 +275,23 @@ export const cspMixin = {
   get sessionsSkeletonVisible() {
     return Boolean(this.sessionsLoading) && this.sessions.length === 0;
   },
+  get splitPaneMessages() {
+    return this.splitView ? this.splitView.messages.slice(-200) : [];
+  },
   get splitEmpty() {
-    return !this.splitLoading
+    return Boolean(this.splitView)
+      && !this.splitLoading
       && !this.splitError
-      && this.splitMessages.length === 0;
+      && this.splitPaneMessages.length === 0;
+  },
+  get splitHasApprovals() {
+    return Boolean(this.splitView && this.splitView.approvals.length);
+  },
+  get splitStatusText() {
+    return this.splitView ? this.splitView.stateText : '';
+  },
+  get splitSendDisabled() {
+    return !this.splitView || Boolean(this.splitView.busy);
   },
   get sidebarExpanded() { return this.sidebarCollapsed ? 'false' : 'true'; },
   get inspectorExpanded() { return this.inspectorCollapsed ? 'false' : 'true'; },

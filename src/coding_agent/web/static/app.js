@@ -1939,47 +1939,62 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.sessionsLoading = false;
       }
     },
-    decorateSplitMessage(item, index) {
-      const role = String(item && item.role || "");
-      const text = String(item && item.text || "");
-      return {
-        id: `split-${index}`,
-        _label: role === "user" ? "\u4F60" : role === "assistant" ? "\u52A9\u624B" : role || "\u6D88\u606F",
-        _cls: `split-msg split-${role || "system"}`,
-        _html: renderMarkdown(text)
-      };
-    },
     async openSplitSession(id) {
       if (!id) return;
+      if (id === this.threadId) {
+        this.toastMessage("\u8BE5\u4F1A\u8BDD\u5DF2\u5728\u4E3B\u533A");
+        return;
+      }
+      const view = this.ensureSessionView(id);
+      view.lastActiveAt = Date.now();
+      this.splitView = view;
       this.splitOpen = true;
       this.splitSessionId = id;
-      this.splitLoading = true;
       this.splitError = "";
-      this.splitMessages = [];
+      this.splitInput = "";
       const row = this.sessions.find((item) => item.thread_id === id);
       this.splitTitle = row && (row._title || row.title) || id;
-      try {
-        const response = await authFetch(
-          `/api/thread/${encodeURIComponent(id)}`
-        );
-        const data = await readJson(response, "\u8BFB\u53D6\u5206\u5C4F\u4F1A\u8BDD\u5931\u8D25");
-        const source = Array.isArray(data.transcript) && data.transcript.length ? data.transcript : data.messages || [];
-        this.splitMessages = source.filter((item) => item && item.kind !== "tool" && item.role !== "\u5DE5\u5177").slice(-200).map((item, index) => this.decorateSplitMessage(item, index));
-      } catch (err) {
-        this.splitError = String(err);
-        this.splitMessages = [];
-      } finally {
-        this.splitLoading = false;
+      this.markSessionRead(id);
+      this.splitLoading = !view.loaded;
+      if (!view.loaded) {
+        const loaded = await this.loadSessionHistory(view);
+        view.loaded = loaded;
+        if (!loaded) this.splitError = "\u8BFB\u53D6\u5206\u5C4F\u4F1A\u8BDD\u5931\u8D25";
       }
+      this.splitLoading = false;
     },
     refreshSplit() {
-      if (this.splitSessionId) void this.openSplitSession(this.splitSessionId);
+      const view = this.splitView;
+      if (!view) return;
+      if (view.busy || view.connectionState === "reconnecting") {
+        void this.reconnect(view);
+        return;
+      }
+      if (!view.loaded) {
+        this.splitLoading = true;
+        void this.loadSessionHistory(view).then((loaded) => {
+          view.loaded = loaded;
+          if (!loaded) this.splitError = "\u8BFB\u53D6\u5206\u5C4F\u4F1A\u8BDD\u5931\u8D25";
+          this.splitLoading = false;
+        });
+        return;
+      }
+      this.toastMessage("\u5206\u5C4F\u5B9E\u65F6\u66F4\u65B0\uFF0C\u65E0\u9700\u5237\u65B0");
+    },
+    async sendSplit() {
+      const view = this.splitView;
+      const text = String(this.splitInput || "").trim();
+      if (!view || !text || view.busy) return;
+      this.splitInput = "";
+      await this.sendToView(view, text, true);
     },
     closeSplit() {
       this.splitOpen = false;
       this.splitSessionId = "";
-      this.splitMessages = [];
+      this.splitView = null;
+      this.splitInput = "";
       this.splitError = "";
+      this.splitLoading = false;
     },
     openSplitInMain() {
       const id = this.splitSessionId;
@@ -2265,7 +2280,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         );
         await readJson(response, "\u5220\u9664\u5931\u8D25");
         const wasActive = this.threadId === id;
+        const wasSplit = this.splitSessionId === id;
         this.disposeSessionView(id);
+        if (wasSplit) this.closeSplit();
         if (wasActive) {
           this._boundProjectId = "";
           this.resetConversation();
@@ -2434,6 +2451,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     async openSession(id) {
       const view = this.activateSessionView(id);
+      if (this.splitView && this.splitView.threadId === id) {
+        this.closeSplit();
+      }
       this.markSessionRead(id);
       const row = this.sessions.find((item) => item.thread_id === id);
       this._boundProjectId = row && row.workspace_id ? row.workspace_id : "";
@@ -2452,24 +2472,28 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.resetSessionUi();
       await this.loadCapabilities();
       if (!view.loaded) {
-        const loaded = await this.loadSessionHistory(id);
+        const loaded = await this.loadSessionHistory(view);
         if (loaded) view.loaded = true;
       }
+      this.$nextTick(() => this.recomputeVirtualRange());
       await this.loadUploads();
       await this.loadApprovals();
       await this.loadSessions();
     },
-    async loadSessionHistory(id) {
+    async loadSessionHistory(view = this.activeView) {
+      const id = view.threadId;
       try {
         const response = await authFetch(`/api/thread/${encodeURIComponent(id)}`);
         const data = await readJson(response, "\u8BFB\u53D6\u5386\u53F2\u5931\u8D25");
-        if (Array.isArray(data.transcript) && data.transcript.length) {
-          this.restoreTranscript(data.transcript);
-        } else {
-          for (const item of data.messages || []) {
-            this.pushMessage(item.role, item.text, true);
+        this.withView(view, () => {
+          if (Array.isArray(data.transcript) && data.transcript.length) {
+            this.restoreTranscript(data.transcript);
+          } else {
+            for (const item of data.messages || []) {
+              this.pushMessage(item.role, item.text, true);
+            }
           }
-        }
+        });
         return true;
       } catch (e) {
         this.toastMessage(String(e));
@@ -3224,10 +3248,20 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.toastMessage(String(e));
         return;
       }
-      const view = this.activeView;
+      await this.sendToView(this.activeView, text, appendUser);
+    },
+    async sendToView(view, text, appendUser = true) {
+      const prompt = String(text || "").trim();
+      if (!view || !view.threadId || !prompt || view.busy) return;
+      if (view.approvals.length || view.paused) {
+        this.toastMessage("\u8BF7\u5148\u5904\u7406\u6302\u8D77\u7684\u5BA1\u6279/\u6682\u505C\uFF0C\u6216\u53D6\u6D88\u5F53\u524D\u4EFB\u52A1");
+        return;
+      }
       view.prompt = "";
-      if (appendUser) this.pushMessage("user", text);
-      view._lastPrompt = text;
+      if (appendUser) {
+        this.withView(view, () => this.pushMessage("user", prompt));
+      }
+      view._lastPrompt = prompt;
       view.busy = true;
       view.paused = false;
       view.stateText = "\u8FD0\u884C\u4E2D\u2026";
@@ -3244,7 +3278,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       view.tools = [];
       view._toolsVersion += 1;
       this.clearViewToolEntries(view);
-      this.diffText = "";
+      if (view === this.activeView) this.diffText = "";
       view.lastSeq = 0;
       view.canReconnect = false;
       view._currentMessage = null;
@@ -3255,7 +3289,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         const response = await authFetch("/api/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: text, thread_id: view.threadId }),
+          body: JSON.stringify({ prompt, thread_id: view.threadId }),
           signal: controller.signal
         });
         if (await this.handleRunConflict(response, view)) return;
@@ -3698,7 +3732,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     noteSessionActivity() {
       if (!this.threadId) return;
-      if (!this._isBackgroundApply && !this.sessionHidden()) return;
+      const hidden = this.sessionHidden();
+      if (!hidden) {
+        if (!this._isBackgroundApply) return;
+        if (this.splitView === this.activeView) return;
+      }
       void this.setSessionUnread(this.threadId, true);
     },
     verificationText(event) {
@@ -6856,8 +6894,20 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     get sessionsSkeletonVisible() {
       return Boolean(this.sessionsLoading) && this.sessions.length === 0;
     },
+    get splitPaneMessages() {
+      return this.splitView ? this.splitView.messages.slice(-200) : [];
+    },
     get splitEmpty() {
-      return !this.splitLoading && !this.splitError && this.splitMessages.length === 0;
+      return Boolean(this.splitView) && !this.splitLoading && !this.splitError && this.splitPaneMessages.length === 0;
+    },
+    get splitHasApprovals() {
+      return Boolean(this.splitView && this.splitView.approvals.length);
+    },
+    get splitStatusText() {
+      return this.splitView ? this.splitView.stateText : "";
+    },
+    get splitSendDisabled() {
+      return !this.splitView || Boolean(this.splitView.busy);
     },
     get sidebarExpanded() {
       return this.sidebarCollapsed ? "false" : "true";
@@ -7219,7 +7269,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   ];
   var MAX_SESSION_VIEWS = 6;
   var mixin = {
-    activateSessionView(threadId = "", fresh = false) {
+    ensureSessionView(threadId = "", fresh = false) {
       const key = String(threadId || "");
       if (fresh || !this.sessionViews[key]) {
         this.sessionViews = {
@@ -7229,8 +7279,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       }
       const view = this.sessionViews[key];
       view.lastActiveAt = Date.now();
-      this.activeView = view;
       this.pruneSessionViews(key);
+      return view;
+    },
+    activateSessionView(threadId = "", fresh = false) {
+      const view = this.ensureSessionView(threadId, fresh);
+      this.activeView = view;
+      this.pruneSessionViews(String(threadId || ""));
       return view;
     },
     createSessionView(threadId = "") {
@@ -7265,12 +7320,20 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       clearDerivedCaches();
       this.sessionViews = {};
       this.activeView = createSessionView("");
+      this.splitView = null;
+      this.splitOpen = false;
+      this.splitSessionId = "";
+      this.splitTitle = "";
+      this.splitInput = "";
+      this.splitError = "";
     },
     pruneSessionViews(keepId = "") {
       const keys = Object.keys(this.sessionViews);
       if (keys.length <= MAX_SESSION_VIEWS) return;
       const removable = keys.filter((key) => {
         if (key === keepId) return false;
+        if (this.activeView && key === this.activeView.threadId) return false;
+        if (this.splitView && key === this.splitView.threadId) return false;
         const view = this.sessionViews[key];
         return !view.busy && !view._retryTimer;
       }).sort((a, b) => Number(this.sessionViews[a].lastActiveAt || 0) - Number(this.sessionViews[b].lastActiveAt || 0));
@@ -7392,7 +7455,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       splitOpen: false,
       splitSessionId: "",
       splitTitle: "",
-      splitMessages: [],
+      splitView: null,
+      splitInput: "",
       splitLoading: false,
       splitError: "",
       treeChildren: {},

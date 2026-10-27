@@ -37,10 +37,21 @@ export const runMixin = {
       return;
     }
     // ensureSession 可能新建并切换视图，之后再绑定本次流。
-    const view = this.activeView;
+    await this.sendToView(this.activeView, text, appendUser);
+  },
+
+  async sendToView(view, text, appendUser = true) {
+    const prompt = String(text || '').trim();
+    if (!view || !view.threadId || !prompt || view.busy) return;
+    if (view.approvals.length || view.paused) {
+      this.toastMessage('请先处理挂起的审批/暂停，或取消当前任务');
+      return;
+    }
     view.prompt = '';
-    if (appendUser) this.pushMessage('user', text);
-    view._lastPrompt = text;
+    if (appendUser) {
+      this.withView(view, () => this.pushMessage('user', prompt));
+    }
+    view._lastPrompt = prompt;
     view.busy = true;
     view.paused = false;
     view.stateText = '运行中…';
@@ -57,7 +68,7 @@ export const runMixin = {
     view.tools = [];
     view._toolsVersion += 1;
     this.clearViewToolEntries(view);
-    this.diffText = '';
+    if (view === this.activeView) this.diffText = '';
     view.lastSeq = 0;
     view.canReconnect = false;
     view._currentMessage = null;
@@ -68,7 +79,7 @@ export const runMixin = {
       const response = await authFetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: text, thread_id: view.threadId }),
+        body: JSON.stringify({ prompt, thread_id: view.threadId }),
         signal: controller.signal,
       });
       if (await this.handleRunConflict(response, view)) return;

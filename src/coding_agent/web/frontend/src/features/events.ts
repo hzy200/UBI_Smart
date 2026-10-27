@@ -321,7 +321,12 @@ export const eventsMixin = {
 
   noteSessionActivity() {
     if (!this.threadId) return;
-    if (!this._isBackgroundApply && !this.sessionHidden()) return;
+    const hidden = this.sessionHidden();
+    if (!hidden) {
+      if (!this._isBackgroundApply) return;
+      // 分屏里可见的后台会话不算未读。
+      if (this.splitView === this.activeView) return;
+    }
     void this.setSessionUnread(this.threadId, true);
   },
 

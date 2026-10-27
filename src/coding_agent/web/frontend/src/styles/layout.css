@@ -260,6 +260,13 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   overflow: auto;
   font-size: var(--code-size); line-height: var(--code-line-height);
 }
+.split-tool { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.split-composer {
+  flex: 0 0 auto;
+  display: flex; align-items: flex-end; gap: 6px;
+  padding: 8px; border-top: 1px solid var(--border);
+}
+.split-composer textarea { flex: 1; min-height: 54px; resize: none; }
 @media (max-width: 760px) {
   .split-pane { width: 100%; top: 0; }
 }

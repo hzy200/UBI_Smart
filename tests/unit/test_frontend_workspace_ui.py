@@ -417,6 +417,50 @@ def test_stage3_session_store_is_guarded() -> None:
         assert marker in interaction, marker
 
 
+def test_stage5_live_split_panes_are_guarded() -> None:
+    """阶段 5：分屏绑定真实 SessionView，可独立接收事件与发送。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        'class="split-pane"',
+        "splitPaneMessages",
+        "splitStatusText",
+        "splitHasApprovals",
+        "splitInput",
+        "sendSplit",
+        "splitSendDisabled",
+        'class="split-composer"',
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "ensureSessionView",
+        "sendToView",
+        "splitView",
+        "splitPaneMessages",
+        "splitSendDisabled",
+        "sendSplit",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".split-composer", ".split-tool"):
+        assert marker in css, marker
+
+    interaction = (
+        ROOT
+        / "src"
+        / "coding_agent"
+        / "web"
+        / "frontend"
+        / "tests"
+        / "dom"
+        / "interaction.test.ts"
+    ).read_text(encoding="utf-8")
+    for marker in ("实时分屏", "分屏实时更新", "分屏发送"):
+        assert marker in interaction, marker
+
+
 def test_stage4_background_streams_are_guarded() -> None:
     """阶段 4：每会话流绑定、后台事件隔离、未读与 abort。"""
     app = (STATIC / "app.js").read_text(encoding="utf-8")
@@ -481,8 +525,10 @@ def test_image_preview_and_split_session_are_guarded() -> None:
         "fileView._isImage",
         "fileView._imageNote",
         'class="split-pane"',
-        "splitMessages",
+        "splitPaneMessages",
         "splitTitle",
+        "splitInput",
+        "sendSplit",
         'data-op="split"',
         "openSplitInMain",
         "closeSplit",
@@ -492,7 +538,7 @@ def test_image_preview_and_split_session_are_guarded() -> None:
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     for marker in (
         "openSplitSession",
-        "decorateSplitMessage",
+        "sendToView",
         "splitEmpty",
         "_isImage",
         "image_too_large",

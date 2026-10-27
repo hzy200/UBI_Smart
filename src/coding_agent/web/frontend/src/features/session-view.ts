@@ -73,7 +73,7 @@ export const SESSION_VIEW_FIELDS = [
 const MAX_SESSION_VIEWS = 6;
 
 const mixin: Record<string, any> = {
-  activateSessionView(threadId = '', fresh = false) {
+  ensureSessionView(threadId = '', fresh = false) {
     const key = String(threadId || '');
     if (fresh || !this.sessionViews[key]) {
       this.sessionViews = {
@@ -83,8 +83,14 @@ const mixin: Record<string, any> = {
     }
     const view = this.sessionViews[key];
     view.lastActiveAt = Date.now();
-    this.activeView = view;
     this.pruneSessionViews(key);
+    return view;
+  },
+
+  activateSessionView(threadId = '', fresh = false) {
+    const view = this.ensureSessionView(threadId, fresh);
+    this.activeView = view;
+    this.pruneSessionViews(String(threadId || ''));
     return view;
   },
 
@@ -122,6 +128,12 @@ const mixin: Record<string, any> = {
     clearDerivedCaches();
     this.sessionViews = {};
     this.activeView = createSessionView('');
+    this.splitView = null;
+    this.splitOpen = false;
+    this.splitSessionId = '';
+    this.splitTitle = '';
+    this.splitInput = '';
+    this.splitError = '';
   },
 
   pruneSessionViews(keepId = '') {
@@ -130,6 +142,8 @@ const mixin: Record<string, any> = {
     const removable = keys
       .filter((key) => {
         if (key === keepId) return false;
+        if (this.activeView && key === this.activeView.threadId) return false;
+        if (this.splitView && key === this.splitView.threadId) return false;
         const view = this.sessionViews[key];
         // 后台仍在跑流的视图不能被淘汰，否则事件会写进孤立对象。
         return !view.busy && !view._retryTimer;
