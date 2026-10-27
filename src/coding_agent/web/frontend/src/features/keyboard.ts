@@ -32,6 +32,7 @@ export const keyboardMixin = {
 
   onGlobalKeydown(event) {
     if (event.defaultPrevented) return;
+    if (event.key === 'Tab' && this.trapModalFocus(event)) return;
     const target = event.target as HTMLElement | null;
     const typing = Boolean(target && (
       target.tagName === 'INPUT'
@@ -89,13 +90,14 @@ export const keyboardMixin = {
     if (event.key === 'Escape') {
       if (this.messageSearchOpen) { this.closeMessageSearch(); return; }
       if (this.notificationsOpen) { this.closeNotifications(); return; }
-      if (this.shortcutsOpen) { this.shortcutsOpen = false; return; }
-      if (this.showSettings) { this.showSettings = false; return; }
-      if (this.showRecovery) { this.showRecovery = false; return; }
+      if (this.shortcutsOpen) { this.closeShortcuts(); return; }
+      if (this.showSettings) { this.toggleSettings(); return; }
+      if (this.showRecovery) { this.closeRecovery(); return; }
     }
     if (!typing && event.key === '?') {
       event.preventDefault();
-      this.shortcutsOpen = !this.shortcutsOpen;
+      if (this.shortcutsOpen) this.closeShortcuts();
+      else this.openShortcuts();
     }
   },
 

@@ -3,7 +3,9 @@
 import {
   renderMarkdown,
 } from '../ui/format';
+import { renderMarkdownIncremental } from '../ui/markdown';
 import {
+  markdownCaches,
   messageHeights,
   renderTimers,
   tokenBuffers,
@@ -272,8 +274,13 @@ export const transcriptMixin = {
       const target = this.messages.find((item) => item.id === id);
       const raw = tokenBuffers.get(id) || '';
       if (target) {
+        let cache = markdownCaches.get(id);
+        if (!cache) {
+          cache = { head: '', html: '' };
+          markdownCaches.set(id, cache);
+        }
         target.text = raw;
-        target.html = renderMarkdown(raw);
+        target.html = renderMarkdownIncremental(raw, cache, renderMarkdown);
         this.decorateMessage(target);
       }
       this.scrollBottom(false);
@@ -289,10 +296,12 @@ export const transcriptMixin = {
     const target = this.messages.find((item) => item.id === id);
     const raw = tokenBuffers.get(id);
     if (target && raw !== undefined) {
+      const cache = markdownCaches.get(id) || { head: '', html: '' };
       target.text = raw;
-      target.html = renderMarkdown(raw);
+      target.html = renderMarkdownIncremental(raw, cache, renderMarkdown);
       this.decorateMessage(target);
     }
+    markdownCaches.delete(id);
     tokenBuffers.delete(id);
   },
 

@@ -22,6 +22,7 @@ export const eventsMixin = {
         this._suspended = false;
         this.timeline = [];
         this.problems = [];
+        this.problemExpanded = {};
         this.pushTimeline('start', '开始运行');
         break;
       case 'plan_created':
@@ -88,6 +89,7 @@ export const eventsMixin = {
       case 'file_changed':
         this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
         this.filesDirty = true;
+        this.markTreeGitDirty(event.path);
         for (const tab of this.editorTabs) {
           if (tab.kind === 'file' && (tab.path === event.path || tab.title === event.path)) {
             tab.stale = true;
@@ -553,6 +555,9 @@ export const eventsMixin = {
     existing.input_tokens = Number(event.input_tokens || 0);
     existing.output_tokens = Number(event.output_tokens || 0);
     existing.tool_calls = Number(event.tool_calls || 0);
+    existing._toolCallsText = existing.tool_calls
+      ? `${existing.tool_calls} tool calls`
+      : '';
     existing.attempt = Number(event.attempt || existing.attempt || 1);
     existing._worker = existing.worker_id;
     existing._timing = formatDuration(existing.duration_ms);
@@ -565,6 +570,12 @@ export const eventsMixin = {
 
   clearProblemsByKind(kind) {
     this.problems = this.problems.filter((problem) => problem.kind !== kind);
+  },
+
+  toggleProblemGroup(key) {
+    if (!key) return;
+    const current = this.problemExpanded[key] !== false;
+    this.problemExpanded = { ...this.problemExpanded, [key]: !current };
   },
 
   addProblem(kind, severity, title, detail = '') {

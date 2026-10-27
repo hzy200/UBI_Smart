@@ -11,6 +11,7 @@ import {
   wordDiffMarkers,
 } from '../ui/diff';
 import { includesQuery } from '../ui/search';
+import { buildGitStatusMap, gitTreeFields } from '../ui/git';
 
 export const inspectorMixin = {
   async compactContext() {
@@ -455,6 +456,42 @@ export const inspectorMixin = {
       this.treeExpanded = { ...this.treeExpanded, [path]: true };
       if (!this.treeChildren[path]) await this.loadTreeDir(path);
     }
+    if (!this._treeGitLoaded) void this.loadGitStatus();
+  },
+
+  async loadGitStatus() {
+    if (!this.threadId) {
+      this.treeGit = {};
+      this.treeGitState = '';
+      this._treeGitLoaded = true;
+      return;
+    }
+    const threadId = this.threadId;
+    try {
+      const params = new URLSearchParams({
+        thread_id: threadId,
+        diff: 'false',
+      });
+      const response = await authFetch(`/api/git?${params.toString()}`);
+      const data = await readJson(response, '读取 Git 状态失败');
+      if (this.threadId !== threadId) return;
+      this.treeGit = data && data.is_repo ? buildGitStatusMap(data.changes) : {};
+      this.treeGitState = data && data.is_repo
+        ? ''
+        : (data && data.error) || '不是 Git 仓库';
+    } catch (err) {
+      if (this.threadId !== threadId) return;
+      this.treeGit = {};
+      this.treeGitState = String(err);
+    } finally {
+      if (this.threadId === threadId) this._treeGitLoaded = true;
+    }
+  },
+
+  markTreeGitDirty(path) {
+    const normalized = String(path || '').replace(/\\/g, '/');
+    if (!normalized) return;
+    this.treeGit = { ...this.treeGit, [normalized]: 'M' };
   },
 
   async refreshTree() {
@@ -471,6 +508,7 @@ export const inspectorMixin = {
     for (const path of expanded) {
       await this.loadTreeDir(path);
     }
+    await this.loadGitStatus();
   },
 
   async toggleTreeDir(entry) {
@@ -496,6 +534,7 @@ export const inspectorMixin = {
         const indent = 8 + depth * 14;
         rows.push({
           ...entry,
+          ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
           _depth: depth,
           _expanded: expanded,
           _kind: entry.is_dir ? (loading ? '…' : (expanded ? '▾' : '▸')) : '·',
@@ -515,6 +554,7 @@ export const inspectorMixin = {
       for (const entry of this.treeChildren[path] || []) {
         all.push({
           ...entry,
+          ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
           _depth: 0,
           _kind: entry.is_dir ? '目录' : '·',
           _style: 'padding-left:8px',

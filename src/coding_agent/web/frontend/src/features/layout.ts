@@ -185,6 +185,7 @@ export const layoutMixin = {
 
   openCommandPalette() {
     this.commandOpen = true;
+    this.rememberModalFocus();
     this.commandQuery = '';
     this.commandIndex = 0;
     this.fileSearchResults = [];
@@ -205,6 +206,7 @@ export const layoutMixin = {
     this.fileSearchLoading = false;
     this._searchSeq += 1;
     if (this._searchTimer) clearTimeout(this._searchTimer);
+    this.$nextTick(() => this.restoreModalFocus());
   },
 
   onCommandQuery() {
@@ -263,7 +265,7 @@ export const layoutMixin = {
       { id: 'settings', title: '打开设置', hint: '界面', run: () => this.toggleSettings() },
       { id: 'recovery', title: '打开恢复中心', hint: '界面', run: () => this.openRecovery() },
       { id: 'notifications', title: '通知中心', hint: '界面', run: () => this.toggleNotifications() },
-      { id: 'shortcuts', title: '查看快捷键', hint: '帮助', run: () => { this.shortcutsOpen = true; } },
+      { id: 'shortcuts', title: '查看快捷键', hint: '帮助', run: () => this.openShortcuts() },
       { id: 'search-conversation', title: '搜索当前对话', hint: '导航', shortcut: 'Ctrl+Shift+F', run: () => { this.showChat(); this.openMessageSearch(); } },
       { id: 'jump-latest', title: '跳到最新消息', hint: '导航', run: () => this.scrollBottom(true) },
       { id: 'toggle-sidebar', title: '切换侧栏', hint: '布局', run: () => this.toggleSidebar() },

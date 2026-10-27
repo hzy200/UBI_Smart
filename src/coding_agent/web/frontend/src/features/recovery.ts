@@ -8,6 +8,7 @@ import {
 export const recoveryMixin = {
   async openRecovery() {
     this.showRecovery = true;
+    this.focusModal('.recovery-modal');
     await this.loadRecovery();
   },
 
@@ -39,6 +40,7 @@ export const recoveryMixin = {
 
   closeRecovery() {
     this.showRecovery = false;
+    this.$nextTick(() => this.restoreModalFocus());
   },
 
   async recoveryResume(item) {

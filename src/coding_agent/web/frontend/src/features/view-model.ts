@@ -72,6 +72,9 @@ export const view_modelMixin = {
       _worker: task.worker_id || '',
       _timing: formatDuration(task.duration_ms),
       _tokens: formatTokens(task.input_tokens, task.output_tokens),
+      _toolCallsText: Number(task.tool_calls || 0)
+        ? `${Number(task.tool_calls)} tool calls`
+        : '',
     };
   },
   kindLabel(index) { return this.kinds[index] || ''; },
@@ -129,10 +132,14 @@ export const view_modelMixin = {
     return this.settingsTab === name ? 'active' : '';
   },
   toggleSettings() {
-    this.showSettings = !this.showSettings;
-    if (this.showSettings) {
+    const opening = !this.showSettings;
+    this.showSettings = opening;
+    if (opening) {
       this.probeProject();
       this.loadProfiles();
+      this.focusModal('.settings-modal');
+    } else {
+      this.$nextTick(() => this.restoreModalFocus());
     }
   },
   openMemory() { this.setView('memory'); },

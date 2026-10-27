@@ -7,5 +7,7 @@
 export const toolMap = new Map<string, any>();
 export const renderTimers = new Map<number, any>();
 export const tokenBuffers = new Map<number, string>();
+// 消息 id -> 已渲染稳定块缓存；流式 Markdown 只重渲染尾部。
+export const markdownCaches = new Map<number, { head: string; html: string }>();
 // 消息 id -> 实测高度（含消息间距）；虚拟列表的非响应式缓存。
 export const messageHeights = new Map<number, number>();

@@ -23,6 +23,7 @@ import { providersMixin } from './features/providers';
 import { desktopMixin } from './features/desktop';
 import { memoryMixin } from './features/memory';
 import { keyboardMixin } from './features/keyboard';
+import { focusMixin } from './features/focus';
 import { layoutMixin } from './features/layout';
 import { notificationsMixin } from './features/notifications';
 import { cspMixin } from './features/csp';
@@ -142,7 +143,13 @@ const agentApp = () => {
   treeExpanded: {},
   treeLoadingMap: {},
   treeQuery: '',
-  fileView: { path: '', size: 0, _text: '', _html: '' },
+  treeGit: {},
+  treeGitState: '',
+  _treeGitLoaded: false,
+  fileView: {
+    path: '', size: 0, _text: '', _html: '',
+    _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+  },
   gitInfo: {
     is_repo: false, _state: '', _branch: '',
     _changes: [], _commits: [],
@@ -192,6 +199,7 @@ const agentApp = () => {
   diffViewClasses: { unified: 'active', split: '' },
   fileLineInput: '',
   problems: [],
+  problemExpanded: {},
   _problemSeq: 0,
   filesDirty: false,
   tasksDirty: false,
@@ -202,6 +210,7 @@ const agentApp = () => {
   commandOpen: false,
   commandQuery: '',
   commandIndex: 0,
+  _modalReturnFocus: null,
   recentCommands: [],
   notifications: [],
   notificationsOpen: false,
@@ -257,6 +266,7 @@ const agentApp = () => {
     desktopMixin,
     memoryMixin,
     keyboardMixin,
+    focusMixin,
     layoutMixin,
     notificationsMixin,
     cspMixin,

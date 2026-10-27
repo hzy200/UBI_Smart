@@ -384,6 +384,67 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_m8_git_problems_incremental_and_focus_are_guarded() -> None:
+    """文件树 Git 标记、Problems 聚合、增量 Markdown、焦点陷阱与 jsdom 交互测试。"""
+    import json
+
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        'class="tree-git"',
+        'x-show="entry._git"',
+        "treeGitState",
+        "problemGroups",
+        "problem-group-head",
+        'data-action="problem-group"',
+        "problem-group-count",
+        "commandActiveDescendant",
+        "hasApprovals",
+        "inspectorVisible",
+        "_toolCallsText",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "loadGitStatus",
+        "markTreeGitDirty",
+        "buildGitStatusMap",
+        "gitTreeFields",
+        "groupProblems",
+        "toggleProblemGroup",
+        "problemExpanded",
+        "renderMarkdownIncremental",
+        "markdownCaches",
+        "trapModalFocus",
+        "focusModal",
+        "restoreModalFocus",
+        "computeTabTarget",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".tree-git", ".git-m", ".problem-group", ".problem-group-head"):
+        assert marker in css, marker
+
+    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    for relative in (
+        "tests/git.test.ts",
+        "tests/problems.test.ts",
+        "tests/markdown.test.ts",
+        "tests/focus.test.ts",
+        "tests/dom/harness.ts",
+        "tests/dom/interaction.test.ts",
+        "test-dom.mjs",
+    ):
+        assert (frontend / relative).is_file(), relative
+
+    package = json.loads(
+        (frontend / "package.json").read_text(encoding="utf-8")
+    )
+    assert "jsdom" in package["devDependencies"]
+    assert "test-dom.mjs" in package["scripts"]["test"]
+
+
 def test_csp_build_has_no_unsafe_eval_expressions() -> None:
     """TD-016：模板必须保持 Alpine CSP 构建可用的表达式子集。"""
     import re
@@ -401,7 +462,9 @@ def test_csp_build_has_no_unsafe_eval_expressions() -> None:
         if not text:
             continue
         if re.search(
-            r"(\s=\s|===|!==|==|!=|\|\||&&|[?:]|\.\.\.|\{|\}|;|=>)", text
+            r"(\s=\s|===|!==|==|!=|\|\||&&|[?:]|\.\.\.|\{|\}|;|=>"
+            r"|!(?!=)|[<>]|\+)",
+            text,
         ) or re.search(r"\b[A-Za-z_$][\w$]*\s*\([^)]*[^\s)]", text):
             incompatible.append((name, text))
     assert not incompatible, (

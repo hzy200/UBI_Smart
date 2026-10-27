@@ -78,6 +78,21 @@
 .audit-row { display: grid; grid-template-columns: 1.4fr .8fr 2fr; gap: 6px; font-size: 11px; overflow-wrap: anywhere; }
 .memory-item span { flex: 1; }
 
+.problem-group { margin-bottom: 10px; }
+.problem-group-head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 4px 2px; border: 0; background: transparent;
+  color: var(--muted); font-size: 11px; text-align: left; cursor: pointer;
+}
+.problem-group-head:hover { color: var(--text); }
+.problem-group-toggle { width: 10px; font-size: 10px; }
+.problem-group-label {
+  flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-weight: 600;
+}
+.problem-group.has-error .problem-group-label { color: var(--bad); }
+.problem-group-count { color: var(--muted); font-size: 10px; }
+.problem-group-items { padding-left: 4px; }
 .problem-card {
   border: 1px solid var(--border);
   border-left: 3px solid var(--warn);

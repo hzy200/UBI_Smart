@@ -1501,7 +1501,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _depends: depends.length ? `\u4F9D\u8D56 ${depends.join(", ")}` : "",
         _worker: task.worker_id || "",
         _timing: formatDuration(task.duration_ms),
-        _tokens: formatTokens(task.input_tokens, task.output_tokens)
+        _tokens: formatTokens(task.input_tokens, task.output_tokens),
+        _toolCallsText: Number(task.tool_calls || 0) ? `${Number(task.tool_calls)} tool calls` : ""
       };
     },
     kindLabel(index) {
@@ -1568,10 +1569,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return this.settingsTab === name ? "active" : "";
     },
     toggleSettings() {
-      this.showSettings = !this.showSettings;
-      if (this.showSettings) {
+      const opening = !this.showSettings;
+      this.showSettings = opening;
+      if (opening) {
         this.probeProject();
         this.loadProfiles();
+        this.focusModal(".settings-modal");
+      } else {
+        this.$nextTick(() => this.restoreModalFocus());
       }
     },
     openMemory() {
@@ -1730,6 +1735,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
   var toolMap = /* @__PURE__ */ new Map();
   var renderTimers = /* @__PURE__ */ new Map();
   var tokenBuffers = /* @__PURE__ */ new Map();
+  var markdownCaches = /* @__PURE__ */ new Map();
   var messageHeights = /* @__PURE__ */ new Map();
 
   // src/features/sessions.ts
@@ -2096,6 +2102,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.planRows = [];
       this.timeline = [];
       this.problems = [];
+      this.problemExpanded = {};
       this.stepIdx = -1;
       this.planDegraded = false;
       this.tools = [];
@@ -2106,6 +2113,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       renderTimers.forEach((timer) => clearTimeout(timer));
       renderTimers.clear();
       tokenBuffers.clear();
+      markdownCaches.clear();
       this.files = [];
       this.checkpoints = [];
       this.diffText = "";
@@ -2123,7 +2131,16 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.mainTabFlags = { chat: true, file: false, diff: false };
       this.editorTabs = [];
       this.activeEditorId = "";
-      this.fileView = { path: "", size: 0, _text: "", _html: "" };
+      this.fileView = {
+        path: "",
+        size: 0,
+        _text: "",
+        _html: "",
+        _lang: "",
+        _size: "",
+        _lineNumbers: "",
+        _crumb: ""
+      };
       this.tasks = [];
       this.audit = [];
       this.uploads = [];
@@ -2187,7 +2204,19 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.treeChildren = {};
       this.treeExpanded = {};
       this.treeLoadingMap = {};
-      this.fileView = { path: "", size: 0, _text: "", _html: "" };
+      this.treeGit = {};
+      this.treeGitState = "";
+      this._treeGitLoaded = false;
+      this.fileView = {
+        path: "",
+        size: 0,
+        _text: "",
+        _html: "",
+        _lang: "",
+        _size: "",
+        _lineNumbers: "",
+        _crumb: ""
+      };
       this.gitInfo = {
         is_repo: false,
         _state: "",
@@ -2215,6 +2244,59 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
     }
   };
+
+  // src/ui/markdown.ts
+  function isMarkdownContinuation(line) {
+    return /^\s*([-*+]\s|\d+[.)]\s|>|\|| {4}|\t|<)/.test(String(line || ""));
+  }
+  function splitMarkdownTail(text) {
+    const source = String(text ?? "");
+    if (!source) return { head: "", tail: "" };
+    const lines = source.split("\n");
+    let fence = "";
+    let offset = 0;
+    let headEnd = 0;
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      const marker = line.match(/^\s*(`{3,}|~{3,})/);
+      if (marker) {
+        const kind = marker[1][0];
+        if (!fence) fence = kind;
+        else if (fence === kind) fence = "";
+      }
+      if (!fence && line.trim() === "") {
+        let j = i + 1;
+        while (j < lines.length && lines[j].trim() === "") j += 1;
+        if (j >= lines.length) {
+          headEnd = source.length;
+        } else if (!isMarkdownContinuation(lines[j])) {
+          headEnd = offset + line.length + 1;
+        }
+      }
+      offset += line.length + 1;
+    }
+    const end = Math.min(headEnd, source.length);
+    return { head: source.slice(0, end), tail: source.slice(end) };
+  }
+  function renderMarkdownIncremental(text, cache, render) {
+    const source = String(text ?? "");
+    const renderFn = typeof render === "function" ? render : (value) => String(value ?? "");
+    const { head, tail } = splitMarkdownTail(source);
+    if (!cache || typeof cache !== "object") return renderFn(source);
+    let html = cache.html || "";
+    if (head !== cache.head) {
+      if (!head) {
+        html = "";
+      } else if (cache.head && head.startsWith(cache.head) && html) {
+        html += renderFn(head.slice(cache.head.length));
+      } else {
+        html = renderFn(head);
+      }
+      cache.head = head;
+      cache.html = html;
+    }
+    return tail ? html + renderFn(tail) : html;
+  }
 
   // src/ui/search.ts
   function includesQuery(haystack, query) {
@@ -2494,8 +2576,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         const target = this.messages.find((item) => item.id === id);
         const raw = tokenBuffers.get(id) || "";
         if (target) {
+          let cache = markdownCaches.get(id);
+          if (!cache) {
+            cache = { head: "", html: "" };
+            markdownCaches.set(id, cache);
+          }
           target.text = raw;
-          target.html = renderMarkdown(raw);
+          target.html = renderMarkdownIncremental(raw, cache, renderMarkdown);
           this.decorateMessage(target);
         }
         this.scrollBottom(false);
@@ -2510,10 +2597,12 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       const target = this.messages.find((item) => item.id === id);
       const raw = tokenBuffers.get(id);
       if (target && raw !== void 0) {
+        const cache = markdownCaches.get(id) || { head: "", html: "" };
         target.text = raw;
-        target.html = renderMarkdown(raw);
+        target.html = renderMarkdownIncremental(raw, cache, renderMarkdown);
         this.decorateMessage(target);
       }
+      markdownCaches.delete(id);
       tokenBuffers.delete(id);
     },
     finishAssistant() {
@@ -2979,6 +3068,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this._suspended = false;
           this.timeline = [];
           this.problems = [];
+          this.problemExpanded = {};
           this.pushTimeline("start", "\u5F00\u59CB\u8FD0\u884C");
           break;
         case "plan_created":
@@ -3045,6 +3135,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         case "file_changed":
           this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
           this.filesDirty = true;
+          this.markTreeGitDirty(event.path);
           for (const tab of this.editorTabs) {
             if (tab.kind === "file" && (tab.path === event.path || tab.title === event.path)) {
               tab.stale = true;
@@ -3474,6 +3565,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       existing.input_tokens = Number(event.input_tokens || 0);
       existing.output_tokens = Number(event.output_tokens || 0);
       existing.tool_calls = Number(event.tool_calls || 0);
+      existing._toolCallsText = existing.tool_calls ? `${existing.tool_calls} tool calls` : "";
       existing.attempt = Number(event.attempt || existing.attempt || 1);
       existing._worker = existing.worker_id;
       existing._timing = formatDuration(existing.duration_ms);
@@ -3484,6 +3576,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     clearProblemsByKind(kind) {
       this.problems = this.problems.filter((problem) => problem.kind !== kind);
+    },
+    toggleProblemGroup(key) {
+      if (!key) return;
+      const current = this.problemExpanded[key] !== false;
+      this.problemExpanded = { ...this.problemExpanded, [key]: !current };
     },
     addProblem(kind, severity, title, detail = "") {
       const text = String(title || "").trim();
@@ -3887,6 +3984,59 @@ ${paths}`);
     return {
       old: markTokens(left, keepLeft, "", ""),
       new: markTokens(right, keepRight, "", "")
+    };
+  }
+
+  // src/ui/git.ts
+  var GIT_LABELS = {
+    M: "\u5DF2\u4FEE\u6539",
+    A: "\u65B0\u589E",
+    D: "\u5DF2\u5220\u9664",
+    R: "\u91CD\u547D\u540D",
+    C: "\u590D\u5236",
+    U: "\u672A\u8DDF\u8E2A"
+  };
+  var EMPTY = { _git: "", _gitCls: "tree-git", _gitTitle: "" };
+  function normalizeGitStatus(status) {
+    const value = String(status || "").trim().toUpperCase();
+    if (!value) return "";
+    if (value.includes("?")) return "U";
+    if (value.includes("D")) return "D";
+    if (value.includes("A")) return "A";
+    if (value.includes("R")) return "R";
+    if (value.includes("C")) return "C";
+    if (value.includes("M")) return "M";
+    return "";
+  }
+  function buildGitStatusMap(changes) {
+    const map = {};
+    for (const row of changes || []) {
+      const path = String(row && row.path || "").replace(/\\/g, "/");
+      const letter = normalizeGitStatus(row && row.status);
+      if (path && letter) map[path] = letter;
+    }
+    return map;
+  }
+  function gitTreeFields(map, path, isDir) {
+    const statuses = map || {};
+    if (isDir) {
+      const prefix = path ? `${path}/` : "";
+      const count = Object.keys(statuses).filter(
+        (key) => key.startsWith(prefix)
+      ).length;
+      if (!count) return { ...EMPTY };
+      return {
+        _git: "\u25CF",
+        _gitCls: "tree-git git-dir",
+        _gitTitle: `${count} \u4E2A\u672A\u63D0\u4EA4\u6539\u52A8`
+      };
+    }
+    const letter = statuses[path] || "";
+    if (!letter) return { ...EMPTY };
+    return {
+      _git: letter,
+      _gitCls: `tree-git git-${letter.toLowerCase()}`,
+      _gitTitle: GIT_LABELS[letter] || "\u5DF2\u4FEE\u6539"
     };
   }
 
@@ -4305,6 +4455,38 @@ ${paths}
         this.treeExpanded = { ...this.treeExpanded, [path]: true };
         if (!this.treeChildren[path]) await this.loadTreeDir(path);
       }
+      if (!this._treeGitLoaded) void this.loadGitStatus();
+    },
+    async loadGitStatus() {
+      if (!this.threadId) {
+        this.treeGit = {};
+        this.treeGitState = "";
+        this._treeGitLoaded = true;
+        return;
+      }
+      const threadId = this.threadId;
+      try {
+        const params = new URLSearchParams({
+          thread_id: threadId,
+          diff: "false"
+        });
+        const response = await authFetch(`/api/git?${params.toString()}`);
+        const data = await readJson(response, "\u8BFB\u53D6 Git \u72B6\u6001\u5931\u8D25");
+        if (this.threadId !== threadId) return;
+        this.treeGit = data && data.is_repo ? buildGitStatusMap(data.changes) : {};
+        this.treeGitState = data && data.is_repo ? "" : data && data.error || "\u4E0D\u662F Git \u4ED3\u5E93";
+      } catch (err) {
+        if (this.threadId !== threadId) return;
+        this.treeGit = {};
+        this.treeGitState = String(err);
+      } finally {
+        if (this.threadId === threadId) this._treeGitLoaded = true;
+      }
+    },
+    markTreeGitDirty(path) {
+      const normalized = String(path || "").replace(/\\/g, "/");
+      if (!normalized) return;
+      this.treeGit = { ...this.treeGit, [normalized]: "M" };
     },
     async refreshTree() {
       if (!this.threadId) {
@@ -4320,6 +4502,7 @@ ${paths}
       for (const path of expanded) {
         await this.loadTreeDir(path);
       }
+      await this.loadGitStatus();
     },
     async toggleTreeDir(entry) {
       if (!entry || !entry.is_dir) return;
@@ -4342,6 +4525,7 @@ ${paths}
           const indent = 8 + depth * 14;
           rows.push({
             ...entry,
+            ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
             _depth: depth,
             _expanded: expanded,
             _kind: entry.is_dir ? loading ? "\u2026" : expanded ? "\u25BE" : "\u25B8" : "\xB7",
@@ -4360,6 +4544,7 @@ ${paths}
         for (const entry of this.treeChildren[path] || []) {
           all.push({
             ...entry,
+            ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
             _depth: 0,
             _kind: entry.is_dir ? "\u76EE\u5F55" : "\xB7",
             _style: "padding-left:8px"
@@ -4580,6 +4765,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   var recoveryMixin = {
     async openRecovery() {
       this.showRecovery = true;
+      this.focusModal(".recovery-modal");
       await this.loadRecovery();
     },
     async loadRecovery() {
@@ -4607,6 +4793,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     closeRecovery() {
       this.showRecovery = false;
+      this.$nextTick(() => this.restoreModalFocus());
     },
     async recoveryResume(item) {
       this.showRecovery = false;
@@ -4865,6 +5052,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     onGlobalKeydown(event) {
       if (event.defaultPrevented) return;
+      if (event.key === "Tab" && this.trapModalFocus(event)) return;
       const target = event.target;
       const typing = Boolean(target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable));
       const mod = event.ctrlKey || event.metaKey;
@@ -4925,21 +5113,22 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           return;
         }
         if (this.shortcutsOpen) {
-          this.shortcutsOpen = false;
+          this.closeShortcuts();
           return;
         }
         if (this.showSettings) {
-          this.showSettings = false;
+          this.toggleSettings();
           return;
         }
         if (this.showRecovery) {
-          this.showRecovery = false;
+          this.closeRecovery();
           return;
         }
       }
       if (!typing && event.key === "?") {
         event.preventDefault();
-        this.shortcutsOpen = !this.shortcutsOpen;
+        if (this.shortcutsOpen) this.closeShortcuts();
+        else this.openShortcuts();
       }
     },
     onCompositionStart() {
@@ -4959,6 +5148,104 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     openNewSettings() {
       this.addTask();
+    }
+  };
+
+  // src/ui/focus.ts
+  var FOCUSABLE_SELECTOR = [
+    "a[href]",
+    "button:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "textarea:not([disabled])",
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(", ");
+  function computeTabTarget(count, activeIndex, shift) {
+    if (count <= 0) return -1;
+    if (activeIndex < 0 || activeIndex >= count) {
+      return shift ? count - 1 : 0;
+    }
+    return shift ? (activeIndex - 1 + count) % count : (activeIndex + 1) % count;
+  }
+
+  // src/features/focus.ts
+  function modalVisible(element) {
+    if (!element) return false;
+    if (element.hasAttribute("x-cloak")) return false;
+    return element.style.display !== "none";
+  }
+  var focusMixin = {
+    activeModal() {
+      const nodes = Array.from(document.querySelectorAll(".modal"));
+      for (let i = nodes.length - 1; i >= 0; i -= 1) {
+        if (modalVisible(nodes[i])) return nodes[i];
+      }
+      return null;
+    },
+    modalFocusables(modal) {
+      if (!modal) return [];
+      const nodes = Array.from(
+        modal.querySelectorAll(FOCUSABLE_SELECTOR)
+      );
+      return nodes.filter((node) => {
+        if (node.hasAttribute("disabled")) return false;
+        let current = node;
+        while (current && current !== modal) {
+          if (current.hasAttribute("hidden") || current.style.display === "none") {
+            return false;
+          }
+          current = current.parentElement;
+        }
+        return true;
+      });
+    },
+    rememberModalFocus() {
+      if (this._modalReturnFocus) return;
+      const active = document.activeElement;
+      this._modalReturnFocus = active && active !== document.body ? active : null;
+    },
+    restoreModalFocus(remaining = 8) {
+      if (this.activeModal()) {
+        if (remaining > 0) {
+          setTimeout(() => this.restoreModalFocus(remaining - 1), 16);
+        }
+        return;
+      }
+      const target = this._modalReturnFocus;
+      this._modalReturnFocus = null;
+      if (target && target.isConnected && typeof target.focus === "function") {
+        target.focus();
+      }
+    },
+    focusModal(selector) {
+      this.rememberModalFocus();
+      const attempt = (remaining) => {
+        this.$nextTick(() => {
+          const modal = selector ? document.querySelector(selector) : this.activeModal();
+          if (!modal) return;
+          if (!modalVisible(modal) && remaining > 0) {
+            setTimeout(() => attempt(remaining - 1), 16);
+            return;
+          }
+          const items = this.modalFocusables(modal);
+          if (items.length) items[0].focus();
+        });
+      };
+      attempt(5);
+    },
+    trapModalFocus(event) {
+      const modal = this.activeModal();
+      if (!modal) return false;
+      const items = this.modalFocusables(modal);
+      if (!items.length) {
+        event.preventDefault();
+        return true;
+      }
+      const activeIndex = items.indexOf(document.activeElement);
+      const target = computeTabTarget(items.length, activeIndex, event.shiftKey);
+      event.preventDefault();
+      if (target >= 0 && items[target]) items[target].focus();
+      return true;
     }
   };
 
@@ -5120,6 +5407,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     openCommandPalette() {
       this.commandOpen = true;
+      this.rememberModalFocus();
       this.commandQuery = "";
       this.commandIndex = 0;
       this.fileSearchResults = [];
@@ -5139,6 +5427,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.fileSearchLoading = false;
       this._searchSeq += 1;
       if (this._searchTimer) clearTimeout(this._searchTimer);
+      this.$nextTick(() => this.restoreModalFocus());
     },
     onCommandQuery() {
       this.commandIndex = 0;
@@ -5194,9 +5483,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         { id: "settings", title: "\u6253\u5F00\u8BBE\u7F6E", hint: "\u754C\u9762", run: () => this.toggleSettings() },
         { id: "recovery", title: "\u6253\u5F00\u6062\u590D\u4E2D\u5FC3", hint: "\u754C\u9762", run: () => this.openRecovery() },
         { id: "notifications", title: "\u901A\u77E5\u4E2D\u5FC3", hint: "\u754C\u9762", run: () => this.toggleNotifications() },
-        { id: "shortcuts", title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9", run: () => {
-          this.shortcutsOpen = true;
-        } },
+        { id: "shortcuts", title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9", run: () => this.openShortcuts() },
         { id: "search-conversation", title: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD", hint: "\u5BFC\u822A", shortcut: "Ctrl+Shift+F", run: () => {
           this.showChat();
           this.openMessageSearch();
@@ -5453,6 +5740,59 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     }
   };
 
+  // src/ui/problems.ts
+  var PROBLEM_KIND_LABELS = {
+    verification: "\u9A8C\u8BC1",
+    review: "\u5BA1\u67E5",
+    run: "\u8FD0\u884C"
+  };
+  function problemGroupKey(problem) {
+    const path = String(problem && problem._path || "").trim();
+    if (path) return `file:${path}`;
+    return `kind:${problem && problem.kind || "other"}`;
+  }
+  function groupProblems(problems, expanded = {}) {
+    const order = [];
+    const groups = /* @__PURE__ */ new Map();
+    for (const problem of problems || []) {
+      const key = problemGroupKey(problem);
+      let group = groups.get(key);
+      if (!group) {
+        const path = String(problem && problem._path || "");
+        const kind = String(problem && problem.kind || "");
+        group = {
+          _key: key,
+          _label: path || PROBLEM_KIND_LABELS[kind] || kind || "\u5176\u4ED6",
+          _path: path,
+          _items: [],
+          _count: 0,
+          _errors: 0,
+          _warnings: 0
+        };
+        groups.set(key, group);
+        order.push(key);
+      }
+      group._items.push({ ...problem, _itemCls: problem && problem._cls || "" });
+      group._count += 1;
+      if ((problem && problem.severity) === "error") group._errors += 1;
+      else group._warnings += 1;
+    }
+    return order.map((key) => {
+      const group = groups.get(key);
+      const open = expanded[key] !== false;
+      const detail = [];
+      if (group._errors) detail.push(`${group._errors} \u9519\u8BEF`);
+      if (group._warnings) detail.push(`${group._warnings} \u8B66\u544A`);
+      return {
+        ...group,
+        _open: open,
+        _toggle: open ? "\u25BE" : "\u25B8",
+        _countText: detail.join(" / ") || `${group._count} \u9879`,
+        _cls: `problem-group${group._errors ? " has-error" : ""}`
+      };
+    });
+  }
+
   // src/features/csp.ts
   var cspMixin = {
     onAction(event) {
@@ -5543,6 +5883,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           break;
         case "match":
           this.nextMessageMatch(Number(data.delta));
+          break;
+        case "problem-group":
+          this.toggleProblemGroup(data.group);
           break;
         default:
           break;
@@ -5694,6 +6037,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     openQuickOpen() {
       this.commandOpen = true;
+      this.rememberModalFocus();
       this.commandQuery = "#";
       this.commandIndex = 0;
       this.fileSearchResults = [];
@@ -5710,9 +6054,11 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     openShortcuts() {
       this.shortcutsOpen = true;
+      this.focusModal(".shortcuts-modal");
     },
     closeShortcuts() {
       this.shortcutsOpen = false;
+      this.$nextTick(() => this.restoreModalFocus());
     },
     openNotifyUnread() {
     },
@@ -5776,6 +6122,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     get hasUnreadNotifications() {
       return this.unreadNotifications > 0;
     },
+    get hasApprovals() {
+      return this.approvals.length > 0;
+    },
+    get commandActiveDescendant() {
+      return `command-item-${this.commandIndex}`;
+    },
     get unreadNotificationsText() {
       return `${this.unreadNotifications} \u6761\u672A\u8BFB`;
     },
@@ -5830,8 +6182,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     get hasUploads() {
       return this.uploads.length > 0;
     },
+    get problemGroups() {
+      return groupProblems(this.problems, this.problemExpanded);
+    },
     get problemsCountText() {
-      return `${this.problems.length} \u4E2A\u95EE\u9898`;
+      const groups = this.problemGroups.length;
+      return groups ? `${this.problems.length} \u4E2A\u95EE\u9898 \xB7 ${groups} \u7EC4` : "0 \u4E2A\u95EE\u9898";
     },
     get noSessions() {
       return this.sessionRows.length === 0;
@@ -5949,6 +6305,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         const groupStart = item.group !== lastGroup;
         lastGroup = item.group;
         return {
+          detail: "",
           ...item,
           _index: index,
           _selected: index === this.commandIndex,
@@ -6108,7 +6465,19 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       treeExpanded: {},
       treeLoadingMap: {},
       treeQuery: "",
-      fileView: { path: "", size: 0, _text: "", _html: "" },
+      treeGit: {},
+      treeGitState: "",
+      _treeGitLoaded: false,
+      fileView: {
+        path: "",
+        size: 0,
+        _text: "",
+        _html: "",
+        _lang: "",
+        _size: "",
+        _lineNumbers: "",
+        _crumb: ""
+      },
       gitInfo: {
         is_repo: false,
         _state: "",
@@ -6161,6 +6530,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       diffViewClasses: { unified: "active", split: "" },
       fileLineInput: "",
       problems: [],
+      problemExpanded: {},
       _problemSeq: 0,
       filesDirty: false,
       tasksDirty: false,
@@ -6171,6 +6541,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       commandOpen: false,
       commandQuery: "",
       commandIndex: 0,
+      _modalReturnFocus: null,
       recentCommands: [],
       notifications: [],
       notificationsOpen: false,
@@ -6226,6 +6597,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       desktopMixin,
       memoryMixin,
       keyboardMixin,
+      focusMixin,
       layoutMixin,
       notificationsMixin,
       cspMixin

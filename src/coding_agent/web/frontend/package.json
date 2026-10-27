@@ -7,10 +7,12 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node test.mjs"
+    "test": "node test.mjs && node test-dom.mjs",
+    "test:dom": "node test-dom.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
+    "jsdom": "^26.1.0",
     "typescript": "^5.9.0"
   }
 }

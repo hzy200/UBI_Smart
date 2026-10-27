@@ -26,6 +26,15 @@
 }
 .tree-row:hover { background: var(--panel-2); }
 .tree-kind { color: var(--muted); font-size: 10px; width: 26px; }
+.tree-git {
+  flex: 0 0 auto; min-width: 12px; text-align: center;
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+}
+.tree-git.git-m { color: var(--warn); }
+.tree-git.git-a, .tree-git.git-u { color: var(--ok, #2f9e44); }
+.tree-git.git-d { color: var(--bad); }
+.tree-git.git-r, .tree-git.git-c { color: var(--accent); }
+.tree-git.git-dir { color: var(--muted); font-size: 8px; }
 .tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-search { margin-bottom: 6px; }
 .tree-copy {

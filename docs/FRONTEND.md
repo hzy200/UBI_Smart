@@ -121,11 +121,14 @@ web/static/vendor/*                                (直接由 A2 提供)
 - **文件改动**：快照、diff、检查点、逐文件/整轮接受与回滚。
 - **文件树**：host 工作区经 A2L 读取；sandbox 经 A3；按目录懒加载、
   可展开/折叠、刷新与收起全部；支持过滤已加载条目与复制相对路径；
-  桌面 sandbox 模式可在文件标签中调用 VS Code 打开。
+  桌面 sandbox 模式可在文件标签中调用 VS Code 打开。加载时顺带读取
+  `/api/git`，为文件显示 M/A/D/R/U 标记，目录显示聚合改动圆点；
+  Agent 改动文件后先本地标 M，刷新时再与真实状态对齐。
 - **Git**：只读分支/改动/提交/diff；提交仍由 Agent + 审批完成。
 - **任务**：编排任务 DAG、worker、依赖、耗时与 token。
 - **记忆 / 审计**：查询与维护操作；删除/清理需显式确认。
 - **问题**：聚合验证失败/失败测试与审查发现，显示严重级别、来源与详情；
+  按文件路径或来源（验证/审查/运行）分组，组头可折叠并统计错误/警告数；
   活动栏带未解决问题数量徽标。
 
 会话列表按工作区分组（`web · 本机`、`WSL · /path`、`未绑定工作区`），
@@ -345,6 +348,8 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 - 命令面板使用 `aria-activedescendant` 指向当前命令项；toast 使用
   `role="status"` + `aria-live="polite"`。
 - 所有可交互元素有 `:focus-visible` 轮廓；支持 `prefers-reduced-motion`。
+- 命令面板、设置、快捷键、恢复中心等模态打开时把焦点移入，`Tab`/`Shift+Tab`
+  在模态内循环；`Esc` 关闭后把焦点还给触发元素。
 - 颜色不是唯一信息通道：状态同时有文字徽标/圆点/边框样式。
 - 窄屏（≤1100px）检查器改为右侧浮层；≤760px 活动栏横向、侧栏限高。
 
@@ -399,6 +404,8 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 ## 11. 性能约束
 
 - 流式刷新 60ms 节流；token 缓冲不进入 Alpine 响应式系统。
+- 流式 Markdown 做块级增量渲染：缓存空行分隔的稳定块，只重渲染尾部；
+  未闭合代码围栏、列表/引用/表格等跨空行语法保守留在尾部，保证正确性。
 - 长消息/工具输出默认折叠；`content-visibility: auto` 降低长列表成本。
 - 会话列表最多加载 50 条；会话按工作区分组，避免一次渲染过多。
 - 代码高亮只做一次；复制按钮/代码按钮不重复装饰。
@@ -410,7 +417,8 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 - 事件缓冲/重放有上限（A2 侧 8MB/5000 条/5 分钟，按实现为准）。
 - 分离后静态产物按 hash 长缓存，`index.html`/配置 `no-cache`，API/SSE
   `no-store`；SSE 经过反代时禁缓冲、禁压缩并保留心跳。
-- 当前**没有** JS 虚拟列表和浏览器自动化测试；长会话靠分页/折叠控制。
+- 已有 jsdom 交互测试覆盖 DOM 行为；尚无 Playwright 真实浏览器 E2E
+  （pywebview 探针作为手工冒烟补充）。
 
 ---
 
@@ -423,6 +431,7 @@ cd src/coding_agent/web/frontend
 node node_modules/typescript/bin/tsc --noEmit
 node esbuild.mjs
 node test.mjs
+node test-dom.mjs   # jsdom：加载 static 产物 + Alpine CSP，桩掉 API
 
 pytest -m "not llm" tests/unit/test_frontend_workspace_ui.py \
        tests/unit/test_web_app.py \
@@ -441,7 +450,10 @@ python scripts/probe_frontend_csp.py
 覆盖点：构建产物包含项目/工作区流程；页面无构建链；静态资源可访问；
 安全头/CSP；SSE 事件流；审批/steering/恢复端点；工作区绑定与
 transcript 保存。`node test.mjs` 覆盖 diff 解析/split/词级标记、查询匹配/
-fuzzy/前缀解析、虚拟列表区间等纯函数。
+fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、增量 Markdown
+与焦点循环等纯函数。`node test-dom.mjs` 用 jsdom 真实加载 `static/index.html`、
+vendored Alpine CSP 与 `app.js`，桩掉后端 API 后验证文件树 Git 标记、
+Problems 折叠、流式渲染、模态焦点陷阱，并把 Alpine 表达式错误作为失败。
 
 分离改造实施后新增契约测试（设计冻结，锚点见验收 `REQ-202`–`REQ-212`）：
 
@@ -493,7 +505,13 @@ fuzzy/前缀解析、虚拟列表区间等纯函数。
 | `web/frontend/src/ui/diff.ts` | diff 解析、并排视图配对与词级标记 |
 | `web/frontend/src/ui/search.ts` | 查询匹配、fuzzy 排序与命令前缀解析 |
 | `web/frontend/src/ui/virtual.ts` | 变量高度虚拟列表区间计算 |
+| `web/frontend/src/ui/git.ts` | Git porcelain 状态归一与文件树标记 |
+| `web/frontend/src/ui/problems.ts` | Problems 按文件/来源聚合 |
+| `web/frontend/src/ui/markdown.ts` | 流式 Markdown 稳定块切分与增量渲染 |
+| `web/frontend/src/ui/focus.ts` | 模态 Tab 循环计算 |
+| `web/frontend/src/features/focus.ts` | 模态焦点进入/陷阱/恢复 mixin |
 | `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |
+| `web/frontend/tests/dom/*` | jsdom 交互测试（`node test-dom.mjs`） |
 | `web/frontend/src/state/runtime.ts` | 非响应式 Map 缓冲 |
 | `web/frontend/src/contracts/events.generated.ts` | 由契约生成的事件 union（禁止手改） |
 | `web/frontend/src/templates/*.html` | 页面模板分片（构建期拼成 `static/index.html`） |

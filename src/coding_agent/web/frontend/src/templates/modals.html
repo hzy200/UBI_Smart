@@ -8,7 +8,7 @@
       <input x-ref="commandInput" x-model="commandQuery"
              @input="onCommandInput"
              @keydown="onCommandKeydown"
-             :aria-activedescendant="'command-item-' + commandIndex"
+             :aria-activedescendant="commandActiveDescendant"
              aria-controls="command-list"
              placeholder="输入命令、会话或文件；支持 > 命令 / @ 会话 / # 文件"
              aria-label="命令面板搜索">
@@ -36,7 +36,7 @@
   </div>
 </div>
 
-<div class="modal" x-show="approvals.length > 0" x-cloak
+<div class="modal" x-show="hasApprovals" x-cloak
      role="dialog" aria-modal="true" aria-labelledby="approval-title">
   <div class="modal-box">
     <h3 id="approval-title">需要确认</h3>
@@ -55,7 +55,7 @@
   </div>
 </div>
 
-<div class="modal" x-show="shortcutsOpen" x-cloak
+<div class="modal shortcuts-modal" x-show="shortcutsOpen" x-cloak
      role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
   <div class="modal-box">
     <h3 id="shortcuts-title">快捷键</h3>
@@ -284,7 +284,7 @@
     </div>
   </div>
 </div>
-<div class="modal" x-show="showRecovery" x-cloak
+<div class="modal recovery-modal" x-show="showRecovery" x-cloak
      role="dialog" aria-modal="true" aria-labelledby="recovery-title">
   <div class="modal-box">
     <h3 id="recovery-title">恢复中心</h3>

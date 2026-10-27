@@ -4,6 +4,8 @@
  * 模板统一通过 data-action 触发的 onAction 和 getter 访问状态。
  */
 
+import { groupProblems } from '../ui/problems';
+
 export const cspMixin = {
   onAction(event) {
     const element = event && (event.currentTarget || event.target);
@@ -38,6 +40,7 @@ export const cspMixin = {
       case 'select-project': this.selectProject(data.id); break;
       case 'recovery': this.onRecoveryAction(data.op, data.id); break;
       case 'match': this.nextMessageMatch(Number(data.delta)); break;
+      case 'problem-group': this.toggleProblemGroup(data.group); break;
       default: break;
     }
   },
@@ -190,6 +193,7 @@ export const cspMixin = {
 
   openQuickOpen() {
     this.commandOpen = true;
+    this.rememberModalFocus();
     this.commandQuery = '#';
     this.commandIndex = 0;
     this.fileSearchResults = [];
@@ -206,8 +210,14 @@ export const cspMixin = {
     return ['最近使用', '命令', '会话', '文件'];
   },
 
-  openShortcuts() { this.shortcutsOpen = true; },
-  closeShortcuts() { this.shortcutsOpen = false; },
+  openShortcuts() {
+    this.shortcutsOpen = true;
+    this.focusModal('.shortcuts-modal');
+  },
+  closeShortcuts() {
+    this.shortcutsOpen = false;
+    this.$nextTick(() => this.restoreModalFocus());
+  },
   openNotifyUnread() {},
   onProjectDragOver() { this.projectDropActive = true; },
   onProjectDragLeave() { this.projectDropActive = false; },
@@ -240,6 +250,8 @@ export const cspMixin = {
   get sidebarExpanded() { return this.sidebarCollapsed ? 'false' : 'true'; },
   get inspectorExpanded() { return this.inspectorCollapsed ? 'false' : 'true'; },
   get hasUnreadNotifications() { return this.unreadNotifications > 0; },
+  get hasApprovals() { return this.approvals.length > 0; },
+  get commandActiveDescendant() { return `command-item-${this.commandIndex}`; },
   get unreadNotificationsText() {
     return `${this.unreadNotifications} 条未读`;
   },
@@ -266,7 +278,11 @@ export const cspMixin = {
   get appendDisabled() { return !this.busy; },
   get replanDisabled() { return !this.busy; },
   get hasUploads() { return this.uploads.length > 0; },
-  get problemsCountText() { return `${this.problems.length} 个问题`; },
+  get problemGroups() { return groupProblems(this.problems, this.problemExpanded); },
+  get problemsCountText() {
+    const groups = this.problemGroups.length;
+    return groups ? `${this.problems.length} 个问题 · ${groups} 组` : '0 个问题';
+  },
   get noSessions() { return this.sessionRows.length === 0; },
   get filesEmptyState() { return this.filesEmpty(); },
   get treeLoadingText() { return this.treeRootLoading() ? '加载中…' : ''; },
@@ -335,6 +351,7 @@ export const cspMixin = {
       const groupStart = item.group !== lastGroup;
       lastGroup = item.group;
       return {
+        detail: '',
         ...item,
         _index: index,
         _selected: index === this.commandIndex,

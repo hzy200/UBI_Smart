@@ -8,6 +8,7 @@ import {
   renderMarkdown,
 } from '../ui/format';
 import {
+  markdownCaches,
   messageHeights,
   renderTimers,
   tokenBuffers,
@@ -428,6 +429,7 @@ export const sessionsMixin = {
     this.planRows = [];
     this.timeline = [];
     this.problems = [];
+    this.problemExpanded = {};
     this.stepIdx = -1;
     this.planDegraded = false;
     this.tools = [];
@@ -438,6 +440,7 @@ export const sessionsMixin = {
     renderTimers.forEach((timer) => clearTimeout(timer));
     renderTimers.clear();
     tokenBuffers.clear();
+    markdownCaches.clear();
     this.files = [];
     this.checkpoints = [];
     this.diffText = '';
@@ -455,7 +458,10 @@ export const sessionsMixin = {
     this.mainTabFlags = { chat: true, file: false, diff: false };
     this.editorTabs = [];
     this.activeEditorId = '';
-    this.fileView = { path: '', size: 0, _text: '', _html: '' };
+    this.fileView = {
+      path: '', size: 0, _text: '', _html: '',
+      _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+    };
     this.tasks = [];
     this.audit = [];
     this.uploads = [];
@@ -528,7 +534,13 @@ export const sessionsMixin = {
     this.treeChildren = {};
     this.treeExpanded = {};
     this.treeLoadingMap = {};
-    this.fileView = { path: '', size: 0, _text: '', _html: '' };
+    this.treeGit = {};
+    this.treeGitState = '';
+    this._treeGitLoaded = false;
+    this.fileView = {
+      path: '', size: 0, _text: '', _html: '',
+      _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+    };
     this.gitInfo = {
       is_repo: false, _state: '', _branch: '',
       _changes: [], _commits: [],
