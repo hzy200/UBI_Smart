@@ -62,7 +62,7 @@ class ControlSession(Base):
     # 会话目录展示状态；只影响列表，不影响审计/checkpoint。
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
-    tags: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[str] = mapped_column(String(1024), default="")
     # 会话列表提示：后台完成/失败时置真，打开会话后清除。
     unread: Mapped[bool] = mapped_column(Boolean, default=False)
     # 最近一条用户/助手消息的纯文本摘要，用于列表预览。

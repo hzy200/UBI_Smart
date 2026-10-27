@@ -25,9 +25,10 @@ def upgrade() -> None:
         "control_sessions",
         sa.Column("archived", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
+    # MySQL 不允许 TEXT 列带字面量默认值；tags 最多 8 个短标签，用 VARCHAR。
     op.add_column(
         "control_sessions",
-        sa.Column("tags", sa.Text(), nullable=False, server_default=""),
+        sa.Column("tags", sa.String(1024), nullable=False, server_default=""),
     )
     meta = sa.table(
         "control_meta",
