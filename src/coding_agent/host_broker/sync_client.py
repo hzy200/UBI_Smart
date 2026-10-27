@@ -22,7 +22,11 @@ from coding_agent.host_broker.protocol import (
     GRANT_REQUIRED,
     GRANT_REVOKED,
 )
-from coding_agent.host_broker.transport import Transport, connect_tcp
+from coding_agent.host_broker.transport import (
+    TlsConfig,
+    Transport,
+    connect_tcp,
+)
 
 # 目录选择/本机确认是人工操作，不能按普通 RPC 的 30 秒超时。
 INTERACTIVE_TIMEOUT_S = 600.0
@@ -61,6 +65,10 @@ class GrantCache:
     def clear(self, workspace_id: str) -> None:
         with self._lock:
             self._items.pop(workspace_id, None)
+
+    def clear_all(self) -> None:
+        with self._lock:
+            self._items.clear()
 
 
 def call_with_grant(
@@ -155,12 +163,22 @@ class SyncHostCaller:
         heartbeat_s: float = 15.0,
         request_timeout_s: float = 30.0,
         transport: Transport | None = None,
+        tls: TlsConfig | None = None,
+        a2l_id: str = "",
+        server_fingerprint: str = "",
+        device_fingerprint: str = "",
+        require_encrypted: bool = False,
     ) -> None:
         self.url = str(url or "")
         self.client_id = str(client_id or "")
         self.security_tier = str(security_tier or "lowpriv")
         self.heartbeat_s = float(heartbeat_s)
         self.request_timeout_s = float(request_timeout_s)
+        self.tls = tls
+        self.a2l_id = str(a2l_id or "")
+        self.server_fingerprint = str(server_fingerprint or "")
+        self.device_fingerprint = str(device_fingerprint or "")
+        self.require_encrypted = bool(require_encrypted)
         self._grants = GrantCache()
         self._transport = transport
         self._loop = asyncio.new_event_loop()
@@ -188,13 +206,17 @@ class SyncHostCaller:
     async def _connect(self) -> None:
         transport = self._transport
         if transport is None:
-            transport = await connect_tcp(self.url)
+            transport = await connect_tcp(self.url, tls=self.tls)
         client = HostBrokerClient(
             transport,
             client_id=self.client_id,
             security_tier=self.security_tier,
             heartbeat_s=self.heartbeat_s,
             request_timeout_s=self.request_timeout_s,
+            a2l_id=self.a2l_id,
+            server_fingerprint=self.server_fingerprint,
+            device_fingerprint=self.device_fingerprint,
+            require_encrypted=self.require_encrypted,
         )
         await client.connect()
         self._client = client
@@ -229,6 +251,7 @@ class SyncHostCaller:
             client = self._client
             self._client = None
             self._started = False
+            self._grants.clear_all()
             if client is not None:
                 try:
                     self._run(client.close())

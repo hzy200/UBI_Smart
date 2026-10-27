@@ -108,6 +108,32 @@ def test_grant_store_validates_scope_ttl_and_verbs(tmp_path) -> None:
         store.issue(scope=[str(tmp_path)], verbs=["fly"])
 
 
+def test_one_shot_grant_can_only_be_claimed_once(tmp_path) -> None:
+    store = GrantStore()
+    grant = store.issue(
+        scope=[str(tmp_path)], verbs=["read"], one_shot=True
+    )
+    assert store.claim(grant.grant_id) is True
+    assert store.claim(grant.grant_id) is False
+    current = store.get(grant.grant_id)
+    assert current is not None and current.used is True
+
+
+def test_claim_rejects_revoked_and_expired(tmp_path) -> None:
+    store = GrantStore()
+    revoked = store.issue(
+        scope=[str(tmp_path)], verbs=["read"], one_shot=True
+    )
+    store.revoke(revoked.grant_id)
+    assert store.claim(revoked.grant_id) is False
+
+    expired = store.issue(
+        scope=[str(tmp_path)], verbs=["read"], one_shot=True
+    )
+    later = datetime.now(UTC) + timedelta(seconds=3600)
+    assert store.claim(expired.grant_id, now=later) is False
+
+
 def test_normalize_scope_rejects_home_root() -> None:
     with pytest.raises(ValueError):
         normalize_scope(os.path.expanduser("~"))

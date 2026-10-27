@@ -9,7 +9,7 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **217** 个配置项。
+共 **223** 个配置项。
 
 ## 通用
 
@@ -70,13 +70,19 @@
 | `AGENT_HOST_BROKER_ACCOUNT` | `host_broker_account` | `str` | `""` |  |
 | `AGENT_HOST_BROKER_AUTOSTART` | `host_broker_autostart` | `bool` | `true` |  |
 | `AGENT_HOST_BROKER_DEVICE_CERT` | `host_broker_device_cert` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_DEVICE_KEY` | `host_broker_device_key` | `str` | `""` |  |
 | `AGENT_HOST_BROKER_ENABLED` | `host_broker_enabled` | `bool` | `false` | ---------- A2L 宿主能力代理（Phase 1，默认关闭） ---------- A2L 绑定客户端生命周期：随客户端启动/退出，不注册系统服务。 |
 | `AGENT_HOST_BROKER_HEARTBEAT_S` | `host_broker_heartbeat_s` | `int` | `15` |  |
 | `AGENT_HOST_BROKER_LISTEN_HOST` | `host_broker_listen_host` | `str` | `"127.0.0.1"` |  |
 | `AGENT_HOST_BROKER_LISTEN_PORT` | `host_broker_listen_port` | `int` | `8791` |  |
 | `AGENT_HOST_BROKER_PAUSED` | `host_broker_paused` | `bool` | `false` |  |
+| `AGENT_HOST_BROKER_REQUIRE_TLS` | `host_broker_require_tls` | `bool` | `false` |  |
 | `AGENT_HOST_BROKER_SECURITY_TIER` | `host_broker_security_tier` | `str` | `"lowpriv"` | lowpriv 是 P1 默认；appcontainer 仅受限只读；user-t1 仅 local-dev。 |
 | `AGENT_HOST_BROKER_STORE` | `host_broker_store` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_TLS_CA` | `host_broker_tls_ca` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_TLS_CERT` | `host_broker_tls_cert` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_TLS_KEY` | `host_broker_tls_key` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_TLS_SERVER_NAME` | `host_broker_tls_server_name` | `str` | `""` |  |
 | `AGENT_HOST_BROKER_URL` | `host_broker_url` | `str` | `""` |  |
 | `AGENT_HOST_DENY_ROOTS` | `host_deny_roots` | `str` | `""` |  |
 | `AGENT_HOST_ROOT_HANDLE` | `host_root_handle` | `str` | `""` |  |

@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import time
 from typing import Any
 
 from coding_agent.host_broker.protocol import (
     GATEWAY_OFFLINE,
+    PROTOCOL_VERSION,
     TIMEOUT,
+    UNAUTHENTICATED,
     Frame,
     ProtocolError,
     decode_frame,
@@ -47,17 +50,26 @@ class HostBrokerClient:
         security_tier: str = "lowpriv",
         heartbeat_s: float = 15.0,
         request_timeout_s: float = 30.0,
+        a2l_id: str = "",
+        server_fingerprint: str = "",
+        device_fingerprint: str = "",
+        require_encrypted: bool = False,
     ) -> None:
         self.transport = transport
         self.client_id = str(client_id or "")
         self.security_tier = str(security_tier or "lowpriv")
         self.heartbeat_s = max(0.05, float(heartbeat_s))
         self.request_timeout_s = max(0.1, float(request_timeout_s))
+        self.a2l_id = str(a2l_id or "")
+        self.server_fingerprint = str(server_fingerprint or "")
+        self.device_fingerprint = str(device_fingerprint or "")
+        self.require_encrypted = bool(require_encrypted)
         self.state = "disconnected"
         self.hello: Frame | None = None
         self.grant_events: asyncio.Queue[Frame] = asyncio.Queue()
         self._pending: dict[str, asyncio.Future[Frame]] = {}
         self._hello_future: asyncio.Future[Frame] | None = None
+        self._hello_id = ""
         self._reader_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._last_seen = 0.0
@@ -77,9 +89,19 @@ class HostBrokerClient:
         self._hello_future = loop.create_future()
         self._last_seen = time.monotonic()
         self._reader_task = asyncio.create_task(self._reader())
+        nonce = secrets.token_hex(16)
+        hello_frame = make_hello(
+            self.client_id,
+            security_tier=self.security_tier,
+            a2l_id=self.a2l_id,
+            nonce=nonce,
+            server_fingerprint=self.server_fingerprint,
+        )
+        self._hello_id = hello_frame.id
         try:
-            await self._send(make_hello(self.client_id, security_tier=self.security_tier))
+            await self._send(hello_frame)
             hello = await asyncio.wait_for(self._hello_future, timeout=timeout)
+            self._validate_hello(hello, nonce)
         except TimeoutError as exc:
             self.state = "offline"
             raise HostBrokerError(TIMEOUT, "A2L 握手超时") from exc
@@ -91,6 +113,30 @@ class HostBrokerClient:
         self._last_seen = time.monotonic()
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         return hello
+
+    def _validate_hello(self, hello: Frame, nonce: str) -> None:
+        meta = dict(hello.meta or {})
+        if int(meta.get("protocol_version") or 0) != PROTOCOL_VERSION:
+            raise HostBrokerError(UNAUTHENTICATED, "A2L 协议版本不匹配")
+        if str(meta.get("nonce") or "") != nonce:
+            raise HostBrokerError(UNAUTHENTICATED, "A2L 握手 nonce 不匹配")
+        if self.a2l_id and str(meta.get("a2l_id") or "") != self.a2l_id:
+            raise HostBrokerError(UNAUTHENTICATED, "A2L 身份不匹配")
+        encrypted = bool(
+            getattr(self.transport, "is_encrypted", lambda: False)()
+        )
+        if self.require_encrypted and not encrypted:
+            raise HostBrokerError(UNAUTHENTICATED, "要求加密通道")
+        peer_fp = str(
+            getattr(self.transport, "peer_cert_fingerprint", lambda: "")()
+        )
+        claimed = str(meta.get("device_fingerprint") or "")
+        if claimed and peer_fp and claimed != peer_fp:
+            raise HostBrokerError(UNAUTHENTICATED, "A2L 设备证书指纹不匹配")
+        if self.device_fingerprint and claimed != self.device_fingerprint:
+            raise HostBrokerError(UNAUTHENTICATED, "A2L 设备指纹不符合预期")
+        if self.require_encrypted and not claimed:
+            raise HostBrokerError(UNAUTHENTICATED, "A2L 未提供设备指纹")
 
     async def request(
         self,
@@ -133,6 +179,7 @@ class HostBrokerClient:
         ttl_s: int = 1800,
         reason: str = "",
         sensitive: bool = False,
+        one_shot: bool = False,
         timeout: float | None = None,
     ) -> Frame:
         if not self.is_online:
@@ -143,6 +190,7 @@ class HostBrokerClient:
             ttl_s=ttl_s,
             reason=reason,
             sensitive=sensitive,
+            one_shot=one_shot,
         )
         future: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
         self._pending[frame.id] = future
@@ -214,6 +262,15 @@ class HostBrokerClient:
             self._fail_pending("A2L 连接已断开")
 
     def _handle_frame(self, frame: Frame) -> None:
+        if frame.id == self._hello_id and frame.type == "response":
+            if self._hello_future is not None and not self._hello_future.done():
+                if frame.error_code:
+                    self._hello_future.set_exception(
+                        HostBrokerError(frame.error_code, frame.error)
+                    )
+                else:
+                    self._hello_future.set_result(frame)
+            return
         if frame.type == "hello_ok":
             if self._hello_future is not None and not self._hello_future.done():
                 self._hello_future.set_result(frame)
@@ -265,3 +322,9 @@ class StaticTransport:
 
     async def close(self) -> None:
         return None
+
+    def is_encrypted(self) -> bool:
+        return False
+
+    def peer_cert_fingerprint(self) -> str:
+        return ""

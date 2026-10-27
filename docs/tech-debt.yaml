@@ -114,11 +114,11 @@ items:
   - id: TD-013
     title: A2L 是 T4 横向执行面，服务端失陷可触达所有客户端
     where: host_broker/server.py, host_broker/consent.py
-    why_now: 本地否决权/只外连/设备证书能降低概率，但不能消除；Phase 1 尚未做
-      企业设备注册与红队演练
+    why_now: P0 已落地 mTLS/设备指纹、hello nonce 防重放、grant one-shot/
+      限流/断线撤销；但企业设备注册、吊销与红队演练仍未做，横向风险不能消除
     debt_type: 安全
     severity: high
-    workaround: 默认关闭；企业先小范围部署；本地日志面板可逐条回放
+    workaround: 默认关闭；企业先小范围部署；启用 TLS 与本地同意；断线即撤销
     owner: 项目作者
     due: 企业批量分发之前
     do_not: 不要让服务端推送自动更新或下发 grant scope
@@ -151,6 +151,14 @@ items:
 # 已还清（保留作历史，避免重复讨论）
 # ===========================================================================
 paid_off:
+  - id: TD-018
+    title: 缺少 Playwright 真实浏览器 E2E
+    resolved: 2026-10-27
+    how: 新增 Playwright + 系统 Chrome 冒烟（壳层、草稿切换、语言切换），
+      CI 在 npm test 后执行；不下载额外浏览器。
+    regression: web/frontend/tests/e2e/smoke.spec.ts
+    see: .github/workflows/ci.yml
+
   - id: TD-017
     title: 前端会话视图已隔离，但编辑器标签与焦点仍是全局的
     resolved: 2026-10-27
@@ -213,15 +221,3 @@ paid_off:
     owner: 项目作者
     due: 多实例 Web 部署时
     do_not: 不要把明文 key 写进租户 JSON、.env 或前端 localStorage
-
-  - id: TD-018
-    title: 缺少 Playwright 真实浏览器 E2E
-    where: .github/workflows/ci.yml, web/frontend/tests/
-    why_now: 纯函数与 jsdom 用例已进 CI（npm ci && npm test），但真实浏览器
-      布局、下载与原生事件仍靠手工冒烟
-    debt_type: 测试
-    severity: low
-    workaround: 发版前本地跑 probe_frontend_csp.py 或手工冒烟
-    owner: 项目作者
-    due: 前端发版流水线稳定后
-    do_not: 不要把 jsdom 用例当作真实浏览器 E2E 的替代品

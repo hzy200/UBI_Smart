@@ -182,6 +182,24 @@ class Settings(BaseSettings):
     host_broker_device_cert: str = Field(
         default="", alias="AGENT_HOST_BROKER_DEVICE_CERT"
     )
+    host_broker_device_key: str = Field(
+        default="", alias="AGENT_HOST_BROKER_DEVICE_KEY"
+    )
+    host_broker_tls_ca: str = Field(
+        default="", alias="AGENT_HOST_BROKER_TLS_CA"
+    )
+    host_broker_tls_cert: str = Field(
+        default="", alias="AGENT_HOST_BROKER_TLS_CERT"
+    )
+    host_broker_tls_key: str = Field(
+        default="", alias="AGENT_HOST_BROKER_TLS_KEY"
+    )
+    host_broker_tls_server_name: str = Field(
+        default="", alias="AGENT_HOST_BROKER_TLS_SERVER_NAME"
+    )
+    host_broker_require_tls: bool = Field(
+        default=False, alias="AGENT_HOST_BROKER_REQUIRE_TLS"
+    )
     host_broker_heartbeat_s: int = Field(
         default=15, alias="AGENT_HOST_BROKER_HEARTBEAT_S"
     )

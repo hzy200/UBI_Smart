@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_FRAME_BYTES = 1024 * 1024
 
 # 错误码与 docs/PHASE_A2L.md §3.4 保持一致。
@@ -44,6 +44,8 @@ GATEWAY_OFFLINE = "GATEWAY_OFFLINE"
 A2L_PAUSED = "A2L_PAUSED"
 UNAUTHENTICATED = "UNAUTHENTICATED"
 GRANT_LOCAL_ONLY = "GRANT_LOCAL_ONLY"
+GRANT_RATE_LIMITED = "GRANT_RATE_LIMITED"
+GRANT_USED = "GRANT_USED"
 INTERNAL = "INTERNAL"
 
 SUPPORTED_TYPES = frozenset(
@@ -182,9 +184,10 @@ def _validate(frame: Frame) -> None:
                 "MALFORMED_FRAME", "request 需要 id/op_id/kind"
             )
     elif frame.type == "response":
-        if not frame.id or not frame.op_id or not frame.status:
+        # hello 拒绝没有 op_id；按 id 关联请求即可。
+        if not frame.id or not frame.status:
             raise ProtocolError(
-                "MALFORMED_FRAME", "response 需要 id/op_id/status"
+                "MALFORMED_FRAME", "response 需要 id/status"
             )
     elif frame.type == "cancel":
         if not frame.op_id:
@@ -220,7 +223,12 @@ def _new_id() -> str:
 
 
 def make_hello(
-    client_id: str, *, security_tier: str = "lowpriv"
+    client_id: str,
+    *,
+    security_tier: str = "lowpriv",
+    a2l_id: str = "",
+    nonce: str = "",
+    server_fingerprint: str = "",
 ) -> Frame:
     return Frame(
         type="hello",
@@ -228,6 +236,10 @@ def make_hello(
         meta={
             "client_id": str(client_id or ""),
             "security_tier": str(security_tier or ""),
+            "a2l_id": str(a2l_id or ""),
+            "nonce": str(nonce or ""),
+            "server_fingerprint": str(server_fingerprint or ""),
+            "protocol_version": PROTOCOL_VERSION,
         },
     )
 
@@ -238,6 +250,9 @@ def make_hello_ok(
     security_tier: str = "lowpriv",
     threat_model: str = "T1",
     capabilities: dict[str, Any] | None = None,
+    a2l_id: str = "",
+    device_fingerprint: str = "",
+    nonce: str = "",
 ) -> Frame:
     return Frame(
         type="hello_ok",
@@ -247,6 +262,9 @@ def make_hello_ok(
             "security_tier": str(security_tier or ""),
             "threat_model": str(threat_model or ""),
             "capabilities": dict(capabilities or {}),
+            "a2l_id": str(a2l_id or ""),
+            "device_fingerprint": str(device_fingerprint or ""),
+            "nonce": str(nonce or ""),
             "protocol_version": PROTOCOL_VERSION,
         },
     )
@@ -328,6 +346,7 @@ def make_grant_request(
     ttl_s: int,
     reason: str,
     sensitive: bool = False,
+    one_shot: bool = False,
     request_id: str | None = None,
 ) -> Frame:
     return Frame(
@@ -339,6 +358,7 @@ def make_grant_request(
             "ttl_s": int(ttl_s),
             "reason": str(reason or ""),
             "sensitive": bool(sensitive),
+            "one_shot": bool(one_shot),
         },
     )
 
@@ -348,13 +368,20 @@ def make_grant_pending(request: Frame) -> Frame:
 
 
 def make_grant_granted(
-    request: Frame, *, grant_id: str, expires_at: str
+    request: Frame,
+    *,
+    grant_id: str,
+    expires_at: str,
+    one_shot: bool = False,
 ) -> Frame:
     return Frame(
         type="grant.granted",
         id=request.id,
         grant_id=str(grant_id or ""),
-        payload={"expires_at": str(expires_at or "")},
+        payload={
+            "expires_at": str(expires_at or ""),
+            "one_shot": bool(one_shot),
+        },
     )
 
 

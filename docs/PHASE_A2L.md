@@ -340,7 +340,13 @@ P1 默认 `lowpriv`：专用低权限账户 + 对 ZX 显式 ACL deny + 对项目
 | `AGENT_HOST_BROKER_URL` | `""` | 企业 A2/A3 的 wss 地址；桌面可空 |
 | `AGENT_HOST_BROKER_SECURITY_TIER` | `lowpriv` | `lowpriv`（默认）/ `appcontainer`（受限只读）/ `user-t1`（仅 local-dev） |
 | `AGENT_HOST_BROKER_ACCOUNT` | `""` | 专用低权限账户名 |
-| `AGENT_HOST_BROKER_DEVICE_CERT` | `""` | 企业 mTLS 设备证书路径 |
+| `AGENT_HOST_BROKER_DEVICE_CERT` | `""` | A2L 设备证书路径（mTLS 客户端身份） |
+| `AGENT_HOST_BROKER_DEVICE_KEY` | `""` | A2L 设备私钥路径 |
+| `AGENT_HOST_BROKER_TLS_CERT` | `""` | A3/A2 服务端证书路径 |
+| `AGENT_HOST_BROKER_TLS_KEY` | `""` | A3/A2 服务端私钥路径 |
+| `AGENT_HOST_BROKER_TLS_CA` | `""` | 双向校验 CA |
+| `AGENT_HOST_BROKER_TLS_SERVER_NAME` | `""` | 客户端校验的服务器名 |
+| `AGENT_HOST_BROKER_REQUIRE_TLS` | `false` | 是否强制加密通道；配置证书时实际强制 |
 | `AGENT_HOST_BROKER_HEARTBEAT_S` | `15` | 心跳间隔 |
 | `AGENT_HOST_BROKER_AUTOSTART` | `true` | 客户端启动时自动拉起 A2L；**不是操作系统级自启** |
 | `AGENT_HOST_BROKER_PAUSED` | `false` | 本地一键离线/暂停；暂停时拒绝所有 host op |
@@ -599,7 +605,7 @@ Phase 1 完成定义：
 |---|---|---|
 | P2 | host 写/删除/快照、grant 写授权、host 工作区 revision | P1 路径与 grant 测试全绿 |
 | P3 | `host.exec` + 工具链调用 + `output_roots` + build 脚本策略 | L3/L4 等级与审计契约 |
-| P4 | `host.install`（L4）、客户端安装包/签名更新、企业 mTLS/设备注册 | 签名安装器、企业策略、P1 生命周期稳定 |
+| P4 | `host.install`（L4）、客户端安装包/签名更新、企业设备注册/吊销 | 签名安装器、企业策略、P1 生命周期稳定 |
 | P5 | sandbox WSL 瘦身/加固复核、跨 kind 策略、提示注入评估 | P1–P4 稳定运行 |
 
 跨 kind 编译/验证不在任何阶段默认开启；如需要，另立 RFC。
@@ -614,6 +620,9 @@ Phase 1 完成定义：
 | 本地 `op_journal` | 完成（骨架） | `src/coding_agent/host_broker/op_journal.py` |
 | A2L 配置骨架 + `host` marker | 完成 | `config.py`、`pyproject.toml` |
 | A2L 协议 + 客户端/服务端骨架 | 完成（内存通道） | `host_broker/protocol.py`、`client.py`、`server.py`、`transport.py` |
+| A2L mTLS + 设备/服务端指纹绑定 | 完成（P0） | `transport.py`、`client.py`、`server.py`、`agent_server.py` |
+| hello nonce / 防重放 / a2l_id audience | 完成（P0） | `protocol.py`、`server.py` |
+| grant one-shot / 同意限流 / 断线撤销 | 完成（P0） | `policy.py`、`server.py`、`acceptor.py` |
 | A2L 生命周期（单实例/暂停/离线） | 完成（骨架） | `host_broker/lifecycle.py` |
 | grant/ZX/路径/工具链策略 | 完成 | `host_broker/policy.py`、`paths.py`、`toolchain.py` |
 | Phase 1 只读能力 | 完成（本地 handler） | `host_broker/ops.py` |

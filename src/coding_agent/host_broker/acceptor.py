@@ -17,6 +17,7 @@ from coding_agent.host_broker.errors import BrokerOpError
 from coding_agent.host_broker.protocol import GATEWAY_OFFLINE
 from coding_agent.host_broker.sync_client import GrantCache, call_with_grant
 from coding_agent.host_broker.transport import (
+    ServerTlsConfig,
     TcpTransport,
     connect_tcp,
     start_tcp_server,
@@ -65,8 +66,8 @@ class AcceptedHostCaller:
         )
 
     def close(self) -> None:
-        # 连接生命周期由 Acceptor 管理。
-        return None
+        # 连接断开时清掉缓存，重连后必须重新走本地授权。
+        self._grants.clear_all()
 
 
 class HostBrokerAcceptor:
@@ -79,6 +80,11 @@ class HostBrokerAcceptor:
         security_tier: str = "lowpriv",
         heartbeat_s: float = 15.0,
         request_timeout_s: float = 30.0,
+        tls: ServerTlsConfig | None = None,
+        require_encrypted: bool = False,
+        a2l_id: str = "",
+        server_fingerprint: str = "",
+        device_fingerprint: str = "",
     ) -> None:
         self.host = host
         self.port = int(port)
@@ -86,6 +92,11 @@ class HostBrokerAcceptor:
         self.security_tier = security_tier
         self.heartbeat_s = float(heartbeat_s)
         self.request_timeout_s = float(request_timeout_s)
+        self.tls = tls
+        self.require_encrypted = bool(require_encrypted)
+        self.a2l_id = str(a2l_id or "")
+        self.server_fingerprint = str(server_fingerprint or "")
+        self.device_fingerprint = str(device_fingerprint or "")
         self.loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
             target=self._run_loop,
@@ -112,7 +123,10 @@ class HostBrokerAcceptor:
 
     async def _start(self) -> None:
         self._server, self.port = await start_tcp_server(
-            self._on_connection, host=self.host, port=self.port
+            self._on_connection,
+            host=self.host,
+            port=self.port,
+            tls=self.tls,
         )
         self._ready.set()
 
@@ -123,6 +137,10 @@ class HostBrokerAcceptor:
             security_tier=self.security_tier,
             heartbeat_s=self.heartbeat_s,
             request_timeout_s=self.request_timeout_s,
+            a2l_id=self.a2l_id,
+            server_fingerprint=self.server_fingerprint,
+            device_fingerprint=self.device_fingerprint,
+            require_encrypted=self.require_encrypted,
         )
         try:
             hello = await client.connect()
@@ -144,6 +162,10 @@ class HostBrokerAcceptor:
             for key, value in list(self._clients.items()):
                 if value is client:
                     self._clients.pop(key, None)
+            for key, caller in list(self._callers.items()):
+                if caller.client is client:
+                    self._callers.pop(key, None)
+                    caller.close()
             await client.close()
 
     def clients(self) -> list[str]:

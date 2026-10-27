@@ -29,7 +29,11 @@ from coding_agent.host_broker.store import (
     default_store_path,
 )
 from coding_agent.host_broker.toolchain import ToolchainRegistry
-from coding_agent.host_broker.transport import connect_tcp
+from coding_agent.host_broker.transport import (
+    TlsConfig,
+    certificate_fingerprint,
+    connect_tcp,
+)
 from coding_agent.host_broker.workspace_registry import TkWorkspaceRegistrar
 
 
@@ -43,6 +47,22 @@ def _args(argv: list[str] | None = None) -> argparse.Namespace:
         "--security-tier", default="lowpriv", choices=["lowpriv", "user-t1"]
     )
     parser.add_argument("--broker-id", default="a2l-local")
+    parser.add_argument(
+        "--tls-ca", default=os.environ.get("AGENT_HOST_BROKER_TLS_CA", "")
+    )
+    parser.add_argument(
+        "--tls-cert",
+        default=os.environ.get("AGENT_HOST_BROKER_DEVICE_CERT", ""),
+    )
+    parser.add_argument(
+        "--tls-key",
+        default=os.environ.get("AGENT_HOST_BROKER_DEVICE_KEY", ""),
+    )
+    parser.add_argument(
+        "--tls-server-name",
+        default=os.environ.get("AGENT_HOST_BROKER_TLS_SERVER_NAME", ""),
+    )
+    parser.add_argument("--require-tls", action="store_true")
     parser.add_argument("--journal", default="")
     parser.add_argument(
         "--workspace-store",
@@ -163,12 +183,33 @@ async def _run(args: argparse.Namespace) -> int:
     if not lifecycle.start():
         print("A2L 已有实例在运行", file=sys.stderr)
         return 3
+    tls = None
+    device_fingerprint = ""
+    if args.tls_cert or args.tls_key:
+        if not (args.tls_cert and args.tls_key):
+            print("TLS 证书与私钥必须同时提供", file=sys.stderr)
+            return 2
+        tls = TlsConfig(
+            ca=args.tls_ca,
+            cert=args.tls_cert,
+            key=args.tls_key,
+            server_name=args.tls_server_name,
+        )
+        device_fingerprint = certificate_fingerprint(args.tls_cert)
+    elif args.require_tls:
+        print("--require-tls 需要 --tls-cert/--tls-key", file=sys.stderr)
+        return 2
+    else:
+        print(
+            "警告：A2L 未启用 TLS；仅建议 loopback 测试环境使用",
+            file=sys.stderr,
+        )
     try:
         last_error: Exception | None = None
         transport = None
         for _ in range(20):
             try:
-                transport = await connect_tcp(args.url)
+                transport = await connect_tcp(args.url, tls=tls)
                 break
             except OSError as exc:
                 last_error = exc
@@ -186,6 +227,8 @@ async def _run(args: argparse.Namespace) -> int:
             lifecycle=lifecycle,
             grants=grants,
             consent=consent,
+            device_fingerprint=device_fingerprint,
+            require_encrypted=bool(tls) or args.require_tls,
         )
         await server.run()
     finally:

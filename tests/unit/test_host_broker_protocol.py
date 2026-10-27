@@ -66,7 +66,11 @@ def test_unknown_type_is_rejected() -> None:
 
 def test_request_requires_kind_and_op_id() -> None:
     with pytest.raises(ProtocolError) as exc:
-        decode_frame(json.dumps({"v": 1, "type": "request", "id": "1"}))
+        decode_frame(
+            json.dumps(
+                {"v": PROTOCOL_VERSION, "type": "request", "id": "1"}
+            )
+        )
     assert exc.value.code == "MALFORMED_FRAME"
 
 
@@ -79,7 +83,14 @@ def test_oversized_and_malformed_frames_are_rejected() -> None:
 
 def test_frame_rejects_non_object_fields() -> None:
     raw = json.dumps(
-        {"v": 1, "type": "request", "id": "1", "op_id": "o", "kind": "host.health", "payload": []}
+        {
+            "v": PROTOCOL_VERSION,
+            "type": "request",
+            "id": "1",
+            "op_id": "o",
+            "kind": "host.health",
+            "payload": [],
+        }
     )
     with pytest.raises(ProtocolError):
         decode_frame(raw)
@@ -87,4 +98,8 @@ def test_frame_rejects_non_object_fields() -> None:
 
 def test_frame_serialization_omits_empty_fields() -> None:
     frame = Frame(type="heartbeat", id="h")
-    assert frame.to_dict() == {"v": 1, "type": "heartbeat", "id": "h"}
+    assert frame.to_dict() == {
+        "v": PROTOCOL_VERSION,
+        "type": "heartbeat",
+        "id": "h",
+    }

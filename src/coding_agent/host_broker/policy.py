@@ -7,6 +7,7 @@ ZX 永远优先于 grant；敏感根必须逐次确认，不能靠长 TTL 宽 sc
 from __future__ import annotations
 
 import os
+import threading
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
@@ -169,6 +170,8 @@ class CapabilityGrant:
     sensitive: bool = False
     revocable: bool = True
     revoked: bool = False
+    one_shot: bool = False
+    used: bool = False
 
     def is_expired(self, now: datetime | None = None) -> bool:
         now = now or datetime.now(UTC)
@@ -216,6 +219,7 @@ class GrantStore:
 
     def __init__(self) -> None:
         self._grants: dict[str, CapabilityGrant] = {}
+        self._lock = threading.Lock()
 
     def issue(
         self,
@@ -227,6 +231,7 @@ class GrantStore:
         session_id: str = "",
         thread_id: str = "",
         sensitive: bool = False,
+        one_shot: bool = False,
         now: datetime | None = None,
     ) -> CapabilityGrant:
         scope_items = (scope,) if isinstance(scope, str) else tuple(scope)
@@ -256,29 +261,50 @@ class GrantStore:
             thread_id=str(thread_id or ""),
             reason=str(reason or ""),
             sensitive=bool(sensitive),
+            one_shot=bool(one_shot),
         )
-        self._grants[grant.grant_id] = grant
+        with self._lock:
+            self._grants[grant.grant_id] = grant
         return grant
 
     def get(self, grant_id: str) -> CapabilityGrant | None:
-        return self._grants.get(str(grant_id or ""))
+        with self._lock:
+            return self._grants.get(str(grant_id or ""))
 
     def revoke(self, grant_id: str) -> bool:
-        grant = self._grants.get(str(grant_id or ""))
-        if grant is None:
-            return False
-        self._grants[grant.grant_id] = replace(grant, revoked=True)
-        return True
+        with self._lock:
+            grant = self._grants.get(str(grant_id or ""))
+            if grant is None:
+                return False
+            self._grants[grant.grant_id] = replace(grant, revoked=True)
+            return True
+
+    def claim(self, grant_id: str, now: datetime | None = None) -> bool:
+        """原子占用 one-shot grant；已用过/过期/撤销时返回 False。"""
+        with self._lock:
+            grant = self._grants.get(str(grant_id or ""))
+            if (
+                grant is None
+                or grant.revoked
+                or grant.used
+                or grant.is_expired(now)
+            ):
+                return False
+            if grant.one_shot:
+                self._grants[grant.grant_id] = replace(grant, used=True)
+            return True
 
     def active(self, now: datetime | None = None) -> list[CapabilityGrant]:
-        return [
-            grant
-            for grant in self._grants.values()
-            if not grant.revoked and not grant.is_expired(now)
-        ]
+        with self._lock:
+            return [
+                grant
+                for grant in self._grants.values()
+                if not grant.revoked and not grant.is_expired(now)
+            ]
 
     def clear(self) -> None:
-        self._grants.clear()
+        with self._lock:
+            self._grants.clear()
 
 
 class HostPolicy:

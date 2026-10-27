@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -22,9 +23,12 @@ from coding_agent.host_broker.protocol import (
     A2L_PAUSED,
     CANCELLED,
     GRANT_LOCAL_ONLY,
+    GRANT_RATE_LIMITED,
+    GRANT_USED,
     INTERNAL,
     OP_NOT_ENABLED_IN_PHASE1,
     OP_UNKNOWN,
+    PROTOCOL_VERSION,
     UNAUTHENTICATED,
     Frame,
     ProtocolError,
@@ -84,6 +88,11 @@ class HostBrokerServer:
         lifecycle: Any | None = None,
         grants: GrantStore | None = None,
         consent: ConsentProvider | None = None,
+        device_fingerprint: str = "",
+        require_encrypted: bool = False,
+        hello_nonce_ttl_s: float = 300.0,
+        grant_rate_limit_s: float = 5.0,
+        max_pending_grants: int = 1,
     ) -> None:
         self.transport = transport
         self.broker_id = str(broker_id or "")
@@ -95,10 +104,18 @@ class HostBrokerServer:
         self.lifecycle = lifecycle
         self.grants = grants
         self.consent = consent
+        self.device_fingerprint = str(device_fingerprint or "")
+        self.require_encrypted = bool(require_encrypted)
+        self.hello_nonce_ttl_s = max(1.0, float(hello_nonce_ttl_s))
+        self.grant_rate_limit_s = max(0.0, float(grant_rate_limit_s))
+        self.max_pending_grants = max(1, int(max_pending_grants))
         self._running = False
         self._authenticated = False
         self._client_id = ""
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._seen_nonces: dict[str, float] = {}
+        self._last_grant_at = 0.0
+        self._pending_grants: set[str] = set()
 
     async def run(self) -> None:
         self._running = True
@@ -116,16 +133,23 @@ class HostBrokerServer:
         finally:
             await self._stop_tasks()
             self._running = False
+            if self.grants is not None:
+                # 断线即撤销：重连后必须重新走本地授权。
+                self.grants.clear()
 
     async def shutdown(self) -> None:
         self._running = False
         await self._stop_tasks()
+        if self.grants is not None:
+            self.grants.clear()
         try:
             await self.transport.close()
         except Exception:
             pass
 
     def pause(self) -> None:
+        if self.grants is not None:
+            self.grants.clear()
         if self.lifecycle is not None:
             self.lifecycle.pause()
 
@@ -133,16 +157,60 @@ class HostBrokerServer:
         if self.lifecycle is not None:
             self.lifecycle.resume()
 
+    async def _reject_hello(self, frame: Frame, reason: str) -> None:
+        self._authenticated = False
+        await self._send(make_error(frame, UNAUTHENTICATED, reason))
+
+    def _prune_nonces(self, now: float) -> None:
+        for nonce, expires in list(self._seen_nonces.items()):
+            if expires <= now:
+                self._seen_nonces.pop(nonce, None)
+
     async def _dispatch(self, frame: Frame) -> None:
         if frame.type == "hello":
+            meta = dict(frame.meta or {})
+            if int(frame.v or 0) != PROTOCOL_VERSION:
+                await self._reject_hello(frame, "协议版本不匹配")
+                return
+            nonce = str(meta.get("nonce") or "")
+            if not nonce or len(nonce) > 128:
+                await self._reject_hello(frame, "缺少或非法的 nonce")
+                return
+            now = time.monotonic()
+            self._prune_nonces(now)
+            if nonce in self._seen_nonces:
+                await self._reject_hello(frame, "hello nonce 重放")
+                return
+            a2l_id = str(meta.get("a2l_id") or "")
+            if a2l_id and a2l_id != self.broker_id:
+                await self._reject_hello(frame, "a2l_id 与目标 broker 不匹配")
+                return
+            encrypted = bool(getattr(self.transport, "is_encrypted", lambda: False)())
+            if self.require_encrypted and not encrypted:
+                await self._reject_hello(frame, "要求加密通道")
+                return
+            peer_fp = str(
+                getattr(self.transport, "peer_cert_fingerprint", lambda: "")()
+            )
+            claimed_server_fp = str(meta.get("server_fingerprint") or "")
+            if claimed_server_fp and peer_fp and claimed_server_fp != peer_fp:
+                await self._reject_hello(frame, "服务端证书指纹不匹配")
+                return
+            if self.require_encrypted and not peer_fp:
+                await self._reject_hello(frame, "缺少对端证书指纹")
+                return
+            self._seen_nonces[nonce] = now + self.hello_nonce_ttl_s
             self._authenticated = True
-            self._client_id = str(frame.meta.get("client_id") or "")
+            self._client_id = str(meta.get("client_id") or "")
             await self._send(
                 make_hello_ok(
                     self.broker_id,
                     security_tier=self.security_tier,
                     threat_model=self.threat_model,
                     capabilities=self.capabilities,
+                    a2l_id=self.broker_id,
+                    device_fingerprint=self.device_fingerprint,
+                    nonce=nonce,
                 )
             )
             return
@@ -188,36 +256,63 @@ class HostBrokerServer:
                 )
             )
             return
-        payload = dict(frame.payload or {})
-        try:
-            scope = payload.get("scope")
-            verbs = payload.get("verbs")
-            if not isinstance(scope, list) or not isinstance(verbs, list):
-                raise ValueError("scope/verbs 必须是数组")
-            await self._send(make_grant_pending(frame))
-            approved = await self.consent.ask(frame)
-            if not approved:
-                await self._send(
-                    make_grant_denied(frame, reason="本地拒绝")
+        now = time.monotonic()
+        if (
+            len(self._pending_grants) >= self.max_pending_grants
+            or (
+                self._last_grant_at
+                and now - self._last_grant_at < self.grant_rate_limit_s
+            )
+        ):
+            await self._send(
+                make_error(
+                    frame,
+                    GRANT_RATE_LIMITED,
+                    "授权请求过于频繁，请稍后再试",
                 )
-                return
-            grant = self.grants.issue(
-                scope=scope,
-                verbs=verbs,
-                ttl_s=int(payload.get("ttl_s", 1800)),
-                reason=str(payload.get("reason") or ""),
-                sensitive=bool(payload.get("sensitive", False)),
             )
-        except ValueError as exc:
-            await self._send(make_grant_denied(frame, reason=str(exc)))
             return
-        await self._send(
-            make_grant_granted(
-                frame,
-                grant_id=grant.grant_id,
-                expires_at=grant.expires_at.isoformat(),
+        self._last_grant_at = now
+        self._pending_grants.add(frame.id)
+        try:
+            payload = dict(frame.payload or {})
+            try:
+                scope = payload.get("scope")
+                verbs = payload.get("verbs")
+                if not isinstance(scope, list) or not isinstance(verbs, list):
+                    raise ValueError("scope/verbs 必须是数组")
+                verb_names = {str(item).lower() for item in verbs}
+                one_shot = bool(payload.get("one_shot", False)) or bool(
+                    verb_names & {"exec", "install"}
+                )
+                await self._send(make_grant_pending(frame))
+                approved = await self.consent.ask(frame)
+                if not approved:
+                    await self._send(
+                        make_grant_denied(frame, reason="本地拒绝")
+                    )
+                    return
+                grant = self.grants.issue(
+                    scope=scope,
+                    verbs=verbs,
+                    ttl_s=int(payload.get("ttl_s", 1800)),
+                    reason=str(payload.get("reason") or ""),
+                    sensitive=bool(payload.get("sensitive", False)),
+                    one_shot=one_shot,
+                )
+            except ValueError as exc:
+                await self._send(make_grant_denied(frame, reason=str(exc)))
+                return
+            await self._send(
+                make_grant_granted(
+                    frame,
+                    grant_id=grant.grant_id,
+                    expires_at=grant.expires_at.isoformat(),
+                    one_shot=grant.one_shot,
+                )
             )
-        )
+        finally:
+            self._pending_grants.discard(frame.id)
 
     async def _handle_request(self, frame: Frame) -> None:
         if self.lifecycle is not None and not self.lifecycle.can_serve():
@@ -234,6 +329,18 @@ class HostBrokerServer:
                 )
             )
             return
+        if self.grants is not None and frame.grant_id:
+            grant = self.grants.get(frame.grant_id)
+            if grant is not None and grant.one_shot:
+                if grant.used or not self.grants.claim(frame.grant_id):
+                    await self._send(
+                        make_error(
+                            frame,
+                            GRANT_USED,
+                            "一次性授权已使用或不可用",
+                        )
+                    )
+                    return
         started = True
         if self.journal is not None:
             started = self.journal.start(

@@ -9,7 +9,7 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 217,
+  "count": 223,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
@@ -66,13 +66,19 @@
     "AGENT_HOST_BROKER_ACCOUNT",
     "AGENT_HOST_BROKER_AUTOSTART",
     "AGENT_HOST_BROKER_DEVICE_CERT",
+    "AGENT_HOST_BROKER_DEVICE_KEY",
     "AGENT_HOST_BROKER_ENABLED",
     "AGENT_HOST_BROKER_HEARTBEAT_S",
     "AGENT_HOST_BROKER_LISTEN_HOST",
     "AGENT_HOST_BROKER_LISTEN_PORT",
     "AGENT_HOST_BROKER_PAUSED",
+    "AGENT_HOST_BROKER_REQUIRE_TLS",
     "AGENT_HOST_BROKER_SECURITY_TIER",
     "AGENT_HOST_BROKER_STORE",
+    "AGENT_HOST_BROKER_TLS_CA",
+    "AGENT_HOST_BROKER_TLS_CERT",
+    "AGENT_HOST_BROKER_TLS_KEY",
+    "AGENT_HOST_BROKER_TLS_SERVER_NAME",
     "AGENT_HOST_BROKER_URL",
     "AGENT_HOST_DENY_ROOTS",
     "AGENT_HOST_ROOT_HANDLE",
@@ -671,6 +677,14 @@
       "doc": ""
     },
     {
+      "name": "host_broker_device_key",
+      "env": "AGENT_HOST_BROKER_DEVICE_KEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "host_broker_enabled",
       "env": "AGENT_HOST_BROKER_ENABLED",
       "type": "bool",
@@ -711,6 +725,14 @@
       "doc": ""
     },
     {
+      "name": "host_broker_require_tls",
+      "env": "AGENT_HOST_BROKER_REQUIRE_TLS",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "host_broker_security_tier",
       "env": "AGENT_HOST_BROKER_SECURITY_TIER",
       "type": "str",
@@ -721,6 +743,38 @@
     {
       "name": "host_broker_store",
       "env": "AGENT_HOST_BROKER_STORE",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_tls_ca",
+      "env": "AGENT_HOST_BROKER_TLS_CA",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_tls_cert",
+      "env": "AGENT_HOST_BROKER_TLS_CERT",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_tls_key",
+      "env": "AGENT_HOST_BROKER_TLS_KEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_tls_server_name",
+      "env": "AGENT_HOST_BROKER_TLS_SERVER_NAME",
       "type": "str",
       "default": "",
       "section": "通用",

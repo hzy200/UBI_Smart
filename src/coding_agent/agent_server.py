@@ -69,6 +69,10 @@ from coding_agent.events import (
     RunFailed,
 )
 from coding_agent.host_broker.acceptor import HostBrokerAcceptor
+from coding_agent.host_broker.transport import (
+    ServerTlsConfig,
+    certificate_fingerprint,
+)
 from coding_agent.paths import PathGuardError, ensure_inside
 from coding_agent.runtime import AgentRuntime
 from coding_agent.sse_stream import sse_headers
@@ -89,12 +93,30 @@ def create_agent_app(
         raise ValueError("AGENT_INTERNAL_TOKEN 未配置，拒绝启动无鉴权的 Agent Server")
 
     transport = build_event_transport(settings)
+    tls = None
+    server_fingerprint = ""
+    if settings.host_broker_tls_cert and settings.host_broker_tls_key:
+        tls = ServerTlsConfig(
+            cert=settings.host_broker_tls_cert,
+            key=settings.host_broker_tls_key,
+            ca=settings.host_broker_tls_ca,
+            require_client_cert=True,
+        )
+        server_fingerprint = certificate_fingerprint(
+            settings.host_broker_tls_cert
+        )
+    elif settings.host_broker_require_tls:
+        raise ValueError("AGENT_HOST_BROKER_REQUIRE_TLS 需要证书与私钥")
     acceptor = (
         HostBrokerAcceptor(
             host=settings.host_broker_listen_host,
             port=settings.host_broker_listen_port,
             client_id="a3",
             heartbeat_s=settings.host_broker_heartbeat_s,
+            tls=tls,
+            require_encrypted=settings.host_broker_require_tls or bool(tls),
+            a2l_id=settings.host_a2l_id,
+            server_fingerprint=server_fingerprint,
         )
         if settings.host_broker_enabled
         else None
