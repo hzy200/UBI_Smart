@@ -386,6 +386,12 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 
 ## 9. 状态、持久化与边界
 
+会话运行态（消息、计划、工具、审批、用量、流式游标等）归属 `activeView`
+（`state/session-view.ts`）。当前仍是单 active view：`app.ts` 用 facade getter/setter
+保持模板兼容，事件经 `applyEvent(view, event)` 进入，内部临时切换 activeView 后
+再还原；异步 token 定时器已捕获所属 view。阶段 3 会引入按 threadId 的 SessionStore
+与每会话 SSE，去掉临时切换。
+
 | 状态 | 位置 | 说明 |
 |---|---|---|
 | 认证凭证 | 桌面 `sessionStorage`；目标 Web 模式仅内存，公网用 httpOnly Cookie | 当前全部是 Bearer；分离后按 `authMode` 分档，见 ADR-0017 |
@@ -480,8 +486,8 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 `static/index.html`、vendored Alpine CSP 与 `app.js`，桩掉后端 API 后验证
 会话未读/摘要/批量选择、文件树 Git 标记与键盘导航、Problems 折叠、流式渲染、
 大工具输出分页与派生缓存、阶段播报、主题设置、模态焦点陷阱、审批批准/全部拒绝、
-侧栏/检查器拖拽与宽度持久化、图片预览与只读会话分屏，并把 Alpine 表达式错误
-作为失败。
+侧栏/检查器拖拽与宽度持久化、图片预览与只读会话分屏、两个 SessionView 的
+事件状态隔离，并把 Alpine 表达式错误作为失败。
 
 分离改造实施后新增契约测试（设计冻结，锚点见验收 `REQ-202`–`REQ-212`）：
 
@@ -547,6 +553,8 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |
 | `web/frontend/tests/dom/*` | jsdom 交互测试（`node test-dom.mjs`） |
 | `web/frontend/src/state/runtime.ts` | 非响应式 Map 缓冲 |
+| `web/frontend/src/state/session-view.ts` | 会话视图状态工厂（阶段 1） |
+| `web/frontend/src/features/session-view.ts` | activeView facade 与 applyEvent |
 | `web/frontend/src/contracts/events.generated.ts` | 由契约生成的事件 union（禁止手改） |
 | `web/frontend/src/templates/*.html` | 页面模板分片（构建期拼成 `static/index.html`） |
 | `web/frontend/src/styles/*.css` | 设计令牌与样式分片（构建期拼成 `static/style.css`） |

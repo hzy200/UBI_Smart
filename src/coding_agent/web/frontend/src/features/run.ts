@@ -72,15 +72,13 @@ export const runMixin = {
     }
   },
 
-  prompt: '',
-
   async consume(response) {
     this.connectionState = 'streaming';
     await consumeSse(
       response,
       ({ event, seq }) => {
         if (Number.isFinite(seq)) this.lastSeq = Math.max(this.lastSeq, seq);
-        this.handleEvent(event);
+        this.applyEvent(this.activeView, event);
       },
       {
         getLastSeq: () => this.lastSeq,

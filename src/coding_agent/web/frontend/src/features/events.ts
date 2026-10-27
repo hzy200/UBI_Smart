@@ -340,9 +340,14 @@ export const eventsMixin = {
     return text;
   },
 
+  toolStoreKey(key) {
+    return `${this.threadId || '-'}::${key}`;
+  },
+
   upsertTool(event) {
     const key = event.call_id || event.name || `${this.tools.length}`;
-    const existing = toolMap.get(key);
+    const storeKey = this.toolStoreKey(key);
+    const existing = toolMap.get(storeKey);
     if (existing) {
       existing.name = event.name || existing.name;
       existing.summary = event.summary || existing.summary;
@@ -378,14 +383,14 @@ export const eventsMixin = {
       _detail: '',
     };
     this.refreshToolDetail(tool);
-    toolMap.set(key, tool);
+    toolMap.set(storeKey, tool);
     this.tools.unshift(tool);
     this._toolsVersion += 1;
   },
 
   finishTool(event) {
     const key = event.call_id || event.name || '';
-    let tool = key ? toolMap.get(key) : null;
+    let tool = key ? toolMap.get(this.toolStoreKey(key)) : null;
     if (!tool) {
       tool = {
         key: key || `${event.name}-${this.tools.length}`,
@@ -396,7 +401,7 @@ export const eventsMixin = {
         state: 'running',
         preview: '',
       };
-      toolMap.set(tool.key, tool);
+      toolMap.set(this.toolStoreKey(tool.key), tool);
       this.tools.unshift(tool);
     }
     if (event.rejected) tool.state = 'rejected';
@@ -461,7 +466,7 @@ export const eventsMixin = {
   },
 
   filteredTools() {
-    const key = `${this._toolsVersion}|${this.toolFilter}|${this.toolQuery}`;
+    const key = `${this.threadId}|${this._toolsVersion}|${this.toolFilter}|${this.toolQuery}`;
     return memoize(filteredToolsSlot, key, () => (
       this.tools.filter((tool) => {
         const state = tool.state || 'running';

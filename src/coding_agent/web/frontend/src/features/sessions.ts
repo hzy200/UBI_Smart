@@ -490,7 +490,7 @@ export const sessionsMixin = {
       body: JSON.stringify(body),
     });
     const data = await readJson(response, '创建会话失败');
-    this.threadId = data.thread_id;
+    this.activateSessionView(data.thread_id);
     this._boundProjectId = data.workspace_id || '';
     if (data.workspace_id) this.projectId = data.workspace_id;
     const project = this.selectedProject();
@@ -557,7 +557,7 @@ export const sessionsMixin = {
       );
       await readJson(response, '删除失败');
       if (this.threadId === id) {
-        this.threadId = '';
+        this.activateSessionView('');
         this._boundProjectId = '';
         this.resetConversation();
       }
@@ -596,7 +596,7 @@ export const sessionsMixin = {
       this.toastMessage('当前任务运行中或挂起中，先处理审批/暂停');
       return;
     }
-    this.threadId = '';
+    this.activateSessionView('');
     this._boundProjectId = '';
     this.resetConversation();
     await this.loadSessions();
@@ -683,7 +683,7 @@ export const sessionsMixin = {
       this.toastMessage('当前任务运行中或挂起中，先处理审批/暂停');
       return;
     }
-    this.threadId = id;
+    this.activateSessionView(id);
     this.markSessionRead(id);
     const row = this.sessions.find((item) => item.thread_id === id);
     this._boundProjectId = row && row.workspace_id ? row.workspace_id : '';

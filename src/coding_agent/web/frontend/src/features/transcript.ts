@@ -290,10 +290,13 @@ export const transcriptMixin = {
     // 更新和整段 Markdown 重解析。用节流而不是防抖：token 连续到达时
     // 仍然每 60ms 刷新一次，而不是等流结束才一次性出现。
     tokenBuffers.set(id, (tokenBuffers.get(id) || '') + text);
+    // 定时器属于会话视图：applyEvent 只临时切换 activeView，异步回调不能
+    // 再依赖它。阶段 3 的 SessionStore 会把这个 view 固定到视图实例上。
+    const view = this.activeView;
     if (renderTimers.has(id)) return;
     renderTimers.set(id, setTimeout(() => {
       renderTimers.delete(id);
-      const target = this.messages.find((item) => item.id === id);
+      const target = view.messages.find((item) => item.id === id);
       const raw = tokenBuffers.get(id) || '';
       if (target) {
         let cache = markdownCaches.get(id);
@@ -305,7 +308,7 @@ export const transcriptMixin = {
         target.html = renderMarkdownIncremental(raw, cache, renderMarkdown);
         this.decorateMessage(target);
       }
-      this.scrollBottom(false);
+      if (view === this.activeView) this.scrollBottom(false);
     }, 60));
   },
 
@@ -363,6 +366,7 @@ export const transcriptMixin = {
 
   virtualMessages() {
     const key = [
+      this.threadId,
       this._msgSeq,
       this.virtualStart,
       this.virtualEnd,
