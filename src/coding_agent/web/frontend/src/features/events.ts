@@ -26,7 +26,7 @@ export const eventsMixin = {
         this.planRows = this.buildPlanRows(this.plan, this.kinds, 0);
         this.planDegraded = !!event.degraded;
         this.stepIdx = 0;
-        this.tab = 'plan';
+        this.setTab('plan', false);
         break;
       case 'plan_revised':
         this.plan = event.steps || [];
@@ -62,7 +62,7 @@ export const eventsMixin = {
       case 'tool_call_started':
         this.upsertTool(event);
         this.upsertToolMessage(event);
-        this.tab = 'tools';
+        this.setTab('tools', false);
         break;
       case 'tool_call_finished':
         this.finishTool(event);
@@ -70,7 +70,7 @@ export const eventsMixin = {
         break;
       case 'file_changed':
         this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
-        this.tab = 'files';
+        this.filesDirty = true;
         break;
       case 'verification':
         this.pushMessage('system', this.verificationText(event));
@@ -83,7 +83,7 @@ export const eventsMixin = {
         break;
       case 'task_graph_created':
         this.tasks = (event.tasks || []).map((task) => this.decorateTask(task));
-        this.tab = 'tasks';
+        this.tasksDirty = true;
         break;
       case 'task_graph_extended':
         this.tasks = this.tasks.concat((event.added || []).map((task) => this.decorateTask(task)));

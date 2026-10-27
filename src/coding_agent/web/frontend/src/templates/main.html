@@ -1,4 +1,16 @@
   <main class="main">
+    <div class="main-tabs">
+      <div class="main-tab active">
+        <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
+        <span>对话</span>
+      </div>
+      <span class="main-tab-title" x-text="currentSessionTitle()"></span>
+      <span class="spacer"></span>
+      <span class="main-tab-state" x-text="stateText"></span>
+      <button class="icon-btn" @click="openCommandPalette()" title="命令面板" aria-label="命令面板">
+        <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
+      </button>
+    </div>
     <div class="reasoning" x-show="showReasoning && reasoningBlocks.length" x-cloak>
       <template x-for="(block, index) in reasoningBlocks" :key="index">
         <details class="reasoning-block" :open="index === reasoningBlocks.length - 1">
@@ -115,3 +127,7 @@
       <div class="note" x-show="uploadQuota" x-text="uploadQuota"></div>
     </div>
   </main>
+
+  <div class="splitter splitter-right" x-show="!inspectorCollapsed"
+       @pointerdown="startResize('inspector', $event)"
+       role="separator" aria-orientation="vertical" aria-label="调整检查器宽度"></div>

@@ -91,16 +91,13 @@ export const view_modelMixin = {
     );
   },
   isTab(name) { return this.tab === name; },
-  setTab(name) {
+  setTab(name, open = true) {
     this.tab = name;
-    const next = {
-      plan: '', tools: '', files: '', tree: '', git: '',
-      tasks: '', memory: '', audit: '',
+    this.tabClasses = {
+      plan: name === 'plan' ? 'active' : '',
+      tools: name === 'tools' ? 'active' : '',
     };
-    if (name in next) next[name] = 'active';
-    this.tabClasses = next;
-    if (name === 'tree') this.loadTree(this.treePath);
-    if (name === 'git') this.loadGit(false);
+    if (open && this.inspectorCollapsed) this.inspectorCollapsed = false;
   },
   toggleSettings() {
     this.showSettings = !this.showSettings;
@@ -109,8 +106,8 @@ export const view_modelMixin = {
       this.loadProfiles();
     }
   },
-  openMemory() { this.tab = 'memory'; this.loadMemory(); },
-  openAudit() { this.tab = 'audit'; this.loadAudit(); },
+  openMemory() { this.setView('memory'); },
+  openAudit() { this.setView('audit'); },
   approvalField(name) { return this.approval ? (this.approval[name] || '') : ''; },
   approvalTool() { return this.approval ? `工具：${this.approval.tool}` : ''; },
   badgeClass() {

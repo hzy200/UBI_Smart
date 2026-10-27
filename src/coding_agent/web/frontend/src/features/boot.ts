@@ -62,6 +62,7 @@ export const bootMixin = {
       this.probeProject();
     });
     this.loadSettings();
+    this.initLayout();
     this.applyBodyClasses();
     this.refreshBadgeClass();
     window.addEventListener('keydown', (event) => this.onGlobalKeydown(event));

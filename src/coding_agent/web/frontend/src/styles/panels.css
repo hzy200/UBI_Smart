@@ -1,15 +1,17 @@
 .tabs { display: flex; gap: 4px; padding: 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .tabs button { font-size: 12px; }
-.tabs button.active { border-color: var(--accent); color: var(--accent); }
+.tabs button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .panel { padding: 12px; }
-.panel-actions { display: flex; gap: 8px; margin-bottom: 10px; }
-.panel-actions input { flex: 1; }
+.panel-actions { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.panel-actions input { flex: 1 1 140px; min-width: 0; }
 
 .plan-step, .task-card, .file-card, .memory-item, .audit-row {
-  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px;
   margin-bottom: 6px; background: var(--panel-2); display: flex; gap: 8px;
   align-items: center; font-size: 13px;
+  transition: border-color var(--motion-fast), background var(--motion-fast);
 }
+.file-card:hover, .task-card:hover, .tool-card:hover { border-color: var(--border-strong); }
 .plan-step.current { border-color: var(--accent); }
 .plan-step.done { opacity: .65; }
 .plan-step .idx { color: var(--muted); width: 20px; }
@@ -31,8 +33,8 @@
 .row { display: flex; gap: 8px; align-items: center; }
 .row input, .row select { flex: 1; min-width: 0; }
 
-.tool-card { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; background: var(--panel-2); }
-.tool-head { display: flex; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.tool-card { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; background: var(--panel-2); }
+.tool-head { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tool-name { font-weight: 600; }
 .tool-level, .tool-state { color: var(--muted); font-size: 11px; margin-left: auto; }
 .tool-copy { font-size: 10px; padding: 2px 6px; }
@@ -42,10 +44,10 @@
 .tool-error, .tool-rejected, .tool-interrupted { border-left: 3px solid var(--bad); }
 .tool-skipped { border-left: 3px solid var(--warn); }
 
-.file-head { display: flex; gap: 8px; align-items: center; width: 100%; }
+.file-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
 .file-head span { flex: 1; overflow-wrap: anywhere; }
 .diff {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 10px; max-height: 380px; overflow: auto; white-space: pre-wrap;
   font-family: var(--mono); font-size: 12px;
 }
@@ -56,5 +58,5 @@
 .task-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; }
 .task-role { color: var(--accent); font-size: 11px; }
 .task-status { margin-left: auto; color: var(--muted); font-size: 11px; }
-.audit-row { display: grid; grid-template-columns: 1.4fr .8fr 2fr; font-size: 11px; }
+.audit-row { display: grid; grid-template-columns: 1.4fr .8fr 2fr; gap: 6px; font-size: 11px; overflow-wrap: anywhere; }
 .memory-item span { flex: 1; }

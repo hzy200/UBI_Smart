@@ -1,12 +1,12 @@
 {{> head.html}}
+{{> icons.html}}
 
 {{> header.html}}
 
-<div id="app" x-show="ready" x-cloak>
+<div id="app" x-show="ready" x-cloak :style="layoutStyle()">
 {{> sidebar.html}}
 
 {{> main.html}}
-
 {{> inspector.html}}
 </div>
 

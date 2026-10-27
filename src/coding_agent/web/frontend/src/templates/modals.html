@@ -1,3 +1,30 @@
+<div class="modal command-modal" x-show="commandOpen" x-cloak
+     @click.self="closeCommandPalette()"
+     role="dialog" aria-modal="true" aria-labelledby="command-title">
+  <div class="command-box">
+    <h3 id="command-title" class="sr-only">命令面板</h3>
+    <div class="command-input-row">
+      <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
+      <input x-ref="commandInput" x-model="commandQuery"
+             @input="commandIndex = 0"
+             @keydown="onCommandKeydown($event)"
+             placeholder="输入命令、会话或视图…" aria-label="命令面板搜索">
+      <kbd>Esc</kbd>
+    </div>
+    <div class="command-list" role="listbox" aria-label="命令列表">
+      <template x-for="(cmd, index) in filteredCommands()" :key="cmd.id">
+        <button class="command-item" :class="commandClass(index)"
+                role="option" @mouseenter="hoverCommand(index)"
+                @click="runCommand(cmd)">
+          <span class="command-title" x-text="cmd.title"></span>
+          <span class="command-hint" x-text="cmd.hint"></span>
+        </button>
+      </template>
+      <div class="empty" x-show="filteredCommands().length === 0">没有匹配的命令</div>
+    </div>
+  </div>
+</div>
+
 <div class="modal" x-show="approvals.length > 0" x-cloak
      role="dialog" aria-modal="true" aria-labelledby="approval-title">
   <div class="modal-box">
@@ -66,6 +93,9 @@
       <option value="compact">紧凑</option>
       <option value="normal">标准</option>
     </select>
+    <div class="panel-actions">
+      <button @click="resetLayout()">重置侧栏/检查器宽度</button>
+    </div>
     <label>
       <input type="checkbox" :checked="showReasoning" @change="toggleReasoning()" style="width:auto">
       显示模型推理（默认关闭；只影响界面展示）

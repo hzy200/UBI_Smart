@@ -118,3 +118,42 @@ def test_layout_can_shrink_so_composer_stays_visible() -> None:
     assert "min-height: 0" in text
     assert "overflow-y: auto" in text
     assert "pointer-events: none" in text
+
+
+def test_ide_shell_and_command_palette_are_guarded() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        'class="activitybar"',
+        'class="statusbar"',
+        'command-modal',
+        'x-ref="commandInput"',
+        ':style="layoutStyle()"',
+        "startResize('sidebar'",
+        "startResize('inspector'",
+        "viewClasses.sessions",
+        "currentSessionTitle()",
+        "toggleSidebar()",
+        "toggleInspector()",
+        "activity-dot",
+        "filesDirty",
+        "tasksDirty",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "initLayout",
+        "setView",
+        "toggleSidebar",
+        "toggleInspector",
+        "filteredCommands",
+        "runCommand",
+        "layoutStyle",
+        "filesDirty",
+        "tasksDirty",
+    ):
+        assert marker in app, marker
+
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for marker in (".activitybar", ".statusbar", ".command-box", ".splitter"):
+        assert marker in css, marker

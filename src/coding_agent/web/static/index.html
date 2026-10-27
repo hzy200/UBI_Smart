@@ -46,104 +46,373 @@
             x-show="authMode === 'bff-cookie'">统一登录</button>
   </div>
 </div>
+<svg class="icon-sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-chat" viewBox="0 0 24 24">
+    <path d="M21 12a8 8 0 0 1-8 8H6l-3 3v-5.5A8 8 0 1 1 21 12Z"/>
+  </symbol>
+  <symbol id="i-files" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+    <path d="M14 2v6h6"/>
+  </symbol>
+  <symbol id="i-tree" viewBox="0 0 24 24">
+    <path d="M4 5v14h6M4 5h6M4 12h6"/>
+    <rect x="14" y="3" width="6" height="4" rx="1"/>
+    <rect x="14" y="10" width="6" height="4" rx="1"/>
+    <rect x="14" y="17" width="6" height="4" rx="1"/>
+  </symbol>
+  <symbol id="i-git" viewBox="0 0 24 24">
+    <circle cx="6" cy="6" r="2"/>
+    <circle cx="6" cy="18" r="2"/>
+    <circle cx="18" cy="12" r="2"/>
+    <path d="M6 8v8M8 6h6a4 4 0 0 1 4 4"/>
+  </symbol>
+  <symbol id="i-tasks" viewBox="0 0 24 24">
+    <path d="M9 6h11M9 12h11M9 18h11"/>
+    <path d="m4 6 1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17"/>
+  </symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="4"/>
+    <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>
+  </symbol>
+  <symbol id="i-audit" viewBox="0 0 24 24">
+    <path d="M9 3h6l1 3h3v15H5V6h3l1-3Z"/>
+    <path d="m9 12 2 2 4-4"/>
+  </symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.3-1-2 3.4L5.1 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/>
+  </symbol>
+  <symbol id="i-search" viewBox="0 0 24 24">
+    <circle cx="11" cy="11" r="7"/>
+    <path d="m20 20-4-4"/>
+  </symbol>
+  <symbol id="i-command" viewBox="0 0 24 24">
+    <path d="m4 6 6 6-6 6M12 18h8"/>
+  </symbol>
+  <symbol id="i-panel-left" viewBox="0 0 24 24">
+    <rect x="3" y="4" width="18" height="16" rx="2"/>
+    <path d="M9 4v16"/>
+  </symbol>
+  <symbol id="i-panel-right" viewBox="0 0 24 24">
+    <rect x="3" y="4" width="18" height="16" rx="2"/>
+    <path d="M15 4v16"/>
+  </symbol>
+  <symbol id="i-recovery" viewBox="0 0 24 24">
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+    <path d="M3 3v5h5"/>
+  </symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24">
+    <rect x="2" y="6" width="20" height="12" rx="2"/>
+    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24">
+    <path d="M12 5v14M5 12h14"/>
+  </symbol>
+  <symbol id="i-close" viewBox="0 0 24 24">
+    <path d="M6 6l12 12M18 6 6 18"/>
+  </symbol>
+  <symbol id="i-check" viewBox="0 0 24 24">
+    <path d="m5 12 4 4L19 6"/>
+  </symbol>
+</svg>
 
 <header x-show="ready" x-cloak>
+  <button class="icon-btn" @click="toggleSidebar()" aria-label="切换侧栏" title="切换侧栏（Ctrl+B）">
+    <svg class="icon" aria-hidden="true"><use href="#i-panel-left"></use></svg>
+  </button>
   <span class="name">CodingAgent</span>
-  <span class="meta" x-text="healthText"></span>
-  <span class="badge" :class="badgeClasses" x-text="accessLabel()"></span>
-  <span class="meta" x-text="workspaceLabel()"></span>
+  <button class="command-trigger" @click="openCommandPalette()" aria-label="搜索或运行命令">
+    <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+    <span>搜索或运行命令</span>
+    <kbd>Ctrl Shift P</kbd>
+  </button>
+  <span class="meta workspace" x-text="workspaceLabel()"></span>
   <span class="spacer"></span>
-  <span class="meta" x-text="stateText"></span>
-  <span class="meta connection" x-show="connectionText()" x-cloak x-text="connectionText()"></span>
-  <span class="meta" x-text="costText"></span>
-  <button @click="openRecovery()" aria-label="打开恢复中心">恢复中心</button>
-  <button @click="shortcutsOpen = true" aria-label="查看快捷键">快捷键</button>
-  <button @click="toggleSettings()" aria-label="打开设置">设置</button>
+  <button class="icon-btn" @click="toggleInspector()" aria-label="切换检查器" title="切换检查器（Ctrl+J）">
+    <svg class="icon" aria-hidden="true"><use href="#i-panel-right"></use></svg>
+  </button>
+  <button class="icon-btn" @click="openRecovery()" aria-label="打开恢复中心" title="恢复中心">
+    <svg class="icon" aria-hidden="true"><use href="#i-recovery"></use></svg>
+  </button>
+  <button class="icon-btn" @click="shortcutsOpen = true" aria-label="查看快捷键" title="快捷键">
+    <svg class="icon" aria-hidden="true"><use href="#i-keyboard"></use></svg>
+  </button>
+  <button class="icon-btn" @click="toggleSettings()" aria-label="打开设置" title="设置">
+    <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
+  </button>
 </header>
 
-<div id="app" x-show="ready" x-cloak>
-  <aside class="sidebar">
-    <div class="sidebar-head">
-      <h3>会话</h3>
-      <div class="row">
-        <button @click="toggleSettings()">设置</button>
-        <button @click="newSession()">新会话</button>
-      </div>
+<div id="app" x-show="ready" x-cloak :style="layoutStyle()">
+<nav class="activitybar" aria-label="主导航">
+  <div class="activity-group">
+    <button class="activity-item" :class="viewClasses.sessions" @click="setView('sessions')"
+            title="会话" aria-label="会话">
+      <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
+    </button>
+    <button class="activity-item" :class="viewClasses.files" @click="setView('files')"
+            title="文件改动" aria-label="文件改动">
+      <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
+      <span class="activity-dot" x-show="filesDirty" aria-hidden="true"></span>
+    </button>
+    <button class="activity-item" :class="viewClasses.tree" @click="setView('tree')"
+            title="文件树" aria-label="文件树">
+      <svg class="icon" aria-hidden="true"><use href="#i-tree"></use></svg>
+    </button>
+    <button class="activity-item" :class="viewClasses.git" @click="setView('git')"
+            title="Git" aria-label="Git">
+      <svg class="icon" aria-hidden="true"><use href="#i-git"></use></svg>
+    </button>
+    <button class="activity-item" :class="viewClasses.tasks" @click="setView('tasks')"
+            title="任务" aria-label="任务">
+      <svg class="icon" aria-hidden="true"><use href="#i-tasks"></use></svg>
+      <span class="activity-dot" x-show="tasksDirty" aria-hidden="true"></span>
+    </button>
+    <button class="activity-item" :class="viewClasses.memory" @click="setView('memory')"
+            title="记忆" aria-label="记忆">
+      <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
+    </button>
+    <button class="activity-item" :class="viewClasses.audit" @click="setView('audit')"
+            title="审计" aria-label="审计">
+      <svg class="icon" aria-hidden="true"><use href="#i-audit"></use></svg>
+    </button>
+  </div>
+  <span class="spacer"></span>
+  <button class="activity-item" @click="toggleSettings()" title="设置" aria-label="设置">
+    <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
+  </button>
+</nav>
+
+<aside class="sidebar" x-show="!sidebarCollapsed">
+  <div class="sidebar-head">
+    <h3 x-text="viewTitle()">会话</h3>
+    <div class="row">
+      <button class="icon-btn" x-show="view === 'sessions'" @click="newSession()"
+              title="新会话" aria-label="新会话">
+        <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
+      </button>
+      <button class="icon-btn" @click="toggleSidebar()" title="收起侧栏" aria-label="收起侧栏">
+        <svg class="icon" aria-hidden="true"><use href="#i-panel-left"></use></svg>
+      </button>
     </div>
-    <div class="session-form">
-      <div x-show="capabilities.workspace_registry">
-        <label>项目</label>
-        <div class="row">
-          <select x-model="projectId" @change="selectProject(projectId)"
-                  aria-label="选择项目">
-            <option value="">选择项目…</option>
-            <template x-for="p in projects" :key="p.workspace_id">
-              <option :value="p.workspace_id" x-text="projectLabel(p)"></option>
-            </template>
-          </select>
-          <button @click="registerHostWorkspace()" :disabled="projectBusy"
-                  title="选择一个本机文件夹作为工作区">+ 本机</button>
+  </div>
+
+  <div class="sidebar-body">
+    <div class="view" x-show="view === 'sessions'">
+      <div class="session-form">
+        <div x-show="capabilities.workspace_registry">
+          <label>项目</label>
+          <div class="row">
+            <select x-model="projectId" @change="selectProject(projectId)"
+                    aria-label="选择项目">
+              <option value="">选择项目…</option>
+              <template x-for="p in projects" :key="p.workspace_id">
+                <option :value="p.workspace_id" x-text="projectLabel(p)"></option>
+              </template>
+            </select>
+            <button @click="registerHostWorkspace()" :disabled="projectBusy"
+                    title="选择一个本机文件夹作为工作区">+ 本机</button>
+          </div>
+          <div class="note" x-show="projects.length === 0">
+            还没有项目；在设置里导入文件夹或上传归档。
+          </div>
+          <div class="note">
+            切换项目后，发送时会自动新建会话（已有会话的工作区不可改绑）。
+          </div>
+          <div class="note note-ok" x-show="threadId">
+            当前会话绑定：<span x-text="workspace || '未知'"></span>（不可更改）
+          </div>
+          <input x-model="workspaceInput" readonly
+                 :placeholder="capabilities.host_mode
+                   ? '本机项目由客户端选择并登记'
+                   : '选择项目后自动填入工作区'">
         </div>
-        <div class="note" x-show="projects.length === 0">
-          还没有项目；在设置里导入文件夹或上传归档。
+        <div x-show="!capabilities.workspace_registry">
+          <label>工作区</label>
+          <div class="row">
+            <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
+            <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace()">选择…</button>
+          </div>
         </div>
-        <div class="note">
-          切换项目后，发送时会自动新建会话（已有会话的工作区不可改绑）。
-        </div>
-        <div class="note note-ok" x-show="threadId">
-          当前会话绑定：<span x-text="workspace || '未知'"></span>（不可更改）
-        </div>
-        <input x-model="workspaceInput" readonly
-               :placeholder="capabilities.host_mode
-                 ? '本机项目由客户端选择并登记'
-                 : '选择项目后自动填入工作区'">
+        <label>文件权限</label>
+        <select x-model="accessMode" :disabled="accessDisabled()">
+          <option value="read_only">只读（不可运行）</option>
+          <option value="write_ask" x-show="capabilities.server_write_enabled">审批写</option>
+          <option value="write_auto" x-show="capabilities.server_write_enabled">自动写</option>
+        </select>
+        <label>模型</label>
+        <select x-model="model" @change="syncModel()">
+          <option value="">默认模型</option>
+          <template x-for="p in providers" :key="p._key">
+            <option :value="p.model" x-text="p._label"></option>
+          </template>
+        </select>
+        <button @click="switchModel()" :disabled="!threadId || busy">应用到当前会话</button>
+        <button class="primary" @click="createSession()" :disabled="busy || approvals.length || paused">创建会话</button>
       </div>
-      <div x-show="!capabilities.workspace_registry">
-        <label>工作区</label>
-        <div class="row">
-          <input x-model="workspaceInput" placeholder="D:\\proj 或 wsl:/home/u/proj">
-          <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace()">选择…</button>
-        </div>
-      </div>
-      <label>文件权限</label>
-      <select x-model="accessMode" :disabled="accessDisabled()">
-        <option value="read_only">只读（不可运行）</option>
-        <option value="write_ask" x-show="capabilities.server_write_enabled">审批写</option>
-        <option value="write_auto" x-show="capabilities.server_write_enabled">自动写</option>
-      </select>
-      <label>模型</label>
-      <select x-model="model" @change="syncModel()">
-        <option value="">默认模型</option>
-        <template x-for="p in providers" :key="p._key">
-          <option :value="p.model" x-text="p._label"></option>
-        </template>
-      </select>
-      <button @click="switchModel()" :disabled="!threadId || busy">应用到当前会话</button>
-      <button class="primary" @click="createSession()" :disabled="busy || approvals.length || paused">创建会话</button>
-    </div>
-    <input class="session-search" x-model="sessionQuery" @input="filterSessions()"
-           placeholder="搜索会话…">
-    <div class="session-list">
-      <template x-for="s in sessionRows" :key="s.thread_id">
-        <div class="session-entry">
-          <div class="session-group" x-show="s._showGroup"
-               x-text="s._groupLabel"></div>
-          <div class="session-item" :class="s._cls" @click="openSession(s.thread_id)">
-            <div class="t" x-text="s._title"></div>
-            <div class="m" x-text="s._meta"></div>
-            <div class="session-actions">
-              <button @click.stop="renameSession(s.thread_id)">改名</button>
-              <button @click.stop="exportSession(s.thread_id)">导出</button>
-              <button class="danger" @click.stop="deleteSession(s.thread_id)">删除</button>
+      <input class="session-search" x-model="sessionQuery" @input="filterSessions()"
+             placeholder="搜索会话…">
+      <div class="session-list">
+        <template x-for="s in sessionRows" :key="s.thread_id">
+          <div class="session-entry">
+            <div class="session-group" x-show="s._showGroup"
+                 x-text="s._groupLabel"></div>
+            <div class="session-item" :class="s._cls" @click="openSession(s.thread_id)">
+              <div class="t" x-text="s._title"></div>
+              <div class="m" x-text="s._meta"></div>
+              <div class="session-actions">
+                <button @click.stop="renameSession(s.thread_id)">改名</button>
+                <button @click.stop="exportSession(s.thread_id)">导出</button>
+                <button class="danger" @click.stop="deleteSession(s.thread_id)">删除</button>
+              </div>
             </div>
+          </div>
+        </template>
+        <div class="empty" x-show="sessionRows.length === 0">没有匹配的会话</div>
+      </div>
+    </div>
+
+    <div class="view" x-show="view === 'files'">
+      <div class="panel-actions">
+        <button @click="loadSnapshots()">刷新快照</button>
+        <button @click="restoreRun()">回滚本轮</button>
+        <button @click="loadCheckpoints()">检查点</button>
+      </div>
+      <template x-for="c in checkpoints" :key="c.checkpoint_id">
+        <div class="file-card">
+          <div class="file-head">
+            <span x-text="c.step"></span>
+            <span x-text="c.checkpoint_id"></span>
+            <span x-text="c.preview"></span>
+            <button @click="forkCheckpoint(c.checkpoint_id)">分叉</button>
+            <button class="danger" @click="rewindTo(c.checkpoint_id)">回退到此</button>
           </div>
         </div>
       </template>
-      <div class="empty" x-show="sessionRows.length === 0">没有匹配的会话</div>
+      <template x-for="f in files" :key="f._key">
+        <div class="file-card">
+          <div class="file-head">
+            <span x-text="f.path"></span>
+            <button @click="loadDiff(f.snapshot_id, f.path)">查看 diff</button>
+            <button @click="acceptFile(f)">接受</button>
+            <button class="danger" @click="restoreSnapshot(f.snapshot_id, f.path)">拒绝（回滚）</button>
+          </div>
+        </div>
+      </template>
+      <button x-show="diffDisplay" @click="copyText(diffDisplay)">复制 diff</button>
+      <pre class="diff" x-show="diffDisplay" x-text="diffDisplay"></pre>
+      <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部 diff</button>
+      <div class="note">接受 = 保留当前内容；拒绝 = 恢复到快照前的内容（回滚前会再留底）。</div>
+      <div class="empty" x-show="files.length === 0 && diffText === ''">还没有文件改动</div>
     </div>
-  </aside>
+
+    <div class="view" x-show="view === 'tree'">
+      <div class="panel-actions">
+        <button @click="treeUp()">上一级</button>
+        <button @click="loadTree(treePath)">刷新</button>
+        <span class="note" x-text="treePath || '/'"></span>
+      </div>
+      <template x-for="entry in treeRows" :key="entry._key">
+        <div class="tree-row" :class="entry._cls" @click="openTreeEntry(entry)">
+          <span class="tree-kind" x-text="entry._kind"></span>
+          <span x-text="entry.name"></span>
+          <span class="note" x-text="entry._meta"></span>
+        </div>
+      </template>
+      <div class="empty" x-show="!treeLoading && treeRows.length === 0">空目录，或先创建会话</div>
+      <div x-show="fileView.path">
+        <div class="panel-actions">
+          <span x-text="fileView.path"></span>
+          <span class="note" x-text="fileView._size"></span>
+        </div>
+        <pre class="diff" x-text="fileView._text"></pre>
+      </div>
+    </div>
+
+    <div class="view" x-show="view === 'git'">
+      <div class="panel-actions">
+        <button @click="loadGit(false)">刷新状态</button>
+        <button @click="loadGit(true)">查看 diff</button>
+        <span class="note" x-text="gitInfo._state"></span>
+      </div>
+      <div class="note" x-text="gitInfo._branch"></div>
+      <template x-for="row in gitInfo._changes" :key="row._key">
+        <div class="tree-row"><span x-text="row._text"></span></div>
+      </template>
+      <template x-for="row in gitInfo._commits" :key="row._key">
+        <div class="note" x-text="row._text"></div>
+      </template>
+      <pre class="diff" x-show="gitDiffText" x-text="gitDiffText"></pre>
+    </div>
+
+    <div class="view" x-show="view === 'tasks'">
+      <template x-for="task in tasks" :key="task.id || task.task_id">
+        <div class="task-card" :class="task._cls">
+          <div class="task-line">
+            <span class="task-id" x-text="task.id || task.task_id"></span>
+            <span class="task-role" x-text="task.role"></span>
+            <span class="task-status" x-text="task._status"></span>
+          </div>
+          <div class="task-goal" x-text="task.goal || task._text"></div>
+          <div class="task-meta">
+            <span x-show="task._depends" x-text="task._depends"></span>
+            <span x-show="task._worker" x-text="'worker: ' + task._worker"></span>
+            <span x-show="task._timing" x-text="task._timing"></span>
+            <span x-show="task._tokens" x-text="task._tokens"></span>
+            <span x-show="task.tool_calls" x-text="task.tool_calls + ' tool calls'"></span>
+            <span class="note-bad" x-show="task.merge_error" x-text="task.merge_error"></span>
+          </div>
+        </div>
+      </template>
+      <div class="empty" x-show="tasks.length === 0">没有编排任务</div>
+    </div>
+
+    <div class="view" x-show="view === 'memory'">
+      <div class="panel-actions">
+        <input x-model="memoryText" placeholder="新增一条项目记忆">
+        <button @click="remember()">记住</button>
+      </div>
+      <template x-for="(fact, i) in memory" :key="i">
+        <div class="memory-item">
+          <span x-text="fact"></span>
+          <button class="danger" @click="forget(i)">删除</button>
+        </div>
+      </template>
+      <div class="empty" x-show="memory.length === 0">没有项目记忆</div>
+    </div>
+
+    <div class="view" x-show="view === 'audit'">
+      <div class="panel-actions">
+        <button @click="loadAudit()">刷新审计</button>
+      </div>
+      <template x-for="(r, i) in audit" :key="i">
+        <div class="audit-row">
+          <span x-text="r.ts"></span>
+          <span x-text="r.kind"></span>
+          <span x-text="r._text"></span>
+        </div>
+      </template>
+      <div class="empty" x-show="audit.length === 0">没有审计记录</div>
+    </div>
+  </div>
+</aside>
+
+<div class="splitter splitter-left" x-show="!sidebarCollapsed"
+     @pointerdown="startResize('sidebar', $event)"
+     role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度"></div>
 
   <main class="main">
+    <div class="main-tabs">
+      <div class="main-tab active">
+        <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
+        <span>对话</span>
+      </div>
+      <span class="main-tab-title" x-text="currentSessionTitle()"></span>
+      <span class="spacer"></span>
+      <span class="main-tab-state" x-text="stateText"></span>
+      <button class="icon-btn" @click="openCommandPalette()" title="命令面板" aria-label="命令面板">
+        <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
+      </button>
+    </div>
     <div class="reasoning" x-show="showReasoning && reasoningBlocks.length" x-cloak>
       <template x-for="(block, index) in reasoningBlocks" :key="index">
         <details class="reasoning-block" :open="index === reasoningBlocks.length - 1">
@@ -261,173 +530,79 @@
     </div>
   </main>
 
-  <section class="inspector">
+  <div class="splitter splitter-right" x-show="!inspectorCollapsed"
+       @pointerdown="startResize('inspector', $event)"
+       role="separator" aria-orientation="vertical" aria-label="调整检查器宽度"></div>
+<section class="inspector" x-show="!inspectorCollapsed">
+  <div class="inspector-head">
     <div class="tabs">
       <button :class="tabClasses.plan" @click="setTab('plan')">计划</button>
       <button :class="tabClasses.tools" @click="setTab('tools')">工具</button>
-      <button :class="tabClasses.files" @click="setTab('files')">文件</button>
-      <button :class="tabClasses.tree" @click="setTab('tree')">文件树</button>
-      <button :class="tabClasses.git" @click="setTab('git')">Git</button>
-      <button :class="tabClasses.tasks" @click="setTab('tasks')">任务</button>
-      <button :class="tabClasses.memory" @click="openMemory()">记忆</button>
-      <button :class="tabClasses.audit" @click="openAudit()">审计</button>
     </div>
+    <button class="icon-btn" @click="toggleInspector()" title="收起检查器" aria-label="收起检查器">
+      <svg class="icon" aria-hidden="true"><use href="#i-panel-right"></use></svg>
+    </button>
+  </div>
 
-    <div class="panel" x-show="tab === 'plan'">
-      <div class="panel-actions">
-        <button @click="compactContext()" :disabled="!threadId || busy">压缩并分叉</button>
+  <div class="panel" x-show="tab === 'plan'">
+    <div class="panel-actions">
+      <button @click="compactContext()" :disabled="!threadId || busy">压缩并分叉</button>
+    </div>
+    <div class="plan-step" x-show="planRows.length === 0">还没有计划</div>
+    <template x-for="row in planRows" :key="row.number">
+      <div class="plan-step" :class="row._cls">
+        <span class="idx" x-text="row.number"></span>
+        <span x-text="row.text"></span>
+        <span class="kind" x-text="row.kind"></span>
       </div>
-      <div class="plan-step" x-show="planRows.length === 0">还没有计划</div>
-      <template x-for="row in planRows" :key="row.number">
-        <div class="plan-step" :class="row._cls">
-          <span class="idx" x-text="row.number"></span>
-          <span x-text="row.text"></span>
-          <span class="kind" x-text="row.kind"></span>
-        </div>
-      </template>
-      <div class="note" x-show="planDegraded">规划失败，已退化为单步执行。</div>
-    </div>
+    </template>
+    <div class="note" x-show="planDegraded">规划失败，已退化为单步执行。</div>
+  </div>
 
-    <div class="panel" x-show="tab === 'tools'">
-      <template x-for="t in tools" :key="t.key">
-        <div class="tool-card" :class="t._cls">
-          <div class="tool-head">
-            <span class="tool-name" x-text="t.name"></span>
-            <span class="tool-level" x-text="t.level"></span>
-            <span class="tool-state" x-text="t.state"></span>
-            <button class="tool-copy" x-show="t.summary || t.preview"
-                    @click="copyText(t.preview || t.summary)">复制</button>
-          </div>
-          <div class="tool-summary" x-text="t.summary"></div>
-          <div class="tool-preview" x-show="t.preview" x-text="t.preview"></div>
+  <div class="panel" x-show="tab === 'tools'">
+    <template x-for="t in tools" :key="t.key">
+      <div class="tool-card" :class="t._cls">
+        <div class="tool-head">
+          <span class="tool-name" x-text="t.name"></span>
+          <span class="tool-level" x-text="t.level"></span>
+          <span class="tool-state" x-text="t.state"></span>
+          <button class="tool-copy" x-show="t.summary || t.preview"
+                  @click="copyText(t.preview || t.summary)">复制</button>
         </div>
-      </template>
-      <div class="empty" x-show="tools.length === 0">没有工具调用</div>
-    </div>
-
-    <div class="panel" x-show="tab === 'files'">
-      <div class="panel-actions">
-        <button @click="loadSnapshots()">刷新快照</button>
-        <button @click="restoreRun()">回滚本轮</button>
-        <button @click="loadCheckpoints()">检查点</button>
+        <div class="tool-summary" x-text="t.summary"></div>
+        <div class="tool-preview" x-show="t.preview" x-text="t.preview"></div>
       </div>
-      <template x-for="c in checkpoints" :key="c.checkpoint_id">
-        <div class="file-card">
-          <div class="file-head">
-            <span x-text="c.step"></span>
-            <span x-text="c.checkpoint_id"></span>
-            <span x-text="c.preview"></span>
-            <button @click="forkCheckpoint(c.checkpoint_id)">分叉</button>
-            <button class="danger" @click="rewindTo(c.checkpoint_id)">回退到此</button>
-          </div>
-        </div>
-      </template>
-      <template x-for="f in files" :key="f._key">
-        <div class="file-card">
-          <div class="file-head">
-            <span x-text="f.path"></span>
-            <button @click="loadDiff(f.snapshot_id, f.path)">查看 diff</button>
-            <button @click="acceptFile(f)">接受</button>
-            <button class="danger" @click="restoreSnapshot(f.snapshot_id, f.path)">拒绝（回滚）</button>
-          </div>
-        </div>
-      </template>
-      <button x-show="diffDisplay" @click="copyText(diffDisplay)">复制 diff</button>
-      <pre class="diff" x-show="diffDisplay" x-text="diffDisplay"></pre>
-      <button x-show="diffTruncated && !diffExpanded" @click="expandDiff()">展开全部 diff</button>
-      <div class="note">接受 = 保留当前内容；拒绝 = 恢复到快照前的内容（回滚前会再留底）。</div>
-      <div class="empty" x-show="files.length === 0 && diffText === ''">还没有文件改动</div>
-    </div>
+    </template>
+    <div class="empty" x-show="tools.length === 0">没有工具调用</div>
+  </div>
+</section>
+</div>
 
-    <div class="panel" x-show="tab === 'tree'">
-      <div class="panel-actions">
-        <button @click="treeUp()">上一级</button>
-        <button @click="loadTree(treePath)">刷新</button>
-        <span class="note" x-text="treePath || '/'"></span>
-      </div>
-      <template x-for="entry in treeRows" :key="entry._key">
-        <div class="tree-row" :class="entry._cls" @click="openTreeEntry(entry)">
-          <span class="tree-kind" x-text="entry._kind"></span>
-          <span x-text="entry.name"></span>
-          <span class="note" x-text="entry._meta"></span>
-        </div>
-      </template>
-      <div class="empty" x-show="!treeLoading && treeRows.length === 0">空目录，或先创建会话</div>
-      <div x-show="fileView.path">
-        <div class="panel-actions">
-          <span x-text="fileView.path"></span>
-          <span class="note" x-text="fileView._size"></span>
-        </div>
-        <pre class="diff" x-text="fileView._text"></pre>
-      </div>
+<div class="modal command-modal" x-show="commandOpen" x-cloak
+     @click.self="closeCommandPalette()"
+     role="dialog" aria-modal="true" aria-labelledby="command-title">
+  <div class="command-box">
+    <h3 id="command-title" class="sr-only">命令面板</h3>
+    <div class="command-input-row">
+      <svg class="icon" aria-hidden="true"><use href="#i-command"></use></svg>
+      <input x-ref="commandInput" x-model="commandQuery"
+             @input="commandIndex = 0"
+             @keydown="onCommandKeydown($event)"
+             placeholder="输入命令、会话或视图…" aria-label="命令面板搜索">
+      <kbd>Esc</kbd>
     </div>
-
-    <div class="panel" x-show="tab === 'git'">
-      <div class="panel-actions">
-        <button @click="loadGit(false)">刷新状态</button>
-        <button @click="loadGit(true)">查看 diff</button>
-        <span class="note" x-text="gitInfo._state"></span>
-      </div>
-      <div class="note" x-text="gitInfo._branch"></div>
-      <template x-for="row in gitInfo._changes" :key="row._key">
-        <div class="tree-row"><span x-text="row._text"></span></div>
+    <div class="command-list" role="listbox" aria-label="命令列表">
+      <template x-for="(cmd, index) in filteredCommands()" :key="cmd.id">
+        <button class="command-item" :class="commandClass(index)"
+                role="option" @mouseenter="hoverCommand(index)"
+                @click="runCommand(cmd)">
+          <span class="command-title" x-text="cmd.title"></span>
+          <span class="command-hint" x-text="cmd.hint"></span>
+        </button>
       </template>
-      <template x-for="row in gitInfo._commits" :key="row._key">
-        <div class="note" x-text="row._text"></div>
-      </template>
-      <pre class="diff" x-show="gitDiffText" x-text="gitDiffText"></pre>
+      <div class="empty" x-show="filteredCommands().length === 0">没有匹配的命令</div>
     </div>
-
-    <div class="panel" x-show="tab === 'tasks'">
-      <template x-for="task in tasks" :key="task.id || task.task_id">
-        <div class="task-card" :class="task._cls">
-          <div class="task-line">
-            <span class="task-id" x-text="task.id || task.task_id"></span>
-            <span class="task-role" x-text="task.role"></span>
-            <span class="task-status" x-text="task._status"></span>
-          </div>
-          <div class="task-goal" x-text="task.goal || task._text"></div>
-          <div class="task-meta">
-            <span x-show="task._depends" x-text="task._depends"></span>
-            <span x-show="task._worker" x-text="'worker: ' + task._worker"></span>
-            <span x-show="task._timing" x-text="task._timing"></span>
-            <span x-show="task._tokens" x-text="task._tokens"></span>
-            <span x-show="task.tool_calls" x-text="task.tool_calls + ' tool calls'"></span>
-            <span class="note-bad" x-show="task.merge_error" x-text="task.merge_error"></span>
-          </div>
-        </div>
-      </template>
-      <div class="empty" x-show="tasks.length === 0">没有编排任务</div>
-    </div>
-
-    <div class="panel" x-show="tab === 'memory'">
-      <div class="panel-actions">
-        <input x-model="memoryText" placeholder="新增一条项目记忆">
-        <button @click="remember()">记住</button>
-      </div>
-      <template x-for="(fact, i) in memory" :key="i">
-        <div class="memory-item">
-          <span x-text="fact"></span>
-          <button class="danger" @click="forget(i)">删除</button>
-        </div>
-      </template>
-      <div class="empty" x-show="memory.length === 0">没有项目记忆</div>
-    </div>
-
-    <div class="panel" x-show="tab === 'audit'">
-      <div class="panel-actions">
-        <button @click="loadAudit()">刷新审计</button>
-      </div>
-      <template x-for="(r, i) in audit" :key="i">
-        <div class="audit-row">
-          <span x-text="r.ts"></span>
-          <span x-text="r.kind"></span>
-          <span x-text="r._text"></span>
-        </div>
-      </template>
-      <div class="empty" x-show="audit.length === 0">没有审计记录</div>
-    </div>
-  </section>
+  </div>
 </div>
 
 <div class="modal" x-show="approvals.length > 0" x-cloak
@@ -498,6 +673,9 @@
       <option value="compact">紧凑</option>
       <option value="normal">标准</option>
     </select>
+    <div class="panel-actions">
+      <button @click="resetLayout()">重置侧栏/检查器宽度</button>
+    </div>
     <label>
       <input type="checkbox" :checked="showReasoning" @change="toggleReasoning()" style="width:auto">
       显示模型推理（默认关闭；只影响界面展示）
@@ -658,6 +836,24 @@
     </div>
   </div>
 </div>
+
+<footer class="statusbar" x-show="ready" x-cloak>
+  <span class="status-item" :title="healthText">
+    <span class="status-dot" :class="connectionClass()"></span>
+    <span x-text="stateText"></span>
+  </span>
+  <span class="status-item connection" x-show="connectionText()" x-cloak x-text="connectionText()"></span>
+  <span class="status-item badge" :class="badgeClasses" x-text="accessLabel()"></span>
+  <span class="status-item" x-text="modelLabel()"></span>
+  <span class="status-item status-workspace" x-text="workspaceLabel()"></span>
+  <span class="status-item" x-show="gitInfo._branch" x-text="gitInfo._branch"></span>
+  <span class="spacer"></span>
+  <span class="status-item" x-text="costText"></span>
+  <span class="status-item status-health" x-text="healthText"></span>
+  <button class="status-item status-command" @click="openCommandPalette()" title="打开命令面板">
+    Ctrl Shift P
+  </button>
+</footer>
 
 <div class="toast" x-show="toast" x-text="toast" x-cloak></div>
 </div>

@@ -46,8 +46,8 @@ export const settingsMixin = {
 
   refreshBadgeClass() {
     this.badgeClasses = this.capabilities.read_only
-      ? 'badge badge-read'
-      : 'badge badge-write';
+      ? 'badge-read'
+      : 'badge-write';
   },
 
   bodyClass() {

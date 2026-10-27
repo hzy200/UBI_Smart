@@ -23,6 +23,7 @@ import { providersMixin } from './features/providers';
 import { desktopMixin } from './features/desktop';
 import { memoryMixin } from './features/memory';
 import { keyboardMixin } from './features/keyboard';
+import { layoutMixin } from './features/layout';
 
 const agentApp = () => {
   return ({
@@ -153,6 +154,18 @@ const agentApp = () => {
   approvalPosition: '',
   decisions: {},
   tab: 'plan',
+  view: 'sessions',
+  viewClasses: { sessions: 'active', files: '', tree: '', git: '', tasks: '', memory: '', audit: '' },
+  filesDirty: false,
+  tasksDirty: false,
+  sidebarWidth: 280,
+  inspectorWidth: 340,
+  sidebarCollapsed: false,
+  inspectorCollapsed: false,
+  commandOpen: false,
+  commandQuery: '',
+  commandIndex: 0,
+  _resizing: '',
   showSettings: false,
   providerName: 'deepseek',
   providerKeyInput: '',
@@ -161,8 +174,8 @@ const agentApp = () => {
   fontSize: 'normal',
   fontFamily: 'system',
   bodyClasses: 'theme-dark density-normal font-normal family-system',
-  tabClasses: { plan: 'active', tools: '', files: '', tree: '', git: '', tasks: '', memory: '', audit: '' },
-  badgeClasses: 'badge badge-read',
+  tabClasses: { plan: 'active', tools: '' },
+  badgeClasses: 'badge-read',
   toast: '',
   _msgSeq: 0,
   _currentNode: '',
@@ -194,6 +207,7 @@ const agentApp = () => {
   ...desktopMixin,
   ...memoryMixin,
   ...keyboardMixin,
+  ...layoutMixin,
 });
 };
 

@@ -485,6 +485,7 @@
         this.probeProject();
       });
       this.loadSettings();
+      this.initLayout();
       this.applyBodyClasses();
       this.refreshBadgeClass();
       window.addEventListener("keydown", (event) => this.onGlobalKeydown(event));
@@ -791,7 +792,7 @@
       this.bodyClasses = `theme-${this.theme} density-${this.density} font-${this.fontSize} family-${this.fontFamily}`;
     },
     refreshBadgeClass() {
-      this.badgeClasses = this.capabilities.read_only ? "badge badge-read" : "badge badge-write";
+      this.badgeClasses = this.capabilities.read_only ? "badge-read" : "badge-write";
     },
     bodyClass() {
       return `theme-${this.theme} density-${this.density} font-${this.fontSize} family-${this.fontFamily}`;
@@ -1513,22 +1514,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     isTab(name) {
       return this.tab === name;
     },
-    setTab(name) {
+    setTab(name, open = true) {
       this.tab = name;
-      const next = {
-        plan: "",
-        tools: "",
-        files: "",
-        tree: "",
-        git: "",
-        tasks: "",
-        memory: "",
-        audit: ""
+      this.tabClasses = {
+        plan: name === "plan" ? "active" : "",
+        tools: name === "tools" ? "active" : ""
       };
-      if (name in next) next[name] = "active";
-      this.tabClasses = next;
-      if (name === "tree") this.loadTree(this.treePath);
-      if (name === "git") this.loadGit(false);
+      if (open && this.inspectorCollapsed) this.inspectorCollapsed = false;
     },
     toggleSettings() {
       this.showSettings = !this.showSettings;
@@ -1538,12 +1530,10 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
     },
     openMemory() {
-      this.tab = "memory";
-      this.loadMemory();
+      this.setView("memory");
     },
     openAudit() {
-      this.tab = "audit";
-      this.loadAudit();
+      this.setView("audit");
     },
     approvalField(name) {
       return this.approval ? this.approval[name] || "" : "";
@@ -2530,7 +2520,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.planRows = this.buildPlanRows(this.plan, this.kinds, 0);
           this.planDegraded = !!event.degraded;
           this.stepIdx = 0;
-          this.tab = "plan";
+          this.setTab("plan", false);
           break;
         case "plan_revised":
           this.plan = event.steps || [];
@@ -2566,7 +2556,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         case "tool_call_started":
           this.upsertTool(event);
           this.upsertToolMessage(event);
-          this.tab = "tools";
+          this.setTab("tools", false);
           break;
         case "tool_call_finished":
           this.finishTool(event);
@@ -2574,7 +2564,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           break;
         case "file_changed":
           this.files.unshift({ ...event, _key: `${event.snapshot_id}:${event.path}` });
-          this.tab = "files";
+          this.filesDirty = true;
           break;
         case "verification":
           this.pushMessage("system", this.verificationText(event));
@@ -2587,7 +2577,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           break;
         case "task_graph_created":
           this.tasks = (event.tasks || []).map((task) => this.decorateTask(task));
-          this.tab = "tasks";
+          this.tasksDirty = true;
           break;
         case "task_graph_extended":
           this.tasks = this.tasks.concat((event.added || []).map((task) => this.decorateTask(task)));
@@ -3555,10 +3545,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
 
   // src/features/keyboard.ts
   var SHORTCUTS = [
+    { keys: "Ctrl / Cmd + Shift + P", action: "\u6253\u5F00\u547D\u4EE4\u9762\u677F" },
     { keys: "Ctrl / Cmd + K", action: "\u805A\u7126\u4F1A\u8BDD\u641C\u7D22" },
+    { keys: "Ctrl / Cmd + B", action: "\u5207\u6362\u4FA7\u680F" },
+    { keys: "Ctrl / Cmd + J", action: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668" },
     { keys: "Ctrl / Cmd + Enter", action: "\u53D1\u9001\u4EFB\u52A1" },
     { keys: "Shift + Enter", action: "\u8F93\u5165\u6846\u5185\u6362\u884C" },
-    { keys: "Esc", action: "\u5173\u95ED\u8BBE\u7F6E / \u6062\u590D\u4E2D\u5FC3 / \u5FEB\u6377\u952E" },
+    { keys: "Esc", action: "\u5173\u95ED\u547D\u4EE4\u9762\u677F / \u8BBE\u7F6E / \u6062\u590D\u4E2D\u5FC3 / \u5FEB\u6377\u952E" },
     { keys: "?", action: "\u6253\u5F00\u5FEB\u6377\u952E\u5E2E\u52A9" }
   ];
   var keyboardMixin = {
@@ -3581,10 +3574,35 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       const target = event.target;
       const typing = Boolean(target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable));
       const mod = event.ctrlKey || event.metaKey;
+      if (this.commandOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          this.closeCommandPalette();
+        }
+        return;
+      }
+      if (mod && event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        this.openCommandPalette();
+        return;
+      }
       if (mod && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        const search = document.querySelector(".session-search");
-        if (search) search.focus();
+        this.setView("sessions", false, true);
+        this.$nextTick(() => {
+          const search = document.querySelector(".session-search");
+          if (search) search.focus();
+        });
+        return;
+      }
+      if (mod && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        this.toggleSidebar();
+        return;
+      }
+      if (mod && event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        this.toggleInspector();
         return;
       }
       if (mod && event.key === "Enter") {
@@ -3628,6 +3646,269 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     openNewSettings() {
       this.addTask();
+    }
+  };
+
+  // src/features/layout.ts
+  var LAYOUT_KEY = "codingagent.layout";
+  var ACTIVITY_WIDTH = 52;
+  var MIN_SIDEBAR = 220;
+  var MAX_SIDEBAR = 460;
+  var MIN_INSPECTOR = 260;
+  var MAX_INSPECTOR = 560;
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+  var VIEW_TITLES = {
+    sessions: "\u4F1A\u8BDD",
+    files: "\u6587\u4EF6\u6539\u52A8",
+    tree: "\u6587\u4EF6\u6811",
+    git: "Git",
+    tasks: "\u4EFB\u52A1",
+    memory: "\u8BB0\u5FC6",
+    audit: "\u5BA1\u8BA1"
+  };
+  var layoutMixin = {
+    initLayout() {
+      try {
+        const raw = localStorage.getItem(LAYOUT_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (Number.isFinite(saved.sidebarWidth)) {
+            this.sidebarWidth = clamp(saved.sidebarWidth, MIN_SIDEBAR, MAX_SIDEBAR);
+          }
+          if (Number.isFinite(saved.inspectorWidth)) {
+            this.inspectorWidth = clamp(saved.inspectorWidth, MIN_INSPECTOR, MAX_INSPECTOR);
+          }
+          this.sidebarCollapsed = Boolean(saved.sidebarCollapsed);
+          this.inspectorCollapsed = Boolean(saved.inspectorCollapsed);
+        } else if (window.innerWidth < 1100) {
+          this.inspectorCollapsed = true;
+        }
+      } catch (err) {
+      }
+      this.applyViewClasses();
+    },
+    saveLayout() {
+      try {
+        localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+          sidebarWidth: this.sidebarWidth,
+          inspectorWidth: this.inspectorWidth,
+          sidebarCollapsed: this.sidebarCollapsed,
+          inspectorCollapsed: this.inspectorCollapsed
+        }));
+      } catch (err) {
+      }
+    },
+    resetLayout() {
+      this.sidebarWidth = 280;
+      this.inspectorWidth = 340;
+      this.sidebarCollapsed = false;
+      this.inspectorCollapsed = false;
+      this.saveLayout();
+    },
+    layoutStyle() {
+      const sidebar = this.sidebarCollapsed ? 0 : this.sidebarWidth;
+      const inspector = this.inspectorCollapsed ? 0 : this.inspectorWidth;
+      return `--sidebar-width: ${sidebar}px; --inspector-width: ${inspector}px;`;
+    },
+    toggleSidebar() {
+      this.sidebarCollapsed = !this.sidebarCollapsed;
+      this.saveLayout();
+    },
+    toggleInspector() {
+      this.inspectorCollapsed = !this.inspectorCollapsed;
+      this.saveLayout();
+    },
+    startResize(side, event) {
+      const pointer = event;
+      pointer.preventDefault();
+      this._resizing = side;
+      document.body.classList.add("is-resizing");
+      const move = (moveEvent) => this.onResize(moveEvent);
+      const stop = () => {
+        this._resizing = "";
+        document.body.classList.remove("is-resizing");
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", stop);
+        this.saveLayout();
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", stop, { once: true });
+    },
+    onResize(event) {
+      if (this._resizing === "sidebar") {
+        this.sidebarWidth = clamp(
+          event.clientX - ACTIVITY_WIDTH,
+          MIN_SIDEBAR,
+          MAX_SIDEBAR
+        );
+      } else if (this._resizing === "inspector") {
+        this.inspectorWidth = clamp(
+          window.innerWidth - event.clientX,
+          MIN_INSPECTOR,
+          MAX_INSPECTOR
+        );
+      }
+    },
+    applyViewClasses() {
+      const next = {};
+      for (const name of Object.keys(VIEW_TITLES)) {
+        next[name] = this.view === name ? "active" : "";
+      }
+      this.viewClasses = next;
+    },
+    setView(name, load = true, reveal = true) {
+      this.view = name;
+      this.applyViewClasses();
+      if (reveal && this.sidebarCollapsed) this.sidebarCollapsed = false;
+      if (name === "files") this.filesDirty = false;
+      if (name === "tasks") this.tasksDirty = false;
+      if (load) {
+        if (name === "files") this.loadSnapshots();
+        if (name === "tree") this.loadTree(this.treePath);
+        if (name === "git") this.loadGit(false);
+        if (name === "memory") this.loadMemory();
+        if (name === "audit") this.loadAudit();
+      }
+      if (reveal) this.saveLayout();
+    },
+    viewTitle() {
+      return VIEW_TITLES[this.view] || "\u4F1A\u8BDD";
+    },
+    currentSessionTitle() {
+      const current = (this.sessions || []).find(
+        (item) => item.thread_id === this.threadId
+      );
+      if (current) return current.title || current.thread_id;
+      return this.threadId || "\u65B0\u4F1A\u8BDD";
+    },
+    modelLabel() {
+      if (this.model) return this.model;
+      if (this.provider) return this.provider;
+      return "\u9ED8\u8BA4\u6A21\u578B";
+    },
+    connectionClass() {
+      if (this.connectionState === "streaming" || this.connectionState === "reconnecting") {
+        return "status-dot-warn";
+      }
+      if (this.connectionState === "closed") return "status-dot-bad";
+      return "status-dot-ok";
+    },
+    applyTheme(name) {
+      this.theme = name;
+      this.applyBodyClasses();
+      this.saveSettings();
+    },
+    openCommandPalette() {
+      this.commandOpen = true;
+      this.commandQuery = "";
+      this.commandIndex = 0;
+      this.$nextTick(() => {
+        const input = this.$refs.commandInput;
+        if (input) input.focus();
+      });
+    },
+    closeCommandPalette() {
+      this.commandOpen = false;
+      this.commandQuery = "";
+      this.commandIndex = 0;
+    },
+    commandItems() {
+      const items = [
+        { id: "new-session", title: "\u65B0\u5EFA\u4F1A\u8BDD", hint: "\u4F1A\u8BDD", run: () => this.newSession() },
+        { id: "settings", title: "\u6253\u5F00\u8BBE\u7F6E", hint: "\u754C\u9762", run: () => this.toggleSettings() },
+        { id: "recovery", title: "\u6253\u5F00\u6062\u590D\u4E2D\u5FC3", hint: "\u754C\u9762", run: () => this.openRecovery() },
+        { id: "shortcuts", title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9", run: () => {
+          this.shortcutsOpen = true;
+        } },
+        { id: "toggle-sidebar", title: "\u5207\u6362\u4FA7\u680F", hint: "\u5E03\u5C40", run: () => this.toggleSidebar() },
+        { id: "toggle-inspector", title: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668", hint: "\u5E03\u5C40", run: () => this.toggleInspector() },
+        { id: "view-sessions", title: "\u89C6\u56FE\uFF1A\u4F1A\u8BDD", hint: "\u5BFC\u822A", run: () => this.setView("sessions") },
+        { id: "view-files", title: "\u89C6\u56FE\uFF1A\u6587\u4EF6\u6539\u52A8", hint: "\u5BFC\u822A", run: () => this.setView("files") },
+        { id: "view-tree", title: "\u89C6\u56FE\uFF1A\u6587\u4EF6\u6811", hint: "\u5BFC\u822A", run: () => this.setView("tree") },
+        { id: "view-git", title: "\u89C6\u56FE\uFF1AGit", hint: "\u5BFC\u822A", run: () => this.setView("git") },
+        { id: "view-tasks", title: "\u89C6\u56FE\uFF1A\u4EFB\u52A1", hint: "\u5BFC\u822A", run: () => this.setView("tasks") },
+        { id: "view-memory", title: "\u89C6\u56FE\uFF1A\u8BB0\u5FC6", hint: "\u5BFC\u822A", run: () => this.setView("memory") },
+        { id: "view-audit", title: "\u89C6\u56FE\uFF1A\u5BA1\u8BA1", hint: "\u5BFC\u822A", run: () => this.setView("audit") },
+        { id: "tab-plan", title: "\u68C0\u67E5\u5668\uFF1A\u8BA1\u5212", hint: "\u5BFC\u822A", run: () => this.setTab("plan") },
+        { id: "tab-tools", title: "\u68C0\u67E5\u5668\uFF1A\u5DE5\u5177", hint: "\u5BFC\u822A", run: () => this.setTab("tools") },
+        { id: "refresh-files", title: "\u5237\u65B0\u6587\u4EF6\u5FEB\u7167", hint: "\u6587\u4EF6", run: () => this.loadSnapshots() },
+        { id: "refresh-tree", title: "\u5237\u65B0\u6587\u4EF6\u6811", hint: "\u6587\u4EF6", run: () => this.loadTree(this.treePath) },
+        { id: "git-diff", title: "\u67E5\u770B Git diff", hint: "Git", run: () => this.loadGit(true) },
+        { id: "theme-dark", title: "\u4E3B\u9898\uFF1A\u6DF1\u8272", hint: "\u5916\u89C2", run: () => this.applyTheme("dark") },
+        { id: "theme-light", title: "\u4E3B\u9898\uFF1A\u6D45\u8272", hint: "\u5916\u89C2", run: () => this.applyTheme("light") },
+        { id: "theme-auto", title: "\u4E3B\u9898\uFF1A\u8DDF\u968F\u7CFB\u7EDF", hint: "\u5916\u89C2", run: () => this.applyTheme("auto") },
+        {
+          id: "reasoning",
+          title: this.showReasoning ? "\u9690\u85CF\u6A21\u578B\u63A8\u7406" : "\u663E\u793A\u6A21\u578B\u63A8\u7406",
+          hint: "\u5916\u89C2",
+          run: () => this.toggleReasoning()
+        },
+        { id: "reset-layout", title: "\u91CD\u7F6E\u5E03\u5C40\u5BBD\u5EA6", hint: "\u5E03\u5C40", run: () => this.resetLayout() }
+      ];
+      if (this.threadId && !this.busy) {
+        items.push({
+          id: "compact",
+          title: "\u538B\u7F29\u4E0A\u4E0B\u6587\u5E76\u5206\u53C9",
+          hint: "Agent",
+          run: () => this.compactContext()
+        });
+      }
+      for (const session of (this.sessions || []).slice(0, 20)) {
+        items.push({
+          id: `session:${session.thread_id}`,
+          title: session.title || session.thread_id,
+          hint: "\u4F1A\u8BDD",
+          run: () => this.openSession(session.thread_id)
+        });
+      }
+      return items;
+    },
+    filteredCommands() {
+      const query = String(this.commandQuery || "").trim().toLowerCase();
+      const items = this.commandItems();
+      if (!query) return items.slice(0, 40);
+      const tokens = query.split(/\s+/).filter(Boolean);
+      return items.filter((item) => {
+        const haystack = `${item.title} ${item.hint} ${item.id}`.toLowerCase();
+        return tokens.every((token) => haystack.includes(token));
+      }).slice(0, 40);
+    },
+    commandClass(index) {
+      return index === this.commandIndex ? "selected" : "";
+    },
+    hoverCommand(index) {
+      this.commandIndex = index;
+    },
+    runCommand(command) {
+      if (!command) return;
+      this.closeCommandPalette();
+      command.run();
+    },
+    onCommandKeydown(event) {
+      const items = this.filteredCommands();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.closeCommandPalette();
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (items.length) this.commandIndex = (this.commandIndex + 1) % items.length;
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (items.length) {
+          this.commandIndex = (this.commandIndex - 1 + items.length) % items.length;
+        }
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.runCommand(items[this.commandIndex]);
+      }
     }
   };
 
@@ -3764,6 +4045,18 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       approvalPosition: "",
       decisions: {},
       tab: "plan",
+      view: "sessions",
+      viewClasses: { sessions: "active", files: "", tree: "", git: "", tasks: "", memory: "", audit: "" },
+      filesDirty: false,
+      tasksDirty: false,
+      sidebarWidth: 280,
+      inspectorWidth: 340,
+      sidebarCollapsed: false,
+      inspectorCollapsed: false,
+      commandOpen: false,
+      commandQuery: "",
+      commandIndex: 0,
+      _resizing: "",
       showSettings: false,
       providerName: "deepseek",
       providerKeyInput: "",
@@ -3772,8 +4065,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       fontSize: "normal",
       fontFamily: "system",
       bodyClasses: "theme-dark density-normal font-normal family-system",
-      tabClasses: { plan: "active", tools: "", files: "", tree: "", git: "", tasks: "", memory: "", audit: "" },
-      badgeClasses: "badge badge-read",
+      tabClasses: { plan: "active", tools: "" },
+      badgeClasses: "badge-read",
       toast: "",
       _msgSeq: 0,
       _currentNode: "",
@@ -3803,7 +4096,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       ...providersMixin,
       ...desktopMixin,
       ...memoryMixin,
-      ...keyboardMixin
+      ...keyboardMixin,
+      ...layoutMixin
     };
   };
   var registerAgentApp = () => {

@@ -20,7 +20,9 @@
 }
 .tree-row {
   display: flex; gap: 8px; align-items: center; padding: 5px 8px;
-  border-radius: 6px; cursor: pointer; font-size: 13px;
+  border-radius: var(--radius-sm); cursor: pointer; font-size: 13px;
+  overflow-wrap: anywhere;
+  transition: background var(--motion-fast);
 }
 .tree-row:hover { background: var(--panel-2); }
 .tree-kind { color: var(--muted); font-size: 10px; width: 26px; }
