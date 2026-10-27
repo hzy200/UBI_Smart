@@ -65,8 +65,10 @@ contexts:
     downstream: [orchestrator, tools, sandbox, audit]
     invariants: 见 docs/ARCHITECTURE.md 第 6 节（56 条）
     change_note: |
-      runtime._stream 是全项目最大的函数（CC 114）。改它要有事件流测试兜底，
-      见 docs/COMPLEXITY.md 第 7 节。
+      runtime._stream 已拆成主干 + _NODE_HANDLERS 分发表 + _on_* 处理器
+      （165 行 / CC 27，commit 9ea2542）。改事件流仍要有
+      test_graph_event_coverage.py 与 test_runtime_stream.py 兜底，
+      见 docs/COMPLEXITY.md 第 3、7 节。
 
   - id: harness
     name: 编排子图（harness）

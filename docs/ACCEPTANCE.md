@@ -137,7 +137,7 @@ python scripts/demo.py --only 1
 | 覆盖率 | **82.68%**（CI 子集，门槛 76）；P3 模块目标见 [COVERAGE.md](COVERAGE.md) |
 | lint | 干净（`ruff check src tests`） |
 | 全量含 WSL | 本轮未重跑；旧 1561 passed / 87.5% 不再作为当前结论 |
-| 能力评测 | （历史基线，2026-10-18，未在本轮重跑）`default` 29 个短任务两轮 29/29（已饱和）；`long` 5 个长程任务 2/5。详见 [tests/eval/README](../tests/eval/README.md) |
+| 能力评测 | 常规短任务套件已饱和：`default` 29/29 ×2、`hard` 14/14 ×2、`real` 5/5 ×2、`real_advanced` 14/14 ×2、`blind` 5/5 ×3、LangSmith 158/158（均为历史实测，未在本轮重跑）。唯一未饱和档是 `long`：历史 2/5（当时 5 个任务，现 6 个，spread 20pp）。详见 [tests/eval/README](../tests/eval/README.md) |
 | LangSmith | **158/158（2026-10-25，L3 审批修复后）**：`coding-agent-full-v3`，139 capability + 2 agent + 17 mechanism；实验 `coding-agent-full-v3-fixed-7a6830ab`，commit `9a6995b`。详见 [LANGSMITH_REPORT_V3.md](LANGSMITH_REPORT_V3.md) |
 | 难度套件（hard） | **14/14 ×2（100%，spread 0，comparable=true，commit `f062a78`）**：14 个并发/spec/多层/排障/性能任务；修正任务定义后已饱和，需继续加难度。详见 [HARD_SUITE_REPORT.md](HARD_SUITE_REPORT.md) |
 | 真实代码套件（real） | **5/5 ×2（100%，spread 0，comparable=true，commit `3f34a2b`）**：5 个完整标准库模块回归；可见失败测试使定位空间过窄，已饱和。详见 [REAL_SUITE_REPORT.md](REAL_SUITE_REPORT.md) |
@@ -146,15 +146,17 @@ python scripts/demo.py --only 1
 | 上下文画像 | 已接入 baseline/LangSmith：repo_map、worker 摘要、裁剪报告；采样见 [CONTEXT_PROFILE.md](CONTEXT_PROFILE.md) |
 | P2 运维 | 审计修复工具与 token 软护栏已落地；上下文/worker 组合 A/B 已完成但**未采纳**（token −6%，spec 通过率 2/2→0/2）；本机控制面已切换到 `coding_agent_app`（仅 DML）；root 密码待人工轮换 |
 | System E2E（本地） | **通过（2026-10-25）**：导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照；`make system-e2e`，不进 CI |
-| CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型 → `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |
+| CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型检查/单测（`npm ci` + `npm test`）→ `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |
 
 > **口径提醒**：单次运行的通过率**说明不了任何事**。同一份代码曾跑出 52% 与 83%
 > （`spread` 31 个百分点、11/29 任务翻转）—— 上一版把这读作「已落进 30–70% 区间、
 > 有区分度」是过度解读。版本对比至少要 `--repeat 2`，且差异必须大于 `spread`。
 >
-> **当前 default 套件已饱和**：两轮都是 100%，`spread=0`。这不是「智能体完美」，
-> 而是这把尺子对当前模型没有区分度；继续用它比较任何改动都只会得到 0pp。
-> 需要扩展更难的任务（或换 `long` 套件）才能量出 Phase 4 的并发/成本收益。
+> **常规短任务套件已饱和**：default/hard/real/real_advanced/blind 与 LangSmith 全量
+> 都是 100%、`spread=0`。这不是「智能体完美」，而是这些尺子对当前模型没有区分度；
+> 继续用它们比较改动只会得到 0pp。唯一未饱和档是 `long`（历史 2/5，任务少、
+> `spread` 20pp），结论必须超出噪声带。口径与下一把尺子的要求见
+> [tests/eval/README](../tests/eval/README.md)。
 
 > **口径提醒**：全量一律写 `pytest -m "not llm"`。裸 `pytest` 会把那 3 条 `llm` 用例一起跑、
 > 真的调用模型 —— 本机 `.env` 配了 key 就计费，而它们本意是"需要时手动跑"。
@@ -342,8 +344,8 @@ scheduler 的全局 token 预算在派发前按「显式 `max_tokens` 或同角�
 - [x] 无模型、无 WSL 的单测覆盖 compare / bench / 新机制字段。
 
 实测补充：compare 对旧 `baseline.json`（12/29）报 Δ=+58.6pp、超出 6.9pp
-噪声带，但右侧 `comparable=false` 且跨版本，不能归因于本次改动。default
-套件已饱和，Phase 4 的后续调优应换更难任务或 `long` 套件。steering bench
+噪声带，但右侧 `comparable=false` 且跨版本，不能归因于本次改动。常规短任务
+套件已饱和，后续调优应改用 `long` 或新尺子。steering bench
 （delay=50ms，repeat=3）实测 pause apply 中位 **9.4ms**、resume **20.2ms**、
 cancel apply **8.6ms**。
 
