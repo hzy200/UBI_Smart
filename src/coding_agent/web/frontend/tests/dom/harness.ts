@@ -129,6 +129,13 @@ const BASE_STUBS: Record<string, any> = {
     commits: [],
   },
   '/api/files': { entries: [] },
+  '/api/file': {
+    path: 'a.py',
+    content: 'print(1)\n',
+    size: 9,
+    binary: false,
+    truncated: false,
+  },
 };
 
 function jsonStub(pathname: string, search: URLSearchParams): any {

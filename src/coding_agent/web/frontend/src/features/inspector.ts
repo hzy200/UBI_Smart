@@ -296,6 +296,46 @@ export const inspectorMixin = {
     for (const tab of this.editorTabs) {
       tab._active = name !== 'chat' && tab.id === this.activeEditorId;
       tab._cls = tab._active ? 'active' : '';
+      tab._tabindex = tab._active ? 0 : -1;
+    }
+  },
+
+  onMainTabKeydown(event) {
+    const tabs = Array.from(
+      document.querySelectorAll('.main-tab'),
+    ) as HTMLElement[];
+    if (!tabs.length) return;
+    const index = tabs.indexOf(document.activeElement as HTMLElement);
+    if (index < 0) return;
+    const key = event.key;
+    if (
+      key === 'ArrowRight'
+      || key === 'ArrowLeft'
+      || key === 'Home'
+      || key === 'End'
+    ) {
+      event.preventDefault();
+      let next = index;
+      if (key === 'ArrowRight') next = (index + 1) % tabs.length;
+      if (key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+      if (key === 'Home') next = 0;
+      if (key === 'End') next = tabs.length - 1;
+      tabs[next].focus();
+      tabs[next].click();
+      return;
+    }
+    if (key === 'Delete' || key === 'Backspace') {
+      const id = tabs[index].getAttribute('data-id') || '';
+      if (!id) return;
+      event.preventDefault();
+      this.closeEditorTab(id);
+      this.$nextTick(() => {
+        const remaining = Array.from(
+          document.querySelectorAll('.main-tab'),
+        ) as HTMLElement[];
+        const target = remaining[Math.min(index, remaining.length - 1)];
+        if (target) target.focus();
+      });
     }
   },
 
@@ -351,7 +391,10 @@ export const inspectorMixin = {
     this.activeEditorId = '';
     this.mainTab = 'chat';
     this.setMainTabFlags('chat');
-    this.fileView = { path: '', size: 0, _text: '', _html: '' };
+    this.fileView = {
+      path: '', size: 0, _text: '', _html: '',
+      _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+    };
     this.diffText = '';
     this.diffDisplay = '';
     this.diffPath = '';
@@ -380,7 +423,10 @@ export const inspectorMixin = {
     this.activeEditorId = '';
     this.mainTab = 'chat';
     this.setMainTabFlags('chat');
-    this.fileView = { path: '', size: 0, _text: '', _html: '' };
+    this.fileView = {
+      path: '', size: 0, _text: '', _html: '',
+      _lang: '', _size: '', _lineNumbers: '', _crumb: '',
+    };
     this.diffText = '';
     this.diffDisplay = '';
     this.diffPath = '';
@@ -536,7 +582,10 @@ export const inspectorMixin = {
           ...entry,
           ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
           _depth: depth,
+          _level: depth + 1,
           _expanded: expanded,
+          _expandAttr: entry.is_dir ? (expanded ? 'true' : 'false') : '',
+          _tabindex: entry.path === this.treeActivePath ? 0 : -1,
           _kind: entry.is_dir ? (loading ? '…' : (expanded ? '▾' : '▸')) : '·',
           _style: `padding-left:${indent}px`,
         });
@@ -544,6 +593,9 @@ export const inspectorMixin = {
       }
     };
     walk('', 0);
+    if (rows.length && !rows.some((row) => row._tabindex === 0)) {
+      rows[0]._tabindex = 0;
+    }
     return rows;
   },
 
@@ -556,6 +608,12 @@ export const inspectorMixin = {
           ...entry,
           ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
           _depth: 0,
+          _level: 1,
+          _expanded: Boolean(this.treeExpanded[entry.path]),
+          _expandAttr: entry.is_dir
+            ? (this.treeExpanded[entry.path] ? 'true' : 'false')
+            : '',
+          _tabindex: entry.path === this.treeActivePath ? 0 : -1,
           _kind: entry.is_dir ? '目录' : '·',
           _style: 'padding-left:8px',
         });
@@ -563,9 +621,13 @@ export const inspectorMixin = {
       }
     };
     walk('');
-    return all.filter((entry) => (
+    const rows = all.filter((entry) => (
       includesQuery(`${entry.name} ${entry.path}`, this.treeQuery)
     ));
+    if (rows.length && !rows.some((row) => row._tabindex === 0)) {
+      rows[0]._tabindex = 0;
+    }
+    return rows;
   },
 
   treeRootLoading() {
@@ -601,6 +663,73 @@ export const inspectorMixin = {
   async openTreeEntry(entry) {
     if (entry.is_dir) await this.toggleTreeDir(entry);
     else await this.openFile(entry.path);
+  },
+
+  onTreeFocus(event) {
+    const path = (event.currentTarget && event.currentTarget.dataset.path) || '';
+    if (path && path !== this.treeActivePath) this.treeActivePath = path;
+  },
+
+  focusTreeRow(path) {
+    if (!path) return;
+    this.treeActivePath = path;
+    this.$nextTick(() => {
+      const rows = Array.from(document.querySelectorAll('.tree-row'));
+      const target = rows.find(
+        (row) => row.getAttribute('data-path') === path,
+      ) as HTMLElement | undefined;
+      if (target && typeof target.focus === 'function') target.focus();
+    });
+  },
+
+  async onTreeKeydown(event) {
+    const source = event.target as HTMLElement;
+    const path = (source && source.dataset.path) || '';
+    if (!path) return;
+    const rows = this.filteredTreeRows();
+    const index = rows.findIndex((row) => row.path === path);
+    if (index < 0) return;
+    const row = rows[index];
+    const key = event.key;
+    if (
+      key === 'ArrowDown'
+      || key === 'ArrowUp'
+      || key === 'Home'
+      || key === 'End'
+    ) {
+      event.preventDefault();
+      let next = index;
+      if (key === 'ArrowDown') next = Math.min(index + 1, rows.length - 1);
+      if (key === 'ArrowUp') next = Math.max(index - 1, 0);
+      if (key === 'Home') next = 0;
+      if (key === 'End') next = rows.length - 1;
+      this.focusTreeRow(rows[next].path);
+      return;
+    }
+    if (key === 'ArrowRight') {
+      event.preventDefault();
+      if (row.is_dir && !this.treeExpanded[row.path]) {
+        await this.toggleTreeDir(row);
+      }
+      return;
+    }
+    if (key === 'ArrowLeft') {
+      event.preventDefault();
+      if (row.is_dir && this.treeExpanded[row.path]) {
+        await this.toggleTreeDir(row);
+        return;
+      }
+      const parent = String(row.path).includes('/')
+        ? String(row.path).split('/').slice(0, -1).join('/')
+        : '';
+      if (parent) this.focusTreeRow(parent);
+      else this.focusTreeRow(rows[0].path);
+      return;
+    }
+    if (key === 'Enter' || key === ' ') {
+      event.preventDefault();
+      await this.openTreeEntry(row);
+    }
   },
 
   async openFile(path, line = 0, force = false) {

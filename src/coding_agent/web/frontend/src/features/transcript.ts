@@ -243,6 +243,12 @@ export const transcriptMixin = {
     await this.copyText((code ? code.textContent : pre.textContent) || '');
   },
 
+  announce(text) {
+    const value = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    this.liveAnnouncement = value;
+  },
+
   appendAssistantToken(node, text) {
     if (!this._currentMessage || this._currentNode !== node) {
       if (this._currentMessage) {

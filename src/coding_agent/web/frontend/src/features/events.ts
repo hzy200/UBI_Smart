@@ -23,6 +23,7 @@ export const eventsMixin = {
         this.timeline = [];
         this.problems = [];
         this.problemExpanded = {};
+        this.announce('开始运行');
         this.pushTimeline('start', '开始运行');
         break;
       case 'plan_created':
@@ -32,6 +33,7 @@ export const eventsMixin = {
         this.planDegraded = !!event.degraded;
         this.stepIdx = 0;
         this.setTab('plan', false);
+        this.announce(`计划已生成：${this.plan.length} 步`);
         this.pushTimeline('plan', '生成计划', `${this.plan.length} 步`);
         break;
       case 'plan_revised':
@@ -47,6 +49,9 @@ export const eventsMixin = {
         if ((event.total || 1) > 1) {
           this.pushMessage('system', `第 ${event.index + 1}/${event.total} 步：${event.text}`);
         }
+        this.announce(
+          `第 ${event.index + 1}/${event.total || 1} 步：${event.text}`,
+        );
         this.pushTimeline(
           'step',
           `第 ${event.index + 1}/${event.total || 1} 步`,
@@ -97,6 +102,7 @@ export const eventsMixin = {
         }
         break;
       case 'verification': {
+        this.announce(this.verificationText(event));
         this.pushMessage('system', this.verificationText(event));
         this.pushTimeline(
           event.ok === false ? 'error' : 'verify',
@@ -119,6 +125,7 @@ export const eventsMixin = {
         break;
       }
       case 'review_finished': {
+        this.announce(this.reviewText(event));
         this.pushMessage('system', this.reviewText(event));
         this.pushTimeline(
           event.blocked ? 'error' : 'review',
@@ -212,6 +219,7 @@ export const eventsMixin = {
       case 'approval_requested':
         this.approvals.push(event);
         this.showNextApproval();
+        this.announce('需要审批');
         this.stateText = '等待审批';
         this._suspended = true;
         this._terminal = false;
@@ -232,12 +240,14 @@ export const eventsMixin = {
           this.paused = true;
           this.stateText = '已暂停';
           this._suspended = true;
+          this.announce('运行已暂停');
           this.pushMessage('system', `已暂停：${event.detail || ''}`);
         } else if (event.action === 'resume') {
           this.paused = false;
           this.stateText = '运行中…';
           this._suspended = false;
           this._terminal = false;
+          this.announce('运行已恢复');
         } else {
           this.pushMessage('system', `steering：${event.action} ${event.detail || ''}`);
         }
@@ -268,6 +278,7 @@ export const eventsMixin = {
         this.markFinalAnswer();
         this.moveFinalAnswerLast();
         this.scrollBottom();
+        this.announce('运行完成');
         this.pushTimeline('done', '运行完成', event.answer || '');
         this.noteSessionActivity();
         void this.saveTranscript();
@@ -282,6 +293,7 @@ export const eventsMixin = {
         this._terminal = true;
         this._suspended = false;
         this.connectionState = 'closed';
+        this.announce(`运行失败：${event.message || ''}`);
         this.pushMessage('system', `运行失败：${event.message}`);
         this.pushTimeline('error', '运行失败', event.message);
         this.clearProblemsByKind('run');

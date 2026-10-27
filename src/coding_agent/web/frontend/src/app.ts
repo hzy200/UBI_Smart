@@ -147,6 +147,7 @@ const agentApp = () => {
   treeQuery: '',
   treeGit: {},
   treeGitState: '',
+  treeActivePath: '',
   _treeGitLoaded: false,
   fileView: {
     path: '', size: 0, _text: '', _html: '',
@@ -212,6 +213,7 @@ const agentApp = () => {
   commandOpen: false,
   commandQuery: '',
   commandIndex: 0,
+  liveAnnouncement: '',
   _modalReturnFocus: null,
   recentCommands: [],
   notifications: [],

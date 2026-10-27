@@ -78,6 +78,73 @@ test('jsdom 交互：会话、文件树、Problems、流式渲染与焦点陷阱
       );
     });
 
+    await t.test('文件树与主区标签支持键盘导航', async () => {
+      const rows = () => Array.from(
+        document.querySelectorAll('.tree-row'),
+      ) as HTMLElement[];
+      const first = rows()[0];
+      first.focus();
+      assert.equal(document.activeElement, first);
+      first.dispatchEvent(new window.KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        bubbles: true,
+        cancelable: true,
+      }));
+      await waitFor(
+        () => document.activeElement === rows()[1],
+        '树焦点下移',
+      );
+
+      const srcRow = rows().find(
+        (row) => row.getAttribute('data-path') === 'src',
+      ) as HTMLElement;
+      srcRow.focus();
+      srcRow.dispatchEvent(new window.KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true,
+      }));
+      await waitFor(() => rows().length === 4, '展开目录');
+      srcRow.dispatchEvent(new window.KeyboardEvent('keydown', {
+        key: 'ArrowLeft',
+        bubbles: true,
+        cancelable: true,
+      }));
+      await waitFor(() => rows().length === 3, '折叠目录');
+
+      await data.openFile('a.py');
+      await waitFor(
+        () => data.mainTab === 'file' && data.editorTabs.length === 1,
+        '打开文件标签',
+      );
+      const chatTab = document.querySelector('.main-tab') as HTMLElement;
+      chatTab.focus();
+      chatTab.dispatchEvent(new window.KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true,
+      }));
+      await waitFor(
+        () => data.mainTab === 'file',
+        '切换到文件标签',
+      );
+      const fileTab = document.querySelector(
+        '.main-tab[data-id="file:a.py"]',
+      ) as HTMLElement;
+      assert.ok(fileTab);
+      assert.equal(document.activeElement, fileTab);
+
+      fileTab.dispatchEvent(new window.KeyboardEvent('keydown', {
+        key: 'Delete',
+        bubbles: true,
+        cancelable: true,
+      }));
+      await waitFor(
+        () => data.editorTabs.length === 0 && data.mainTab === 'chat',
+        '删除标签',
+      );
+    });
+
     await t.test('Problems 按文件与来源聚合并可折叠', async () => {
       data.problems = [];
       data.problemExpanded = {};
@@ -128,6 +195,21 @@ test('jsdom 交互：会话、文件树、Problems、流式渲染与焦点陷阱
       assert.match(message.html, /hello/);
       assert.match(message.html, /const a = 1/);
       data.finishAssistant();
+    });
+
+    await t.test('阶段变化写入独立播报区而非 transcript', async () => {
+      const transcript = document.querySelector('.transcript') as HTMLElement;
+      assert.equal(transcript.getAttribute('aria-live'), 'off');
+      data.handleEvent({ type: 'run_started' });
+      await waitFor(
+        () => document.querySelector('.live-region')?.textContent?.trim() === '开始运行',
+        '开始运行播报',
+      );
+      data.handleEvent({ type: 'plan_created', steps: ['a', 'b'] });
+      await waitFor(
+        () => document.querySelector('.live-region')?.textContent?.includes('计划已生成：2 步'),
+        '计划播报',
+      );
     });
 
     await t.test('设置模态焦点进入、Tab 循环、Esc 关闭并恢复', async () => {

@@ -343,8 +343,12 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 
 ### 8.2 可访问性
 
-- transcript 使用 `role="log"`、`aria-live="polite"`，运行中带 `aria-busy`；
-  按钮/输入有 `aria-label`；页面顶部提供“跳到主区”skip link。
+- transcript 使用 `role="log"`、`aria-live="off"`、运行中带 `aria-busy`；
+  独立 `role="status"` 播报区只播报阶段变化（开始/计划/步骤/审批/完成/失败），
+  不逐 token 打扰屏幕阅读器；按钮/输入有 `aria-label`；页面顶部提供
+  “跳到主区”skip link。
+- 文件树支持 roving tabindex：↑↓ 移动、→ 展开、← 折叠、Enter/Space 打开；
+  主区标签支持 ←/→/Home/End 切换，Delete/Backspace 关闭当前编辑标签。
 - 主区/检查器标签使用 `role="tab"` + `aria-selected`；活动栏使用 `aria-pressed`；
   侧栏/检查器开关使用 `aria-expanded` + `aria-controls`。
 - 命令面板使用 `aria-activedescendant` 指向当前命令项；toast 使用

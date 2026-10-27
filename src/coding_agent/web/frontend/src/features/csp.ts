@@ -93,6 +93,7 @@ export const cspMixin = {
   },
 
   onTreeEntryAction(path, isDir) {
+    this.treeActivePath = path;
     this.openTreeEntry({ path, is_dir: isDir });
   },
 
@@ -250,6 +251,7 @@ export const cspMixin = {
   get authTokenVisible() { return this.authMode !== 'bff-cookie'; },
   get authBffVisible() { return this.authMode === 'bff-cookie'; },
   get authModeText() { return `认证方式：${this.authModeLabel}`; },
+  get chatTabIndex() { return this.mainTab === 'chat' ? 0 : -1; },
   get sidebarExpanded() { return this.sidebarCollapsed ? 'false' : 'true'; },
   get inspectorExpanded() { return this.inspectorCollapsed ? 'false' : 'true'; },
   get hasUnreadNotifications() { return this.unreadNotifications > 0; },

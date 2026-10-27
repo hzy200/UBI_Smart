@@ -1,14 +1,14 @@
   <main class="main" id="main" tabindex="-1">
     <div class="main-tabs" role="tablist" aria-label="主区标签">
-      <div class="main-tab-list">
+      <div class="main-tab-list" role="presentation" @keydown="onMainTabKeydown">
         <button class="main-tab" role="tab" :class="mainTabClasses.chat"
-                :aria-selected="mainTabFlags.chat" @click="showChat">
+                :aria-selected="mainTabFlags.chat" :tabindex="chatTabIndex" @click="showChat">
           <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
           <span>对话</span>
         </button>
         <template x-for="tab in editorTabs" :key="tab.id">
           <button class="main-tab" role="tab" :class="tab._cls"
-                  :aria-selected="tab._active"
+                  :aria-selected="tab._active" :tabindex="tab._tabindex"
                   data-action="editor-tab" data-op="activate" :data-id="tab.id" @click="onAction">
             <svg class="icon" aria-hidden="true" x-show="tab._isFile"><use href="#i-files"></use></svg>
             <svg class="icon" aria-hidden="true" x-show="tab._isDiff"><use href="#i-git"></use></svg>
@@ -110,8 +110,10 @@
         </details>
       </template>
     </div>
+    <div class="sr-only live-region" role="status" aria-live="polite"
+         aria-atomic="true" x-text="liveAnnouncement"></div>
     <div class="transcript" :class="transcriptClassValue" x-ref="transcript" role="log"
-         aria-live="polite" :aria-busy="busy" aria-label="对话记录" @scroll="onTranscriptScroll">
+         aria-live="off" :aria-busy="busy" aria-label="对话记录" @scroll="onTranscriptScroll">
       <div class="virtual-spacer" :style="virtualTopStyle"></div>
       <template x-for="m in virtualMessageResults" :key="m.id">
         <div class="msg" :class="m._renderClass" :data-message-id="m.id">

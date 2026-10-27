@@ -384,6 +384,39 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_m10_keyboard_nav_and_live_region_are_guarded() -> None:
+    """文件树/主区标签键盘导航与独立阶段播报区。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for marker in (
+        'role="tree"',
+        'role="treeitem"',
+        ":aria-level",
+        ":aria-expanded",
+        ":tabindex=\"entry._tabindex\"",
+        'aria-label="文件树"',
+        "onTreeKeydown",
+        "onMainTabKeydown",
+        ":tabindex=\"chatTabIndex\"",
+        ":tabindex=\"tab._tabindex\"",
+        'class="sr-only live-region"',
+        'aria-live="off"',
+        "liveAnnouncement",
+    ):
+        assert marker in html, marker
+
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    for marker in (
+        "onTreeKeydown",
+        "focusTreeRow",
+        "onTreeFocus",
+        "onMainTabKeydown",
+        "chatTabIndex",
+        "announce",
+        "liveAnnouncement",
+    ):
+        assert marker in app, marker
+
+
 def test_m9_session_unread_preview_and_batch_are_guarded() -> None:
     """会话未读、最后消息摘要、批量操作与 0008 迁移。"""
     html = (STATIC / "index.html").read_text(encoding="utf-8")

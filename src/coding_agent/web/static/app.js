@@ -2669,6 +2669,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       const code = pre.querySelector("code");
       await this.copyText((code ? code.textContent : pre.textContent) || "");
     },
+    announce(text) {
+      const value = String(text || "").replace(/\s+/g, " ").trim();
+      if (!value) return;
+      this.liveAnnouncement = value;
+    },
     appendAssistantToken(node, text) {
       if (!this._currentMessage || this._currentNode !== node) {
         if (this._currentMessage) {
@@ -3190,6 +3195,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.timeline = [];
           this.problems = [];
           this.problemExpanded = {};
+          this.announce("\u5F00\u59CB\u8FD0\u884C");
           this.pushTimeline("start", "\u5F00\u59CB\u8FD0\u884C");
           break;
         case "plan_created":
@@ -3199,6 +3205,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.planDegraded = !!event.degraded;
           this.stepIdx = 0;
           this.setTab("plan", false);
+          this.announce(`\u8BA1\u5212\u5DF2\u751F\u6210\uFF1A${this.plan.length} \u6B65`);
           this.pushTimeline("plan", "\u751F\u6210\u8BA1\u5212", `${this.plan.length} \u6B65`);
           break;
         case "plan_revised":
@@ -3214,6 +3221,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           if ((event.total || 1) > 1) {
             this.pushMessage("system", `\u7B2C ${event.index + 1}/${event.total} \u6B65\uFF1A${event.text}`);
           }
+          this.announce(
+            `\u7B2C ${event.index + 1}/${event.total || 1} \u6B65\uFF1A${event.text}`
+          );
           this.pushTimeline(
             "step",
             `\u7B2C ${event.index + 1}/${event.total || 1} \u6B65`,
@@ -3264,6 +3274,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           }
           break;
         case "verification": {
+          this.announce(this.verificationText(event));
           this.pushMessage("system", this.verificationText(event));
           this.pushTimeline(
             event.ok === false ? "error" : "verify",
@@ -3286,6 +3297,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           break;
         }
         case "review_finished": {
+          this.announce(this.reviewText(event));
           this.pushMessage("system", this.reviewText(event));
           this.pushTimeline(
             event.blocked ? "error" : "review",
@@ -3375,6 +3387,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         case "approval_requested":
           this.approvals.push(event);
           this.showNextApproval();
+          this.announce("\u9700\u8981\u5BA1\u6279");
           this.stateText = "\u7B49\u5F85\u5BA1\u6279";
           this._suspended = true;
           this._terminal = false;
@@ -3395,12 +3408,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
             this.paused = true;
             this.stateText = "\u5DF2\u6682\u505C";
             this._suspended = true;
+            this.announce("\u8FD0\u884C\u5DF2\u6682\u505C");
             this.pushMessage("system", `\u5DF2\u6682\u505C\uFF1A${event.detail || ""}`);
           } else if (event.action === "resume") {
             this.paused = false;
             this.stateText = "\u8FD0\u884C\u4E2D\u2026";
             this._suspended = false;
             this._terminal = false;
+            this.announce("\u8FD0\u884C\u5DF2\u6062\u590D");
           } else {
             this.pushMessage("system", `steering\uFF1A${event.action} ${event.detail || ""}`);
           }
@@ -3425,6 +3440,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.markFinalAnswer();
           this.moveFinalAnswerLast();
           this.scrollBottom();
+          this.announce("\u8FD0\u884C\u5B8C\u6210");
           this.pushTimeline("done", "\u8FD0\u884C\u5B8C\u6210", event.answer || "");
           this.noteSessionActivity();
           void this.saveTranscript();
@@ -3439,6 +3455,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this._terminal = true;
           this._suspended = false;
           this.connectionState = "closed";
+          this.announce(`\u8FD0\u884C\u5931\u8D25\uFF1A${event.message || ""}`);
           this.pushMessage("system", `\u8FD0\u884C\u5931\u8D25\uFF1A${event.message}`);
           this.pushTimeline("error", "\u8FD0\u884C\u5931\u8D25", event.message);
           this.clearProblemsByKind("run");
@@ -4433,6 +4450,40 @@ ${paths}
       for (const tab of this.editorTabs) {
         tab._active = name !== "chat" && tab.id === this.activeEditorId;
         tab._cls = tab._active ? "active" : "";
+        tab._tabindex = tab._active ? 0 : -1;
+      }
+    },
+    onMainTabKeydown(event) {
+      const tabs = Array.from(
+        document.querySelectorAll(".main-tab")
+      );
+      if (!tabs.length) return;
+      const index = tabs.indexOf(document.activeElement);
+      if (index < 0) return;
+      const key = event.key;
+      if (key === "ArrowRight" || key === "ArrowLeft" || key === "Home" || key === "End") {
+        event.preventDefault();
+        let next = index;
+        if (key === "ArrowRight") next = (index + 1) % tabs.length;
+        if (key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+        if (key === "Home") next = 0;
+        if (key === "End") next = tabs.length - 1;
+        tabs[next].focus();
+        tabs[next].click();
+        return;
+      }
+      if (key === "Delete" || key === "Backspace") {
+        const id = tabs[index].getAttribute("data-id") || "";
+        if (!id) return;
+        event.preventDefault();
+        this.closeEditorTab(id);
+        this.$nextTick(() => {
+          const remaining = Array.from(
+            document.querySelectorAll(".main-tab")
+          );
+          const target = remaining[Math.min(index, remaining.length - 1)];
+          if (target) target.focus();
+        });
       }
     },
     activateEditorTab(id) {
@@ -4485,7 +4536,16 @@ ${paths}
       this.activeEditorId = "";
       this.mainTab = "chat";
       this.setMainTabFlags("chat");
-      this.fileView = { path: "", size: 0, _text: "", _html: "" };
+      this.fileView = {
+        path: "",
+        size: 0,
+        _text: "",
+        _html: "",
+        _lang: "",
+        _size: "",
+        _lineNumbers: "",
+        _crumb: ""
+      };
       this.diffText = "";
       this.diffDisplay = "";
       this.diffPath = "";
@@ -4511,7 +4571,16 @@ ${paths}
       this.activeEditorId = "";
       this.mainTab = "chat";
       this.setMainTabFlags("chat");
-      this.fileView = { path: "", size: 0, _text: "", _html: "" };
+      this.fileView = {
+        path: "",
+        size: 0,
+        _text: "",
+        _html: "",
+        _lang: "",
+        _size: "",
+        _lineNumbers: "",
+        _crumb: ""
+      };
       this.diffText = "";
       this.diffDisplay = "";
       this.diffPath = "";
@@ -4655,7 +4724,10 @@ ${paths}
             ...entry,
             ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
             _depth: depth,
+            _level: depth + 1,
             _expanded: expanded,
+            _expandAttr: entry.is_dir ? expanded ? "true" : "false" : "",
+            _tabindex: entry.path === this.treeActivePath ? 0 : -1,
             _kind: entry.is_dir ? loading ? "\u2026" : expanded ? "\u25BE" : "\u25B8" : "\xB7",
             _style: `padding-left:${indent}px`
           });
@@ -4663,6 +4735,9 @@ ${paths}
         }
       };
       walk("", 0);
+      if (rows.length && !rows.some((row) => row._tabindex === 0)) {
+        rows[0]._tabindex = 0;
+      }
       return rows;
     },
     filteredTreeRows() {
@@ -4674,6 +4749,10 @@ ${paths}
             ...entry,
             ...gitTreeFields(this.treeGit, entry.path, entry.is_dir),
             _depth: 0,
+            _level: 1,
+            _expanded: Boolean(this.treeExpanded[entry.path]),
+            _expandAttr: entry.is_dir ? this.treeExpanded[entry.path] ? "true" : "false" : "",
+            _tabindex: entry.path === this.treeActivePath ? 0 : -1,
             _kind: entry.is_dir ? "\u76EE\u5F55" : "\xB7",
             _style: "padding-left:8px"
           });
@@ -4681,7 +4760,11 @@ ${paths}
         }
       };
       walk("");
-      return all.filter((entry) => includesQuery(`${entry.name} ${entry.path}`, this.treeQuery));
+      const rows = all.filter((entry) => includesQuery(`${entry.name} ${entry.path}`, this.treeQuery));
+      if (rows.length && !rows.some((row) => row._tabindex === 0)) {
+        rows[0]._tabindex = 0;
+      }
+      return rows;
     },
     treeRootLoading() {
       return Boolean(this.treeLoadingMap[""]);
@@ -4713,6 +4796,63 @@ ${paths}
     async openTreeEntry(entry) {
       if (entry.is_dir) await this.toggleTreeDir(entry);
       else await this.openFile(entry.path);
+    },
+    onTreeFocus(event) {
+      const path = event.currentTarget && event.currentTarget.dataset.path || "";
+      if (path && path !== this.treeActivePath) this.treeActivePath = path;
+    },
+    focusTreeRow(path) {
+      if (!path) return;
+      this.treeActivePath = path;
+      this.$nextTick(() => {
+        const rows = Array.from(document.querySelectorAll(".tree-row"));
+        const target = rows.find(
+          (row) => row.getAttribute("data-path") === path
+        );
+        if (target && typeof target.focus === "function") target.focus();
+      });
+    },
+    async onTreeKeydown(event) {
+      const source = event.target;
+      const path = source && source.dataset.path || "";
+      if (!path) return;
+      const rows = this.filteredTreeRows();
+      const index = rows.findIndex((row2) => row2.path === path);
+      if (index < 0) return;
+      const row = rows[index];
+      const key = event.key;
+      if (key === "ArrowDown" || key === "ArrowUp" || key === "Home" || key === "End") {
+        event.preventDefault();
+        let next = index;
+        if (key === "ArrowDown") next = Math.min(index + 1, rows.length - 1);
+        if (key === "ArrowUp") next = Math.max(index - 1, 0);
+        if (key === "Home") next = 0;
+        if (key === "End") next = rows.length - 1;
+        this.focusTreeRow(rows[next].path);
+        return;
+      }
+      if (key === "ArrowRight") {
+        event.preventDefault();
+        if (row.is_dir && !this.treeExpanded[row.path]) {
+          await this.toggleTreeDir(row);
+        }
+        return;
+      }
+      if (key === "ArrowLeft") {
+        event.preventDefault();
+        if (row.is_dir && this.treeExpanded[row.path]) {
+          await this.toggleTreeDir(row);
+          return;
+        }
+        const parent = String(row.path).includes("/") ? String(row.path).split("/").slice(0, -1).join("/") : "";
+        if (parent) this.focusTreeRow(parent);
+        else this.focusTreeRow(rows[0].path);
+        return;
+      }
+      if (key === "Enter" || key === " ") {
+        event.preventDefault();
+        await this.openTreeEntry(row);
+      }
     },
     async openFile(path, line = 0, force = false) {
       if (!this.threadId) return;
@@ -6083,6 +6223,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (op === "delete") this.deleteProfile(name);
     },
     onTreeEntryAction(path, isDir) {
+      this.treeActivePath = path;
       this.openTreeEntry({ path, is_dir: isDir });
     },
     onMessageAction(op, id) {
@@ -6247,6 +6388,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     get authModeText() {
       return `\u8BA4\u8BC1\u65B9\u5F0F\uFF1A${this.authModeLabel}`;
+    },
+    get chatTabIndex() {
+      return this.mainTab === "chat" ? 0 : -1;
     },
     get sidebarExpanded() {
       return this.sidebarCollapsed ? "false" : "true";
@@ -6610,6 +6754,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       treeQuery: "",
       treeGit: {},
       treeGitState: "",
+      treeActivePath: "",
       _treeGitLoaded: false,
       fileView: {
         path: "",
@@ -6684,6 +6829,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       commandOpen: false,
       commandQuery: "",
       commandIndex: 0,
+      liveAnnouncement: "",
       _modalReturnFocus: null,
       recentCommands: [],
       notifications: [],

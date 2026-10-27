@@ -209,10 +209,13 @@
       </div>
       <div class="note" x-show="treeGitState" x-text="treeGitState"></div>
       <input class="tree-search" x-model="treeQuery" placeholder="过滤已加载文件…">
-      <template x-for="entry in filteredTreeResults" :key="entry._key">
-        <div class="tree-row" :class="entry._cls"
-             :style="entry._style"
-             data-action="tree" :data-path="entry.path" :data-dir="entry.is_dir" @click="onAction">
+      <div class="tree-list" role="tree" aria-label="文件树" @keydown="onTreeKeydown">
+        <template x-for="entry in filteredTreeResults" :key="entry._key">
+          <div class="tree-row" :class="entry._cls"
+               :style="entry._style"
+               role="treeitem" :aria-level="entry._level" :aria-expanded="entry._expandAttr"
+               :tabindex="entry._tabindex" @focus="onTreeFocus"
+               data-action="tree" :data-path="entry.path" :data-dir="entry.is_dir" @click="onAction">
           <span class="tree-kind" x-text="entry._kind"></span>
           <span class="tree-git" :class="entry._gitCls" :title="entry._gitTitle"
                 x-show="entry._git" x-text="entry._git"></span>
@@ -221,8 +224,9 @@
           <button class="tree-copy" data-action="copy-path" :data-path="entry.path" @click.stop="onAction" title="复制路径">复制路径</button>
         </div>
       </template>
+      </div>
       <div class="empty" x-show="treeEmpty">没有匹配的文件，或目录为空</div>
-      <div class="note">点击目录展开/折叠；点击文件在主区打开只读预览。</div>
+      <div class="note">↑↓ 移动，→ 展开，← 折叠，Enter 打开；点击同样可用。</div>
     </div>
 
     <div class="view" x-show="viewFlags.git">
