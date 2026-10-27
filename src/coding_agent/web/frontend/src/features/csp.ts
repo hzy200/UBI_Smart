@@ -359,11 +359,19 @@ export const cspMixin = {
   },
   get diffPathLabel() { return this.diffPath || '本轮改动'; },
   get canExpandDiff() { return this.diffTruncated && !this.diffExpanded; },
-  get approvalLevelText() { return this.approval ? this.approval.level : ''; },
-  get approvalCommandText() { return this.approval ? this.approval.command : ''; },
-  get approvalReasonText() { return this.approval ? this.approval.reason : ''; },
+  get approvalLevelText() {
+    return this.approval ? String(this.approval.level || '') : '';
+  },
+  get approvalCommandText() {
+    return this.approval ? String(this.approval.command || '') : '';
+  },
+  get approvalReasonText() {
+    return this.approval ? String(this.approval.reason || '') : '';
+  },
   get approvalToolText() {
-    return this.approval ? `工具：${this.approval.tool}` : '';
+    return this.approval
+      ? `工具：${String(this.approval.tool || '')}`
+      : '';
   },
   get usageLabel() {
     if (!this.usage.input && !this.usage.output) return '';

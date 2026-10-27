@@ -15,7 +15,7 @@ function keydown(window: any, init: any) {
   return event;
 }
 
-test('jsdom 交互：会话、文件树、Problems、流式渲染与焦点陷阱', async (t) => {
+test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', async (t) => {
   const app = await startApp();
   const { window, document, data } = app;
   try {
@@ -399,6 +399,99 @@ test('jsdom 交互：会话、文件树、Problems、流式渲染与焦点陷阱
       keydown(window, { key: 'Escape' });
       await waitFor(() => data.commandOpen === false, '命令面板关闭');
       await waitFor(() => document.activeElement === trigger, '焦点回到触发元素');
+    });
+
+    await t.test('审批弹窗批准/全部拒绝后关闭', async () => {
+      data.handleEvent({
+        type: 'approval_requested',
+        request_id: 'req-1',
+        tool: 'run',
+        command: 'rm -rf /tmp/demo',
+        level: '危险',
+        reason: '需要人工确认',
+      });
+      const modal = document.querySelector(
+        '.modal[aria-labelledby="approval-title"]',
+      ) as HTMLElement;
+      await waitFor(() => modal.style.display !== 'none', '审批弹窗');
+      assert.match(
+        modal.querySelector('pre')?.textContent || '',
+        /rm -rf/,
+      );
+
+      const approve = modal.querySelector(
+        '[data-action="approval"][data-allow="true"]',
+      ) as HTMLElement;
+      approve.click();
+      await waitFor(
+        () => data.approvals.length === 0
+          && modal.style.display === 'none'
+          && data.busy === false,
+        '批准后关闭',
+      );
+
+      data.handleEvent({
+        type: 'approval_requested',
+        request_id: 'req-2',
+        tool: 'run',
+        command: 'ls',
+        level: '写',
+      });
+      data.handleEvent({
+        type: 'approval_requested',
+        request_id: 'req-3',
+        tool: 'run',
+        command: 'cat a.txt',
+        level: '读',
+      });
+      await waitFor(() => data.approvals.length === 2, '两条审批');
+      const rejectAll = Array.from(
+        modal.querySelectorAll('button'),
+      ).find((button) => button.textContent?.includes('全部拒绝')) as HTMLElement;
+      rejectAll.click();
+      await waitFor(
+        () => data.approvals.length === 0
+          && modal.style.display === 'none'
+          && data.busy === false,
+        '全部拒绝后关闭',
+      );
+    });
+
+    await t.test('侧栏与检查器可拖拽并持久化宽度', async () => {
+      data.sidebarCollapsed = false;
+      data.inspectorCollapsed = false;
+      const splitter = document.querySelector('.splitter-left') as HTMLElement;
+      assert.ok(splitter);
+      splitter.dispatchEvent(new window.MouseEvent('pointerdown', {
+        clientX: 280,
+        bubbles: true,
+        cancelable: true,
+      }));
+      window.dispatchEvent(new window.MouseEvent('pointermove', {
+        clientX: 330,
+      }));
+      assert.equal(data.sidebarWidth, 278);
+      window.dispatchEvent(new window.MouseEvent('pointerup'));
+      const saved = JSON.parse(
+        window.localStorage.getItem('codingagent.layout') || '{}',
+      );
+      assert.equal(saved.sidebarWidth, 278);
+
+      const inspectorSplitter = document.querySelector(
+        '.splitter-right',
+      ) as HTMLElement;
+      assert.ok(inspectorSplitter);
+      inspectorSplitter.dispatchEvent(new window.MouseEvent('pointerdown', {
+        clientX: 700,
+        bubbles: true,
+        cancelable: true,
+      }));
+      window.dispatchEvent(new window.MouseEvent('pointermove', {
+        clientX: 650,
+      }));
+      assert.equal(data.inspectorWidth, 374);
+      window.dispatchEvent(new window.MouseEvent('pointerup'));
+      data.resetLayout();
     });
 
     await t.test('没有 Alpine CSP 表达式错误', () => {

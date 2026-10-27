@@ -384,6 +384,26 @@ def test_batch2_diff_quickopen_and_jump_are_guarded() -> None:
         assert marker in css, marker
 
 
+def test_jsdom_covers_approval_and_layout_resize() -> None:
+    """审批流程与侧栏/检查器拖拽必须留在 jsdom 交互测试里。"""
+    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    text = (
+        frontend / "tests" / "dom" / "interaction.test.ts"
+    ).read_text(encoding="utf-8")
+    for marker in (
+        "approval_requested",
+        'data-allow="true"',
+        "全部拒绝",
+        "pointerdown",
+        "pointermove",
+        "pointerup",
+        ".splitter-left",
+        ".splitter-right",
+        "codingagent.layout",
+    ):
+        assert marker in text, marker
+
+
 def test_m13_theme_contrast_accent_and_code_are_guarded() -> None:
     """高对比度、强调色与代码字号/行高。"""
     html = (STATIC / "index.html").read_text(encoding="utf-8")

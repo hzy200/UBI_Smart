@@ -6863,16 +6863,16 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       return this.diffTruncated && !this.diffExpanded;
     },
     get approvalLevelText() {
-      return this.approval ? this.approval.level : "";
+      return this.approval ? String(this.approval.level || "") : "";
     },
     get approvalCommandText() {
-      return this.approval ? this.approval.command : "";
+      return this.approval ? String(this.approval.command || "") : "";
     },
     get approvalReasonText() {
-      return this.approval ? this.approval.reason : "";
+      return this.approval ? String(this.approval.reason || "") : "";
     },
     get approvalToolText() {
-      return this.approval ? `\u5DE5\u5177\uFF1A${this.approval.tool}` : "";
+      return this.approval ? `\u5DE5\u5177\uFF1A${String(this.approval.tool || "")}` : "";
     },
     get usageLabel() {
       if (!this.usage.input && !this.usage.output) return "";
