@@ -7,7 +7,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 review_cadence: 模块边界或依赖方向变动时
 
 # ===========================================================================
@@ -19,6 +19,8 @@ dependency_rules:
   - "runtime     → graph, orchestrator, sandbox, tools, audit, memory, steering, llm"
   - "graph       → orchestrator, tools, sandbox, llm, messages, config, steering"
   - "orchestrator→ agents, tools, sandbox, llm, codeintel, graph.state, config, steering"
+  - "execution    → host_broker.protocol（仅协议 DTO/客户端；不得导入 server/policy）"
+  - "host_broker  → (标准库 + protocol；不得导入 tools/graph/runtime/sandbox)"
   - "agents      → tools, sandbox, llm, config, messages"
   - "tools       → sandbox, codeintel, config, diffing"
   - "sandbox     → config, diffing"
@@ -39,6 +41,17 @@ forbidden:
   - from: [sandbox]
     to: [tools, graph, orchestrator]
     why: 安全层必须是最底下的，不能反向依赖调用方
+  - from: [cli, tui, web, desktop]
+    to: [host_broker]
+    why: |
+      A1 不得直接触发宿主能力。宿主操作只能经 A2/A3 → A4 → A2L；
+      本地同意 UI 由 A2L 自己渲染，前端没有第二执行路径。
+    enforced_by: tests/unit/test_architecture.py（AST 扫描）
+  - from: [host_broker]
+    to: [tools, sandbox, graph, orchestrator, runtime]
+    why: |
+      A2L 是客户端独立进程，不复用服务端执行/编排代码；
+      共享的只有协议 DTO，避免把客户端和服务端安全边界混在一起。
 
 # ===========================================================================
 # 上下文清单
@@ -74,6 +87,23 @@ contexts:
     downstream: []
     risk: 最高 —— 全系统唯一"模型意图落地成副作用"的地方
     change_note: 改这里必须对照 docs/THREAT_MODEL.md 第 4 节防线分级
+
+  - id: host-broker
+    name: 宿主能力代理（A2L）
+    path: [host_broker/]
+    owns: [客户端 host 工作区, 本地 workspace→absolute path 映射, 本地 grant/ZX, 工具链能力注册, 本地同意, 本地审计, 本地 op_journal, 出站长连接, 客户端生命周期绑定]
+    upstream: []
+    downstream: []
+    native_on: [Windows, Linux, macOS]
+    deployment: 随客户端启动/退出，不独立常驻系统（客户端只有 A1+A2L；A2/A3/A4 在服务器）
+    risk: 高 —— T4 横向执行面；服务端失陷时可能被当作内网跳板
+    isolation: 独立进程、只外连、不开入站；不导入 tools/graph/runtime/sandbox；不得以 LocalSystem/root 运行
+    change_note: |
+      动 grant/ZX/路径 canonicalization 必须对照 docs/THREAT_MODEL.md 的 T4
+      与 ADR-0015；`user-t1` 档不得对外宣称 T2；默认 lowpriv + ACL。
+      P1 根目录只接受本地固定 NTFS，拒绝 OneDrive/网络/UNC/reparse；
+      敏感根必须逐次确认。
+      Phase 1 只允许只读 op，写/执行/安装必须单独评审。
 
   - id: capabilities
     name: 能力层
@@ -132,7 +162,7 @@ contexts:
   - id: frontends
     name: 前端
     path: [cli/, tui/, web/, desktop/]
-    owns: [事件渲染, 审批交互, 会话管理, Web 认证与租户隔离, 桌面壳, 密钥注入, 受控上传, 事件重放]
+    owns: [事件渲染, 审批交互, 会话管理, 多会话视图隔离, 后台事件流, Web 认证与租户隔离, 桌面壳, 密钥注入, 受控上传, 事件重放]
     upstream: []
     downstream: [runtime]
     constraint: 不得 import tools/ 或 sandbox/（AST 测试守着）
@@ -160,8 +190,20 @@ target_layers:
   - id: a1-frontend
     name: 前端
     current_anchors: [web/static/, cli/, tui/, desktop/]
-    owns: [交互与渲染, 主题/字体, SSE 展示, 审批交互, 平台桥]
+    owns: [交互与渲染, 主题/字体, 每会话视图与 SSE, 实时分屏, 审批交互, 平台桥]
     must_not: [执行工具, 读写工作区, 持有 API Key]
+
+  - id: a2l-host-broker
+    name: 宿主能力代理（A2L）
+    current_anchors: []
+    planned_anchors: [host_broker/, execution/host_backend.py, execution/router.py, workspace/model.py]
+    owns: [host 工作区, 本地 workspace→absolute path 映射, 本地 grant/ZX, 工具链能力, 本地同意 UI, 本地审计, 本地 op_journal, 出站长连接, 客户端生命周期绑定]
+    data: [host workspace bytes, workspace handle map, grants, toolchain manifest, local audit, op journal]
+    deployment: 随客户端启动/退出；A2 只持有 workspace_id + root_handle + a2l_id
+    native_on: [Windows, Linux, macOS]
+    must_not: [代理 A1 全部流量, 接受服务端下发的 grant scope, 静默安装, 导入服务端执行/编排代码]
+    security_tiers: [lowpriv, appcontainer, user-t1]
+    note: 默认 lowpriv + ACL；appcontainer 仅受限只读；user-t1 仅 local-dev，是 T1
 
   - id: a2-control-plane
     name: 控制面
@@ -182,8 +224,9 @@ target_layers:
     name: 执行面
     current_anchors: [tools/, sandbox/, memory/]
     owns: [shell, 文件 I/O, Git, 测试, 快照, worktree, 上传落盘]
-    data: [workspace, snapshots, uploads]
-    must_not: [做审批决定, 接受未经 A3 校验的调用]
+    data: [sandbox workspace, snapshots, uploads]
+    must_not: [做审批决定, 接受未经 A3 校验的调用, 直接读写 host 工作区]
+    note: host 工作区的字节在客户端，由 A2L 持有；A4 只经 typed RPC 调用
 
 target_infrastructure:
   - id: shared-event-transport
@@ -208,7 +251,12 @@ target_boundaries:
   - "A2 → A3：内部 token + context 的 /v1 生命周期 API；A2 不执行工具"
   - "A2 → A3 未配置 AGENT_INTERNAL_URL 时仍同进程（兼容旧部署）"
   - "A3 → A4：已校验的执行请求；A4 二次强制路径/能力"
-  - "A2 在各平台原生运行；WSL 只承载 A3/A4"
+  - "A4 → A2L：typed capability RPC；A2L 本地 grant/ZX 是最终判定，服务端不持有 scope"
+  - "A1 不直连 A2L 能力 API；本地同意 UI 由 A2L 自己渲染"
+  - "A2L 只主动外连，不开入站；断线时 A4 降级 sandbox，不伪装 host 可用"
+  - "host 工作区在 NTFS，sandbox 工作区在 ext4；禁止跨挂载与跨 kind 编译/验证"
+  - "客户端只部署 A1 + A2L；A2/A3/A4 在服务器原生运行"
+  - "WSL 在服务端承载 sandbox 工作区；host 工作区在客户端 NTFS，由 A2L 执行"
   - "A2 是 MySQL 唯一访问方；A3/A4 不直连"
   - "多实例 A3 → 共享事件传输 → A2；MySQL 只做索引"
   - "Standalone：CLI/TUI → A3+A4，无 A2/MySQL"
@@ -220,5 +268,7 @@ change_scope:
   - 只动一个 context 内部 → 正常 PR
   - 跨 context 边界 → 必须在 PR 说明为什么，并确认两侧测试都在
   - 动 sandbox 或 approve.py → 对照 THREAT_MODEL 第 4 节，说明防线等级没有下降
+  - 动 host_broker/、grant/ZX 或 host/sandbox 路由 → 对照 THREAT_MODEL T4 与 ADR-0015，
+    说明 A2L 仍然是“只外连 + 本地最终判定”，且没有新增绕过 A4 的执行路径
   - 动 events.py / config.py / approve.py::tool_level / audit/models.py
     → 必须重跑 `python scripts/gen_contracts.py`（CI 会拦）

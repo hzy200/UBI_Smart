@@ -4,8 +4,8 @@ doc_id: architecture
 title: 架构
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-24
-review_cadence: 拓扑或状态字段变动时
+last_reviewed: 2026-10-26
+review_cadence: 拓扑、部署形态或状态字段变动时
 note: |
   第 6 节的 56 条不变量与第 7 节的取舍是本项目最硬的 L2 资产。
   新决策请写入 docs/adr/（只增不改），不要改写这两节。
@@ -92,6 +92,10 @@ Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性�
 `execution/` 调 A4。宿主内部的合并 / worktree / 补丁生成不经模型，只允许经
 `execution/host_ops.py::host_run` 的 kind 白名单（ADR-0011），未知 origin/kind
 一律拒绝。
+
+企业部署在客户端另有 **A2L 宿主能力代理**（ADR-0015）：它旁路于 A4，是
+`host` 工作区的执行后端，不是新的编排层，也不代理 A1 的前端流量。A2L 只
+主动外连；A4 通过 typed RPC 调用它，服务端不持有本地 grant 的 scope。
 
 ## 3. 目录职责
 
@@ -558,7 +562,7 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
 桌面 GUI（`desktop/`）只是 `web/` 的本地启动壳：随机 token、loopback、单实例锁；
 事件与审批仍由同一套 FastAPI/runtime 处理。新增接口必须同时考虑 Web 多用户授权。
 
-## 12. 目标四层架构（Phase A 契约，Phase B–D 已落地）
+## 12. 目标四层架构与 A2L 宿主能力代理（Phase A 契约，Phase B–D 已落地）
 
 Phase A 把拆分写成契约；Phase B 抽出控制面，Phase C 统一执行契约，Phase D
 接上 Windows/Linux 双平台部署。当前目标拓扑与三种基线均已可运行，细节见
@@ -566,7 +570,8 @@ Phase A 把拆分写成契约；Phase B 抽出控制面，Phase C 统一执行�
 [PHASE_D.md](PHASE_D.md)。
 
 > 命名：本节用 **A1 前端 / A2 控制面 / A3 编排面 / A4 执行面**。
-> 不要用 L1–L4：L0–L3 是命令风险分级，另有一套“文档 L 层”用法。
+> 不要用 L1–L4 指架构层：L0–L4 是命令风险分级（L4 为 A2L 环境变更，规划中），
+> 另有一套“文档 L 层”用法。
 
 ```text
 A1 前端（浏览器 / pywebview / CLI / TUI）
@@ -592,14 +597,52 @@ A4 执行面（shell、文件、Git、测试、快照、worktree、上传）
 Windows 与 Linux 的执行语义都保持 Linux；Windows 不做原生 bash 工具层。
 Standalone 是原 Agent 的保留通道：CLI/TUI 直接持有 A3+A4，不要求 A2 或 MySQL。
 
+### 12.1 A2L 与 host/sandbox 双工作区（ADR-0015）
+
+```text
+客户端 · 用户电脑                          服务端 · 企业服务器
+┌───────────────────────────┐             ┌───────────────────────────┐
+│ A1 前端                   │  HTTP/SSE   │ A2 控制面                 │
+│ A2L 宿主能力代理（随客户端）│ ◀───────▶ │ A3 编排面                 │
+│   host 工作区（NTFS）     │   只外连    │ A4 执行面                 │
+│   本地 grant/ZX/审计      │             │   └─ sandbox 工作区(WSL)  │
+└───────────────────────────┘             └───────────────────────────┘
+```
+
+- **客户端只有 A1 与 A2L；A2/A3/A4 全在服务器。** A2L 是客户端执行域，
+  **绑定客户端生命周期**：随客户端启动/退出，客户端运行期间单实例、托盘可见；
+  不注册系统服务、不独立常驻系统。
+- 工作区用 `WorkspaceRef(workspace_id, kind=host|sandbox, root_handle)` 表达；
+  跨层不传绝对路径。**host 与 sandbox 不跨挂载**，源码与产物在同一侧。
+- 默认：客户端新工作区 `host`，服务端/CI `sandbox`。Phase 1 对
+  `target` 与 `kind` 冲突直接拒绝，不静默改道。
+- host 绝对路径只存 A2L 本地 SQLite；A2 只存
+  `workspace_id + root_handle + a2l_id`，不接收任意主机路径。
+- A2 不执行工具；A4 仍是唯一执行入口，`ExecutionService` 按 `target` 选择
+  `host` 或 `sandbox` 后端；A2L 是 `host` 后端的执行者，不是 A5，也不重编号 A1–A4。
+- A2L 只主动外连；断线时 A4 降级 `sandbox`，任务不阻塞，也不假装 host 可用。
+- 安全档：默认 `lowpriv` + ACL 强制 ZX；`appcontainer` 仅受限只读档单独验证；
+  `user-t1` 仅 `local-dev`，明确是 T1 而不是 T2。Windows 没有等价 bwrap，
+  不能宣称 host 后端具备 T2 隔离。
+- 宿主编译/安装是代码执行：L3/L4、`output_roots`、安装器哈希与本地审计是
+  必要条件；不可信仓库仍走 `sandbox`。
+
+当前交付只包含 Phase 1 只读 + 安全演示；P2–P5（写/编译/安装/企业分发）
+标为后续。接口与文件清单见 [PHASE_A2L.md](PHASE_A2L.md)。
+
 ## 13. A2/A3 边界与数据归属
 
 - **A2 不执行工具**，也不直接读写工作区；文件/Git/上传/快照由 A3/A4 提供并代理。
 - **A3 决定审批与命令分级**，**A4 二次强制**路径/能力限制；A2 只转运审批。
+- **A2L 拥有**客户端 `host` 工作区、本地 grant scope、工具链能力、本地
+  workspace→absolute path 映射、客户端本地审计链与同意记录。
+  A2 只持有 `grant_id`/`a2l_id`/`root_handle` 引用；grant scope、verbs/TTL 与
+  host 绝对路径 **不上云**。A2L 断线时 A4 只能走 `sandbox`。
 - **MySQL 只属于 A2**：用户、租户、会话目录、运行/审批索引、用量汇总、Provider
   档案、设置、上传元数据。**不存** checkpoint、文件内容、API Key、运行状态。
 - **A3 拥有** checkpoint、运行状态、pending approval、steering、记忆与本地审计链。
-- **A4 拥有**工作区、快照、附件字节、Git/worktree。
+- **A4 拥有**工作区、快照、附件字节、Git/worktree；`sandbox` 工作区在 ext4，
+  `host` 工作区的字节在用户 NTFS 且由 A2L 保管。
 - **密钥**由 A2 的 SecretProvider 托管，短期注入 A3 内存；桌面用 OS 密钥环，
   服务器用 Vault/KMS/systemd-creds；WSL 无 Secret Service 时不落盘、不入
   MySQL/日志/前端。
@@ -625,9 +668,22 @@ Windows 专用 WSL 发行版、非 root、`appendWindowsPath=false`，高风险 
 关闭 interop；Linux 非 root + bwrap/namespace/cgroup，不可用时 fail closed；
 MySQL 仅本机、最小权限；审计按租户单写者。
 
+A2L 额外要求：只主动外连、不开入站；服务端请求不等于授权，本地 grant/ZX 是
+最终闸门；ZX 由 `lowpriv` + ACL 强制（`appcontainer` 仅受限只读档），
+`user-t1` 只能用于 `local-dev`；不使用 `\\wsl$` 或 `/mnt` 跨域调用宿主工具链；
+本地审计在 agent 不可写目录并异步转发 A2；A2L 断线时降级 `sandbox`，
+不伪装 host 可用。
+
+A2L **绑定客户端生命周期**：随客户端启动/退出，客户端运行期间单实例、
+崩溃由客户端监督重启、托盘可见、一键暂停/离线；**不注册系统服务、不独立
+开机自启**；不得以 LocalSystem/root 运行，按交互用户会话隔离；自身更新随
+客户端签名包，不接受服务端静默推送。host 绝对路径只存 A2L 本地 SQLite，
+A2 只持有 `workspace_id + root_handle + a2l_id`。
+
 **性能**：A2↔A3 只传控制与事件，工具 I/O 不跨层；MySQL 不进 SSE 热路径；
-Windows 工作区必须放 ext4，禁止每次工具调用跨 `/mnt`；A1 长会话用虚拟滚动/
-增量渲染，A3 事件批量输出。
+`sandbox` 工作区必须放 ext4，禁止每次工具调用跨 `/mnt`；`host` 工作区的文件
+与编译 I/O 全部留在 NTFS 一侧，只有 typed RPC 跨进程，不把源码搬进 WSL；
+A1 长会话用虚拟滚动/增量渲染，A3 事件批量输出。
 
 ## 15. Phase A 状态
 
@@ -705,17 +761,56 @@ Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL�
 
 ## 18. Phase E：前端状态
 
-- A1 只消费后端领域事件；`frontend/src/sse.ts` 负责帧解析、`seq` 去重与
-  `Last-Event-ID` 对应的 `after` 重放参数；
-- 主题令牌集中在 `style.css`：深/浅/跟随系统，字体、字号、密度与快捷键
-  持久化；关键弹窗与对话区带 aria 语义；
-- 任务卡显示依赖、worker、耗时、token；推理按节点分块且默认不渲染；
-- 长会话用 `content-visibility: auto` 降低渲染成本；代码块使用本地
-  highlight.js 与复制按钮；
-- `static/app.js` 由 esbuild 生成，CI 重建并检查漂移，同时跑 `tsc --noEmit`。
+完整的功能边界、消息模型、工作区绑定、对话内授权、视觉规范与 UI 约束见
+[FRONTEND.md](FRONTEND.md)。架构层只保留以下不变量：
 
-未做：JS 窗口化虚拟列表、浏览器自动化测试（手测清单见
-[PHASE_E.md](PHASE_E.md)）。
+- A1 只消费后端领域事件；`frontend/src/sse.ts` 负责帧解析、`seq` 去重与
+  `after` 重放参数。前端不得导入 `tools/` 或 `sandbox/`。
+- 助手 token 用 60ms 节流 + 非响应式缓冲渲染；同一轮重复的相同回答去重，
+  最终回答固定在 transcript 末尾。
+- 消息按“你 / 工作中 / 最终回答 / 过程 / 工具”分层着色；工具调用以卡片
+  展示命令、输出、状态与耗时；长回答/长输出可折叠。
+- 会话与工作区绑定不可变：`workspace_id + workspace_kind + a2l_id +
+  root_handle` 持久化在 `control_sessions`；会话列表按工作区分组。
+- host 文件授权走桌面对话内卡片（A2L 授权桥），A3 按工作区缓存 grant；
+  前端只提交用户决定，不能代替本地确认。
+- 桌面端每轮结束保存完整 UI 轨迹（工具卡片/过程/最终回答）到
+  `transcripts/<thread>.json`，重开会话优先恢复。
+- 主题令牌集中在 `style.css`：深/浅/跟随系统，字体、字号、密度与快捷键
+  持久化；关键弹窗与对话区带 aria 语义。
+- 长会话用 `content-visibility: auto` 降低渲染成本；代码块使用本地
+  highlight.js 与复制按钮；窗口启用文本选择与每条消息复制。
+- `static/app.js` 由 esbuild 生成，CI 重建并检查漂移，同时跑 `tsc --noEmit`。
+- 关闭桌面窗口时 UI 立即返回，服务停止/取消在后台并行执行，避免“未响应”。
+
+前端状态已按会话视图化（[ADR-0019](adr/0019-per-session-frontend-views.md)）：
+`sessionViews[threadId]` 持有消息、计划、工具、审批、用量与流式游标；每条 SSE 在
+发起时绑定自己的 view，切换会话不中断后台流，主区与分屏可同时运行。长会话使用
+变量高度虚拟列表，流式 Markdown 做块级增量渲染，单条超大工具输出按行分页。
+
+测试：38 个纯函数用例（`node test.mjs`）+ 26 个 jsdom 交互用例
+（`node test-dom.mjs`）+ pywebview 严格 CSP 探针；尚无 Playwright 真实浏览器 E2E。
+手测清单见 [FRONTEND.md](FRONTEND.md) 第 12 节。
+
+### 18.1 前后端分离（设计冻结，九步已实现）
+
+完整契约见 [RFC-0003](rfc/0003-frontend-backend-separation.md) 与
+[ADR-0016](adr/0016-frontend-backend-topology-and-runtime-config.md)–
+[ADR-0018](adr/0018-desktop-bridge-boundary.md)。架构层不变量：
+
+- 同一份前端产物通过运行时配置覆盖桌面/同域反代/独立源站/BFF；
+  默认同源相对基址，配置非法失败关闭；
+- API 版本与前端版本通过 `/healthz` 握手；不兼容时阻断，不静默降级；
+- Web 凭证按形态分档：桌面一次性 token、内网短期 Bearer（仅内存）、
+  公网 BFF httpOnly Cookie + CSRF；前端不把凭证写 localStorage/URL；
+- CORS 只对精确允许列表开放，禁止 `*`/`null`；凭证仅 Cookie 模式；
+  CORS 最外层，错误响应也带允许头与 `Vary: Origin`；
+- 错误体使用稳定 `code` + `request_id`；A2→A3→日志全链路透传；
+- SSE 经过反代禁缓冲、禁压缩、保留心跳；代理不重试已发送的流；
+- 桌面桥只对本地页面开放；远程页面不注入 `js_api`；
+- A2 仍只监听 loopback，分离只改变浏览器到边缘的路径，不改变执行面位置。
+
+实现顺序：基址 → 认证 → CORS/代理 → 桥；前两步完成前不启用跨域或 Cookie。
 
 ## 19. Phase F：安全与性能验收
 

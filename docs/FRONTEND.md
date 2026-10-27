@@ -401,13 +401,14 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 |---|---|---|
 | 认证凭证 | 桌面 `sessionStorage`；目标 Web 模式仅内存，公网用 httpOnly Cookie | 当前全部是 Bearer；分离后按 `authMode` 分档，见 ADR-0017 |
 | 运行时配置 | `/config.json` 或桌面注入 `window.__APP_CONFIG__` | 已实现；非法配置显示阻断页，默认同源相对基址 |
-| 主题/字号/密度/最近工作区 | `localStorage` | 只放 UI 偏好，不放密钥/路径授权 |
+| 主题/字号/密度/对比度/强调色/代码排版/最近工作区 | `localStorage` | 只放 UI 偏好，不放密钥/路径授权 |
+| 会话视图 | `sessionViews[threadId]`（内存） | 消息/计划/工具/审批/用量/流式游标；最多 6 个，LRU 跳过运行中与分屏视图 |
 | 会话配置 | `control_sessions`（DB）；`gui-sessions.json` 兜底 | 含不可变工作区绑定 |
 | 完整 UI 轨迹 | `transcripts/<thread>.json` | 工具卡片/阶段/最终回答；仅桌面 UI 运行产生 |
 | 运行事件 | A2/A3 内存缓冲 | 用于重连 `after`；不替代 checkpoint/审计 |
 
-运行状态：`ready`、`busy`、`paused`、`approvals`、`connectionState`、
-`lastSeq`。这些是 UI 状态，不构成权限事实。
+运行状态（`busy`、`paused`、`approvals`、`connectionState`、`lastSeq`）属于各自
+`SessionView`，不是全局单份；主区与分屏可同时运行。这些仍是 UI 状态，不构成权限事实。
 
 ---
 
@@ -485,13 +486,14 @@ python scripts/probe_frontend_csp.py
 
 覆盖点：构建产物包含项目/工作区流程；页面无构建链；静态资源可访问；
 安全头/CSP；SSE 事件流；审批/steering/恢复端点；工作区绑定与
-transcript 保存。`node test.mjs` 覆盖 diff 解析/split/词级标记、查询匹配/
+transcript 保存。当前 38 个纯函数用例 + 26 个 jsdom 交互用例。
+`node test.mjs` 覆盖 diff 解析/split/词级标记、查询匹配/
 fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、增量 Markdown、
 会话摘要与焦点循环等纯函数。`node test-dom.mjs` 用 jsdom 真实加载
 `static/index.html`、vendored Alpine CSP 与 `app.js`，桩掉后端 API 后验证
 会话未读/摘要/批量选择、文件树 Git 标记与键盘导航、Problems 折叠、流式渲染、
 大工具输出分页与派生缓存、阶段播报、主题设置、模态焦点陷阱、审批批准/全部拒绝、
-侧栏/检查器拖拽与宽度持久化、图片预览与只读会话分屏、两个 SessionView 的
+侧栏/检查器拖拽与宽度持久化、图片预览与实时会话分屏、两个 SessionView 的
 事件状态隔离、SessionStore 视图复用/LRU/重复打开不重置、后台 SSE 事件隔离与
 后台完成未读、实时分屏双流/独立发送，并把 Alpine 表达式错误作为失败。
 
@@ -523,10 +525,12 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | 限制 | 影响 | 备注 |
 |---|---|---|
 | 顶栏右侧按钮在部分 DPI 下不绘制/被裁切 | 设置入口不可见 | 侧栏已提供设置/+ 本机兜底 |
-| 无浏览器自动化/JS 单测 | 交互回归靠手测 | 构建产物守卫只能防漂移 |
+| 无 Playwright 真实浏览器 E2E | 交互回归主要靠 jsdom + pywebview 探针 | 已有 38 个纯函数与 26 个 jsdom 交互用例 |
+| 编辑器标签/焦点仍是全局的 | 切换会话会清空标签；分屏不共享标签焦点 | 后续可做每会话 editorTabs |
+| 分屏宽度固定、审批不内联 | 分屏约 46% 宽，审批需切回主区 | 可做拖拽分栏与分屏审批卡 |
 | 轨迹只在桌面 UI 运行时保存 | 旧会话/CLI 运行无工具卡片 | 不替代 checkpoint/审计 |
 | 轨迹优先于 checkpoint | CLI 追加的运行可能被旧轨迹遮住 | 桌面单用户场景可接受 |
-| 无虚拟列表 | 超长会话可能变慢 | 折叠/`content-visibility` 缓解 |
+| 单条超大工具输出按行分页 | 首次只渲染 40 行，需手动加载更多 | 避免一次性塞满 DOM |
 | 授权桥仅桌面模式 | Web/CLI 仍走本地确认或拒绝 | `AGENT_CONSENT_TOKEN` 门控 |
 | 前后端分离九步已落地 | 独立静态产物、版本契约与回滚步骤已就绪；真实部署 E2E 待补 | 见 RFC-0003 与 RELEASING.md；公网部署前仍需完成部署侧验证 |
 | pywebview 目录对话框需强制前台 | 个别环境可能被遮挡 | 已用原生 shell32 + topmost |
@@ -559,8 +563,8 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | `web/frontend/tests/*.test.ts` | 纯函数单元测试（`node test.mjs`） |
 | `web/frontend/tests/dom/*` | jsdom 交互测试（`node test-dom.mjs`） |
 | `web/frontend/src/state/runtime.ts` | 非响应式 Map 缓冲 |
-| `web/frontend/src/state/session-view.ts` | 会话视图状态工厂（阶段 1） |
-| `web/frontend/src/features/session-view.ts` | activeView facade 与 applyEvent |
+| `web/frontend/src/state/session-view.ts` | 会话视图状态工厂（消息/计划/工具/审批/流式游标） |
+| `web/frontend/src/features/session-view.ts` | SessionStore、activeView facade、withView/applyEvent |
 | `web/frontend/src/contracts/events.generated.ts` | 由契约生成的事件 union（禁止手改） |
 | `web/frontend/src/templates/*.html` | 页面模板分片（构建期拼成 `static/index.html`） |
 | `web/frontend/src/styles/*.css` | 设计令牌与样式分片（构建期拼成 `static/style.css`） |

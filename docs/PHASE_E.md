@@ -72,9 +72,11 @@ SSE 连接治理、任务与思维链、长输出治理、代码高亮/复制与
 
 ## 3. 未覆盖
 
-- 不是 JS 窗口化虚拟列表；长会话用浏览器原生 `content-visibility` 优化，
+- 本阶段不是 JS 窗口化虚拟列表；后续已在 FRONTEND 中实现变量高度虚拟列表、
+  流式 Markdown 增量渲染与 jsdom 交互测试。本阶段长会话用 `content-visibility` 优化，
   未重写 DOM 列表；
-- 没有浏览器自动化测试，交互靠上面的手测清单；P4 也未引入 Playwright
+- 本阶段没有浏览器自动化测试；后续补充了 jsdom 交互测试与 pywebview 探针，
+  仍未引入 Playwright。
   （如需要，应作为独立变更单独引入，不混进性能/验收轮次）；
 - reasoning 是否落盘仍由后端日志策略决定，前端只控制展示；
 - highlight.js 使用通用包，未按语言裁剪体积。

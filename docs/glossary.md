@@ -4,7 +4,7 @@ doc_id: glossary
 title: 统一语言词汇表
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 review_cadence: 引入新术语或发现新歧义时
 criticality: 高
 note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系统并存，动手前先查这里。
@@ -24,15 +24,15 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 
 | 编号 | 是什么 | 在哪 | 别混 |
 |---|---|---|---|
-| **L0 / L1 / L2 / L3** | **命令与工具的风险分级**（也有"文档四层"的同名用法，见下） | `sandbox/policy.py`、`docs/contracts/tools.yaml` | 不是开发阶段 |
+| **L0–L4** | **命令与工具的风险分级**（也有"文档四层"的同名用法，见下）；L4 为 A2L 环境变更，规划中 | `sandbox/policy.py`、`docs/contracts/tools.yaml` | 不是开发阶段 |
 | **Phase 3A / 3B / 3C / 3D / 4D** | harness 的**历史开发阶段**（均已实现） | `HARNESS.md §14` | 已全部落地，只作历史坐标，不代表当前状态 |
-| **T1 / T2 / T3** | **威胁模型等级**：防误操作 / 防主动越狱 / 多用户公网 | `THREAT_MODEL.md §3` | 与命令分级无关 |
+| **T1 / T2 / T3 / T4** | **威胁模型等级**：防误操作 / 防主动越狱 / 多用户公网 / 客户端执行域（A2L 横向） | `THREAT_MODEL.md §3` | 与命令分级无关；T4 不是 T3 的别名 |
 
-> ⚠️ 同名冲突：`docs/` 里"L0–L3"也用来指**文档资产四层**（可执行事实 / Agent 指令 /
+> ⚠️ 同名冲突：`docs/` 里"L0–L4"也用来指**文档资产四层**（可执行事实 / Agent 指令 /
 > 决策与边界 / 叙事与上下文）。为避免混淆，文档四层一律写全称 **"文档 L 层"**，
-> 命令分级一律写 **"命令 L0/L1/L2/L3"** 或 "四级分级"。
+> 命令分级一律写 **"命令 L0–L4"** 或 "命令分级"；当前实现是 L0–L3，L4 规划中。
 
-### 命令四级分级
+### 命令分级（L0–L4，L4 规划中）
 
 | 级别 | 行为 | `-y`/`approve` 能放行吗 |
 |---|---|---|
@@ -40,6 +40,7 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 | L1 低风险写 | 需 `--write` 一次性授权，之后自动执行 + 审计 | — |
 | L2 变更性 | 需用户确认 | 能 |
 | L3 危险 | 需用户确认（标注危险） | **不能** |
+| L4 环境变更（规划） | 安装、写系统目录、改 PATH、注册服务、UAC 提权 | **不能**；须 grant 含 `install` + 用户二次确认 |
 
 ---
 
@@ -113,7 +114,9 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 |---|---|---|
 | **宿主侧** | Windows 或 Linux 宿主进程 | `<cwd>/.agent/`：checkpoint、audit、steering、rate_limits |
 | **沙箱侧** / **工作区** | WSL2（Windows）或 Linux 本地 | `<工作区>/.agent/`：backups（快照）、memory.md、artifacts |
-| **工作区**（workspace） | 沙箱内 | 用户用 `-C` 指定的根目录；所有读写与命令限定在此 |
+| **工作区**（workspace） | 由 `WorkspaceRef.kind` 决定 | 用户用 `-C` 指定的根目录；所有读写与命令限定在此 |
+| **host 工作区** | 客户端 NTFS | 桌面默认；源码与产物同侧，由 A2L 执行；不跨 `/mnt` |
+| **sandbox 工作区** | WSL2 ext4 | 服务端/CI 默认；不可信仓库与 Linux 目标；bwrap/非 root |
 
 两侧都在 `.agent/` 下但**内容不同、被保护的方式不同**，别混。
 审计在宿主侧（沙箱内命令改不到），快照在工作区内（工作区可写时 agent 能改自己的留底）。
@@ -156,17 +159,19 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 > 措辞上刻意**不写**「置信区间 / 显著性」：重复 2~3 次没有那种统计效力，
 > 把它写成区间等于给噪声套上科学的壳。
 
-## 十一、目标架构分层（A1–A4）
+## 十一、目标架构分层（A1–A4 + A2L）
 
-> 不要写 L1–L4：命令风险分级已经占用 L0–L3，文档还有“文档 L 层”用法。
-> 架构层一律用 **A1–A4**，见 [PHASE_A.md](PHASE_A.md)。
+> 不要写 L1–L4：命令风险分级已经占用 L0–L4，文档还有“文档 L 层”用法。
+> 架构层一律用 **A1–A4**；客户端宿主代理固定写 **A2L**，见
+> [PHASE_A.md](PHASE_A.md)、[ADR-0015](adr/0015-host-capability-broker.md)。
 
 | 规范名 | 职责 | 当前锚点 |
 |---|---|---|
 | **A1 前端** | 渲染、SSE、审批交互、主题/字体、平台桥 | `src/coding_agent/web/static/`、`src/coding_agent/cli/app.py`、`src/coding_agent/tui/app.py` |
+| **A2L 宿主能力代理** | 客户端 `host` 工作区、本地 grant/ZX、工具链能力、本地同意与审计；只外连 | 规划中：`src/coding_agent/host_broker/` |
 | **A2 控制面** | 认证、租户、会话目录、运行/审批索引、配额、Provider 档案、MySQL | `src/coding_agent/web/app.py`、`src/coding_agent/tenancy.py` |
 | **A3 编排面** | 图、LLM、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/coding_agent/runtime.py`、`src/coding_agent/graph/`、`src/coding_agent/orchestrator/` |
-| **A4 执行面** | shell、文件、Git、测试、快照、worktree、上传落盘 | `src/coding_agent/tools/`、`src/coding_agent/sandbox/` |
+| **A4 执行面** | shell、文件、Git、测试、快照、worktree、上传落盘；按 `target` 路由 host/sandbox | `src/coding_agent/tools/`、`src/coding_agent/sandbox/`、`src/coding_agent/execution/` |
 
 | 词 | 含义 |
 |---|---|
@@ -183,7 +188,22 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 | 共享事件传输 | 多实例 A3→A2 的事件通道（建议 Redis Streams），按 thread 保序、短 TTL、按 `seq` 重放；单实例用内存适配器 |
 | Standalone 持久化 | CLI/TUI/开发/测试/eval 的本地文件/SQLite，不依赖 A2 或 MySQL |
 | SPA + esbuild/TS | 前端保持静态 SPA 与 CSP，用 esbuild/TypeScript 构建，不引入 React/Vue |
+| `SessionView` | 前端单个会话的运行态：消息、计划、工具、审批、用量、流式游标与连接状态；不再使用全局单份状态 |
+| `SessionStore` | 前端 `sessionViews[threadId]` 注册表；复用空闲视图，LRU 保留最多 6 个，跳过运行中/分屏视图 |
+| 后台流 | 发起 SSE 时绑定所属 `SessionView`；用户切走会话后流继续，完成/失败/审批通过通知与未读提示 |
+| 实时分屏 | 主区与右侧分屏各绑定一个真实 `SessionView`，各自接收 SSE、显示状态并可独立发送任务 |
 | ExecutionService | A3→A4 的唯一执行入口：请求/回执/幂等/执行序号；不做审批 |
 | `op_id` | 执行请求的幂等键；同一 op_id 不同 payload 是冲突 |
 | 执行 `seq` | 按 run 单调的执行操作序号，**不等于** Web SSE 的事件 `seq` |
 | 执行回执 | `.agent/execution/receipts.jsonl` 中的结果；重复 op_id 返回 replayed=true |
+| **A2L** | 宿主能力代理：**绑定客户端生命周期**（随客户端启动/退出，不独立常驻系统；客户端只有 A1+A2L，服务端是 A2/A3/A4），只外连，持有 host 工作区、本地 grant 与 workspace→absolute path 映射；不是 A1 的反向代理，也不是 A5 |
+| **root_handle** | host 工作区的不透明句柄；A2 只存 `workspace_id + root_handle + a2l_id`，绝对路径只存 A2L 本地 SQLite |
+| **HostFs / FileAccess** | 服务端工具访问文件系统的抽象；Sandbox 与 Host 两种实现共享同一只读接口 |
+| **op_journal** | A2L 本地操作日志：`started/finished/unknown`；写/执行恢复时防止盲目重放 |
+| **敏感根** | Documents/Desktop/OneDrive/浏览器 profile/.ssh 等；必须逐次本地确认，不允许长 TTL 宽 scope |
+| **本地固定 NTFS** | P1 唯一允许的 host 工作区根；拒绝 OneDrive、云占位、网络/映射盘、UNC、reparse 与设备路径 |
+| **grant** | 客户端签发的 `(路径前缀 × 动词)` 授权凭证，含 TTL、可撤销；服务端只持有 `grant_id` |
+| **ZX** | 绝对禁止根（系统目录、其他用户、凭据、浏览器 profile 等）；Deny 优先于任何 grant，需 OS ACL 兜底 |
+| **工具链能力** | A2L 探测到的 `ToolchainRef` 摘要（id/kind/version），模型看不到绝对路径 |
+| **target / workspace_kind** | 执行路由字段：`target=auto|host|sandbox`，`workspace_kind=host|sandbox`；冲突时拒绝，不静默改道 |
+| **L4 环境变更** | 安装、写系统目录、改 PATH、注册服务、UAC 提权；永不自动、不被 allow_rules 覆盖 |

@@ -4,7 +4,7 @@ doc_id: adr-index
 title: 架构决策记录索引
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-26
 review_cadence: 每次新增决策时
 ---
 
@@ -41,6 +41,11 @@ review_cadence: 每次新增决策时
 | [0012](0012-workspace-entity.md) | 工作区成为一等实体，路径只作运行时解析 | accepted | 架构 · 控制面 · 工作区 |
 | [0013](0013-workspace-storage.md) | 工作区用本地 ext4 + 本地归档盘，Git 仅作版本层 | accepted | 存储 · 部署 · 工作区 |
 | [0014](0014-event-fanout-not-consumer-group.md) | 多 A2 用 Streams 重放做扇出，不用 consumer group | accepted | 事件 · 多实例 |
+| [0015](0015-host-capability-broker.md) | A2L 宿主能力代理与 host/sandbox 双工作区 | accepted | 架构 · 安全 · 工作区 · 客户端执行 |
+| [0016](0016-frontend-backend-topology-and-runtime-config.md) | 前后端分离以同域反代起步，用运行时配置解耦基址 | accepted | 架构 · 部署 · 前端 |
+| [0017](0017-auth-model-for-separated-deployment.md) | 认证模型按部署形态分三档 | accepted | 安全 · 认证 · 部署 |
+| [0018](0018-desktop-bridge-boundary.md) | 桌面桥只绑定本地页面与本地 origin | accepted | 安全 · 桌面 · 前端 |
+| [0019](0019-per-session-frontend-views.md) | 前端按会话隔离 SessionView 与 SSE，支持后台流与实时分屏 | accepted | 架构 · 前端 · 状态 · SSE |
 
 ## 待补录候选
 

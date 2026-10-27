@@ -28,6 +28,26 @@ review_cadence: 测试分层、标记或 CI 口径变动时
 
 `pytest` 永远带 `-m`：裸跑会执行 `llm` 标记用例，真的调用模型并计费。
 
+### 1.1 前端测试
+
+前端是静态 SPA，入口在 `src/coding_agent/web/frontend/`：
+
+```bash
+cd src/coding_agent/web/frontend
+node node_modules/typescript/bin/tsc --noEmit
+node esbuild.mjs
+node test.mjs        # 38 个纯函数用例
+node test-dom.mjs    # 26 个 jsdom 交互用例（加载真实 static 产物 + Alpine CSP）
+python ../../../../scripts/probe_frontend_csp.py   # pywebview 手工/本机探针
+```
+
+- `test.mjs` 覆盖 diff、搜索、虚拟列表、Git 映射、Problems 聚合、Markdown 增量、
+  会话摘要、主题与输出分页；
+- `test-dom.mjs` 覆盖会话未读/批量、视图隔离、后台 SSE、实时分屏、文件树键盘、
+  Problems、图片预览、审批、焦点陷阱、拖拽、主题等；Alpine CSP 表达式错误会被判失败；
+- `tests/unit/test_frontend_workspace_ui.py` 是构建产物与 CSP 模板守卫；
+- CI 当前执行构建漂移与 `tsc`；`node test.mjs` / `test-dom.mjs` 需在本地或发版前运行。
+
 ## 2. 冒烟测试
 
 `tests/smoke/` 只放**不依赖 WSL、数据库服务或 API Key** 的主链路检查：
@@ -158,6 +178,7 @@ python tests/eval/runner.py --suite real --repeat 2
 | 需要真实 WSL / 文件系统 / 多模块装配 | `tests/integration/` |
 | 无外设的主链路可用性 | `tests/smoke/` |
 | 前端 TUI（textual） | `tests/tui/` |
+| 前端 Web 纯函数 / jsdom 交互 | `web/frontend/tests/`、`web/frontend/tests/dom/` |
 | 评测任务与基准脚本 | `tests/eval/` |
 | 契约测试夹具 | `tests/contract/` |
 

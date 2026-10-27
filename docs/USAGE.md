@@ -148,7 +148,8 @@ Phase B 的 A2 控制面 schema、会话目录接入与可选 MySQL 配置见
 systemd 安装、MySQL 迁移/备份与故障演练见 [PHASE_D.md](PHASE_D.md)；
 Phase E 的主题/字体/快捷键、SSE 重连、任务与推理、代码高亮与前端构建门禁见
 [PHASE_E.md](PHASE_E.md)；Phase F 的密钥/路径边界、性能基线与迁移回滚演练见
-[PHASE_F.md](PHASE_F.md)。
+[PHASE_F.md](PHASE_F.md)。当前前端的 SessionView 多会话、后台 SSE、实时分屏、
+主题增强与 jsdom 测试见 [FRONTEND.md](FRONTEND.md)。
 
 安全/迁移演练（无需 API Key）：
 

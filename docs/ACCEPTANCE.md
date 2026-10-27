@@ -495,10 +495,10 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
       （本机 WSL 未安装项目依赖，代码路径与单测已覆盖）；
 - [ ] 真实 LLM run、工具、审批、快照回滚未纳入协议级 smoke；
 - [x] Phase E 已补齐主题/字体/快捷键、SSE 重连、任务字段与推理分块，
-      详见 [PHASE_E.md](PHASE_E.md)；JS 窗口化虚拟列表与浏览器自动化测试
-      仍未做。
+      详见 [PHASE_E.md](PHASE_E.md)；后续已补 JS 变量高度虚拟列表、
+      流式 Markdown 增量渲染、jsdom 交互测试与 pywebview 探针。
 
-### 5.15 Phase E：前端补齐（已实现，交互靠手测）
+### 5.15 Phase E：前端补齐（已实现；后续补 jsdom 交互测试）
 
 - [x] 深/浅/跟随系统主题；字体字族、字号、密度持久化；
 - [x] 快捷键 `Ctrl/Cmd+K`、`Ctrl/Cmd+Enter`、`Esc`、`?`；
@@ -511,7 +511,9 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] 代码高亮/复制、代码块折叠、diff 复制；
 - [x] 长会话 `content-visibility: auto`；
 - [x] 前端资产测试与 CI 构建漂移/类型检查门禁；
-- [ ] 未做 JS 窗口化虚拟列表与浏览器自动化测试；手测清单见 PHASE_E.md。
+- [x] 变量高度虚拟列表、流式 Markdown 增量渲染与大工具输出分页；
+- [x] 38 个纯函数 + 26 个 jsdom 交互用例；pywebview 严格 CSP 探针；
+- [ ] 尚无 Playwright 真实浏览器 E2E；手测清单见 PHASE_E.md / FRONTEND.md。
 
 ### 5.16 Phase F：安全与性能验收（已实现，平台门禁见下）
 
@@ -526,8 +528,19 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] CI 执行 `phase_f_drill.py`（SQLite）；
 - [ ] WSL/bwrap 真实隔离需要 `pytest -m wsl` / `pytest -m execution`；
 - [ ] MySQL 最小权限账号与 `SHOW GRANTS` 需要人工/DBA 环境验证；
-- [ ] 浏览器长会话渲染与真实工具 I/O 开销仍需人工或平台验收；
+- [ ] 浏览器长会话渲染与真实工具 I/O 开销仍需人工或平台验收
+      （jsdom 已覆盖交互，真实浏览器仍待 Playwright/平台）；
 - [ ] 提示注入（T2 主战场）仍按 THREAT_MODEL 的残余边界处理。
+
+### 5.17 前端会话视图与实时分屏（已实现）
+
+- [x] 会话运行态归属 `SessionView`，`sessionViews[threadId]` 复用与 LRU（6 个）；
+- [x] 每条 SSE 绑定发起视图，切换会话后后台流继续；后台完成标记未读并通知；
+- [x] 主区与分屏并行运行，分屏可独立发送、显示状态与审批提示；
+- [x] 每视图 AbortController，删除/清空会话时中止；
+- [x] 会话未读/摘要/批量操作、主题对比度/强调色/代码排版、图片预览；
+- [x] jsdom 覆盖视图隔离、后台流、实时分屏、审批、拖拽与主题；
+- [ ] 编辑器标签/焦点尚未按会话隔离；分屏宽度固定、审批不内联。
 
 ## 6. 冻结
 

@@ -4,7 +4,7 @@ doc_id: ci
 title: 流水线（pipeline as code）
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-26
 review_cadence: 工作流文件变动时
 ---
 
@@ -22,6 +22,7 @@ review_cadence: 工作流文件变动时
 | 安装 | `pip install -e ".[dev,ui,web,db]"` |
 | lint | `ruff check src tests` |
 | 前端构建/类型 | `python scripts/build_frontend.py` + `tsc --noEmit` + `git diff --exit-code static/app.js` |
+| 前端独立产物 | 上传 `frontend-static` artifact（静态包可直接用于独立静态站） |
 | 测试 + 覆盖率 | `pytest -m "not wsl and not llm" --cov --cov-report=term-missing` |
 | 执行契约 | `pytest -m execution -q` |
 | Phase D 故障演练 | `python scripts/phase_d_smoke.py --timeout 60` |
@@ -32,6 +33,10 @@ review_cadence: 工作流文件变动时
 缺一个会导致 collection error 而非 skip。这两条都曾导致过 CI 失败。
 `desktop` 测试用 mock 覆盖启动/取消逻辑，不要求 CI 安装 pywebview；
 真实窗口与 OS 密钥环只做本地冒烟。
+
+前端纯函数（`node test.mjs`）与 jsdom 交互（`node test-dom.mjs`）当前在本地/
+发版前执行，CI 尚未接入；pywebview 探针同样只做本机冒烟。该缺口登记为 TD-018。
+前端发版、兼容矩阵与回滚步骤见 [RELEASING.md](RELEASING.md)。
 
 **覆盖率门槛 `fail_under=76`** 按 CI 实际执行的子集定，不是贴着实测值
 （2026-10-24 CI 子集实测 **82.68%**，2,045 个用例；Linux/Windows 会有小幅漂移）。

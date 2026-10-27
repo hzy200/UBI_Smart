@@ -1,5 +1,5 @@
 # owner: 项目作者
-# last_reviewed: 2026-10-22
+# last_reviewed: 2026-10-25
 # 这是纯文本的目录卡，元数据用注释形式写在头部。
 
 # CodingAgent
@@ -54,7 +54,7 @@
 - [docs/rfc/README.md](docs/rfc/README.md)：RFC 流程与索引（动手前的范围与权衡；批准后落 ADR 与验收锚点）
 - [docs/glossary.md](docs/glossary.md)：统一语言词汇表
 - [docs/bounded-contexts.yaml](docs/bounded-contexts.yaml)：模块边界、依赖与所有权
-- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)：资产 / 对手假设 / T1–T3 边界
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)：资产 / 对手假设 / T1–T4 边界（T4 = A2L 客户端执行域）
 - [docs/tech-debt.yaml](docs/tech-debt.yaml)：技术债登记簿
 - [docs/postmortem/](docs/postmortem/)：事故复盘（AI 最好的反例教材）
 
@@ -68,6 +68,9 @@
   验收标准（Given-When-Then + 可执行测试 ID）
 - [docs/runbook.yaml](docs/runbook.yaml)：故障场景 → 处置步骤
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：架构
+- [docs/FRONTEND.md](docs/FRONTEND.md)：前端功能、交互、SessionView 多会话状态、后台 SSE、实时分屏与 UI 约束
+- [docs/GUI.md](docs/GUI.md)：桌面壳、启动、接口、权限与部署
+- [docs/PHASE_A2L.md](docs/PHASE_A2L.md)：A2L 宿主能力代理 Phase 1 接口与文件清单
 - [docs/HARNESS.md](docs/HARNESS.md)：harness 设计
 - [docs/WORKFLOW.md](docs/WORKFLOW.md)：运行 / 开发 / 使用三套工作流
 - [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)：需求逐条对照与自检清单
