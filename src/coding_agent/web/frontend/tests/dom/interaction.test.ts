@@ -1086,6 +1086,10 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
         document.querySelector('#settings-title')?.textContent?.trim(),
         'Settings',
       );
+      assert.equal(
+        document.querySelector('#approval-title')?.textContent?.trim(),
+        'Approval required',
+      );
       const saved = JSON.parse(
         window.localStorage.getItem('codingagent.settings') || '{}',
       );

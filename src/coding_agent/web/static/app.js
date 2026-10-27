@@ -1058,6 +1058,28 @@
       unarchive: { title: "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
       tag: { title: "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E", hint: "\u4F1A\u8BDD" }
     },
+    status: {
+      ready: "\u5C31\u7EEA",
+      running: "\u8FD0\u884C\u4E2D\u2026",
+      reconnecting: "\u91CD\u8FDE\u4E2D\u2026",
+      reconnectIn: "\u8FDE\u63A5\u4E2D\u65AD\uFF0C{seconds}s \u540E\u91CD\u8FDE\u2026",
+      disconnected: "\u8FDE\u63A5\u4E2D\u65AD",
+      waitingApproval: "\u7B49\u5F85\u5BA1\u6279",
+      paused: "\u5DF2\u6682\u505C",
+      failed: "\u5931\u8D25",
+      resuming: "\u6062\u590D\u4E2D\u2026",
+      streaming: "\u6D41\u5F0F\u8FDE\u63A5\u4E2D",
+      closed: "\u8FDE\u63A5\u5DF2\u5173\u95ED",
+      reconnectFailed: "\u91CD\u8FDE\u5931\u8D25\uFF1A{error}",
+      runFailed: "\u8FD0\u884C\u5931\u8D25\uFF1A{error}"
+    },
+    approval: {
+      title: "\u9700\u8981\u786E\u8BA4",
+      approve: "\u6279\u51C6\uFF08y\uFF09",
+      deny: "\u62D2\u7EDD\uFF08n\uFF09",
+      rejectAll: "\u5168\u90E8\u62D2\u7EDD",
+      remaining: "\u8FD8\u5269 {count} \u6761\u5F85\u786E\u8BA4"
+    },
     notifications: {
       title: "\u901A\u77E5",
       markAllRead: "\u5168\u90E8\u5DF2\u8BFB",
@@ -1353,6 +1375,28 @@
       archive: { title: "Archive current session", hint: "Session" },
       unarchive: { title: "Unarchive current session", hint: "Session" },
       tag: { title: "Edit current session tags", hint: "Session" }
+    },
+    status: {
+      ready: "Ready",
+      running: "Running\u2026",
+      reconnecting: "Reconnecting\u2026",
+      reconnectIn: "Disconnected; reconnecting in {seconds}s\u2026",
+      disconnected: "Disconnected",
+      waitingApproval: "Waiting for approval",
+      paused: "Paused",
+      failed: "Failed",
+      resuming: "Resuming\u2026",
+      streaming: "Streaming",
+      closed: "Connection closed",
+      reconnectFailed: "Reconnect failed: {error}",
+      runFailed: "Run failed: {error}"
+    },
+    approval: {
+      title: "Approval required",
+      approve: "Approve (y)",
+      deny: "Deny (n)",
+      rejectAll: "Reject all",
+      remaining: "{count} more pending"
     },
     notifications: {
       title: "Notifications",
@@ -3668,7 +3712,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.messageMatchIndex = 0;
       this.showJumpLatest = false;
       this.paused = false;
-      this.stateText = "\u5C31\u7EEA";
+      this.stateText = this.t("status.ready");
       if (this.activeView) this.activeView.loaded = false;
       this.resetSessionUi();
       const prefix = `${threadKey}::`;
@@ -3807,7 +3851,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.approvals = data.approvals || [];
         if (this.approvals.length) {
           this.showNextApproval();
-          this.stateText = "\u7B49\u5F85\u5BA1\u6279";
+          this.stateText = this.t("status.waitingApproval");
         }
       } catch (e) {
         this.approvals = [];
@@ -4577,7 +4621,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       view._lastPrompt = prompt;
       view.busy = true;
       view.paused = false;
-      view.stateText = "\u8FD0\u884C\u4E2D\u2026";
+      view.stateText = this.t("status.running");
       view.connectionState = "streaming";
       view._terminal = false;
       view._suspended = false;
@@ -4660,7 +4704,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         view._retryTimer = null;
       }
       view.busy = true;
-      view.stateText = "\u91CD\u8FDE\u4E2D\u2026";
+      view.stateText = this.t("status.reconnecting");
       view.connectionState = "reconnecting";
       view.canReconnect = false;
       const controller = new AbortController();
@@ -4674,7 +4718,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       } catch (err) {
         if (!controller.signal.aborted) {
           if (this.activeView === view) {
-            this.toastMessage(`\u91CD\u8FDE\u5931\u8D25\uFF1A${err}`);
+            this.toastMessage(this.t("status.reconnectFailed", { error: err }));
           }
           view.canReconnect = true;
         }
@@ -4687,7 +4731,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       if (!view || view._retryTimer) return;
       view._retryCount += 1;
       const delay = Math.min(8e3, 500 * 2 ** view._retryCount);
-      view.stateText = `\u8FDE\u63A5\u4E2D\u65AD\uFF0C${Math.round(delay / 1e3)}s \u540E\u91CD\u8FDE\u2026`;
+      view.stateText = this.t("status.reconnectIn", {
+        seconds: Math.round(delay / 1e3)
+      });
       view.connectionState = "reconnecting";
       view._retryTimer = setTimeout(() => {
         view._retryTimer = null;
@@ -4704,9 +4750,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       void this.send(this._lastPrompt, false);
     },
     connectionText() {
-      if (this.connectionState === "streaming") return "\u6D41\u5F0F\u8FDE\u63A5\u4E2D";
-      if (this.connectionState === "reconnecting") return "\u91CD\u8FDE\u4E2D\u2026";
-      if (this.connectionState === "closed") return "\u8FDE\u63A5\u5DF2\u5173\u95ED";
+      if (this.connectionState === "streaming") return this.t("status.streaming");
+      if (this.connectionState === "reconnecting") {
+        return this.t("status.reconnecting");
+      }
+      if (this.connectionState === "closed") return this.t("status.closed");
       return "";
     },
     async afterStream(view = this.activeView) {
@@ -4716,24 +4764,26 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         return;
       }
       view.connectionState = view._terminal ? "idle" : "closed";
-      if (view.stateText === "\u8FDE\u63A5\u4E2D\u65AD") {
+      if (view.stateText === this.t("status.disconnected")) {
         view.busy = false;
         return;
       }
       if (view.approvals.length) {
-        view.stateText = "\u7B49\u5F85\u5BA1\u6279";
+        view.stateText = this.t("status.waitingApproval");
         view.approval = view.approvals[0] || null;
-        view.approvalPosition = view.approvals.length > 1 ? `\u8FD8\u5269 ${view.approvals.length} \u6761\u5F85\u786E\u8BA4` : "";
+        view.approvalPosition = view.approvals.length > 1 ? this.t("approval.remaining", { count: view.approvals.length }) : "";
         view.busy = false;
         return;
       }
       if (view.paused) {
-        view.stateText = "\u5DF2\u6682\u505C";
+        view.stateText = this.t("status.paused");
         view.busy = false;
         return;
       }
       view.busy = false;
-      if (view.stateText === "\u8FD0\u884C\u4E2D\u2026") view.stateText = "\u5C31\u7EEA";
+      if (view.stateText === this.t("status.running")) {
+        view.stateText = this.t("status.ready");
+      }
       view.canReconnect = false;
       await this.loadSessions(true);
       this.broadcastSync("sessions");
@@ -4741,13 +4791,15 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     failRun(err, view = this.activeView) {
       view.busy = false;
       this.finishAssistant(view);
-      view.stateText = "\u8FDE\u63A5\u4E2D\u65AD";
+      view.stateText = this.t("status.disconnected");
       view.connectionState = "closed";
       view.canReconnect = Boolean(view.threadId && view.lastSeq > 0);
       this.withView(view, () => {
         this.pushMessage(
           "system",
-          `\u8FD0\u884C\u5931\u8D25\uFF1A${err && err.message ? err.message : err}`
+          this.t("status.runFailed", {
+            error: err && err.message ? err.message : err
+          })
         );
       });
     }
@@ -4758,7 +4810,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     handleEvent(event) {
       switch (event.type) {
         case "run_started":
-          this.stateText = "\u8FD0\u884C\u4E2D\u2026";
+          this.stateText = this.t("status.running");
           this.connectionState = "streaming";
           this._terminal = false;
           this._suspended = false;
@@ -4960,7 +5012,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.approvals.push(event);
           this.showNextApproval();
           this.announce("\u9700\u8981\u5BA1\u6279");
-          this.stateText = "\u7B49\u5F85\u5BA1\u6279";
+          this.stateText = this.t("status.waitingApproval");
           this._suspended = true;
           this._terminal = false;
           this.pushTimeline(
@@ -4979,13 +5031,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         case "steering_applied":
           if (event.action === "pause") {
             this.paused = true;
-            this.stateText = "\u5DF2\u6682\u505C";
+            this.stateText = this.t("status.paused");
             this._suspended = true;
             this.announce("\u8FD0\u884C\u5DF2\u6682\u505C");
             this.pushMessage("system", `\u5DF2\u6682\u505C\uFF1A${event.detail || ""}`);
           } else if (event.action === "resume") {
             this.paused = false;
-            this.stateText = "\u8FD0\u884C\u4E2D\u2026";
+            this.stateText = this.t("status.running");
             this._suspended = false;
             this._terminal = false;
             this.announce("\u8FD0\u884C\u5DF2\u6062\u590D");
@@ -4994,7 +5046,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           }
           break;
         case "run_finished":
-          this.stateText = "\u5C31\u7EEA";
+          this.stateText = this.t("status.ready");
           this.busy = false;
           this._terminal = true;
           this._suspended = false;
@@ -5025,7 +5077,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           );
           break;
         case "run_failed":
-          this.stateText = "\u5931\u8D25";
+          this.stateText = this.t("status.failed");
           this._terminal = true;
           this._suspended = false;
           this.connectionState = "closed";
@@ -5378,7 +5430,7 @@ ${detail || ""}`;
   var approvalsMixin = {
     showNextApproval(view = this.activeView) {
       view.approval = view.approvals[0] || null;
-      view.approvalPosition = view.approvals.length > 1 ? `\u8FD8\u5269 ${view.approvals.length} \u6761\u5F85\u786E\u8BA4` : "";
+      view.approvalPosition = view.approvals.length > 1 ? this.t("approval.remaining", { count: view.approvals.length }) : "";
       if (view === this.activeView && view.approval) {
         const modal = document.querySelector(".approval-modal");
         const modalOpen = Boolean(
@@ -5412,7 +5464,7 @@ ${detail || ""}`;
         this.$nextTick(() => this.restoreModalFocus());
       }
       view.busy = true;
-      view.stateText = "\u6062\u590D\u4E2D\u2026";
+      view.stateText = this.t("status.resuming");
       view.canReconnect = false;
       view.connectionState = "streaming";
       view._terminal = false;
@@ -5475,7 +5527,7 @@ ${detail || ""}`;
       const view = this.activeView;
       if (!view.threadId) return;
       view.busy = true;
-      view.stateText = "\u6062\u590D\u4E2D\u2026";
+      view.stateText = this.t("status.resuming");
       view.canReconnect = false;
       view.connectionState = "streaming";
       view._terminal = false;

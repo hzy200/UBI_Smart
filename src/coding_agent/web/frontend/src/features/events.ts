@@ -19,7 +19,7 @@ export const eventsMixin = {
   handleEvent(event: AgentEvent) {
     switch (event.type) {
       case 'run_started':
-        this.stateText = '运行中…';
+        this.stateText = this.t('status.running');
         this.connectionState = 'streaming';
         this._terminal = false;
         this._suspended = false;
@@ -228,7 +228,7 @@ export const eventsMixin = {
         this.approvals.push(event);
         this.showNextApproval();
         this.announce('需要审批');
-        this.stateText = '等待审批';
+        this.stateText = this.t('status.waitingApproval');
         this._suspended = true;
         this._terminal = false;
         this.pushTimeline(
@@ -247,13 +247,13 @@ export const eventsMixin = {
       case 'steering_applied':
         if (event.action === 'pause') {
           this.paused = true;
-          this.stateText = '已暂停';
+          this.stateText = this.t('status.paused');
           this._suspended = true;
           this.announce('运行已暂停');
           this.pushMessage('system', `已暂停：${event.detail || ''}`);
         } else if (event.action === 'resume') {
           this.paused = false;
-          this.stateText = '运行中…';
+          this.stateText = this.t('status.running');
           this._suspended = false;
           this._terminal = false;
           this.announce('运行已恢复');
@@ -262,7 +262,7 @@ export const eventsMixin = {
         }
         break;
       case 'run_finished':
-        this.stateText = '就绪';
+        this.stateText = this.t('status.ready');
         this.busy = false;
         this._terminal = true;
         this._suspended = false;
@@ -299,7 +299,7 @@ export const eventsMixin = {
         );
         break;
       case 'run_failed':
-        this.stateText = '失败';
+        this.stateText = this.t('status.failed');
         this._terminal = true;
         this._suspended = false;
         this.connectionState = 'closed';

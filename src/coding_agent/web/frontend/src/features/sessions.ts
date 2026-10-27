@@ -813,7 +813,7 @@ export const sessionsMixin = {
     this.messageMatchIndex = 0;
     this.showJumpLatest = false;
     this.paused = false;
-    this.stateText = '就绪';
+    this.stateText = this.t('status.ready');
     if (this.activeView) this.activeView.loaded = false;
     this.resetSessionUi();
     // 只清理当前视图的缓存，避免打断其他会话仍在进行的流。
@@ -971,7 +971,7 @@ export const sessionsMixin = {
       this.approvals = data.approvals || [];
       if (this.approvals.length) {
         this.showNextApproval();
-        this.stateText = '等待审批';
+        this.stateText = this.t('status.waitingApproval');
       }
     } catch (e) {
       this.approvals = [];

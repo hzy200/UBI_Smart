@@ -8,7 +8,7 @@ export const approvalsMixin = {
   showNextApproval(view = this.activeView) {
     view.approval = view.approvals[0] || null;
     view.approvalPosition = view.approvals.length > 1
-      ? `还剩 ${view.approvals.length} 条待确认`
+      ? this.t('approval.remaining', { count: view.approvals.length })
       : '';
     if (view === this.activeView && view.approval) {
       // 首次打开才记录返回焦点；后续审批只移动焦点，避免把返回目标
@@ -49,7 +49,7 @@ export const approvalsMixin = {
       this.$nextTick(() => this.restoreModalFocus());
     }
     view.busy = true;
-    view.stateText = '恢复中…';
+    view.stateText = this.t('status.resuming');
     // 序号跨 resume 连续；保留 lastSeq，避免重放历史事件。
     view.canReconnect = false;
     view.connectionState = 'streaming';

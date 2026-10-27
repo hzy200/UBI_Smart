@@ -57,7 +57,7 @@ export const runMixin = {
     view._lastPrompt = prompt;
     view.busy = true;
     view.paused = false;
-    view.stateText = '运行中…';
+    view.stateText = this.t('status.running');
     view.connectionState = 'streaming';
     view._terminal = false;
     view._suspended = false;
@@ -147,7 +147,7 @@ export const runMixin = {
       view._retryTimer = null;
     }
     view.busy = true;
-    view.stateText = '重连中…';
+    view.stateText = this.t('status.reconnecting');
     view.connectionState = 'reconnecting';
     view.canReconnect = false;
     const controller = new AbortController();
@@ -161,7 +161,7 @@ export const runMixin = {
     } catch (err) {
       if (!controller.signal.aborted) {
         if (this.activeView === view) {
-          this.toastMessage(`重连失败：${err}`);
+          this.toastMessage(this.t('status.reconnectFailed', { error: err }));
         }
         view.canReconnect = true;
       }
@@ -175,7 +175,9 @@ export const runMixin = {
     if (!view || view._retryTimer) return;
     view._retryCount += 1;
     const delay = Math.min(8000, 500 * 2 ** view._retryCount);
-    view.stateText = `连接中断，${Math.round(delay / 1000)}s 后重连…`;
+    view.stateText = this.t('status.reconnectIn', {
+      seconds: Math.round(delay / 1000),
+    });
     view.connectionState = 'reconnecting';
     view._retryTimer = setTimeout(() => {
       view._retryTimer = null;
@@ -194,9 +196,11 @@ export const runMixin = {
   },
 
   connectionText() {
-    if (this.connectionState === 'streaming') return '流式连接中';
-    if (this.connectionState === 'reconnecting') return '重连中…';
-    if (this.connectionState === 'closed') return '连接已关闭';
+    if (this.connectionState === 'streaming') return this.t('status.streaming');
+    if (this.connectionState === 'reconnecting') {
+      return this.t('status.reconnecting');
+    }
+    if (this.connectionState === 'closed') return this.t('status.closed');
     return '';
   },
 
@@ -212,26 +216,28 @@ export const runMixin = {
       return;
     }
     view.connectionState = view._terminal ? 'idle' : 'closed';
-    if (view.stateText === '连接中断') {
+    if (view.stateText === this.t('status.disconnected')) {
       view.busy = false;
       return;
     }
     if (view.approvals.length) {
-      view.stateText = '等待审批';
+      view.stateText = this.t('status.waitingApproval');
       view.approval = view.approvals[0] || null;
       view.approvalPosition = view.approvals.length > 1
-        ? `还剩 ${view.approvals.length} 条待确认`
+        ? this.t('approval.remaining', { count: view.approvals.length })
         : '';
       view.busy = false;
       return;
     }
     if (view.paused) {
-      view.stateText = '已暂停';
+      view.stateText = this.t('status.paused');
       view.busy = false;
       return;
     }
     view.busy = false;
-    if (view.stateText === '运行中…') view.stateText = '就绪';
+    if (view.stateText === this.t('status.running')) {
+      view.stateText = this.t('status.ready');
+    }
     view.canReconnect = false;
     await this.loadSessions(true);
     this.broadcastSync('sessions');
@@ -240,13 +246,15 @@ export const runMixin = {
   failRun(err, view = this.activeView) {
     view.busy = false;
     this.finishAssistant(view);
-    view.stateText = '连接中断';
+    view.stateText = this.t('status.disconnected');
     view.connectionState = 'closed';
     view.canReconnect = Boolean(view.threadId && view.lastSeq > 0);
     this.withView(view, () => {
       this.pushMessage(
         'system',
-        `运行失败：${err && err.message ? err.message : err}`,
+        this.t('status.runFailed', {
+          error: err && err.message ? err.message : err,
+        }),
       );
     });
   },

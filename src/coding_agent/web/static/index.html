@@ -999,7 +999,7 @@
 <div class="modal approval-modal" x-show="hasApprovals" x-cloak
      role="dialog" aria-modal="true" aria-labelledby="approval-title">
   <div class="modal-box">
-    <h3 id="approval-title">需要确认</h3>
+    <h3 id="approval-title" x-text="i18n.approval.title"></h3>
     <div class="approval" x-show="approval">
       <div class="approval-level" x-text="approvalLevelText"></div>
       <pre x-text="approvalCommandText"></pre>
@@ -1007,9 +1007,9 @@
       <div class="note" x-text="approvalToolText"></div>
     </div>
     <div class="approval-actions">
-      <button class="primary" data-action="approval" data-allow="true" @click="onAction">批准（y）</button>
-      <button class="danger" data-action="approval" data-allow="false" @click="onAction">拒绝（n）</button>
-      <button @click="rejectAll">全部拒绝</button>
+      <button class="primary" data-action="approval" data-allow="true" @click="onAction" x-text="i18n.approval.approve"></button>
+      <button class="danger" data-action="approval" data-allow="false" @click="onAction" x-text="i18n.approval.deny"></button>
+      <button @click="rejectAll" x-text="i18n.approval.rejectAll"></button>
     </div>
     <div class="note" x-text="approvalPosition"></div>
   </div>

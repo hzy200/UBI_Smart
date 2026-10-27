@@ -41,7 +41,7 @@ export const steeringMixin = {
     const view = this.activeView;
     if (!view.threadId) return;
     view.busy = true;
-    view.stateText = '恢复中…';
+    view.stateText = this.t('status.resuming');
     view.canReconnect = false;
     view.connectionState = 'streaming';
     view._terminal = false;
