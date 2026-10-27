@@ -91,6 +91,9 @@ const mixin: Record<string, any> = {
   activateSessionView(threadId = '', fresh = false) {
     const view = this.ensureSessionView(threadId, fresh);
     this.activeView = view;
+    if (typeof this.restoreDraft === 'function') {
+      this.restoreDraft(view.threadId);
+    }
     this.pruneSessionViews(String(threadId || ''));
     return view;
   },
@@ -135,6 +138,7 @@ const mixin: Record<string, any> = {
     this.splitTitle = '';
     this.splitInput = '';
     this.splitError = '';
+    if (typeof this.syncUrlState === 'function') this.syncUrlState();
   },
 
   pruneSessionViews(keepId = '') {

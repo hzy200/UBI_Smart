@@ -138,7 +138,7 @@ export const view_modelMixin = {
     this.showSettings = opening;
     if (opening) {
       this.probeProject();
-      this.loadProfiles();
+      this.loadProfiles(true);
       this.focusModal('.settings-modal');
     } else {
       this.$nextTick(() => this.restoreModalFocus());

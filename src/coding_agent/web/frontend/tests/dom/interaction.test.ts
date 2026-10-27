@@ -844,6 +844,53 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       );
     });
 
+    await t.test('输入草稿按会话保存并在切换后恢复', async () => {
+      data.resetSessionViews();
+      window.localStorage.removeItem('codingagent.drafts');
+      data.activateSessionView('thread-dom-test');
+      const textarea = document.querySelector(
+        '.composer textarea',
+      ) as HTMLTextAreaElement;
+      textarea.value = '未发送的草稿';
+      textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const stored = JSON.parse(
+        window.localStorage.getItem('codingagent.drafts') || '{}',
+      );
+      assert.equal(stored['thread-dom-test'], '未发送的草稿');
+
+      await data.openSession('thread-dom-other');
+      await waitFor(() => data.threadId === 'thread-dom-other', '切到会话 B');
+      assert.equal(data.prompt, '');
+      await data.openSession('thread-dom-test');
+      await waitFor(() => data.threadId === 'thread-dom-test', '切回会话 A');
+      assert.equal(data.prompt, '未发送的草稿');
+
+      data.clearDraftFor('thread-dom-test');
+      data.prompt = '';
+    });
+
+    await t.test('URL 深链恢复会话并随切换同步', async () => {
+      data.resetSessionViews();
+      window.history.replaceState(null, '', '/?session=thread-dom-other');
+      await data.applyUrlState();
+      await waitFor(() => data.threadId === 'thread-dom-other', '深链恢复');
+      assert.match(window.location.search, /session=thread-dom-other/);
+
+      await data.openSession('thread-dom-test');
+      await waitFor(() => data.threadId === 'thread-dom-test', '切回测试会话');
+      assert.match(window.location.search, /session=thread-dom-test/);
+
+      await data.openSplitSession('thread-dom-other');
+      assert.match(window.location.search, /split=thread-dom-other/);
+      data.closeSplit();
+      assert.doesNotMatch(window.location.search, /split=/);
+
+      await data.newSession();
+      assert.doesNotMatch(window.location.search, /session=/);
+    });
+
     await t.test('没有 Alpine CSP 表达式错误', () => {
       const errors = app.warnings.filter(
         (line) => line.includes('unable to interpret'),

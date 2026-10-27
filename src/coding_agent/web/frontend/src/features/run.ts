@@ -36,6 +36,8 @@ export const runMixin = {
       this.toastMessage(String(e));
       return;
     }
+    // 输入已经交给本次运行，占位草稿不再需要。
+    this.clearDraftFor('');
     // ensureSession 可能新建并切换视图，之后再绑定本次流。
     await this.sendToView(this.activeView, text, appendUser);
   },
@@ -48,6 +50,7 @@ export const runMixin = {
       return;
     }
     view.prompt = '';
+    this.clearDraftFor(view.threadId);
     if (appendUser) {
       this.withView(view, () => this.pushMessage('user', prompt));
     }
@@ -230,7 +233,7 @@ export const runMixin = {
     view.busy = false;
     if (view.stateText === '运行中…') view.stateText = '就绪';
     view.canReconnect = false;
-    await this.loadSessions();
+    await this.loadSessions(true);
   },
 
   failRun(err, view = this.activeView) {

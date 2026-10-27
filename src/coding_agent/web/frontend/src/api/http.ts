@@ -6,6 +6,8 @@
 
 import { FRONTEND_VERSION } from '../version';
 import { apiUrl, currentRuntimeConfig } from '../runtime-config';
+import { responseCache } from './cache';
+import type { CacheOptions } from './cache';
 
 const TOKEN_KEY = 'codingagent.token';
 
@@ -16,7 +18,10 @@ export function getToken() {
 }
 
 export function setToken(value) {
-  accessToken = String(value || '');
+  const next = String(value || '');
+  // 切换身份时不能让上一个用户/登录态的 GET 缓存继续命中。
+  if (next !== accessToken) responseCache.clear();
+  accessToken = next;
   const mode = currentRuntimeConfig()?.authMode;
   if (mode === 'desktop-token') {
     if (accessToken) sessionStorage.setItem(TOKEN_KEY, accessToken);
@@ -77,6 +82,7 @@ export function authUrl(path: string) {
 }
 
 function notifyAuthFailure() {
+  responseCache.clear();
   window.dispatchEvent(new CustomEvent('codingagent:auth-required'));
 }
 
@@ -88,6 +94,7 @@ export function restoreDesktopToken() {
 }
 
 export function clearStoredToken() {
+  responseCache.clear();
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
@@ -241,4 +248,29 @@ export async function readJson(response, fallbackMessage) {
     });
   }
   return response.json();
+}
+
+export async function cachedJson<T = any>(
+  url: string,
+  fallbackMessage: string,
+  options: CacheOptions = {},
+): Promise<T> {
+  return responseCache.run(
+    String(url),
+    async () => {
+      const response = await authFetch(url, {
+        headers: { Accept: 'application/json' },
+      });
+      return readJson(response, fallbackMessage) as Promise<T>;
+    },
+    options,
+  );
+}
+
+export function invalidateGet(prefix = ''): void {
+  responseCache.invalidate(prefix);
+}
+
+export function clearGetCache(): void {
+  responseCache.clear();
 }

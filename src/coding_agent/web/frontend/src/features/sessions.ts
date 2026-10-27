@@ -2,8 +2,11 @@
 
 import {
   authFetch,
+  cachedJson,
+  invalidateGet,
   readJson,
 } from '../api/http';
+import { clearDraft, draftText, saveDraft } from '../state/drafts';
 import {
   renderMarkdown,
 } from '../ui/format';
@@ -140,13 +143,14 @@ export const sessionsMixin = {
     return row;
   },
 
-  async loadSessions() {
+  async loadSessions(force = false) {
     this.sessionsLoading = true;
     try {
-      const response = await authFetch(
+      const data = await cachedJson(
         '/api/sessions?limit=50&include_archived=true',
+        '无法读取会话',
+        { ttlMs: 1500, force },
       );
-      const data = await readJson(response, '无法读取会话');
       const rows = (data.sessions || []).map((item) => (
         this.decorateSession({
           ...item,
@@ -192,6 +196,7 @@ export const sessionsMixin = {
       if (!loaded) this.splitError = '读取分屏会话失败';
     }
     this.splitLoading = false;
+    this.syncUrlState();
   },
 
   refreshSplit() {
@@ -229,6 +234,7 @@ export const sessionsMixin = {
     this.splitInput = '';
     this.splitError = '';
     this.splitLoading = false;
+    this.syncUrlState();
   },
 
   openSplitInMain() {
@@ -279,6 +285,7 @@ export const sessionsMixin = {
         }
         this.decorateSession(row);
       }
+      invalidateGet('/api/sessions');
       this.filterSessions();
       return data;
     } catch (err) {
@@ -397,7 +404,8 @@ export const sessionsMixin = {
     }
     this.sessionBatchBusy = false;
     this.sessionSelected = {};
-    await this.loadSessions();
+    invalidateGet('/api/sessions');
+    await this.loadSessions(true);
     this.toastMessage(
       failed
         ? `已完成 ${ok} 个，失败 ${failed} 个`
@@ -510,8 +518,17 @@ export const sessionsMixin = {
     this.provider = data.provider || '';
     this.capabilities = data.capabilities || this.capabilities;
     this.resetConversation();
+    // 新会话输入框里的内容在创建前挂在 __new__ 下，绑定 thread_id 后迁移。
+    const pendingDraft = draftText('');
+    if (pendingDraft) {
+      saveDraft(data.thread_id, pendingDraft);
+      clearDraft('');
+    }
+    this.restoreDraft(data.thread_id);
+    invalidateGet('/api/sessions');
+    await this.loadSessions(true);
+    this.syncUrlState();
     this.toastMessage(`会话已创建：${data.thread_id}`);
-    await this.loadSessions();
     return data.thread_id;
   },
 
@@ -549,7 +566,8 @@ export const sessionsMixin = {
         },
       );
       await readJson(response, '重命名失败');
-      await this.loadSessions();
+      invalidateGet('/api/sessions');
+      await this.loadSessions(true);
     } catch (err) {
       this.toastMessage(String(err));
     }
@@ -565,13 +583,17 @@ export const sessionsMixin = {
       await readJson(response, '删除失败');
       const wasActive = this.threadId === id;
       const wasSplit = this.splitSessionId === id;
+      this.clearDraftFor(id);
       this.disposeSessionView(id);
       if (wasSplit) this.closeSplit();
       if (wasActive) {
         this._boundProjectId = '';
         this.resetConversation();
+        this.restoreDraft('');
       }
-      await this.loadSessions();
+      invalidateGet('/api/sessions');
+      await this.loadSessions(true);
+      this.syncUrlState();
       this.toastMessage('会话已删除');
     } catch (err) {
       this.toastMessage(String(err));
@@ -605,7 +627,9 @@ export const sessionsMixin = {
     this.activateSessionView('', true);
     this._boundProjectId = '';
     this.resetConversation();
-    await this.loadSessions();
+    this.restoreDraft('');
+    await this.loadSessions(true);
+    this.syncUrlState();
     this.toastMessage('已切换到新会话');
   },
 
@@ -761,7 +785,8 @@ export const sessionsMixin = {
     this.$nextTick(() => this.recomputeVirtualRange());
     await this.loadUploads();
     await this.loadApprovals();
-    await this.loadSessions();
+    await this.loadSessions(true);
+    this.syncUrlState();
   },
 
   async loadSessionHistory(view = this.activeView) {

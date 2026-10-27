@@ -2,6 +2,7 @@
 
 import {
   authFetch,
+  cachedJson,
   readJson,
 } from '../api/http';
 
@@ -32,8 +33,12 @@ export const systemMixin = {
     const query = this.threadId
       ? `?thread_id=${encodeURIComponent(this.threadId)}`
       : '';
-    const response = await authFetch(`/api/capabilities${query}`);
-    this.capabilities = await readJson(response, '无法读取能力');
+    // 只做 in-flight 去重：能力随会话/工作区变化，不做跨调用 TTL 缓存。
+    this.capabilities = await cachedJson(
+      `/api/capabilities${query}`,
+      '无法读取能力',
+      { ttlMs: 0 },
+    );
     const capabilitiesVersion = Number(this.capabilities.capabilities_version);
     if (Number.isFinite(capabilitiesVersion) && capabilitiesVersion > 0) {
       this.capabilitiesVersion = capabilitiesVersion;
@@ -56,11 +61,13 @@ export const systemMixin = {
     }
   },
 
-  async loadProviders() {
+  async loadProviders(force = false) {
     try {
-      const response = await authFetch('/api/providers');
-      if (!response.ok) return;
-      const data = await response.json();
+      const data = await cachedJson(
+        '/api/providers',
+        '读取 provider 失败',
+        { ttlMs: 30_000, force },
+      );
       this.providers = (data.providers || []).map((item) => ({
         ...item,
         _key: `${item.name}:${item.model}`,
@@ -87,7 +94,7 @@ export const systemMixin = {
       await readJson(response, '保存密钥失败');
       this.providerKeyInput = '';
       this.toastMessage('密钥已保存到系统密钥环');
-      await this.loadProviders();
+      await this.loadProviders(true);
       await this.refreshHealth();
     } catch (err) {
       this.toastMessage(String(err));
@@ -120,7 +127,7 @@ export const systemMixin = {
       );
       await readJson(response, '删除密钥失败');
       this.toastMessage('密钥已删除');
-      await this.loadProviders();
+      await this.loadProviders(true);
     } catch (err) {
       this.toastMessage(String(err));
     }

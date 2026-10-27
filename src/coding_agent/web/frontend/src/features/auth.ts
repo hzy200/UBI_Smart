@@ -3,6 +3,7 @@
 import {
   applyAuthHeaders,
   authUrl,
+  clearGetCache,
   clearStoredToken,
   getToken,
   restoreDesktopToken,
@@ -87,7 +88,9 @@ export const authMixin = {
       // 服务端注销失败也要清掉本地凭证，避免界面继续显示已登录。
     }
     setToken('');
+    clearGetCache();
     this.tokenInput = '';
+    this.clearAllDrafts();
     this.resetSessionViews();
     this._boundProjectId = '';
     this.resetConversation();

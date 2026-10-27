@@ -1,4 +1,5 @@
 import './diff.test';
+import './drafts.test';
 import './file-icons.test';
 import './focus.test';
 import './git.test';
@@ -6,8 +7,10 @@ import './markdown.test';
 import './memo.test';
 import './output.test';
 import './problems.test';
+import './request-cache.test';
 import './search.test';
 import './sessions.test';
 import './settings.test';
 import './theme.test';
+import './url-state.test';
 import './virtual.test';

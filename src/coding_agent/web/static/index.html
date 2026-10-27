@@ -775,7 +775,7 @@
     </button>
 
     <div class="composer" @dragover.prevent @drop.prevent="dropFiles">
-      <textarea x-model="prompt" @keydown="onEnter"
+      <textarea :value="prompt" @keydown="onEnter" @input="onPromptInput"
                 @compositionstart="onCompositionStart"
                 @compositionend="onCompositionEnd"
                 aria-label="任务输入"
@@ -846,7 +846,8 @@
         <div class="empty" x-show="splitEmpty">这个会话还没有消息</div>
       </div>
       <div class="split-composer">
-        <textarea x-model="splitInput" @keydown.enter.prevent="sendSplit"
+        <textarea :value="splitInput" @keydown.enter.prevent="sendSplit"
+                  @input="onSplitInput"
                   placeholder="在该会话中发送任务，Enter 发送"
                   aria-label="分屏输入"></textarea>
         <button @click="sendSplit" :disabled="splitSendDisabled">发送</button>

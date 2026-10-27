@@ -20,7 +20,7 @@ export const errorsMixin = {
     const payload = this._errorRetryPayload;
     this.dismissError();
     if (kind === 'sessions') {
-      void this.loadSessions();
+      void this.loadSessions(true);
       return;
     }
     if (kind === 'tree') {

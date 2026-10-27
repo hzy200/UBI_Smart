@@ -2,14 +2,19 @@
 
 import {
   authFetch,
+  cachedJson,
+  invalidateGet,
   readJson,
 } from '../api/http';
 
 export const providersMixin = {
-  async loadProfiles() {
+  async loadProfiles(force = false) {
     try {
-      const response = await authFetch('/api/provider-profiles');
-      const data = await readJson(response, '读取 provider 档案失败');
+      const data = await cachedJson(
+        '/api/provider-profiles',
+        '读取 provider 档案失败',
+        { ttlMs: 30_000, force },
+      );
       this.profiles = data.profiles || [];
       this.profilesEnabled = Boolean(data.profiles_enabled);
     } catch (err) {
@@ -35,7 +40,8 @@ export const providersMixin = {
       });
       const data = await readJson(response, '保存 provider 失败');
       this.profiles = data.profiles || [];
-      await this.loadProviders();
+      invalidateGet('/api/provider-profiles');
+      await this.loadProviders(true);
       this.toastMessage(`provider ${payload.name} 已保存；请设置密钥`);
     } catch (err) {
       this.toastMessage(String(err));
@@ -51,7 +57,8 @@ export const providersMixin = {
       );
       const data = await readJson(response, '删除 provider 失败');
       this.profiles = data.profiles || [];
-      await this.loadProviders();
+      invalidateGet('/api/provider-profiles');
+      await this.loadProviders(true);
     } catch (err) {
       this.toastMessage(String(err));
     }

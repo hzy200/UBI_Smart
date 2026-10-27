@@ -71,6 +71,8 @@ export const bootMixin = {
     window.addEventListener('codingagent:auth-required', () => {
       this.handleAuthFailure();
     });
+    // 离开页面前把 debounce 中的草稿落盘。
+    window.addEventListener('pagehide', () => this.flushDraft());
     void this.bootstrap();
   },
 
@@ -174,6 +176,12 @@ export const bootMixin = {
       this.loadProfiles(),
     ]);
     this.ready = true;
+    // 链接里的 session/split 优先于空白新会话；失败不能阻塞启动。
+    try {
+      await this.applyUrlState();
+    } catch (err) {
+      this.toastMessage(`深链恢复失败：${err}`);
+    }
     this.startConsentPolling();
     void this.refreshHealth().catch((err) => {
       this.healthText = `状态读取失败：${err}`;

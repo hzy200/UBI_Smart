@@ -29,6 +29,8 @@ import { layoutMixin } from './features/layout';
 import { notificationsMixin } from './features/notifications';
 import { cspMixin } from './features/csp';
 import { sessionViewMixin } from './features/session-view';
+import { draftsMixin } from './features/drafts';
+import { urlStateMixin } from './features/url-state';
 import { createSessionView } from './state/session-view';
 
 const agentApp = () => {
@@ -230,6 +232,8 @@ const agentApp = () => {
     bootMixin,
     authMixin,
     sessionViewMixin,
+    draftsMixin,
+    urlStateMixin,
     settingsMixin,
     workspaceMixin,
     view_modelMixin,

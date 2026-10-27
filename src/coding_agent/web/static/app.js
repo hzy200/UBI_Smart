@@ -254,6 +254,52 @@
     return activeConfig;
   }
 
+  // src/api/cache.ts
+  var RequestCache = class {
+    constructor(now = () => Date.now()) {
+      this.now = now;
+      this.entries = /* @__PURE__ */ new Map();
+      this.inflight = /* @__PURE__ */ new Map();
+      this.generation = 0;
+    }
+    async run(key, loader, options = {}) {
+      const ttlMs = Math.max(0, Number(options.ttlMs || 0));
+      if (!options.force && ttlMs > 0) {
+        const hit = this.entries.get(key);
+        if (hit && this.now() - hit.at <= ttlMs) return hit.value;
+      }
+      const pending = options.force ? null : this.inflight.get(key);
+      if (pending) return pending;
+      const generation = this.generation;
+      let task;
+      task = (async () => {
+        const value = await loader();
+        if (ttlMs > 0 && generation === this.generation && this.inflight.get(key) === task) {
+          this.entries.set(key, { at: this.now(), value });
+        }
+        return value;
+      })();
+      this.inflight.set(key, task);
+      try {
+        return await task;
+      } finally {
+        if (this.inflight.get(key) === task) this.inflight.delete(key);
+      }
+    }
+    invalidate(prefix = "") {
+      this.generation += 1;
+      for (const key of Array.from(this.entries.keys())) {
+        if (!prefix || key.startsWith(prefix)) this.entries.delete(key);
+      }
+    }
+    clear() {
+      this.generation += 1;
+      this.entries.clear();
+      this.inflight.clear();
+    }
+  };
+  var responseCache = new RequestCache();
+
   // src/api/http.ts
   var TOKEN_KEY = "codingagent.token";
   var accessToken = "";
@@ -261,7 +307,9 @@
     return accessToken;
   }
   function setToken(value) {
-    accessToken = String(value || "");
+    const next = String(value || "");
+    if (next !== accessToken) responseCache.clear();
+    accessToken = next;
     const mode = currentRuntimeConfig()?.authMode;
     if (mode === "desktop-token") {
       if (accessToken) sessionStorage.setItem(TOKEN_KEY, accessToken);
@@ -312,6 +360,7 @@
     return new URL(path, document.baseURI).toString();
   }
   function notifyAuthFailure() {
+    responseCache.clear();
     window.dispatchEvent(new CustomEvent("codingagent:auth-required"));
   }
   function restoreDesktopToken() {
@@ -321,6 +370,7 @@
     setToken(accessToken);
   }
   function clearStoredToken() {
+    responseCache.clear();
     sessionStorage.removeItem(TOKEN_KEY);
   }
   function parseHashToken() {
@@ -444,6 +494,24 @@
     }
     return response.json();
   }
+  async function cachedJson(url, fallbackMessage, options = {}) {
+    return responseCache.run(
+      String(url),
+      async () => {
+        const response = await authFetch(url, {
+          headers: { Accept: "application/json" }
+        });
+        return readJson(response, fallbackMessage);
+      },
+      options
+    );
+  }
+  function invalidateGet(prefix = "") {
+    responseCache.invalidate(prefix);
+  }
+  function clearGetCache() {
+    responseCache.clear();
+  }
 
   // src/features/boot.ts
   function installDesktopBridgeGuard() {
@@ -494,6 +562,7 @@
       window.addEventListener("codingagent:auth-required", () => {
         this.handleAuthFailure();
       });
+      window.addEventListener("pagehide", () => this.flushDraft());
       void this.bootstrap();
     },
     async bootstrap() {
@@ -588,6 +657,11 @@
         this.loadProfiles()
       ]);
       this.ready = true;
+      try {
+        await this.applyUrlState();
+      } catch (err) {
+        this.toastMessage(`\u6DF1\u94FE\u6062\u590D\u5931\u8D25\uFF1A${err}`);
+      }
       this.startConsentPolling();
       void this.refreshHealth().catch((err) => {
         this.healthText = `\u72B6\u6001\u8BFB\u53D6\u5931\u8D25\uFF1A${err}`;
@@ -719,7 +793,9 @@
       } catch (err) {
       }
       setToken("");
+      clearGetCache();
       this.tokenInput = "";
+      this.clearAllDrafts();
       this.resetSessionViews();
       this._boundProjectId = "";
       this.resetConversation();
@@ -1614,7 +1690,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.showSettings = opening;
       if (opening) {
         this.probeProject();
-        this.loadProfiles();
+        this.loadProfiles(true);
         this.focusModal(".settings-modal");
       } else {
         this.$nextTick(() => this.restoreModalFocus());
@@ -1685,8 +1761,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     async loadCapabilities() {
       const query = this.threadId ? `?thread_id=${encodeURIComponent(this.threadId)}` : "";
-      const response = await authFetch(`/api/capabilities${query}`);
-      this.capabilities = await readJson(response, "\u65E0\u6CD5\u8BFB\u53D6\u80FD\u529B");
+      this.capabilities = await cachedJson(
+        `/api/capabilities${query}`,
+        "\u65E0\u6CD5\u8BFB\u53D6\u80FD\u529B",
+        { ttlMs: 0 }
+      );
       const capabilitiesVersion = Number(this.capabilities.capabilities_version);
       if (Number.isFinite(capabilitiesVersion) && capabilitiesVersion > 0) {
         this.capabilitiesVersion = capabilitiesVersion;
@@ -1703,11 +1782,13 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         await this.loadRevisions();
       }
     },
-    async loadProviders() {
+    async loadProviders(force = false) {
       try {
-        const response = await authFetch("/api/providers");
-        if (!response.ok) return;
-        const data = await response.json();
+        const data = await cachedJson(
+          "/api/providers",
+          "\u8BFB\u53D6 provider \u5931\u8D25",
+          { ttlMs: 3e4, force }
+        );
         this.providers = (data.providers || []).map((item) => ({
           ...item,
           _key: `${item.name}:${item.model}`,
@@ -1734,7 +1815,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         await readJson(response, "\u4FDD\u5B58\u5BC6\u94A5\u5931\u8D25");
         this.providerKeyInput = "";
         this.toastMessage("\u5BC6\u94A5\u5DF2\u4FDD\u5B58\u5230\u7CFB\u7EDF\u5BC6\u94A5\u73AF");
-        await this.loadProviders();
+        await this.loadProviders(true);
         await this.refreshHealth();
       } catch (err) {
         this.toastMessage(String(err));
@@ -1765,12 +1846,76 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         );
         await readJson(response, "\u5220\u9664\u5BC6\u94A5\u5931\u8D25");
         this.toastMessage("\u5BC6\u94A5\u5DF2\u5220\u9664");
-        await this.loadProviders();
+        await this.loadProviders(true);
       } catch (err) {
         this.toastMessage(String(err));
       }
     }
   };
+
+  // src/state/drafts.ts
+  var DRAFT_STORAGE_KEY = "codingagent.drafts";
+  var NEW_DRAFT_KEY = "__new__";
+  var MAX_DRAFTS = 50;
+  var MAX_DRAFT_CHARS = 2e4;
+  function draftKey(threadId) {
+    return String(threadId || "") || NEW_DRAFT_KEY;
+  }
+  function defaultStore() {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage : null;
+    } catch (err) {
+      return null;
+    }
+  }
+  function readDrafts(store = defaultStore()) {
+    if (!store) return {};
+    try {
+      const raw = store.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {};
+      }
+      const drafts = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === "string" && value) drafts[key] = value;
+      }
+      return drafts;
+    } catch (err) {
+      return {};
+    }
+  }
+  function draftText(threadId, store = defaultStore()) {
+    return readDrafts(store)[draftKey(threadId)] || "";
+  }
+  function saveDraft(threadId, text, store = defaultStore()) {
+    if (!store) return;
+    const drafts = readDrafts(store);
+    const key = draftKey(threadId);
+    const value = String(text || "");
+    if (!value.trim()) delete drafts[key];
+    else drafts[key] = value.slice(0, MAX_DRAFT_CHARS);
+    const keys = Object.keys(drafts);
+    for (const stale of keys.slice(0, Math.max(0, keys.length - MAX_DRAFTS))) {
+      delete drafts[stale];
+    }
+    try {
+      if (keys.length) store.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+      else store.removeItem(DRAFT_STORAGE_KEY);
+    } catch (err) {
+    }
+  }
+  function clearDraft(threadId, store = defaultStore()) {
+    saveDraft(threadId, "", store);
+  }
+  function clearAllDrafts(store = defaultStore()) {
+    if (!store) return;
+    try {
+      store.removeItem(DRAFT_STORAGE_KEY);
+    } catch (err) {
+    }
+  }
 
   // src/state/runtime.ts
   var toolMap = /* @__PURE__ */ new Map();
@@ -1914,13 +2059,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       row._cls = classes.join(" ");
       return row;
     },
-    async loadSessions() {
+    async loadSessions(force = false) {
       this.sessionsLoading = true;
       try {
-        const response = await authFetch(
-          "/api/sessions?limit=50&include_archived=true"
+        const data = await cachedJson(
+          "/api/sessions?limit=50&include_archived=true",
+          "\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD",
+          { ttlMs: 1500, force }
         );
-        const data = await readJson(response, "\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD");
         const rows = (data.sessions || []).map((item) => this.decorateSession({
           ...item,
           tags: Array.isArray(item.tags) ? item.tags : []
@@ -1963,6 +2109,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         if (!loaded) this.splitError = "\u8BFB\u53D6\u5206\u5C4F\u4F1A\u8BDD\u5931\u8D25";
       }
       this.splitLoading = false;
+      this.syncUrlState();
     },
     refreshSplit() {
       const view = this.splitView;
@@ -1997,6 +2144,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.splitInput = "";
       this.splitError = "";
       this.splitLoading = false;
+      this.syncUrlState();
     },
     openSplitInMain() {
       const id = this.splitSessionId;
@@ -2042,6 +2190,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           }
           this.decorateSession(row);
         }
+        invalidateGet("/api/sessions");
         this.filterSessions();
         return data;
       } catch (err) {
@@ -2135,7 +2284,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       }
       this.sessionBatchBusy = false;
       this.sessionSelected = {};
-      await this.loadSessions();
+      invalidateGet("/api/sessions");
+      await this.loadSessions(true);
       this.toastMessage(
         failed ? `\u5DF2\u5B8C\u6210 ${ok} \u4E2A\uFF0C\u5931\u8D25 ${failed} \u4E2A` : `\u5DF2\u5B8C\u6210 ${ok} \u4E2A\u4F1A\u8BDD`
       );
@@ -2231,8 +2381,16 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.provider = data.provider || "";
       this.capabilities = data.capabilities || this.capabilities;
       this.resetConversation();
+      const pendingDraft = draftText("");
+      if (pendingDraft) {
+        saveDraft(data.thread_id, pendingDraft);
+        clearDraft("");
+      }
+      this.restoreDraft(data.thread_id);
+      invalidateGet("/api/sessions");
+      await this.loadSessions(true);
+      this.syncUrlState();
       this.toastMessage(`\u4F1A\u8BDD\u5DF2\u521B\u5EFA\uFF1A${data.thread_id}`);
-      await this.loadSessions();
       return data.thread_id;
     },
     async switchModel() {
@@ -2268,7 +2426,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           }
         );
         await readJson(response, "\u91CD\u547D\u540D\u5931\u8D25");
-        await this.loadSessions();
+        invalidateGet("/api/sessions");
+        await this.loadSessions(true);
       } catch (err) {
         this.toastMessage(String(err));
       }
@@ -2283,13 +2442,17 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         await readJson(response, "\u5220\u9664\u5931\u8D25");
         const wasActive = this.threadId === id;
         const wasSplit = this.splitSessionId === id;
+        this.clearDraftFor(id);
         this.disposeSessionView(id);
         if (wasSplit) this.closeSplit();
         if (wasActive) {
           this._boundProjectId = "";
           this.resetConversation();
+          this.restoreDraft("");
         }
-        await this.loadSessions();
+        invalidateGet("/api/sessions");
+        await this.loadSessions(true);
+        this.syncUrlState();
         this.toastMessage("\u4F1A\u8BDD\u5DF2\u5220\u9664");
       } catch (err) {
         this.toastMessage(String(err));
@@ -2320,7 +2483,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.activateSessionView("", true);
       this._boundProjectId = "";
       this.resetConversation();
-      await this.loadSessions();
+      this.restoreDraft("");
+      await this.loadSessions(true);
+      this.syncUrlState();
       this.toastMessage("\u5DF2\u5207\u6362\u5230\u65B0\u4F1A\u8BDD");
     },
     resetSessionUi() {
@@ -2480,7 +2645,8 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       this.$nextTick(() => this.recomputeVirtualRange());
       await this.loadUploads();
       await this.loadApprovals();
-      await this.loadSessions();
+      await this.loadSessions(true);
+      this.syncUrlState();
     },
     async loadSessionHistory(view = this.activeView) {
       const id = view.threadId;
@@ -3264,6 +3430,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         this.toastMessage(String(e));
         return;
       }
+      this.clearDraftFor("");
       await this.sendToView(this.activeView, text, appendUser);
     },
     async sendToView(view, text, appendUser = true) {
@@ -3274,6 +3441,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         return;
       }
       view.prompt = "";
+      this.clearDraftFor(view.threadId);
       if (appendUser) {
         this.withView(view, () => this.pushMessage("user", prompt));
       }
@@ -3438,7 +3606,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       view.busy = false;
       if (view.stateText === "\u8FD0\u884C\u4E2D\u2026") view.stateText = "\u5C31\u7EEA";
       view.canReconnect = false;
-      await this.loadSessions();
+      await this.loadSessions(true);
     },
     failRun(err, view = this.activeView) {
       view.busy = false;
@@ -5478,10 +5646,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
 
   // src/features/providers.ts
   var providersMixin = {
-    async loadProfiles() {
+    async loadProfiles(force = false) {
       try {
-        const response = await authFetch("/api/provider-profiles");
-        const data = await readJson(response, "\u8BFB\u53D6 provider \u6863\u6848\u5931\u8D25");
+        const data = await cachedJson(
+          "/api/provider-profiles",
+          "\u8BFB\u53D6 provider \u6863\u6848\u5931\u8D25",
+          { ttlMs: 3e4, force }
+        );
         this.profiles = data.profiles || [];
         this.profilesEnabled = Boolean(data.profiles_enabled);
       } catch (err) {
@@ -5506,7 +5677,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         });
         const data = await readJson(response, "\u4FDD\u5B58 provider \u5931\u8D25");
         this.profiles = data.profiles || [];
-        await this.loadProviders();
+        invalidateGet("/api/provider-profiles");
+        await this.loadProviders(true);
         this.toastMessage(`provider ${payload.name} \u5DF2\u4FDD\u5B58\uFF1B\u8BF7\u8BBE\u7F6E\u5BC6\u94A5`);
       } catch (err) {
         this.toastMessage(String(err));
@@ -5521,7 +5693,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         );
         const data = await readJson(response, "\u5220\u9664 provider \u5931\u8D25");
         this.profiles = data.profiles || [];
-        await this.loadProviders();
+        invalidateGet("/api/provider-profiles");
+        await this.loadProviders(true);
       } catch (err) {
         this.toastMessage(String(err));
       }
@@ -5958,7 +6131,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       const payload = this._errorRetryPayload;
       this.dismissError();
       if (kind === "sessions") {
-        void this.loadSessions();
+        void this.loadSessions(true);
         return;
       }
       if (kind === "tree") {
@@ -7406,6 +7579,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     activateSessionView(threadId = "", fresh = false) {
       const view = this.ensureSessionView(threadId, fresh);
       this.activeView = view;
+      if (typeof this.restoreDraft === "function") {
+        this.restoreDraft(view.threadId);
+      }
       this.pruneSessionViews(String(threadId || ""));
       return view;
     },
@@ -7447,6 +7623,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.splitTitle = "";
       this.splitInput = "";
       this.splitError = "";
+      if (typeof this.syncUrlState === "function") this.syncUrlState();
     },
     pruneSessionViews(keepId = "") {
       const keys = Object.keys(this.sessionViews);
@@ -7494,6 +7671,146 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     });
   }
   var sessionViewMixin = mixin;
+
+  // src/features/drafts.ts
+  var DRAFT_DEBOUNCE_MS = 350;
+  var draftsMixin = {
+    _draftTimer: null,
+    _draftPending: null,
+    onPromptInput(event) {
+      const value = event && event.target && "value" in event.target ? String(event.target.value || "") : String(this.prompt || "");
+      if (this.prompt !== value) this.prompt = value;
+      this.saveDraftSoon(this.threadId, value);
+    },
+    onSplitInput(event) {
+      this.splitInput = event && event.target && "value" in event.target ? String(event.target.value || "") : String(this.splitInput || "");
+    },
+    saveDraftSoon(threadId, text) {
+      this._draftPending = {
+        threadId: String(threadId || ""),
+        value: String(text || "")
+      };
+      if (this._draftTimer) clearTimeout(this._draftTimer);
+      this._draftTimer = setTimeout(() => {
+        this._draftTimer = null;
+        const pending = this._draftPending;
+        this._draftPending = null;
+        if (pending) saveDraft(pending.threadId, pending.value);
+      }, DRAFT_DEBOUNCE_MS);
+    },
+    flushDraft(threadId = this.threadId) {
+      if (this._draftTimer) {
+        clearTimeout(this._draftTimer);
+        this._draftTimer = null;
+      }
+      const pending = this._draftPending;
+      this._draftPending = null;
+      if (pending) saveDraft(pending.threadId, pending.value);
+      else if (this.prompt) saveDraft(threadId, this.prompt);
+    },
+    restoreDraft(threadId = this.threadId) {
+      if (this.prompt) return;
+      this.prompt = draftText(threadId);
+    },
+    clearDraftFor(threadId) {
+      const key = String(threadId || "");
+      if (this._draftPending && this._draftPending.threadId === key) {
+        this._draftPending = null;
+        if (this._draftTimer) clearTimeout(this._draftTimer);
+        this._draftTimer = null;
+      }
+      clearDraft(key);
+    },
+    clearAllDrafts() {
+      if (this._draftTimer) {
+        clearTimeout(this._draftTimer);
+        this._draftTimer = null;
+      }
+      this._draftPending = null;
+      clearAllDrafts();
+    }
+  };
+
+  // src/ui/url-state.ts
+  var SESSION_PARAM = "session";
+  var SPLIT_PARAM = "split";
+  function parseSessionUrl(search) {
+    const params = new URLSearchParams(String(search || ""));
+    return {
+      session: String(params.get(SESSION_PARAM) || "").trim(),
+      split: String(params.get(SPLIT_PARAM) || "").trim()
+    };
+  }
+  function buildSessionUrl(pathname, search, state) {
+    const params = new URLSearchParams(String(search || ""));
+    const session = String(state.session || "").trim();
+    const split = String(state.split || "").trim();
+    setParam(params, SESSION_PARAM, session);
+    setParam(params, SPLIT_PARAM, split && split !== session ? split : "");
+    const query = params.toString();
+    return `${pathname || "/"}${query ? `?${query}` : ""}`;
+  }
+  function setParam(params, key, value) {
+    if (value) params.set(key, value);
+    else params.delete(key);
+  }
+
+  // src/features/url-state.ts
+  function currentUrl() {
+    return `${window.location.pathname}${window.location.search}${window.location.hash || ""}`;
+  }
+  var urlStateMixin = {
+    syncUrlState() {
+      if (typeof window === "undefined" || !window.history?.replaceState) return;
+      const split = this.splitOpen ? this.splitSessionId || "" : "";
+      const nextPath = buildSessionUrl(
+        window.location.pathname,
+        window.location.search,
+        { session: this.threadId || "", split }
+      );
+      const next = `${nextPath}${window.location.hash || ""}`;
+      if (next === currentUrl()) return;
+      try {
+        window.history.replaceState(null, "", next);
+      } catch (err) {
+      }
+    },
+    dropUrlParam(name) {
+      if (typeof window === "undefined" || !window.history?.replaceState) return;
+      const params = new URLSearchParams(window.location.search);
+      params.delete(name);
+      const query = params.toString();
+      const next = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash || ""}`;
+      try {
+        window.history.replaceState(null, "", next);
+      } catch (err) {
+      }
+    },
+    async applyUrlState() {
+      if (typeof window === "undefined") return;
+      const state = parseSessionUrl(window.location.search);
+      const known = (id) => this.sessions.some((row) => row.thread_id === id);
+      if (state.session) {
+        if (known(state.session)) {
+          await this.openSession(state.session);
+        } else {
+          this.dropUrlParam("session");
+          this.toastMessage("\u94FE\u63A5\u4E2D\u7684\u4F1A\u8BDD\u4E0D\u5B58\u5728\u6216\u5DF2\u5220\u9664");
+        }
+      }
+      if (state.split && state.split !== this.threadId) {
+        if (known(state.split)) {
+          await this.openSplitSession(state.split);
+        } else {
+          this.dropUrlParam("split");
+        }
+      } else if (state.split) {
+        this.dropUrlParam("split");
+      }
+      if (!this.threadId) this.restoreDraft("");
+      this.syncUrlState();
+    }
+  };
 
   // src/app.ts
   var agentApp = () => {
@@ -7707,6 +8024,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       bootMixin,
       authMixin,
       sessionViewMixin,
+      draftsMixin,
+      urlStateMixin,
       settingsMixin,
       workspaceMixin,
       view_modelMixin,
