@@ -253,6 +253,76 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       await waitFor(() => pane.style.display === 'none', '分屏关闭');
     });
 
+    await t.test('分屏内可直接处理审批，无需切回主区', async () => {
+      data.openSplitSession('thread-dom-other');
+      await waitFor(
+        () => data.splitOpen && data.splitLoading === false,
+        '分屏加载',
+      );
+      data.focusPaneSplit();
+      const pane = document.querySelector('.split-pane') as HTMLElement;
+
+      data.applyEvent(data.splitView, {
+        type: 'approval_requested',
+        request_id: 'split-req-1',
+        tool: 'file_write',
+        command: 'acceptance.txt',
+        level: '写',
+        reason: '需要人工确认',
+      });
+      await waitFor(
+        () => {
+          const card = pane.querySelector('.split-approval') as HTMLElement | null;
+          return Boolean(card && card.style.display !== 'none');
+        },
+        '分屏审批卡',
+      );
+      assert.equal(data.splitView.approvals.length, 1);
+      assert.equal(data.splitView.approval.request_id, 'split-req-1');
+      assert.equal(data.activeView.approvals.length, 0);
+      const modal = document.querySelector(
+        '.modal[aria-labelledby="approval-title"]',
+      ) as HTMLElement;
+      assert.equal(modal.style.display, 'none');
+      // 后台/分屏审批不得把键盘焦点抢到主区模态。
+      assert.equal(
+        Boolean((document.activeElement as HTMLElement | null)?.closest('.approval-modal')),
+        false,
+      );
+
+      const approve = pane.querySelector(
+        '.split-approval .primary',
+      ) as HTMLElement;
+      approve.click();
+      await waitFor(
+        () => data.splitView.approvals.length === 0
+          && data.splitView.approval === null
+          && data.splitView.busy === false,
+        '分屏批准后继续运行',
+      );
+
+      for (const [index, requestId] of ['split-req-2', 'split-req-3'].entries()) {
+        data.applyEvent(data.splitView, {
+          type: 'approval_requested',
+          request_id: requestId,
+          tool: 'run_shell',
+          command: index === 0 ? 'ls' : 'cat a.txt',
+          level: '写',
+        });
+      }
+      await waitFor(() => data.splitView.approvals.length === 2, '分屏两条审批');
+      const rejectAll = Array.from(
+        pane.querySelectorAll('.split-approval button'),
+      ).find((button) => button.textContent?.includes('全部拒绝')) as HTMLElement;
+      rejectAll.click();
+      await waitFor(
+        () => data.splitView.approvals.length === 0
+          && data.splitView.busy === false,
+        '分屏全部拒绝后继续运行',
+      );
+      data.closeSplit();
+    });
+
     await t.test('Problems 按文件与来源聚合并可折叠', async () => {
       data.problems = [];
       data.problemExpanded = {};

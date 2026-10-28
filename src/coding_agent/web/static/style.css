@@ -690,6 +690,26 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   overflow: auto; padding: 10px;
   display: flex; flex-direction: column; gap: 10px;
 }
+.split-approval {
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: var(--warn-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  display: flex; flex-direction: column; gap: 6px;
+  flex: 0 0 auto;
+}
+.split-approval-head {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.split-approval pre {
+  margin: 0; padding: 8px;
+  background: var(--bg); border-radius: var(--radius-sm);
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto;
+  font-family: var(--mono); font-size: var(--code-size);
+}
+.split-approval .approval-actions {
+  justify-content: flex-start; flex-wrap: wrap;
+}
 .split-msg { border-left: 2px solid var(--border); padding-left: 8px; }
 .split-msg.split-user { border-left-color: var(--accent); }
 .split-msg-label { font-size: 10px; color: var(--muted); margin-bottom: 2px; text-transform: uppercase; }

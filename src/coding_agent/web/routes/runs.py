@@ -572,6 +572,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         key, runtime = await deps.runtime_for_resume(user, public_thread)
         deps.stream_guard(key, require_suspended=True)
         tenant = deps.tenant(user)
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
+        )
         internal = tenant.thread_id(public_thread)
         if runtime.is_paused(internal):
             raise HTTPException(
@@ -651,6 +654,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         key, runtime = await deps.runtime_for_resume(user, public_thread)
         deps.stream_guard(key)
         tenant = deps.tenant(user)
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
+        )
         internal = tenant.thread_id(public_thread)
         if not runtime.is_paused(internal):
             raise HTTPException(

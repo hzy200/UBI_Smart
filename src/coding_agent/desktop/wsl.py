@@ -8,6 +8,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from coding_agent.paths import strip_wsl_scheme
+
 _WIN_DRIVE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
 # 刚 import 完或 WSL 服务刚唤醒时，wsl.exe 可能返回 0xC0000142
 # （DLL 初始化失败）。等待片刻重试即可。
@@ -136,7 +138,9 @@ def ensure_dir(distro: str, path: str) -> None:
 
 def to_wsl_path(path: str) -> str:
     """Windows 路径 → WSL 路径；已是 POSIX 路径则原样返回。"""
-    text = str(path or "").strip().strip('"')
+    # Git Bash / MSYS 会把以 `/` 开头的参数改写成 Windows 路径；`wsl:` 前缀
+    # 是文档约定的绕行方式，这里必须先去掉前缀再判断。
+    text = strip_wsl_scheme(str(path or "").strip().strip('"'))
     if not text:
         return ""
     if text.startswith("\\\\wsl$\\") or text.startswith("//wsl$/"):

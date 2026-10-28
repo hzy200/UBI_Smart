@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -83,6 +84,29 @@ def main() -> int:
         shutil.copy2(rootfs, target / "CodingAgent-rootfs.tar")
     else:
         print("警告：未找到 packaging/wsl/CodingAgent-rootfs.tar")
+
+    # A2 控制面必须是随包可执行的 onedir；否则打包后的 launcher 只能回退到
+    # `CodingAgent.exe -m coding_agent.control_server`（GUI 入口不认识 -m）。
+    print("构建并合并 A2 控制面")
+    build = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "build_services.py"),
+            "--target",
+            "control",
+        ],
+        check=False,
+    )
+    if build.returncode != 0:
+        print("A2 控制面构建失败")
+        return build.returncode or 1
+    control_src = ROOT / "dist" / "CodingAgentControl"
+    control_dst = out / "control"
+    if control_dst.exists():
+        shutil.rmtree(control_dst)
+    shutil.copytree(control_src, control_dst)
+    print(f"已合并控制面：{control_dst}")
+
     print(f"产物：{out / 'CodingAgent.exe'}")
     return 0
 

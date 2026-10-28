@@ -19,6 +19,9 @@ def test_to_wsl_path_handles_windows_and_posix() -> None:
         to_wsl_path(r"\\wsl$\Ubuntu\home\me\proj")
         == "/home/me/proj"
     )
+    # Git Bash 路径转换的绕行前缀。
+    assert to_wsl_path("wsl:/home/me/proj") == "/home/me/proj"
+    assert to_wsl_path("wsl://home/me/proj") == "/home/me/proj"
 
 
 def test_build_agent_command_uses_stdin_token_and_port(monkeypatch) -> None:

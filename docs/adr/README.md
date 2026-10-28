@@ -4,7 +4,7 @@ doc_id: adr-index
 title: 架构决策记录索引
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-28
 review_cadence: 每次新增决策时
 ---
 
@@ -48,6 +48,7 @@ review_cadence: 每次新增决策时
 | [0019](0019-per-session-frontend-views.md) | 前端按会话隔离 SessionView 与 SSE，支持后台流与实时分屏 | accepted | 架构 · 前端 · 状态 · SSE |
 | [0020](0020-frontend-release-artifact.md) | 前端发布产物与版本解耦 | accepted | 架构 · 部署 · 前端 |
 | [0021](0021-enterprise-mysql-account-store.md) | 企业账号、额度与上游 Key 统一存 MySQL | accepted | 架构 · 数据库 · 安全 |
+| [0022](0022-collaboration-boundary-and-substrate.md) | 协作开发止步于 sandbox 侧，host 侧只用 Git 交换代码 | proposed | 安全 · 协作 · 工作区 |
 
 ## 待补录候选
 

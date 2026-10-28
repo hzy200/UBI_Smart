@@ -4,7 +4,7 @@ doc_id: threat-model
 title: 威胁模型
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-28
 review_cadence: 安全相关代码变动时（sandbox/ · approve.py · 审批语义 · 路径守卫 · 认证 · 跨域 · 桌面桥）
 ---
 
@@ -417,6 +417,39 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
 - **答辩建议**：把 T1/T2/T3/T4 的边界讲清楚——"默认 T1；公网模式强制 T2 基线，
   生产只读用 production profile，客户端执行域是 T4 且默认关闭"，比含糊地说
   "很安全"更站得住。
+
+### 6.1 高风险安全项的边界声明（TD-011 / TD-013）
+
+> 本节是 TD-011 与 TD-013 的**唯一对外口径**。README、答辩材料、发行说明与 UI
+> 只能使用“可宣称”列；出现“不可宣称”或“禁止措辞”列的内容即视为安全表述缺陷。
+
+#### TD-011　Windows host 执行后端不是 T2
+
+**一句话**：host 后端是“T1 + 部分 OS 级 ZX”，不是 bwrap 等价的内核隔离；
+不可信仓库必须留在 `sandbox`。
+
+| 维度 | 边界 |
+|---|---|
+| 可宣称 | 默认关闭；写需本地 grant，写前在工作区外留快照，`expected_sha256` 冲突检测，同一 `op_id` 不重放；`host.exec` 只接受**已注册 toolchain 的 argv**、不经 shell、只在 AppContainer 内运行、默认不授予网络能力、只对 `output_roots` 可写；`host.install` 永不自动执行；`untrusted` profile 禁用 host 工作区与 `host_exec` |
+| 不可宣称 | 与 bwrap 等价的文件系统/网络/进程隔离；内核级隔离或 syscall 过滤；对已注册 toolchain、编译器、构建脚本自身的防护；对孙进程的硬超时；对宿主管理员、被攻陷客户端或提示注入的防护；lowpriv/ACL 与设备注册的全自动部署 |
+| 硬边界 | toolchain root 需整树授 `RX`，**编译器/构建脚本本身就是任意代码执行**；依赖 `.git` hooks、Makefile、安装器时，授权执行即等于授权代码 |
+| 启用前置 | 只对**可信本机仓库**启用；企业启用需 `DEVICE_POLICY=enforce` + 签名策略 + TLS；先完成 lowpriv/ACL 部署与 `agent doctor` 隔离项验收；不可信仓库一律 `sandbox` |
+| 证据 | `tests/unit/test_host_broker_write.py`、`test_host_broker_exec.py`、`test_host_policy.py`、`test_host_paths.py`；`tests/integration/test_host_broker_readonly.py`（`-m host`）；`agent doctor` 的 host 隔离项 |
+| 禁止措辞 | “T2”“内核级隔离”“沙箱隔离”“绝对禁止”（策略 glob 是 T1 约束，不是绝对边界） |
+
+#### TD-013　A2L 的横向风险不能归零
+
+**一句话**：A2L 是 T4 客户端执行域，**服务端失陷是跨所有在线客户端的横向风险**；
+当前措施只降低风险，不提供“零横向风险”保证，默认关闭。
+
+| 维度 | 边界 |
+|---|---|
+| 可宣称 | A2L 只主动外连、不开入站；mTLS/设备指纹；hello nonce；本地设备台账、注册/吊销与断线；固定公钥验签运行策略；连接 nonce 的 TPM 背书密钥或软件 Ed25519 证明；服务端请求不等于授权，本地 grant/ZX 是最终闸门；grant scope/verbs/TTL 不落服务端；grant one-shot/限流/断线撤销；`untrusted` 禁用 host；离线降级 `sandbox`；本地审计链 |
+| 不可宣称 | PCR quote / 远程启动度量；对“设备未被攻陷”的远程证明；CSR 或自动证书签发；控制面 MySQL 设备表；红队演练结论；对已被攻陷客户端、宿主管理员或用户误点“同意”的防护；对服务端社工诱导的防护 |
+| 硬边界 | 软件证明只证明密钥持有；服务端仍可在用户不仔细看时诱导同意；A2L 在整个客户端会话期间在线，攻击窗口等于客户端会话；构建/安装仍是供应链代码执行 |
+| 启用前置 | 企业批量启用前：`DEVICE_POLICY=enforce` + 签名策略 + TLS + 设备台账预登记；完成吊销演练与红队；不可信仓库禁用 host 后端 |
+| 证据 | `tests/unit/test_host_broker_tls.py`、`test_host_broker_channel.py`、`test_host_devices.py`、`test_host_attestation.py`、`test_host_policy_doc.py`；`tests/integration/test_host_broker_readonly.py`（`-m host`） |
+| 禁止措辞 | “远程证明”“设备可信”“服务端授权即可执行”“零横向风险”“服务端静默自动更新” |
 
 ## 7. 维护
 

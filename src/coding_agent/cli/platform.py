@@ -25,8 +25,22 @@ class SandboxProbe:
     def available(distro: str) -> bool:
         return WslSandbox.available(distro)
 
-    def run(self, command: str) -> Any:
-        return self._sandbox.run(command)
+    @property
+    def settings(self) -> Settings:
+        return self._sandbox.settings
+
+    @settings.setter
+    def settings(self, value: Settings) -> None:
+        self._sandbox.settings = value
+
+    def health(self, *, force: bool = False) -> bool:
+        return self._sandbox.health(force=force)
+
+    def circuit_state(self) -> str:
+        return self._sandbox.circuit_state()
+
+    def run(self, command: str, *, cwd: str | None = None) -> Any:
+        return self._sandbox.run(command, cwd=cwd)
 
 
 def resolve_workspace(settings: Settings, probe: SandboxProbe) -> str:

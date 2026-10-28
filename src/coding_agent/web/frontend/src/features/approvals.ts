@@ -10,7 +10,7 @@ export const approvalsMixin = {
     view.approvalPosition = view.approvals.length > 1
       ? this.t('approval.remaining', { count: view.approvals.length })
       : '';
-    if (view === this.activeView && view.approval) {
+    if (view === this.activeView && !this._isBackgroundApply && view.approval) {
       // 首次打开才记录返回焦点；后续审批只移动焦点，避免把返回目标
       // 记成即将被移除的按钮。用真实可见性判断，避免旧的 approval
       // 状态让首次打开被误判为“已打开”。
@@ -22,9 +22,8 @@ export const approvalsMixin = {
     }
   },
 
-  async decide(granted) {
-    const view = this.activeView;
-    if (!view.approval) return;
+  async decideFor(view, granted) {
+    if (!view || !view.approval) return;
     view.decisions[view.approval.request_id] = !!granted;
     view.approvals.shift();
     if (view.approvals.length) {
@@ -34,13 +33,29 @@ export const approvalsMixin = {
     await this.resumeApprovals(view);
   },
 
-  async decideAll(granted) {
-    const view = this.activeView;
+  async decide(granted) {
+    await this.decideFor(this.activeView, granted);
+  },
+
+  async decideAllFor(view, granted) {
+    if (!view || !view.approvals.length) return;
     for (const item of view.approvals) {
       view.decisions[item.request_id] = !!granted;
     }
     view.approvals = [];
     await this.resumeApprovals(view);
+  },
+
+  async decideAll(granted) {
+    await this.decideAllFor(this.activeView, granted);
+  },
+
+  async decideSplit(granted) {
+    await this.decideFor(this.splitView, granted);
+  },
+
+  async decideAllSplit(granted) {
+    await this.decideAllFor(this.splitView, granted);
   },
 
   async resumeApprovals(view = this.activeView) {

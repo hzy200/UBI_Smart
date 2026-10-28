@@ -1,6 +1,6 @@
 """CNY quotas, multi-instance reservations and auth events
 
-Revision ID: 0011_cny_reservations_auth_events
+Revision ID: 0011_cny_reservations
 Revises: 0010_accounts_usage_quota
 Create Date: 2026-10-28
 
@@ -15,7 +15,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0011_cny_reservations_auth_events"
+# revision id 必须 <= 32 字符：alembic 的 version_num 在 MySQL 上是 VARCHAR(32)。
+revision = "0011_cny_reservations"
 down_revision = "0010_accounts_usage_quota"
 branch_labels = None
 depends_on = None

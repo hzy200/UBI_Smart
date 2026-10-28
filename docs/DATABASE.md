@@ -80,7 +80,7 @@ python -m coding_agent.control.migrate
 ```
 
 迁移条目在 `src/coding_agent/control/migrations/versions/`，当前 head 为
-`0011_cny_reservations_auth_events`。`0011` 对在线库是幂等的：新库已由
+`0011_cny_reservations`。`0011` 对在线库是幂等的：新库已由
 `0010` 建出最终结构，旧 `0010` 库会补上人民币额度列、认证事件表、
 多实例预留表以及带 user 的用量游标；离线 `--sql` 只更新版本标记。
 

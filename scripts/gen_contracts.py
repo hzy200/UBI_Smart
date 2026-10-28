@@ -208,7 +208,8 @@ def render_events(events: list[dict[str, Any]]) -> tuple[str, str]:
         "事实源：`src/coding_agent/events.py`（pydantic 模型）。",
         "机器可读版本：[`events.json`](events.json)。",
         "",
-        "前端（CLI / TUI / Web / Desktop GUI）**只**消费这里的事件，不导入 `tools/` 与 `sandbox/`。",
+        "前端（CLI / TUI / Web / Desktop GUI）**只**消费这里的事件，"
+        "不导入 `tools/` 与 `sandbox/`。",
         "这条边界由 `tests/unit/test_architecture.py` 用 AST 扫描守住。",
         "",
         f"共 **{len(events)}** 个事件类型。",
@@ -226,7 +227,11 @@ def render_events(events: list[dict[str, Any]]) -> tuple[str, str]:
             md.append("| 字段 | 类型 | 默认值 | 说明 |")
             md.append("|---|---|---|---|")
             for f in ev["fields"]:
-                default = "" if f["default"] is None else f"`{json.dumps(f['default'], ensure_ascii=False)}`"
+                default = (
+                    ""
+                    if f["default"] is None
+                    else f"`{json.dumps(f['default'], ensure_ascii=False)}`"
+                )
                 md.append(
                     f"| `{f['name']}` | `{f['type']}` | {default} | {f['doc']} |"
                 )
@@ -436,7 +441,6 @@ def render_tools(payload: dict[str, Any]) -> str:
 
 def collect_audit() -> dict[str, Any]:
     tree, lines = parse(SRC / "audit" / "models.py")
-    consts = string_constants(tree)
 
     kinds, decisions = [], []
     for node in tree.body:
@@ -710,7 +714,11 @@ def render_dependencies() -> str:
 # --------------------------------------------------------------------------
 
 
-def render_index(events: list[dict[str, Any]], fields: list[dict[str, Any]], tools: dict[str, Any]) -> str:
+def render_index(
+    events: list[dict[str, Any]],
+    fields: list[dict[str, Any]],
+    tools: dict[str, Any],
+) -> str:
     return "\n".join(
         [
             GENERATED_BANNER,
@@ -722,11 +730,16 @@ def render_index(events: list[dict[str, Any]], fields: list[dict[str, Any]], too
             "",
             "| 契约 | 事实源 | 产出 | 校验方式 |",
             "|---|---|---|---|",
-            "| 领域事件 | `events.py` | [`events.json`](events.json) / [`events.md`](events.md) | pydantic 模型 + 前端 AST 扫描 |",
-            "| 工具等级 | `approve.py::tool_level` | [`tools.yaml`](tools.yaml) | 未登记工具按 L3 fail-closed |",
-            "| 审计记录 | `audit/models.py` | [`audit.yaml`](audit.yaml) | JSONL + 哈希链 `agent audit --verify` |",
-            "| 配置项 | `config.py` | [`config.json`](config.json) / [`config.md`](config.md) | `config.json` 可校验配置项是否存在 |",
-            "| 依赖 | `pyproject.toml` + `uv.lock` | [`dependencies.md`](dependencies.md) | `pip install -e .` |",
+            "| 领域事件 | `events.py` | [`events.json`](events.json) / [`events.md`](events.md) "
+            "| pydantic 模型 + 前端 AST 扫描 |",
+            "| 工具等级 | `approve.py::tool_level` | [`tools.yaml`](tools.yaml) "
+            "| 未登记工具按 L3 fail-closed |",
+            "| 审计记录 | `audit/models.py` | [`audit.yaml`](audit.yaml) "
+            "| JSONL + 哈希链 `agent audit --verify` |",
+            "| 配置项 | `config.py` | [`config.json`](config.json) / [`config.md`](config.md) "
+            "| `config.json` 可校验配置项是否存在 |",
+            "| 依赖 | `pyproject.toml` + `uv.lock` | [`dependencies.md`](dependencies.md) "
+            "| `pip install -e .` |",
             "| 测试套件 | `tests/` | 见 `ACCEPTANCE.md` 第 1 节 | `pytest -m \"not llm\"` |",
             "| 流水线 | `.github/workflows/` | [`../CI.md`](../CI.md) | GitHub Actions |",
             "",

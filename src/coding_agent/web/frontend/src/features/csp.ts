@@ -22,6 +22,10 @@ export const cspMixin = {
       case 'diff-view': this.setDiffView(data.view); break;
       case 'steer': this.steer(data.steer); break;
       case 'approval': this.decide(data.allow === 'true'); break;
+      case 'split-approval':
+        this.decideSplit(data.allow === 'true');
+        break;
+      case 'split-reject-all': this.decideAllSplit(false); break;
       case 'consent': this.decideConsent(data.id, data.allow === 'true'); break;
       case 'session': this.onSessionAction(data.op, data.id); break;
       case 'session-select': this.toggleSessionSelected(data.id); break;
@@ -303,11 +307,33 @@ export const cspMixin = {
   get splitHasApprovals() {
     return Boolean(this.splitView && this.splitView.approvals.length);
   },
+  get splitApproval() {
+    return this.splitView ? this.splitView.approval : null;
+  },
+  get splitApprovalPosition() {
+    return this.splitView ? this.splitView.approvalPosition : '';
+  },
+  get splitApprovalLevelText() {
+    return this.splitApproval ? String(this.splitApproval.level || '') : '';
+  },
+  get splitApprovalCommandText() {
+    return this.splitApproval ? String(this.splitApproval.command || '') : '';
+  },
+  get splitApprovalReasonText() {
+    return this.splitApproval ? String(this.splitApproval.reason || '') : '';
+  },
+  get splitApprovalToolText() {
+    return this.splitApproval
+      ? `工具：${String(this.splitApproval.tool || '')}`
+      : '';
+  },
   get splitStatusText() {
     return this.splitView ? this.splitView.stateText : '';
   },
   get splitSendDisabled() {
-    return !this.splitView || Boolean(this.splitView.busy);
+    return !this.splitView
+      || Boolean(this.splitView.busy)
+      || Boolean(this.splitView.approvals.length);
   },
   get sidebarExpanded() { return this.sidebarCollapsed ? 'false' : 'true'; },
   get inspectorExpanded() { return this.inspectorCollapsed ? 'false' : 'true'; },

@@ -173,8 +173,11 @@ def test_runtime_config_is_public_and_same_origin(settings) -> None:
     assert data["requestIdHeader"] == "X-Request-ID"
     assert response.headers["cache-control"] == "no-cache"
     # 配置公开可读，但不得包含任何凭证或密钥。
-    assert "token" not in json.dumps(data).lower()
-    assert "key" not in json.dumps(data).lower()
+    # `X-CSRF-Token` 是协议头名而非凭证，单独放行。
+    assert data["auth"] == {"csrfHeader": "X-CSRF-Token"}
+    public = json.dumps(data).lower()
+    for forbidden in ("api_key", "apikey", "secret", "password", "authorization"):
+        assert forbidden not in public
 
 
 def test_runtime_config_marks_desktop_mode(settings) -> None:

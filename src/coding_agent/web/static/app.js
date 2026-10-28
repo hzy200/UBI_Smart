@@ -924,8 +924,6 @@
       close: "\u5173\u95ED\u5206\u5C4F",
       refresh: "\u91CD\u8FDE/\u5237\u65B0",
       openInMain: "\u5728\u4E3B\u533A\u6253\u5F00",
-      hasApprovals: "\u8BE5\u4F1A\u8BDD\u6709\u5F85\u5BA1\u6279\uFF0C\u8BF7\u5207\u5230\u4E3B\u533A\u5904\u7406\u3002",
-      switchToMain: "\u5207\u5230\u4E3B\u533A",
       empty: "\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u6D88\u606F",
       send: "\u53D1\u9001"
     },
@@ -1246,8 +1244,6 @@
       close: "Close split pane",
       refresh: "Reconnect / refresh",
       openInMain: "Open in main pane",
-      hasApprovals: "This session has pending approvals. Switch to the main pane to handle them.",
-      switchToMain: "Switch to main",
       empty: "This session has no messages yet",
       send: "Send"
     },
@@ -3290,7 +3286,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     async sendSplit() {
       const view = this.splitView;
       const text = String(this.splitInput || "").trim();
-      if (!view || !text || view.busy) return;
+      if (!view || !text || view.busy || view.approvals.length) return;
       this.splitInput = "";
       await this.sendToView(view, text, true);
     },
@@ -5532,7 +5528,7 @@ ${detail || ""}`;
     showNextApproval(view = this.activeView) {
       view.approval = view.approvals[0] || null;
       view.approvalPosition = view.approvals.length > 1 ? this.t("approval.remaining", { count: view.approvals.length }) : "";
-      if (view === this.activeView && view.approval) {
+      if (view === this.activeView && !this._isBackgroundApply && view.approval) {
         const modal = document.querySelector(".approval-modal");
         const modalOpen = Boolean(
           modal && !modal.hasAttribute("x-cloak") && modal.style.display !== "none"
@@ -5540,9 +5536,8 @@ ${detail || ""}`;
         this.$nextTick(() => this.focusModal(".approval-modal", !modalOpen));
       }
     },
-    async decide(granted) {
-      const view = this.activeView;
-      if (!view.approval) return;
+    async decideFor(view, granted) {
+      if (!view || !view.approval) return;
       view.decisions[view.approval.request_id] = !!granted;
       view.approvals.shift();
       if (view.approvals.length) {
@@ -5551,13 +5546,25 @@ ${detail || ""}`;
       }
       await this.resumeApprovals(view);
     },
-    async decideAll(granted) {
-      const view = this.activeView;
+    async decide(granted) {
+      await this.decideFor(this.activeView, granted);
+    },
+    async decideAllFor(view, granted) {
+      if (!view || !view.approvals.length) return;
       for (const item of view.approvals) {
         view.decisions[item.request_id] = !!granted;
       }
       view.approvals = [];
       await this.resumeApprovals(view);
+    },
+    async decideAll(granted) {
+      await this.decideAllFor(this.activeView, granted);
+    },
+    async decideSplit(granted) {
+      await this.decideFor(this.splitView, granted);
+    },
+    async decideAllSplit(granted) {
+      await this.decideAllFor(this.splitView, granted);
     },
     async resumeApprovals(view = this.activeView) {
       view.approval = null;
@@ -8329,6 +8336,12 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         case "approval":
           this.decide(data.allow === "true");
           break;
+        case "split-approval":
+          this.decideSplit(data.allow === "true");
+          break;
+        case "split-reject-all":
+          this.decideAllSplit(false);
+          break;
         case "consent":
           this.decideConsent(data.id, data.allow === "true");
           break;
@@ -8673,11 +8686,29 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     get splitHasApprovals() {
       return Boolean(this.splitView && this.splitView.approvals.length);
     },
+    get splitApproval() {
+      return this.splitView ? this.splitView.approval : null;
+    },
+    get splitApprovalPosition() {
+      return this.splitView ? this.splitView.approvalPosition : "";
+    },
+    get splitApprovalLevelText() {
+      return this.splitApproval ? String(this.splitApproval.level || "") : "";
+    },
+    get splitApprovalCommandText() {
+      return this.splitApproval ? String(this.splitApproval.command || "") : "";
+    },
+    get splitApprovalReasonText() {
+      return this.splitApproval ? String(this.splitApproval.reason || "") : "";
+    },
+    get splitApprovalToolText() {
+      return this.splitApproval ? `\u5DE5\u5177\uFF1A${String(this.splitApproval.tool || "")}` : "";
+    },
     get splitStatusText() {
       return this.splitView ? this.splitView.stateText : "";
     },
     get splitSendDisabled() {
-      return !this.splitView || Boolean(this.splitView.busy);
+      return !this.splitView || Boolean(this.splitView.busy) || Boolean(this.splitView.approvals.length);
     },
     get sidebarExpanded() {
       return this.sidebarCollapsed ? "false" : "true";

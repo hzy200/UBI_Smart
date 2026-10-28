@@ -29,7 +29,7 @@ B2 会话目录接入 + B3 SSE 事件传输重放 + B4 进程拆分与剩余 Age
 | `control_usage_daily` | 按天/租户/provider/model 的用量汇总（预留表） |
 | `control_meta` | schema 版本 |
 
-企业版迁移 `0010_accounts_usage_quota` + `0011_cny_reservations_auth_events` 追加：
+企业版迁移 `0010_accounts_usage_quota` + `0011_cny_reservations` 追加：
 
 | 表 | 内容 |
 |---|---|

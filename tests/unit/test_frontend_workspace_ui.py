@@ -424,7 +424,9 @@ def test_stage5_live_split_panes_are_guarded() -> None:
         'class="split-pane"',
         "splitPaneMessages",
         "splitStatusText",
-        "splitHasApprovals",
+        "splitApproval",
+        'data-action="split-approval"',
+        "split-reject-all",
         "splitInput",
         "sendSplit",
         "splitSendDisabled",
@@ -439,6 +441,7 @@ def test_stage5_live_split_panes_are_guarded() -> None:
         "splitView",
         "splitPaneMessages",
         "splitSendDisabled",
+        "decideSplit",
         "sendSplit",
     ):
         assert marker in app, marker

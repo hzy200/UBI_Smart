@@ -253,7 +253,7 @@ export const sessionsMixin = {
   async sendSplit() {
     const view = this.splitView;
     const text = String(this.splitInput || '').trim();
-    if (!view || !text || view.busy) return;
+    if (!view || !text || view.busy || view.approvals.length) return;
     this.splitInput = '';
     await this.sendToView(view, text, true);
   },

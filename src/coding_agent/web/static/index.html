@@ -885,9 +885,23 @@
           <div class="skeleton skeleton-row"></div>
         </div>
         <div class="note note-bad" x-show="splitError" x-text="splitError"></div>
-        <div class="note note-bad" x-show="splitHasApprovals">
-          <span x-text="i18n.split.hasApprovals"></span>
-          <button @click="openSplitInMain" x-text="i18n.split.switchToMain"></button>
+        <div class="split-approval" x-show="splitApproval" x-cloak
+             role="alertdialog" aria-live="assertive">
+          <div class="split-approval-head">
+            <span class="approval-level" x-text="splitApprovalLevelText"></span>
+            <span class="note" x-text="splitApprovalPosition"></span>
+          </div>
+          <pre x-text="splitApprovalCommandText"></pre>
+          <div class="note" x-text="splitApprovalReasonText"></div>
+          <div class="note" x-text="splitApprovalToolText"></div>
+          <div class="approval-actions">
+            <button class="primary" data-action="split-approval" data-allow="true"
+                    @click="onAction" x-text="i18n.approval.approve"></button>
+            <button class="danger" data-action="split-approval" data-allow="false"
+                    @click="onAction" x-text="i18n.approval.deny"></button>
+            <button data-action="split-reject-all" @click="onAction"
+                    x-text="i18n.approval.rejectAll"></button>
+          </div>
         </div>
         <template x-for="m in splitPaneMessages" :key="m.id">
           <div class="split-msg" :class="m._renderClass">

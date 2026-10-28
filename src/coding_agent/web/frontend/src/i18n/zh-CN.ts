@@ -118,8 +118,6 @@ export const zhCN = {
     close: '关闭分屏',
     refresh: '重连/刷新',
     openInMain: '在主区打开',
-    hasApprovals: '该会话有待审批，请切到主区处理。',
-    switchToMain: '切到主区',
     empty: '这个会话还没有消息',
     send: '发送',
   },

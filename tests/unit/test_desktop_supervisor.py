@@ -129,6 +129,12 @@ def test_control_prefix_prefers_packaged_binary(tmp_path, monkeypatch) -> None:
     assert supervisor._control_prefix() == [str(exe.resolve())]
 
     exe.unlink()
+    nested = tmp_path / "control" / "CodingAgentControl.exe"
+    nested.parent.mkdir()
+    nested.write_text("", encoding="utf-8")
+    assert supervisor._control_prefix() == [str(nested.resolve())]
+
+    nested.unlink()
     assert supervisor._control_prefix() == [
         str(tmp_path / "python.exe"),
         "-m",

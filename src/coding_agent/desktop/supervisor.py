@@ -121,10 +121,18 @@ def _port_available(port: int) -> bool:
 
 
 def _control_prefix() -> list[str]:
-    """打包后优先用同目录的 CodingAgentControl.exe，开发模式用 -m。"""
-    exe = Path(sys.executable).resolve().parent / "CodingAgentControl.exe"
-    if exe.is_file():
-        return [str(exe)]
+    """打包后优先用随包分发的 CodingAgentControl.exe，开发模式用 -m。
+
+    便携版把控制面放在 `control/` 子目录（onedir 需要自己的 `_internal`），
+    因此同时接受同目录与 `control/` 两种布局。
+    """
+    base = Path(sys.executable).resolve().parent
+    for exe in (
+        base / "CodingAgentControl.exe",
+        base / "control" / "CodingAgentControl.exe",
+    ):
+        if exe.is_file():
+            return [str(exe)]
     return [sys.executable, "-m", "coding_agent.control_server"]
 
 

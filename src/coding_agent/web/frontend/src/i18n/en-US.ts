@@ -120,8 +120,6 @@ export const enUS: Messages = {
     close: 'Close split pane',
     refresh: 'Reconnect / refresh',
     openInMain: 'Open in main pane',
-    hasApprovals: 'This session has pending approvals. Switch to the main pane to handle them.',
-    switchToMain: 'Switch to main',
     empty: 'This session has no messages yet',
     send: 'Send',
   },

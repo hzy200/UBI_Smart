@@ -6,7 +6,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-28
 review_cadence: 每次发版前过一遍；超过 due 的条目必须在 PR 里说明
 
 items:
@@ -105,6 +105,17 @@ items:
     due: 面向不可信仓库开放 host.exec 之前
     do_not: 不要把 user-t1 写成 T2，也不要用“绝对禁止”包装策略 glob；
       不要把 AppContainer exec 描述成内核级隔离，也不要让它接收 shell 字符串
+    boundary: |
+      唯一口径：docs/THREAT_MODEL.md §6.1。
+      可宣称：T1 + lowpriv/ACL 的 ZX；默认关闭；写需 grant + 工作区外快照 +
+      expected_sha256 + op_id 不重放；exec 只接受已注册 toolchain 的 argv、
+      不经 shell、仅在 AppContainer 内、默认无网络、只写 output_roots；
+      install 永不自动执行；untrusted profile 禁用 host 工作区与 host_exec。
+      不可宣称：与 bwrap 等价的文件系统/网络/进程隔离；内核级隔离；对已注册
+      toolchain、构建脚本、宿主管理员或提示注入的防护；孙进程硬超时。
+      启用前置：仅可信本机仓库；企业需 DEVICE_POLICY=enforce + 签名策略 + TLS；
+      不可信仓库必须留在 sandbox。
+      禁止措辞：T2 / 内核级隔离 / 沙箱隔离 / 绝对禁止。
 
   - id: TD-012
     title: host/sandbox 跨 kind 编译/验证不支持
@@ -134,6 +145,18 @@ items:
     due: 企业批量分发之前
     do_not: 不要把 TPM CNG 密钥证明写成 PCR/远程证明；不要让服务端推送
       自动更新、下发 grant scope 或替代本地同意
+    boundary: |
+      唯一口径：docs/THREAT_MODEL.md §6.1。
+      可宣称：只外连；mTLS/设备指纹；本地设备台账与吊销；签名策略验签；
+      TPM 背书密钥或软件 Ed25519 的 nonce 证明；服务端请求不等于授权，
+      本地 grant/ZX 是最终闸门；scope/verbs/TTL 不落服务端；one-shot/限流/
+      断线撤销；离线降级 sandbox；本地审计链。
+      不可宣称：PCR quote / 远程启动度量；CSR 或自动签发；控制面 MySQL
+      设备表；红队结论；对已被攻陷客户端、宿主管理员或误点同意的防护。
+      启用前置：企业批量启用前完成 DEVICE_POLICY=enforce + 签名策略 + TLS
+      + 设备台账预登记 + 吊销演练 + 红队；不可信仓库禁用 host 后端。
+      禁止措辞：远程证明 / 设备可信 / 服务端授权即可执行 / 零横向风险 /
+      服务端静默自动更新。
 
   - id: TD-014
     title: A2L 生命周期管理与企业分发未实现

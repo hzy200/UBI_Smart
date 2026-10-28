@@ -4,7 +4,7 @@ doc_id: acceptance
 title: 需求对照与自检
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-28
 review_cadence: 每次发版前
 note: |
   第 1 节是需求 → 落点 → 验证的对照表。
@@ -170,7 +170,7 @@ python scripts/demo.py --only 1
 
 ## 4. 已知限制
 
-按“会不会影响答辩结论”排序。前四条是**有意的取舍**，其余是**待办**。
+按“会不会影响答辩结论”排序。「有意为之」里都是**有意的取舍**，其余是**待办**。
 
 ### 有意为之
 
@@ -198,6 +198,24 @@ workspace/audit/checkpoint/memory；非 loopback 必须 token + TLS（本进程
 不发 `FileChanged`** —— shell 输出无法结构化解析。「可回滚的修改流程」覆盖文件
 工具路径与 orchestrator 的 patch 合并（合并前对目标文件留底），不覆盖模型经
 shell 的修改。
+
+**当前架构下不存在真正的协作开发。**
+多人可以各自使用 AI，也能通过 Git 交换代码，但没有共享工作区、共享编译环境或
+跨人接管——**这不是缺陷，是安全边界的必然结果**。`host` 工作区的字节在用户
+NTFS，A2 只持 `workspace_id + root_handle`，A2L 只外连且本地 grant/ZX 是最终
+闸门；跨人共享等于把他人机器变成执行节点，会逐条推翻 ADR-0015 的信任模型。
+`sandbox` 侧虽可为成员制改造，但受「工作区必须 ext4」与「源码上服务器需过安全
+评审」两条约束。判据（三层资源）与协作基座二选一见
+[ADR-0022](adr/0022-collaboration-boundary-and-substrate.md)。
+
+**高风险安全项的边界声明（必读）。**
+TD-011：Windows host 后端是 T1 + lowpriv/ACL 的部分 OS 级 ZX，**不是 bwrap
+等价的内核隔离**；toolchain/构建脚本本身就是代码执行，不可信仓库必须留在
+`sandbox`。TD-013：A2L 是 T4 客户端执行域，服务端失陷可触达所有在线客户端；
+当前没有 PCR quote/远程启动度量、CSR、控制面设备表或红队结论，默认关闭。
+完整的“可宣称 / 不可宣称 / 启用前置 / 禁止措辞”见
+[THREAT_MODEL.md §6.1](THREAT_MODEL.md)。出现“T2”“内核级隔离”“远程证明”
+“零横向风险”等表述即视为安全表述缺陷。
 
 ### 待办
 
@@ -515,7 +533,7 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] 长会话 `content-visibility: auto`；
 - [x] 前端资产测试与 CI 构建漂移/类型检查门禁；
 - [x] 变量高度虚拟列表、流式 Markdown 增量渲染与大工具输出分页；
-- [x] 74 个纯函数 + 39 个 jsdom 交互用例；6 个 Playwright E2E；pywebview 严格 CSP 探针；
+- [x] 74 个纯函数 + 40 个 jsdom 交互用例；6 个 Playwright E2E；pywebview 严格 CSP 探针；
 - [x] Playwright 真实浏览器 E2E（用户端 smoke + `/admin`）；手测清单见 PHASE_E.md / FRONTEND.md。
 
 ### 5.16 Phase F：安全与性能验收（已实现，平台门禁见下）
@@ -548,7 +566,8 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] Markdown prose/代码块标题、文件树类型图标与引导线、Toast 堆叠、可拖拽分屏；
 - [x] jsdom 覆盖视图隔离、后台流、实时分屏、审批、拖拽、主题与视觉组件；
 - [x] 分屏宽度可拖拽并持久化；活跃 pane 有强调边框；
-- [ ] 编辑器标签/焦点尚未按会话隔离；分屏审批仍只提示，操作需切回主区。
+- [x] 编辑器标签/文件视图按会话隔离；分屏内可直接批准、拒绝或全部拒绝。
+- [ ] 键盘焦点仍是浏览器全局（不按会话隔离）；分屏审批出现时不自动抢焦点。
 
 ## 6. 冻结
 
