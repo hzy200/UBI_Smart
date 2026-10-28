@@ -73,9 +73,40 @@ def _isolate_agent_data_dirs(tmp_path, monkeypatch) -> Iterator[None]:
     )
     monkeypatch.setenv("AGENT_WEB_DATA_ROOT", str(tmp_path / "web"))
     monkeypatch.setenv("AGENT_AGENT_DATA_ROOT", str(tmp_path / "agent"))
+    monkeypatch.setenv(
+        "AGENT_HOST_SNAPSHOT_DIR", str(tmp_path / "host-snapshots")
+    )
+    monkeypatch.setenv(
+        "AGENT_CONTROL_BACKUP_DIR", str(tmp_path / "backups")
+    )
+    # 宿主环境里的企业登录/密钥/前端托管配置不得渗进单元测试。
+    for name in (
+        "AGENT_WEB_AUTH_TOKENS",
+        "AGENT_WEB_AUTH_TOKENS_FILE",
+        "AGENT_WEB_ACCOUNTS_ENABLED",
+        "AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL",
+        "AGENT_WEB_FRONTEND_DIR",
+        "AGENT_WEB_STATIC_DIR",
+        "AGENT_SECRET_MASTER_KEY",
+        "AGENT_SECRET_MASTER_KEY_FILE",
+        "AGENT_LLM_PROVIDERS",
+        "AGENT_EVENT_TRANSPORT",
+        "AGENT_EVENT_TRANSPORT_URL",
+        "AGENT_COST_CURRENCY",
+        "AGENT_USD_TO_CNY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    # 限流协调器是模块级单例，可能已被上一个测试/宿主配置指向真实文件。
+    from coding_agent.llm.ratelimit import GLOBAL_LIMITER
+
+    GLOBAL_LIMITER.configure(str(tmp_path / "rate_limits.json"))
+    GLOBAL_LIMITER.reset()
     # get_settings 是 lru_cache：不清理会把上一个测试的路径带进来。
     get_settings.cache_clear()
     yield
+    GLOBAL_LIMITER.reset()
+    GLOBAL_LIMITER.configure(None)
     get_settings.cache_clear()
 
 

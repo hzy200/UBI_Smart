@@ -100,6 +100,7 @@ AGENT_WEB_ACCOUNT_TENANT=default
 AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=true   # 生产默认；SQLite 仅测试时设 false
 AGENT_WEB_COOKIE_SECURE=true          # 跨源/HTTPS 部署
 AGENT_SECRET_MASTER_KEY=<base64 32B>  # 上游 Key 加密主密钥
+AGENT_SECRET_MASTER_KEY_VERSION=1      # 轮换后递增
 AGENT_WEB_QUOTA_RESERVE_TOKENS=20000  # 可选：运行前预留
 AGENT_RUN_COST_BUDGET_USD=0.50        # 可选：单次运行成本上限（USD）
 AGENT_COST_CURRENCY=CNY               # 展示/额度货币
@@ -164,7 +165,47 @@ python scripts/restore_control_db.py --source backups/control-20261028-020000.sq
 - 恢复默认先备份当前库；恢复后仍需启动 `--migrate` 对齐版本；
 - 备份不包含工作区文件、checkpoint 与 A3 审计原文。
 
-## 6. 运维查询
+## 6. 主密钥生命周期
+
+主密钥**不属于数据库**：它来自 KMS/secret 注入或文件，只用于加解密
+`control_provider_keys`。数据库备份可以包含密文，但绝不能包含主密钥。
+
+轮换流程：
+
+```bash
+# 1) 先备份（备份脚本会自动扫描备份目录是否含主密钥）
+python scripts/backup_control_db.py --keep 14
+
+# 2) 预演：只统计待轮换行数
+python scripts/rotate_secret_master_key.py \
+  --old-key-file /run/secrets/old.key \
+  --new-key-file /run/secrets/new.key --dry-run
+
+# 3) 正式轮换（事务内重加密全部密文；失败整体回滚）
+python scripts/rotate_secret_master_key.py \
+  --old-key-file /run/secrets/old.key \
+  --new-key-file /run/secrets/new.key --backup
+
+# 4) 立即更新部署侧密钥与版本号，然后重启 A2
+#    AGENT_SECRET_MASTER_KEY=...
+#    AGENT_SECRET_MASTER_KEY_VERSION=<脚本输出>
+```
+
+- 旧密钥在轮换成功后**立即失效**；滚动发布前先完成所有实例的密钥更新。
+- `key_version` 记录每条密文的代次；轮换脚本按事务整体递增。
+- 备份目录检查：
+  ```bash
+  python scripts/check_backup_secrets.py --dir backups \
+    --key-file /run/secrets/master.key
+  ```
+- 演练（无需 MySQL）：
+  ```bash
+  python scripts/phase_secret_key_drill.py
+  ```
+  覆盖：写密文、备份不含主密钥、旧→新轮换、旧密钥被拒绝、故意放入密钥
+  文件时检查器必须发现。
+
+## 7. 运维查询
 
 今日用量与配额：
 
@@ -191,14 +232,14 @@ WHERE revoked_at = '' AND expires_at > DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%dT%H
 GROUP BY user_id;
 ```
 
-## 7. 迁移与回滚
+## 8. 迁移与回滚
 
 - 升级前：`backup_control_db.py`；
 - 升级：`coding-agent-control --migrate`；
 - 回滚：Alembic `downgrade` 只用于受控窗口，生产更推荐“备份恢复”；
 - 版本不匹配时 A2 进入只读降级，不阻塞运行与 SSE。
 
-## 8. 验收
+## 9. 验收
 
 - `tests/unit/test_mysql_ddl.py`：离线编译全部迁移，检查新表与
   “TEXT 不得带普通默认值”等 MySQL 方言约束；

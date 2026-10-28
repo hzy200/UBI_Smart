@@ -725,6 +725,10 @@ class Settings(BaseSettings):
     secret_master_key_file: str = Field(
         default="", alias="AGENT_SECRET_MASTER_KEY_FILE"
     )
+    # 主密钥代次；轮换脚本递增，写入每条密文的 key_version。
+    secret_master_key_version: int = Field(
+        default=1, alias="AGENT_SECRET_MASTER_KEY_VERSION"
+    )
     # per-user 工作区根目录；空 = 沙箱 $HOME/agent-ws/users。
     web_workspaces_root: str = Field(
         default="", alias="AGENT_WEB_WORKSPACES_ROOT"

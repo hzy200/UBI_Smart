@@ -61,7 +61,7 @@ review_cadence: 状态变更或范围变化时
 - 对手：通过 API 提交越界路径、符号链接逃逸、上传压缩炸弹。
 - 控制：`ensure_inside` 词法校验 + A4/WSL 内 `realpath` 二次校验；
   客户端永不提交 `root_path`；归档目录 `0700`、不通过前端直接下载。
-- MySQL 不存文件内容、checkpoint、API Key。
+- MySQL 不存文件内容、checkpoint、明文 API Key（企业 provider Key 只存密文）。
 
 ## 6. 兼容与回滚
 

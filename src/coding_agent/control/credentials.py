@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from coding_agent.control.schema import ControlProviderKey
@@ -62,9 +62,16 @@ def load_master_key(
 
 
 class CredentialStore:
-    def __init__(self, engine: Any, key: bytes) -> None:
+    def __init__(
+        self,
+        engine: Any,
+        key: bytes,
+        *,
+        key_version: int = 1,
+    ) -> None:
         self.engine = engine
         self.key = key
+        self.key_version = max(1, int(key_version or 1))
 
     @classmethod
     def from_settings(cls, engine: Any, settings: Any) -> CredentialStore:
@@ -72,7 +79,13 @@ class CredentialStore:
             getattr(settings, "secret_master_key", ""),
             getattr(settings, "secret_master_key_file", ""),
         )
-        return cls(engine, key)
+        return cls(
+            engine,
+            key,
+            key_version=int(
+                getattr(settings, "secret_master_key_version", 1) or 1
+            ),
+        )
 
     def _require_key(self) -> bytes:
         if not self.key:
@@ -140,12 +153,65 @@ class CredentialStore:
                 session.add(row)
             row.ciphertext = base64.b64encode(ciphertext).decode("ascii")
             row.nonce = base64.b64encode(nonce).decode("ascii")
-            row.key_version = 1
+            row.key_version = self.key_version
             row.last4 = plain[-4:]
             row.enabled = True
             row.created_by = str(created_by or "")
             row.updated_at = _now()
         return plain[-4:]
+
+    def rotate(
+        self,
+        old_key: bytes,
+        new_key: bytes,
+        *,
+        new_version: int | None = None,
+    ) -> int:
+        """用新主密钥重加密全部 provider Key；失败整体回滚。"""
+        old = bytes(old_key or b"")
+        new = bytes(new_key or b"")
+        if len(old) != 32 or len(new) != 32:
+            raise CredentialError("新旧主密钥都必须是 32 字节")
+        version = max(1, int(new_version or self.key_version + 1))
+        with Session(self.engine) as session, session.begin():
+            rows = session.scalars(select(ControlProviderKey)).all()
+            for row in rows:
+                if not row.ciphertext:
+                    continue
+                try:
+                    plain = AESGCM(old).decrypt(
+                        base64.b64decode(row.nonce),
+                        base64.b64decode(row.ciphertext),
+                        self._aad(row.tenant, row.user, row.provider),
+                    )
+                except Exception as exc:  # noqa: BLE001 - 轮换必须整体失败
+                    raise CredentialError(
+                        "旧主密钥无法解密现有密文，轮换中止"
+                    ) from exc
+                nonce = secrets.token_bytes(12)
+                ciphertext = AESGCM(new).encrypt(
+                    nonce,
+                    plain,
+                    self._aad(row.tenant, row.user, row.provider),
+                )
+                row.nonce = base64.b64encode(nonce).decode("ascii")
+                row.ciphertext = base64.b64encode(ciphertext).decode(
+                    "ascii"
+                )
+                row.key_version = version
+                row.updated_at = _now()
+        self.key = new
+        self.key_version = version
+        return len(rows)
+
+    def count(self) -> int:
+        with Session(self.engine) as session:
+            return int(
+                session.scalar(
+                    select(func.count()).select_from(ControlProviderKey)
+                )
+                or 0
+            )
 
     def delete(self, tenant: str, user: str, provider: str) -> None:
         with Session(self.engine) as session, session.begin():
@@ -180,6 +246,52 @@ class CredentialStore:
                     )
                 )
             )
+
+
+def find_master_key_material(
+    directory: str | Path,
+    key: bytes,
+    *,
+    key_file: str = "",
+) -> list[str]:
+    """扫描目录，返回包含主密钥文件/编码或原始字节的路径。"""
+    root = Path(directory).expanduser().resolve()
+    findings: list[str] = []
+    key_path = Path(key_file).expanduser().resolve() if key_file else None
+    if key_path is not None and key_path.is_file():
+        try:
+            if key_path.is_relative_to(root):
+                findings.append(str(key_path))
+        except ValueError:
+            pass
+    if not key:
+        return findings
+    patterns = {
+        bytes(key),
+        base64.b64encode(key),
+        base64.urlsafe_b64encode(key),
+        key.hex().encode("ascii"),
+    }
+    patterns = {item for item in patterns if item}
+    overlap = 128
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            with path.open("rb") as handle:
+                tail = b""
+                while True:
+                    chunk = handle.read(4 * 1024 * 1024)
+                    if not chunk:
+                        break
+                    window = tail + chunk
+                    if any(pattern in window for pattern in patterns):
+                        findings.append(str(path))
+                        break
+                    tail = window[-overlap:]
+        except OSError:
+            continue
+    return findings
 
 
 class ScopedSecretStore:

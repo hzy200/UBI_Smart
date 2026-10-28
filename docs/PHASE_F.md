@@ -17,9 +17,10 @@ Phase F 不再加功能，只把安全边界、性能基线、迁移/回滚演�
 
 | 资产 / 边界 | 验收方式 | 状态 |
 |---|---|---|
-| API Key 不进控制面数据库 | `pytest tests/unit/test_phase_f_security.py`；SQLite 文件按字节扫描 | 通过 |
+| provider Key 明文不进控制面数据库 | `test_phase_f_security.py` 扫描 `control_provider_keys.ciphertext` 与 SQLite 文件，断言无 `sk-`/`ghp_`/`AKIA` 明文；只保留后四位 | 通过 |
 | API Key 不出现在 Provider API | 同上，`/api/providers` 响应不含 key | 通过 |
 | API Key 不进日志 | 同上，`caplog` 扫描创建/会话路径 | 通过 |
+| 主密钥轮换与备份隔离 | `test_provider_credentials.py` 事务重加密；`phase_secret_key_drill.py` 扫描备份目录 | 通过 |
 | 审计/错误脱敏 | `redact_secrets` 覆盖 `sk-…`、私钥、JWT、DB URL 等 | 通过 |
 | checkpoint/工作区/运行状态不进 MySQL | `control/schema.py` 列清单 + Phase A 数据归属 | 通过（结构） |
 | A2 不执行工具、不直接读写工作区 | Phase A/B 边界 + 代码审查 | 通过 |

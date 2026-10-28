@@ -43,6 +43,8 @@ review_cadence: 企业账号、配额、用量或控制面 schema 变动时
 - 配额预留是独立行（owner/expires_at），运行结束按 id 释放，多实例启动
   只清理过期预留；每日成本额度用人民币配置，上游 USD 成本按固定汇率换算；
 - 登录成功/失败/登出/限流写 `control_auth_events`，来源 IP 参与限流；
+- 主密钥不随数据库备份：备份后扫描目录，轮换脚本在事务内重加密全部密文
+  并递增 `key_version`；`phase_secret_key_drill.py` 做无 MySQL 演练；
 - checkpoint、A3 审计 JSONL、workspace 字节、附件仍留在文件/对象面。
 
 ## 代价

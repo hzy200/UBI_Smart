@@ -343,6 +343,14 @@ agent web --host 127.0.0.1 --port 8765
   python scripts/backup_control_db.py --keep 14
   python scripts/restore_control_db.py --source backups/control-*.sql
   ```
+- 主密钥轮换与备份隔离：
+  ```bash
+  python scripts/rotate_secret_master_key.py \
+    --old-key-file old.key --new-key-file new.key --backup
+  python scripts/check_backup_secrets.py --dir backups --key-file new.key
+  python scripts/phase_secret_key_drill.py
+  ```
+  轮换后立即更新 `AGENT_SECRET_MASTER_KEY` / `_VERSION`；旧密钥不可再用于解密。
 
 ## 5. 路径与状态文件
 

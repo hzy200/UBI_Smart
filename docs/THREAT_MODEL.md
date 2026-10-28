@@ -98,6 +98,8 @@ Linux 用户空间（非 root）
 - 登录按来源 IP 固定窗口限流，成功/失败/登出/限流写入
   `control_auth_events`（不含密码或 token）；
 - 上游 provider Key 用 AES-256-GCM 加密落库，主密钥缺失时拒绝写入；
+- 主密钥不随数据库备份，备份后自动扫描；轮换脚本事务重加密并递增
+  `key_version`，旧密钥轮换后立即失效；
 - 按用户/日原子预留额度（独立 reservation 行 + owner/expires_at），
   运行结束按 id 释放；多实例只清理自己的过期预留，不会误伤活动运行；
 - 计量按审计 `record_hash` 幂等，resume 用 `run_epoch` 取累计差值，

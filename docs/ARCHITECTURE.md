@@ -768,9 +768,10 @@ systemd 顺序：`coding-agent-agent` → `coding-agent-control`；A2 通过
 
 ### 数据边界不变
 
-Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL；A2 仍不执行
-工具，A3/A4 仍持有执行语义。桌面 WSL 完整启动链与真实 LLM run 仍需在打包
-环境验收。
+Phase D 没有把 checkpoint、工作区或运行状态迁入 MySQL；企业版后续只把
+provider Key 的 AES-GCM 密文与后四位写入控制面，明文和主密钥仍不落库。
+A2 仍不执行工具，A3/A4 仍持有执行语义。桌面 WSL 完整启动链与真实 LLM run
+仍需在打包环境验收。
 
 ## 18. Phase E：前端状态
 
@@ -801,8 +802,8 @@ Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL�
 发起时绑定自己的 view，切换会话不中断后台流，主区与分屏可同时运行。长会话使用
 变量高度虚拟列表，流式 Markdown 做块级增量渲染，单条超大工具输出按行分页。
 
-测试：40 个纯函数用例（`node test.mjs`）+ 27 个 jsdom 交互用例
-（`node test-dom.mjs`）+ pywebview 严格 CSP 探针；尚无 Playwright 真实浏览器 E2E。
+测试：74 个纯函数用例（`node test.mjs`）+ 39 个 jsdom 交互用例
+（`node test-dom.mjs`）+ 6 个 Playwright E2E（用户端 + `/admin`）+ pywebview 严格 CSP 探针。
 手测清单见 [FRONTEND.md](FRONTEND.md) 第 12 节。
 
 ### 18.1 前后端分离（设计冻结，九步已实现）
@@ -827,8 +828,12 @@ Phase D 没有把 checkpoint、工作区、API Key 或运行状态迁入 MySQL�
 
 ## 19. Phase F：安全与性能验收
 
-- **密钥边界**：控制面数据库按字节扫描不含 provider key；Provider API 只返回
-  `has_key`，不返回明文；日志与审计在落盘/回灌前经过 `redact_secrets`；
+- **密钥边界**：企业 provider Key 在 `control_provider_keys` 只存 AES-256-GCM
+  密文、nonce 与后四位；主密钥与明文不落库。Provider API 只返回 `has_key`/
+  后四位，不返回明文；日志与审计在落盘/回灌前经过 `redact_secrets`。
+  `test_phase_f_security.py` 会按字节扫描该表密文列与 SQLite 文件，断言
+  `sk-`/`ghp_`/`AKIA` 等明文片段不存在；主密钥不随备份分发，轮换由
+  `rotate_secret_master_key.py` 事务重加密并递增 `key_version`；
 - **内部边界**：A2/A3 只绑 loopback，内部接口必须 token，路径越界在文件工具
   与 ExecutionService 两处拒绝；
 - **迁移/回滚**：SQLite 与 MySQL 都完成

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from coding_agent import web
 from coding_agent.config import Settings
+from coding_agent.control.credentials import CredentialStore
 from coding_agent.control.schema import ControlProviderProfile
 from coding_agent.control.store import ControlStore
 from coding_agent.security.secrets import redact_secrets
@@ -61,6 +62,39 @@ def test_control_db_does_not_contain_provider_key(tmp_path) -> None:
     store.close()
     raw = (tmp_path / "control.db").read_bytes()
     assert SECRET.encode() not in raw
+
+
+def test_control_db_stores_only_ciphertext_for_provider_keys(tmp_path) -> None:
+    """REQ-135 的可执行断言：密文列与数据库字节都不得出现明文。"""
+    url = f"sqlite:///{tmp_path / 'control.db'}"
+    store = ControlStore(url)
+    credentials = CredentialStore(store.engine, b"k" * 32)
+    secrets = [
+        "sk-live-phasef-9876",
+        "ghp_phasef_token_2468",
+        "AKIAIOSFODNN7PHASE",
+    ]
+    for index, secret in enumerate(secrets):
+        credentials.set(
+            "default", "alice", f"provider-{index}", secret
+        )
+    with store.engine.connect() as connection:
+        rows = connection.exec_driver_sql(
+            "SELECT ciphertext, last4 FROM control_provider_keys"
+        ).fetchall()
+    assert len(rows) == len(secrets)
+    ciphertext = "".join(str(row[0]) for row in rows)
+    for secret in secrets:
+        assert secret not in ciphertext
+        assert secret[:8] not in ciphertext
+    assert {str(row[1]) for row in rows} == {
+        secret[-4:] for secret in secrets
+    }
+    raw = (tmp_path / "control.db").read_bytes()
+    for secret in secrets:
+        assert secret.encode() not in raw
+        assert secret[:8].encode() not in raw
+    store.close()
 
 
 def test_providers_api_never_returns_key(tmp_path) -> None:

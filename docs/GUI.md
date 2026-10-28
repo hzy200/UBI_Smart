@@ -303,7 +303,7 @@ GET    /api/audit
 - 前端会话状态按 `SessionView` 隔离，但编辑器标签与焦点仍是全局的：
   切换会话会清空标签，分屏不共享标签焦点。
 - 分屏宽度可拖拽并持久化；分屏审批只提示，操作需切回主区。
-- 交互测试以 jsdom 与 pywebview 探针为主，尚无 Playwright 真实浏览器 E2E。
+- 交互测试以 jsdom、pywebview 探针与 6 个 Playwright E2E 为主。
 - 运行由后台任务持有，SSE 连接只是订阅者；`GET /api/stream/{thread}`
   支持 `after` / `Last-Event-ID` 重放。桌面关闭窗口会停止本地服务，因此
   桌面端仍建议等一轮结束再关闭；Web 端可重连。

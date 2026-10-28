@@ -490,7 +490,7 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 - 事件缓冲/重放有上限（A2 侧 8MB/5000 条/5 分钟，按实现为准）。
 - 分离后静态产物按 hash 长缓存，`index.html`/配置 `no-cache`，API/SSE
   `no-store`；SSE 经过反代时禁缓冲、禁压缩并保留心跳。
-- 已有 jsdom 交互测试覆盖 DOM 行为；尚无 Playwright 真实浏览器 E2E
+- 已有 39 个 jsdom 交互用例与 6 个 Playwright E2E（用户端 smoke + `/admin`）
   （pywebview 探针作为手工冒烟补充）。
 
 ---
@@ -522,7 +522,7 @@ python scripts/probe_frontend_csp.py
 
 覆盖点：构建产物包含项目/工作区流程；页面无构建链；静态资源可访问；
 安全头/CSP；SSE 事件流；审批/steering/恢复端点；工作区绑定与
-transcript 保存。当前 40 个纯函数用例 + 27 个 jsdom 交互用例。
+transcript 保存。当前 74 个纯函数用例 + 39 个 jsdom 交互用例。
 `node test.mjs` 覆盖 diff 解析/split/词级标记、查询匹配/
 fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、增量 Markdown、
 会话摘要与焦点循环等纯函数。`node test-dom.mjs` 用 jsdom 真实加载
@@ -562,7 +562,7 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | 限制 | 影响 | 备注 |
 |---|---|---|
 | 顶栏右侧按钮在部分 DPI 下不绘制/被裁切 | 设置入口不可见 | 侧栏已提供设置/+ 本机兜底 |
-| 无 Playwright 真实浏览器 E2E | 交互回归主要靠 jsdom + pywebview 探针 | 已有 40 个纯函数与 27 个 jsdom 交互用例 |
+| 真实浏览器覆盖 | jsdom + 6 个 Playwright smoke | 已覆盖壳层、草稿、语言切换与 `/admin` |
 | 编辑器标签/焦点仍是全局的 | 切换会话会清空标签；分屏不共享标签焦点 | 后续可做每会话 editorTabs |
 | 分屏审批不内联 | 分屏只提示待审批，操作需切回主区 | 可做分屏内审批卡 |
 | 轨迹只在桌面 UI 运行时保存 | 旧会话/CLI 运行无工具卡片 | 不替代 checkpoint/审计 |

@@ -90,7 +90,8 @@ Phase 4 在“能安装、能选工作区”的基础上补齐常用桌面能力
 - 字段：name / base_url / model / 成本 / 配额 / capabilities / task_types；
 - 合并规则：同名覆盖环境 `AGENT_LLM_PROVIDERS` 字段，新名字追加；
 - 删除全部档案后回退环境基线；
-- API Key 仍由 OS 密钥环按 provider 名保存，档案不落盘密钥；
+- 单机 API Key 仍由 OS 密钥环按 provider 名保存；企业模式由管理员写入
+  `control_provider_keys`，只存 AES-GCM 密文+后四位；档案表不落密钥；
 - `/api/providers/test` 同时返回 `/models` 的前 100 个模型名；
 - **多用户模式禁用档案写入**（403）：共享 base_url 会把一个用户的密钥
   发到另一个用户指定的端点。

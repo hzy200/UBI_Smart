@@ -74,9 +74,10 @@ CLI / TUI → A3 + A4 → 本地文件 / SQLite
 | 用户、租户、认证会话 | A2 / MySQL | 认证与授权 |
 | 会话目录、标题、删除 tombstone | A2 / MySQL | 业务目录；删除不清理审计/checkpoint |
 | 运行索引、审批索引、用量汇总 | A2 / MySQL | 查询与看板；异步写入 |
-| Provider 档案（base_url/model/成本/能力） | A2 / MySQL | 不存 API Key |
+| Provider 档案（base_url/model/成本/能力） | A2 / MySQL | 档案表不含 API Key |
 | 设置、配额、上传元数据 | A2 / MySQL | 不含文件内容 |
-| API Key | A2 的 SecretProvider | OS 密钥环/DPAPI/KMS；短期注入 A3 内存 |
+| API Key 明文 | A2 的 SecretProvider | OS 密钥环/DPAPI/KMS；短期注入 A3 内存 |
+| 企业 provider Key 密文 | A2 / MySQL | 仅 AES-256-GCM 密文 + 后四位；主密钥不落库 |
 | LangGraph checkpoint、运行状态 | A3 | 会话恢复的 source of truth |
 | 计划、任务图、pending approval、steering | A3 | 只在 Agent 侧 |
 | 成本执行、provider 路由/冷却 | A3 | A2 只做汇总展示 |
@@ -87,7 +88,8 @@ CLI / TUI → A3 + A4 → 本地文件 / SQLite
 | SSE 热事件/重放 | 共享事件传输层 | Redis Streams 建议；按 thread 保序，consumer group |
 | 事件查询索引 | A2 / MySQL | 只做查询/看板，不承担热重放 |
 
-**MySQL 明确不存**：checkpoint 内容、工作区文件、API Key、Agent 运行时状态。
+**MySQL 明确不存**：checkpoint 内容、工作区文件、明文 API Key、主密钥、
+Agent 运行时状态；企业 provider Key 只存 AES-GCM 密文与后四位。
 **A3/A4 不直连 MySQL**；A2 是唯一数据库访问方。共享事件传输层不是数据库，
 只负责事件分发、短时保留与重放；MySQL 索引失败不能阻断事件流。
 
@@ -211,7 +213,8 @@ Phase A 目标清单（Phase E 实现）：
 - A1 不接触 API Key；A2 的 SecretProvider 是唯一托管方，A3 只拿短期凭据；
   桌面用 OS 密钥环，服务器用 Vault/KMS/systemd-creds；WSL 没有 Secret Service
   daemon 时不落盘，由 A2 按运行注入；
-- MySQL 只存业务数据，不存密钥/checkpoint/文件；仅本机、最小权限；
+- MySQL 只存业务数据，不存明文密钥/checkpoint/文件；企业模式仅存
+  AES-GCM 密文+后四位；仅本机、最小权限；
 - A2↔A3 仅 loopback + 短期 token；远程部署用 mTLS/TLS；
 - Windows：专用 WSL、非 root、`appendWindowsPath=false`、高风险 profile 关 interop；
 - Linux：非 root + bwrap/namespace/cgroup/seccomp；不可用时 fail closed；
@@ -251,7 +254,7 @@ Phase A 目标清单（Phase E 实现）：
 
 ## 9. 明确不做
 
-- 不把 checkpoint/文件/API Key 放进 MySQL；
+- 不把 checkpoint/文件/明文 API Key 放进 MySQL；企业 provider Key 只放密文；
 - 不让 A2 执行工具或直接读写工作区；
 - 不删减原 Agent 能力；
 - 不在 Phase A 引入原生 Windows 工具层、Windows Server、MCP 市场；

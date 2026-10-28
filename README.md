@@ -835,6 +835,7 @@ python scripts/phase_f_bench.py
 | `AGENT_WEB_COOKIE_SECURE` | `false` | 跨源/HTTPS 部署必须开启；开启后 SameSite=None |
 | `AGENT_WEB_SESSION_TTL_S` | `43200` | 登录会话有效期 |
 | `AGENT_SECRET_MASTER_KEY` / `_FILE` | 空 | 上游 Key 的 AES-256-GCM 主密钥（32B） |
+| `AGENT_SECRET_MASTER_KEY_VERSION` | `1` | 主密钥代次；轮换脚本递增 |
 | `AGENT_WEB_QUOTA_RESERVE_TOKENS` | `0` | 运行前 token 预留；0 = 只做事后限额 |
 | `AGENT_COST_CURRENCY` | `CNY` | 成本展示/额度货币；上游价格仍按 USD 记账 |
 | `AGENT_USD_TO_CNY` | `7.2` | 固定汇率；管理员额度按人民币配置 |

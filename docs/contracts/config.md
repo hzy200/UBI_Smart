@@ -9,7 +9,7 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **250** 个配置项。
+共 **251** 个配置项。
 
 ## 通用
 
@@ -189,6 +189,7 @@
 | `AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS` | `sandbox_max_concurrent_commands` | `int` | `8` | 同时启动的 wsl.exe 进程上限。并发 worker 会各自调用沙箱，没有这层 背压时 4 个 worker 的一次工具轮次就能同时拉起十几个 WSL 进程。 |
 | `AGENT_SECRET_MASTER_KEY` | `secret_master_key` | `str` | `""` | 上游 provider Key 的 AES-GCM 主密钥（base64 32B）或文件。 |
 | `AGENT_SECRET_MASTER_KEY_FILE` | `secret_master_key_file` | `str` | `""` |  |
+| `AGENT_SECRET_MASTER_KEY_VERSION` | `secret_master_key_version` | `int` | `1` | 主密钥代次；轮换脚本递增，写入每条密文的 key_version。 |
 | `AGENT_SECRET_PROVIDER` | `secret_provider` | `str` | `"auto"` | auto \| keyring \| systemd；服务器部署用 systemd-creds，Vault/KMS 走同一 Protocol。 |
 | `AGENT_SECURITY_PROFILE` | `security_profile` | `str` | `"local"` | ---------- 安全 profile 与不可信仓库 ---------- local（默认，面向可信仓库）\| untrusted（bwrap + 禁网 + 强制 ask + 不信任仓库指令/记忆）。 |
 | `AGENT_SESSION_BRIEF_CHARS` | `session_brief_chars` | `int` | `4000` | 编排子图/worker 的会话约束摘要上限（字符）。独立子图不复制 messages， 这里从 checkpoint 抽最近若干轮压缩后注入；0 表示关闭。 |

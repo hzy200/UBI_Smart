@@ -51,7 +51,7 @@ note: |
 | 事件重放 | 后台 run task + 递增 `id` + `GET /api/stream/{thread}?after=` | `tests/unit/test_web_stream_buffer.py` |
 | 桌面 GUI | `desktop/` + pywebview + 本地 FastAPI；默认只读、会话级工作区/权限/模型 | `agent gui`；`docs/GUI.md` |
 | 文件上传 | 写入 `.agent/uploads`；单文件/数量/工作区累计上限；不授予模型写权限 | `test_web_gui_api.py` |
-| GUI 密钥 | OS 密钥环；多用户按 `coding-agent:<user>` 隔离；不进 `.env`/日志 | `test_web_gui_api.py` |
+| GUI 密钥 | 单机用 OS 密钥环；企业模式只存 AES-GCM 密文+后四位；均不进 `.env`/日志 | `test_web_gui_api.py`、`test_phase_f_security.py` |
 | Web/UI 验证 | `web/`（SSE 对话 + 多会话 + 联通测试）；`desktop/` 复用同一后端 | `agent web` / `agent gui` |
 | LangSmith 追踪 | `runtime._trace_metadata` + `config.apply_tracing_env` | `agent doctor` + LangSmith 项目 |
 | 冒烟测试 / 场景演示 | `scripts/demo.py` 四场景 | `python scripts/demo.py` |
@@ -431,7 +431,8 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
       [PHASE_A.md](PHASE_A.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 第 12–15 节；
 - [x] 三种部署基线：Windows 11（A2 原生 + MySQL + WSL A3/A4）、Linux（原生）、
       Standalone（CLI/TUI 直连 A3+A4，无 A2/MySQL）；
-- [x] 数据归属矩阵：MySQL 只存业务数据；checkpoint/工作区/密钥/运行状态不落库；
+- [x] 数据归属矩阵：MySQL 只存业务数据；checkpoint/工作区/运行状态不落库；
+      企业 provider Key 只存 AES-256-GCM 密文 + 后四位，主密钥与明文不落库；
 - [x] A2/A3 控制 API、SSE（seq/重放/挂起）与审批字段冻结；
 - [x] Agent 功能 parity 清单覆盖 direct/orchestrated、审批、checkpoint、
       steering、工具、快照、记忆、审计与沙箱；
@@ -514,12 +515,15 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] 长会话 `content-visibility: auto`；
 - [x] 前端资产测试与 CI 构建漂移/类型检查门禁；
 - [x] 变量高度虚拟列表、流式 Markdown 增量渲染与大工具输出分页；
-- [x] 40 个纯函数 + 27 个 jsdom 交互用例；pywebview 严格 CSP 探针；
-- [ ] 尚无 Playwright 真实浏览器 E2E；手测清单见 PHASE_E.md / FRONTEND.md。
+- [x] 74 个纯函数 + 39 个 jsdom 交互用例；6 个 Playwright E2E；pywebview 严格 CSP 探针；
+- [x] Playwright 真实浏览器 E2E（用户端 smoke + `/admin`）；手测清单见 PHASE_E.md / FRONTEND.md。
 
 ### 5.16 Phase F：安全与性能验收（已实现，平台门禁见下）
 
-- [x] 密钥不落控制面数据库/Provider API/日志；
+- [x] 企业 provider Key 只以 AES-256-GCM 密文 + 后四位落控制面数据库；
+      主密钥与明文不落库；Provider API 与日志不含 key；
+- [x] 主密钥轮换事务重加密并递增 `key_version`；备份目录扫描不含主密钥；
+      `phase_secret_key_drill.py` 无 MySQL 演练通过；
 - [x] 审计与错误脱敏覆盖 `sk-…`、私钥、JWT、DB URL；
 - [x] 内部接口 token、前端认证、路径逃逸与 A2 不执行工具的既有用例；
 - [x] SQLite 迁移/回滚/备份/恢复演练：upgrade → 备份 → downgrade base →
@@ -531,7 +535,7 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [ ] WSL/bwrap 真实隔离需要 `pytest -m wsl` / `pytest -m execution`；
 - [ ] MySQL 最小权限账号与 `SHOW GRANTS` 需要人工/DBA 环境验证；
 - [ ] 浏览器长会话渲染与真实工具 I/O 开销仍需人工或平台验收
-      （jsdom 已覆盖交互，真实浏览器仍待 Playwright/平台）；
+      （jsdom 覆盖交互，Playwright 覆盖真实浏览器 smoke；平台门禁仍待补）；
 - [ ] 提示注入（T2 主战场）仍按 THREAT_MODEL 的残余边界处理。
 
 ### 5.17 前端会话视图与实时分屏（已实现）

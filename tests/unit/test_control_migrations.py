@@ -21,7 +21,7 @@ from coding_agent.control.migrate import (  # noqa: E402
 )
 from coding_agent.control.store import ControlStore  # noqa: E402
 
-REVISION = "0009_audit_hash_index"
+REVISION = "0011_cny_reservations_auth_events"
 
 
 def _url(tmp_path: Path) -> str:

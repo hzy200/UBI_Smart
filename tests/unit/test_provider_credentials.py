@@ -50,6 +50,54 @@ def test_users_cannot_read_each_others_keys(tmp_path) -> None:
     store.close()
 
 
+def test_rotate_master_key_reencrypts_and_bumps_version(tmp_path) -> None:
+    store = _store(tmp_path)
+    new_key = b"n" * 32
+    credentials = CredentialStore(store.engine, KEY, key_version=1)
+    credentials.set("default", "alice", "deepseek", "sk-rotate-1234")
+    assert credentials.rotate(KEY, new_key, new_version=2) == 1
+
+    assert credentials.get(
+        "default", "alice", "deepseek"
+    ) == "sk-rotate-1234"
+    assert credentials.key_version == 2
+    with store.engine.connect() as connection:
+        version = connection.exec_driver_sql(
+            "SELECT key_version FROM control_provider_keys"
+        ).scalar()
+    assert version == 2
+    with pytest.raises(CredentialError, match="解密失败"):
+        CredentialStore(store.engine, KEY).get(
+            "default", "alice", "deepseek"
+        )
+    assert CredentialStore(
+        store.engine, new_key
+    ).get("default", "alice", "deepseek") == "sk-rotate-1234"
+    store.close()
+
+
+def test_master_key_material_scan(tmp_path) -> None:
+    import base64
+
+    from coding_agent.control.credentials import find_master_key_material
+
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    dump = backup_dir / "control.sql"
+    dump.write_bytes(b"INSERT ... " + base64.b64encode(KEY))
+    assert find_master_key_material(backup_dir, KEY)
+    dump.unlink()
+    key_file = backup_dir / "master.key"
+    key_file.write_text(
+        base64.b64encode(KEY).decode("ascii"), encoding="utf-8"
+    )
+    assert str(key_file.resolve()) in find_master_key_material(
+        backup_dir, KEY, key_file=str(key_file)
+    )
+    key_file.unlink()
+    assert find_master_key_material(backup_dir, KEY) == []
+
+
 def test_missing_master_key_refuses_write(tmp_path) -> None:
     store = _store(tmp_path)
     secrets = CredentialStore(store.engine, b"")

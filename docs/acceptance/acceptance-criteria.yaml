@@ -1090,7 +1090,7 @@ criteria:
     title: 控制面数据库备份与恢复
     given: 已有控制面业务数据
     when: 执行备份、修改数据、再恢复
-    then: 恢复后数据回到备份点；备份不含 checkpoint/工作区/API Key
+    then: 恢复后数据回到备份点；备份不含 checkpoint/工作区/明文 API Key（企业密文列随库备份，主密钥不随库）
     status: implemented
     tests: [tests/unit/test_control_backup.py::test_sqlite_backup_and_restore]
 
@@ -1174,13 +1174,13 @@ criteria:
     see: docs/PHASE_E.md
 
   - id: REQ-135
-    title: 密钥不落控制面数据库/接口/日志
-    given: 控制面配置了 provider key
-    when: 创建会话、写审计索引、读取 Provider
-    then: SQLite/MySQL 无 key 字节；/api/providers 不返回 key；日志不含 key
+    title: 企业 provider Key 只以密文落控制面，主密钥与明文不落库
+    given: 管理员为企业用户配置 provider key
+    when: 写入/读取控制面、调用 Provider API、写日志
+    then: control_provider_keys.ciphertext 与 SQLite/MySQL 字节均无 sk-/ghp_/AKIA 明文；只保留 last4；主密钥不落库；/api/providers 与日志不含 key
     status: implemented
-    tests: [tests/unit/test_phase_f_security.py::test_control_db_does_not_contain_provider_key, tests/unit/test_phase_f_security.py::test_providers_api_never_returns_key, tests/unit/test_phase_f_security.py::test_secret_is_not_logged]
-    see: docs/PHASE_F.md
+    tests: [tests/unit/test_phase_f_security.py::test_control_db_stores_only_ciphertext_for_provider_keys, tests/unit/test_phase_f_security.py::test_control_db_does_not_contain_provider_key, tests/unit/test_phase_f_security.py::test_providers_api_never_returns_key, tests/unit/test_phase_f_security.py::test_secret_is_not_logged]
+    see: docs/DATABASE.md
 
   - id: REQ-136
     title: 审计与错误脱敏
@@ -1952,3 +1952,12 @@ criteria:
           /api/v1 兼容窗口与回退入口已落地；真实边缘部署与回滚演练待环境验证。
     tests: [tests/unit/test_frontend_release_contract.py::test_versions_are_independently_releasable, tests/unit/test_frontend_release_contract.py::test_release_bundle_matches_version_contract, tests/unit/test_frontend_release_contract.py::test_runtime_config_and_healthz_agree, tests/unit/test_frontend_release_contract.py::test_api_hosted_frontend_fallback_remains, tests/unit/test_frontend_hosting.py::test_serve_frontend_false_keeps_api_only, tests/unit/test_web_app.py::test_api_v1_aliases_v0_with_deprecation, tests/unit/test_web_app.py::test_index_has_no_build_chain]
     see: docs/RELEASING.md
+
+  - id: REQ-213
+    title: 主密钥轮换与备份隔离
+    given: 控制面已有 provider Key 密文，且主密钥来自 KMS/secret
+    when: 轮换主密钥并执行备份目录检查
+    then: 事务内重加密全部密文并递增 key_version；旧密钥失效；备份目录不含主密钥文件或编码
+    status: implemented
+    tests: [tests/unit/test_provider_credentials.py::test_rotate_master_key_reencrypts_and_bumps_version, tests/unit/test_provider_credentials.py::test_master_key_material_scan]
+    see: scripts/phase_secret_key_drill.py

@@ -2,7 +2,9 @@
 
     python scripts/backup_control_db.py --out D:/backups --keep 7
 
-默认读取 AGENT_CONTROL_DB_URL；不备份 checkpoint、工作区或 API Key。
+默认读取 AGENT_CONTROL_DB_URL；不备份 checkpoint 或工作区。控制面只含
+provider Key 的 AES-GCM 密文；若配置了主密钥，备份后会自动检查备份目录
+不得出现主密钥材料。
 """
 
 from __future__ import annotations
@@ -18,6 +20,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from coding_agent.control.backup import backup  # noqa: E402
+from coding_agent.control.credentials import (  # noqa: E402
+    find_master_key_material,
+    load_master_key,
+)
 
 
 def main() -> int:
@@ -46,6 +52,39 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    try:
+        key = load_master_key(
+            os.environ.get("AGENT_SECRET_MASTER_KEY", ""),
+            os.environ.get("AGENT_SECRET_MASTER_KEY_FILE", ""),
+        )
+    except Exception as exc:  # noqa: BLE001 - 备份成功但检查配置非法
+        print(
+            json.dumps(
+                {"ok": False, "error": f"主密钥配置非法：{exc}"},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+    if key:
+        findings = find_master_key_material(
+            Path(result.path).parent,
+            key,
+            key_file=os.environ.get("AGENT_SECRET_MASTER_KEY_FILE", ""),
+        )
+        if findings:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "备份目录包含主密钥材料，拒绝完成",
+                        "findings": findings,
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            return 1
     print(json.dumps({"ok": True, **asdict(result)}, ensure_ascii=False))
     return 0
 

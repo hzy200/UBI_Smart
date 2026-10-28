@@ -9,7 +9,7 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 250,
+  "count": 251,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
@@ -185,6 +185,7 @@
     "AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS",
     "AGENT_SECRET_MASTER_KEY",
     "AGENT_SECRET_MASTER_KEY_FILE",
+    "AGENT_SECRET_MASTER_KEY_VERSION",
     "AGENT_SECRET_PROVIDER",
     "AGENT_SECURITY_PROFILE",
     "AGENT_SESSION_BRIEF_CHARS",
@@ -1654,6 +1655,14 @@
       "default": "",
       "section": "通用",
       "doc": ""
+    },
+    {
+      "name": "secret_master_key_version",
+      "env": "AGENT_SECRET_MASTER_KEY_VERSION",
+      "type": "int",
+      "default": 1,
+      "section": "通用",
+      "doc": "主密钥代次；轮换脚本递增，写入每条密文的 key_version。"
     },
     {
       "name": "secret_provider",

@@ -122,10 +122,11 @@ B4.2 继续迁移了：
 | 审计 | `/v1/audit` | 代理；配置控制面 DB 时写入审计索引 |
 | 会话/恢复 | `/v1/sessions`、`/v1/recovery` | 代理并与 A2 会话配置合并 |
 
-**密钥注入**：A2 把当前用户的 provider key 放进 `AgentContext.api_keys`
-（base64 `X-Agent-Context`），只随 run/resume 请求发送；Agent Server 用
-内存 `_ContextSecretStore` 构造 runtime，密钥不落盘、不进日志。未配置 key
-时仍由 Agent Server 报缺 key。
+**密钥注入**：A2 从 OS 密钥环或企业密文表解密当前用户的 provider key，
+放进 `AgentContext.api_keys`（base64 `X-Agent-Context`），只随 run/resume
+请求发送；Agent Server 用内存 `_ContextSecretStore` 构造 runtime，明文在
+A3 不落盘、不进日志。企业模式下 A2 只持久化 AES-GCM 密文与后四位，主密钥
+不落库。未配置 key 时仍由 Agent Server 报缺 key。
 
 **审计索引回传**：当前是**拉取式**——A2 调 `/api/audit` 时从 Agent Server
 取记录，并在配置了 `AGENT_CONTROL_DB_URL` 时幂等写入
@@ -284,7 +285,7 @@ Redis 客户端在 `.[events]`。
 - [x] SSE 默认内存、配置 Redis 后可按 seq 跨 A2 重启重放；
 - [x] 独立 Agent Server 提供运行生命周期 API，A2 可通过 HTTP 代理；
 - [x] 文件/Git/快照/checkpoint/记忆/上传/审计/会话索引路由已迁移；
-- [x] A2 provider key 短期注入 A3 内存，不落盘/日志；
+- [x] A2 provider key 短期注入 A3 内存，明文不落盘/日志；A2 企业模式仅存密文；
 - [x] 审计索引在 A2 查询时幂等回传 MySQL（拉取式）；
 - [x] A2/A3 原生可执行目录（`CodingAgentControl` / `CodingAgentAgent`）；
 - [x] Linux systemd unit、Windows SYSTEM 开机任务与环境文件示例；
