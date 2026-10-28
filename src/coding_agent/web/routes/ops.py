@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -53,7 +54,7 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
         """列出需要用户处理的会话：待审批、暂停、异常中断或仍在运行。"""
         await deps.sweep_expired()
         tenant = deps.tenant(user)
-        deps.load_configs(user, tenant)
+        await asyncio.to_thread(deps.load_configs, user, tenant)
         if deps.agent_client is not None:
             data = await deps.agent_json(
                 user, tenant, None, "GET", "/v1/recovery"
@@ -273,8 +274,10 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
             )
             if deps.control_store is not None:
                 try:
-                    deps.control_store.index_audit(
-                        user.name, list(data.get("records", []))
+                    await asyncio.to_thread(
+                        deps.control_store.index_audit,
+                        user.name,
+                        list(data.get("records", [])),
                     )
                 except Exception:  # noqa: BLE001 - 索引失败不影响查询
                     _LOG.warning("审计索引写入失败", exc_info=True)

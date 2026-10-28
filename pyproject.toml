@@ -23,6 +23,8 @@ dependencies = [
     "httpx>=0.27",
     # A2 控制面 schema/store（SQLite 与 MySQL 共用 SQLAlchemy 模型）
     "sqlalchemy>=2.0",
+    # A2L 策略验签与设备证明
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
@@ -71,6 +73,8 @@ coding-agent-server = "coding_agent.server:main"
 coding-agent-desktop = "coding_agent.desktop.launcher:main"
 coding-agent-agent = "coding_agent.agent_server:main"
 coding-agent-control = "coding_agent.control_server:main"
+coding-agent-host-device = "coding_agent.host_broker.devices:main"
+coding-agent-host-policy = "coding_agent.host_broker.policy_doc:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/coding_agent"]

@@ -5,10 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import weakref
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from coding_agent.execution.contracts import (
     ExecutionBackend,
@@ -32,14 +33,42 @@ class _JournalEntry:
     result: dict[str, Any]
 
 
+def _close_handle(handle: IO[str]) -> None:
+    try:
+        handle.close()
+    except OSError:
+        pass
+
+
 class ExecutionJournal:
-    """按 op_id 去重的 JSONL 回执日志；同一工作区可跨进程复用。"""
+    """按 op_id 去重的 JSONL 回执日志；同一工作区可跨进程复用。
+
+    句柄常驻：每次 op 都 `open/write/close` 会在 Windows 上产生约 0.7ms
+    的固定开销。这里在首次写入前打开一次 append 句柄，写入后仍立即
+    `flush`，崩溃可见性与原先一致。
+    """
 
     def __init__(self, path: Path) -> None:
         self.path = path
         self._entries: dict[str, _JournalEntry] = {}
         self._lock = threading.Lock()
+        self._handle: IO[str] | None = None
+        self._closed = False
+        self._finalizer: Any = None
         self._load()
+
+    def close(self) -> None:
+        """关闭常驻句柄；可重复调用。"""
+        with self._lock:
+            self._closed = True
+            if self._handle is None:
+                return
+            try:
+                self._handle.flush()
+            except OSError:
+                pass
+            self._finalizer()
+            self._handle = None
 
     def _load(self) -> None:
         try:
@@ -77,15 +106,23 @@ class ExecutionJournal:
             "result": result.to_dict(),
         }
         with self._lock:
+            if self._closed:
+                raise RuntimeError("ExecutionJournal 已关闭")
+            if self._handle is None:
+                # 首次写入才落文件，避免仅构造 ExecutionService 就产生空回执。
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self._handle = self.path.open("a", encoding="utf-8")
+                self._finalizer = weakref.finalize(
+                    self, _close_handle, self._handle
+                )
+            handle = self._handle
             self._entries[op_id] = _JournalEntry(
                 request_hash=request_hash,
                 run_id=str(run_id or ""),
                 result=result.to_dict(),
             )
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-                handle.flush()
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            handle.flush()
 
     def max_seq(self, run_id: str) -> int:
         with self._lock:
@@ -510,6 +547,7 @@ class ExecutionService:
         return self.record_terminal(request, "cancelled", error=error)
 
     def close(self) -> None:
+        self.journal.close()
         seen: set[int] = set()
         for backend in (self.backend, *self.targets.values()):
             if id(backend) in seen:

@@ -982,7 +982,10 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
         await data.uploadFileList([file]);
         assert.equal(calls.length, 1);
         assert.equal(calls[0].method, 'POST');
-        assert.match(calls[0].url, /\/api\/sessions\/thread-dom-test\/uploads$/);
+        assert.match(
+          calls[0].url,
+          /\/api\/v1\/sessions\/thread-dom-test\/uploads$/,
+        );
         assert.equal(data.uploadBusy, false);
         assert.equal(data.uploadPercent, 100);
         assert.equal(data.uploadFailed, false);

@@ -4,7 +4,7 @@
  * 分片使用 `{{> name }}` 语法，路径相对 src/templates 或 src/styles。
  */
 
-import { readFile, writeFile, access } from "node:fs/promises";
+import { readFile, writeFile, access, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -12,6 +12,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STATIC = path.resolve(HERE, "..", "static");
 const TEMPLATES = path.join(HERE, "src", "templates");
 const STYLES = path.join(HERE, "src", "styles");
+const ADMIN_SRC = path.join(HERE, "src", "admin");
+const ADMIN_OUT = path.join(STATIC, "admin");
 
 const INCLUDE = /\{\{>\s*([\w./-]+)\s*\}\}/g;
 
@@ -57,11 +59,21 @@ export async function buildCss() {
   return path.join(STATIC, "style.css");
 }
 
+/** 管理端是独立静态入口，不经服务端模板；只复制构建期 HTML。 */
+export async function buildAdminHtml() {
+  const target = path.join(ADMIN_OUT, "index.html");
+  await mkdir(ADMIN_OUT, { recursive: true });
+  const html = await readFile(path.join(ADMIN_SRC, "index.html"), "utf8");
+  await writeFile(target, html, "utf8");
+  return target;
+}
+
 export async function buildUi() {
   const outputs = [];
   outputs.push(await buildHtml());
   const css = await buildCss();
   if (css) outputs.push(css);
+  outputs.push(await buildAdminHtml());
   return outputs;
 }
 

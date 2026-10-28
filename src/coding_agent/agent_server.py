@@ -69,6 +69,7 @@ from coding_agent.events import (
     RunFailed,
 )
 from coding_agent.host_broker.acceptor import HostBrokerAcceptor
+from coding_agent.host_broker.devices import DeviceRegistry
 from coding_agent.host_broker.transport import (
     ServerTlsConfig,
     certificate_fingerprint,
@@ -107,6 +108,17 @@ def create_agent_app(
         )
     elif settings.host_broker_require_tls:
         raise ValueError("AGENT_HOST_BROKER_REQUIRE_TLS 需要证书与私钥")
+    device_registry = None
+    policy = str(settings.host_broker_device_policy or "off").lower()
+    if settings.host_broker_enabled and policy == "enforce":
+        device_registry = DeviceRegistry(
+            settings.host_broker_device_registry or None,
+            enforce=True,
+        )
+        if device_registry.load_error:
+            raise ValueError(
+                f"设备台账不可用：{device_registry.load_error}"
+            )
     acceptor = (
         HostBrokerAcceptor(
             host=settings.host_broker_listen_host,
@@ -117,6 +129,8 @@ def create_agent_app(
             require_encrypted=settings.host_broker_require_tls or bool(tls),
             a2l_id=settings.host_a2l_id,
             server_fingerprint=server_fingerprint,
+            device_registry=device_registry,
+            device_reload_s=settings.host_broker_device_reload_s,
         )
         if settings.host_broker_enabled
         else None

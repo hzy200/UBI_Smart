@@ -66,6 +66,7 @@ class HostBrokerClient:
         self.require_encrypted = bool(require_encrypted)
         self.state = "disconnected"
         self.hello: Frame | None = None
+        self.hello_nonce = ""
         self.grant_events: asyncio.Queue[Frame] = asyncio.Queue()
         self._pending: dict[str, asyncio.Future[Frame]] = {}
         self._hello_future: asyncio.Future[Frame] | None = None
@@ -109,6 +110,7 @@ class HostBrokerClient:
             self.state = "offline"
             raise
         self.hello = hello
+        self.hello_nonce = nonce
         self.state = "online"
         self._last_seen = time.monotonic()
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -137,6 +139,37 @@ class HostBrokerClient:
             raise HostBrokerError(UNAUTHENTICATED, "A2L 设备指纹不符合预期")
         if self.require_encrypted and not claimed:
             raise HostBrokerError(UNAUTHENTICATED, "A2L 未提供设备指纹")
+        kind = str(meta.get("attestation_kind") or "")
+        public_key = str(meta.get("device_public_key") or "")
+        signature = str(meta.get("attestation_signature") or "")
+        if kind or public_key or signature:
+            if not (kind and public_key and signature):
+                raise HostBrokerError(
+                    UNAUTHENTICATED, "A2L 设备证明字段不完整"
+                )
+            attestation_nonce = str(
+                meta.get("attestation_nonce") or ""
+            )
+            if attestation_nonce and attestation_nonce != nonce:
+                raise HostBrokerError(
+                    UNAUTHENTICATED, "A2L 设备证明 nonce 不匹配"
+                )
+            from coding_agent.host_broker.attestation import (
+                AttestationError,
+                verify_evidence,
+            )
+
+            try:
+                verify_evidence(
+                    kind=kind,
+                    public_key_b64=public_key,
+                    message=f"{nonce}:{meta.get('a2l_id') or self.a2l_id}",
+                    signature_b64=signature,
+                )
+            except AttestationError as exc:
+                raise HostBrokerError(
+                    UNAUTHENTICATED, f"A2L 设备证明无效：{exc}"
+                ) from exc
 
     async def request(
         self,

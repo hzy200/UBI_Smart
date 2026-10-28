@@ -75,6 +75,10 @@ def _is_current_schema(url: str) -> bool:
         and has_column(url, "workspace_revisions", "pinned")
         and has_table(url, "run_leases")
         and has_table(url, "idempotency_keys")
+        and has_table(url, "control_auth_events")
+        and has_table(url, "control_quota_reservations")
+        and has_column(url, "control_usage_cursor", "user")
+        and has_column(url, "control_user_quotas", "daily_cost_cny")
     )
 
 
@@ -126,3 +130,42 @@ def upgrade(
 def metadata() -> Any:
     """供测试/诊断使用。"""
     return Base.metadata
+
+
+def _main() -> int:
+    import argparse
+    import json
+
+    from coding_agent.config import get_settings
+
+    parser = argparse.ArgumentParser(description="迁移控制面数据库")
+    parser.add_argument(
+        "--url", default="", help="默认读取 AGENT_CONTROL_DB_URL"
+    )
+    parser.add_argument("--backup", action="store_true", help="迁移前备份")
+    parser.add_argument("--backup-dir", default="")
+    args = parser.parse_args()
+    url = str(args.url or get_settings().control_db_url or "").strip()
+    if not url:
+        print("必须提供 --url 或设置 AGENT_CONTROL_DB_URL")
+        return 2
+    try:
+        result = upgrade(
+            url,
+            backup=bool(args.backup),
+            backup_dir=args.backup_dir or None,
+        )
+    except Exception as exc:  # noqa: BLE001 - CLI 边界
+        print(
+            json.dumps(
+                {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+                ensure_ascii=False,
+            )
+        )
+        return 1
+    print(json.dumps({"ok": True, **result}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

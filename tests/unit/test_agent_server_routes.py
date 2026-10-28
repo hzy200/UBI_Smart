@@ -289,6 +289,15 @@ def test_host_files_route_uses_a2l(tmp_path) -> None:
                 return {"exists": True, "is_file": True, "size": 2}
             if kind == "host.read_text":
                 return {"text": "hi"}
+            if kind == "host.read_chunk":
+                import base64
+
+                return {
+                    "data_b64": base64.b64encode(b"hi").decode("ascii"),
+                    "next": 2,
+                    "size": 2,
+                    "eof": True,
+                }
             raise AssertionError(kind)
 
     class _Acceptor:

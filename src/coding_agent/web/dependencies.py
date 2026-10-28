@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 
 from coding_agent.web.auth import AuthConfig, AuthUser
 
@@ -12,7 +12,22 @@ from coding_agent.web.auth import AuthConfig, AuthUser
 def current_user(request: Request) -> AuthUser:
     """从 app.state 读取认证配置，避免把 token 表放进依赖闭包。"""
     config: AuthConfig = request.app.state.auth
-    return config.user_from_request(request)
+    user = config.user_from_request(request)
+    config.require_csrf(request)
+    return user
 
 
 UserDep = Annotated[AuthUser, Depends(current_user)]
+
+
+def current_admin(user: UserDep) -> AuthUser:
+    """管理员权限；静态 token/桌面默认角色不是管理员。"""
+    if user.role not in {"owner", "admin"}:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "auth.forbidden", "message": "需要管理员权限"},
+        )
+    return user
+
+
+AdminDep = Annotated[AuthUser, Depends(current_admin)]

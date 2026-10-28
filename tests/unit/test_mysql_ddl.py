@@ -36,10 +36,21 @@ def test_mysql_ddl_contains_all_tables() -> None:
         "WORKSPACE_REVISIONS",
         "RUN_LEASES",
         "IDEMPOTENCY_KEYS",
+        "CONTROL_USERS",
+        "CONTROL_AUTH_SESSIONS",
+        "CONTROL_AUTH_EVENTS",
+        "CONTROL_PROVIDER_KEYS",
+        "CONTROL_USER_QUOTAS",
+        "CONTROL_USER_USAGE_DAILY",
+        "CONTROL_QUOTA_RESERVATIONS",
+        "CONTROL_USAGE_EVENTS",
+        "CONTROL_USAGE_CURSOR",
     ):
         assert f"CREATE TABLE {table}" in sql
     assert "PINNED" in sql
     assert "WORKSPACE_ID" in sql
+    # MySQL 不接受 TEXT/BLOB 的普通默认值。
+    assert "TEXT NOT NULL DEFAULT" not in sql
     assert "UTF8MB4" not in sql  # 建库字符集由部署脚本负责
 
 

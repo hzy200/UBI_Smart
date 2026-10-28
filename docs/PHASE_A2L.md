@@ -91,7 +91,7 @@ shell、写、删除、快照、编译、安装全部留到后续阶段，避免
 | 健康 | `host.health` + 心跳 | 同左 + 企业监控 |
 | 离线 | 托盘可见；A4 降级 sandbox | 同左 |
 | 更新 | 随客户端重启/升级 | 随客户端签名包更新，可回滚 |
-| 权限 | **lowpriv + ACL**（`user-t1` 仅本地开发） | 同左；AppContainer 仅受限只读档 |
+| 权限 | **lowpriv + ACL + Job Object**（`user-t1` 仅本地开发） | 同左；AppContainer 仅受限只读档 |
 | 多用户 | 每个客户端实例一个 A2L | 同左；不共享 grant/映射 |
 
 Phase 1 的“常驻”只指**客户端运行期间**；客户端退出后 A2L 必须退出。
@@ -251,7 +251,9 @@ A2L 是客户端，**只主动连接**；协议帧为 JSON，单帧上限 1 MiB�
 工作区注册/遗忘只能从 A2L 本地 UI 或本地 CLI 发起，**A3 不能替用户选目录**；
 A2 只能接收 A2L 注册后上报的 `workspace_id + root_handle + a2l_id`。
 
-写/执行/安装在 Phase 1 不注册；即使协议收到也返回 `OP_NOT_ENABLED_IN_PHASE1`。
+P1/P2 已注册写/执行/安装；写与 exec 仍默认关闭，未开启时返回
+`OP_NOT_ENABLED_IN_PHASE1` / `EXEC_UNAVAILABLE`。`host.install` 永不执行，
+只返回人工指令。
 
 ### 3.4 错误码
 
@@ -272,9 +274,13 @@ A2 只能接收 A2L 注册后上报的 `workspace_id + root_handle + a2l_id`。
 | `TARGET_KIND_MISMATCH` | target 与 workspace kind 冲突 |
 | `WORKSPACE_HANDLE_UNKNOWN` | `root_handle` 不在 A2L 本地映射中 |
 | `WORKSPACE_UNAVAILABLE` | 本地根目录缺失/不可访问；需用户重新选择 |
-| `OP_UNKNOWN` / `OP_NOT_ENABLED_IN_PHASE1` | 未注册或本阶段未开放 |
+| `OP_UNKNOWN` / `OP_NOT_ENABLED_IN_PHASE1` | 未注册或当前未开放 |
+| `OP_UNCERTAIN` | 同一 `op_id` 的写/执行结果未知；拒绝重放 |
+| `CONFLICT` | 文件在读取后被修改，或分块 offset 不连续 |
+| `EXEC_UNAVAILABLE` | 未启用 exec，或不在 AppContainer 档 |
+| `INSTALL_MANUAL_ONLY` | 安装只能人工执行（保留给未来拒绝路径） |
 | `PROTOCOL_VERSION` | 协议版本不匹配 |
-| `TOOLCHAIN_UNAVAILABLE` | 能力不存在或探测失败 |
+| `TOOLCHAIN_UNAVAILABLE` | 未注册工具链/命令，或解析失败 |
 | `TIMEOUT` / `CANCELLED` | 超时/取消 |
 | `GATEWAY_OFFLINE` | A2L 不在线，A4 应降级到 sandbox |
 | `A2L_PAUSED` | A2L 被用户暂停或处于离线状态 |
@@ -329,8 +335,75 @@ verb → 敏感根逐次确认 → 路径 canonicalization → 执行**。任一
 
 ZX 清单与 [ADR-0015](adr/0015-host-capability-broker.md) 第 4 节一致。
 P1 默认 `lowpriv`：专用低权限账户 + 对 ZX 显式 ACL deny + 对项目根显式 ACL grant。
+P0 已落地的 Windows 收紧（`win_isolation.py`）：
+
+- **Job Object**：限制活动进程数、单进程/整 Job 内存、UI 限制；A2L 自身
+  加入 Job，关闭句柄即杀进程树。
+- **低完整性**（`--low-integrity`）：显式把 A2L 令牌降到 low integrity，
+  降低写入能力；未开启时保持默认完整性。
+- **AppContainer 只读代理**（`--security-tier appcontainer`）：只读
+  `read/list/stat/find` 改在独立 AppContainer 内执行，仅对工作区根授予
+  `RX` ACL，未授权路径由 OS 拒绝；`toolchains/env.inspect` 仍在进程内执行。
+  ACL 按整树授予/回收，大仓库首次启动会慢；异常退出可能残留指向已删
+  profile 的 ACL 项（不影响安全边界，但需手动清理）。
+
 `appcontainer` 只作为受限只读档单独验证，不作为默认；`user-t1` 档只允许
 `local-dev`，并在 `hello_ok` 与 UI 中声明 `security_tier=user-t1`、`threat_model=T1`。
+上述隔离仍不等于 T2：没有 bwrap 等价的内核级边界，企业设备注册/吊销与
+红队演练也未完成（见 TD-011 / TD-013）。
+
+P1/P2 能力（默认关闭，需显式开启）：
+
+- **brokered write**：`host.write_begin/chunk/commit`、`host.write_text`、
+  `host.write_many_commit`、`host.delete`、`host.mkdir`、`host.restore`；
+  写前在宿主工作区外留快照，`expected_sha256` 不一致返回 `CONFLICT`。
+- **分块传输**：`host.read_chunk` / `host.write_chunk`，避免 1 MiB 帧上限；
+  单文件上限 20 MB。
+- **不可重放**：写/执行/安装的同一 `op_id` 再次到达返回 `OP_UNCERTAIN`；
+  授权失败等未执行错误会丢弃日志行，允许换 grant 重试。
+- **受控 exec**：只接受已注册 toolchain 的 argv，cwd 必须在工作区，
+  `output_roots` 是唯一可写目录；只在 `appcontainer` 档运行，否则
+  `EXEC_UNAVAILABLE`。默认无网络，超时终止直接子进程。开启
+  `AGENT_HOST_BROKER_EXEC_ENABLED` 后模型侧可见 `host_exec` 工具，
+  该工具按 DANGER 等级逐次审批。
+- **安装人工化**：`host.install` 只校验 grant、记录请求并返回
+  `manual=true, executed=false` 的指令，永不启动安装器。
+
+不可信仓库仍应使用 `sandbox`（WSL2）；host exec 不是 bwrap 等价的 T2 隔离。
+toolchain root 会被 AppContainer 授予 `RX` ACL；只应注册可信工具链。
+
+### 3.5.1 企业设备注册 / 吊销 / 设备证明
+
+- A3 本地 JSON 台账（`AGENT_HOST_BROKER_DEVICE_REGISTRY`）记录
+  `a2l_id + 证书指纹 + 设备公钥 + 状态`；`DEVICE_POLICY=enforce` 时
+  未登记/吊销/指纹不符/过期设备拒绝接入。
+- 管理员用 `coding-agent-host-device`（或
+  `python -m coding_agent.host_broker.devices`）预登记与吊销；
+  acceptor 每 `DEVICE_RELOAD_S` 秒重载台账，吊销后断开在线连接。
+- A2L 可用 `--attestation auto|require|tpm|off` 生成设备证明：
+  hello_ok 携带对 `nonce:a2l_id` 的签名；A3 用台账公钥校验。
+  优先尝试 Windows TPM（CNG Platform Crypto Provider，ECDSA P-256），
+  不可用则回退软件 Ed25519，并在 evidence 中如实标注。
+- **这不是 PCR quote / 远程启动证明**：只证明密钥驻留与持有；没有
+  TPM 时软件密钥同样可用，安全等级仍是 T1/T4 补偿而非 T2。
+- `agent doctor` 会探测 Job Object / 低完整性 / AppContainer / TPM /
+  软件设备证明的真实可用性；测试在能力缺失时 skip 而不是 fail。
+- 管理员登记设备公钥：
+  `python -m coding_agent.host_broker --url ... --workspace-root ... \
+   --attestation auto --print-device-identity`，把输出的
+  `kind/public_key` 写入台账。
+- **不可信仓库禁止 host 工作区与 `host_exec`**：`security_profile=untrusted`
+  时 A3 直接拒绝 host 运行；`host_exec` 工具也不会暴露。
+
+### 3.5.2 A2L 签名策略
+
+- 策略信封：`{"payload": {...}, "signature": "<base64 ed25519>"}`；
+  A2L 用固定公钥验证后才应用。
+- 可约束：`allow_write/allow_exec`、`toolchains`、`job_max_processes`、
+  `job_memory_mb`、`attestation`、`expires_at`、`a2l_id` 绑定。
+- 策略无效/过期/签名不符 → A2L 拒绝启动；CLI 参数不能重新打开被策略
+  关闭的能力。
+- 管理命令：`coding-agent-host-policy keygen|sign|verify`。
 
 ### 3.6 配置项（计划新增，落地后以 `docs/contracts/config.md` 为准）
 
@@ -342,6 +415,14 @@ P1 默认 `lowpriv`：专用低权限账户 + 对 ZX 显式 ACL deny + 对项目
 | `AGENT_HOST_BROKER_ACCOUNT` | `""` | 专用低权限账户名 |
 | `AGENT_HOST_BROKER_DEVICE_CERT` | `""` | A2L 设备证书路径（mTLS 客户端身份） |
 | `AGENT_HOST_BROKER_DEVICE_KEY` | `""` | A2L 设备私钥路径 |
+| `AGENT_HOST_BROKER_DEVICE_REGISTRY` | `""` | A3 设备台账 JSON；空 = 默认 LOCALAPPDATA |
+| `AGENT_HOST_BROKER_DEVICE_POLICY` | `off` | `off` / `enforce`：是否强制台账校验 |
+| `AGENT_HOST_BROKER_DEVICE_RELOAD_S` | `2` | 台账重载与吊销断开周期 |
+| `AGENT_HOST_BROKER_POLICY_FILE` | `""` | A2L 签名策略文件 |
+| `AGENT_HOST_BROKER_POLICY_PUBKEY` | `""` | 策略公钥（raw/base64/hex） |
+| `AGENT_HOST_BROKER_POLICY_PUBKEY_FILE` | `""` | 策略公钥 PEM 文件 |
+| `AGENT_HOST_BROKER_ATTESTATION` | `off` | `off` / `auto` / `require` / `tpm` |
+| `AGENT_HOST_BROKER_ATTESTATION_KEY` | `""` | 软件设备证明密钥路径 |
 | `AGENT_HOST_BROKER_TLS_CERT` | `""` | A3/A2 服务端证书路径 |
 | `AGENT_HOST_BROKER_TLS_KEY` | `""` | A3/A2 服务端私钥路径 |
 | `AGENT_HOST_BROKER_TLS_CA` | `""` | 双向校验 CA |
@@ -350,6 +431,10 @@ P1 默认 `lowpriv`：专用低权限账户 + 对 ZX 显式 ACL deny + 对项目
 | `AGENT_HOST_BROKER_HEARTBEAT_S` | `15` | 心跳间隔 |
 | `AGENT_HOST_BROKER_AUTOSTART` | `true` | 客户端启动时自动拉起 A2L；**不是操作系统级自启** |
 | `AGENT_HOST_BROKER_PAUSED` | `false` | 本地一键离线/暂停；暂停时拒绝所有 host op |
+| `AGENT_HOST_BROKER_ALLOW_WRITE` | `false` | 开放 host 写/删除/快照（仍需 grant） |
+| `AGENT_HOST_BROKER_EXEC_ENABLED` | `false` | 开放 `host.exec`（仅 AppContainer + 已注册工具链） |
+| `AGENT_HOST_BROKER_TOOLCHAINS` | `""` | 工具链 JSON 数组；`root` 不下发模型 |
+| `AGENT_HOST_SNAPSHOT_DIR` | `""` | 宿主快照目录；空 = `%LOCALAPPDATA%\CodingAgent\host-snapshots` |
 | `AGENT_WORKSPACE_KIND_DEFAULT` | `host`（客户端）/ `sandbox`（服务端） | 新工作区默认类型 |
 | `AGENT_GRANTS_ENABLED` | `false` | 关闭时回退 `access_mode` |
 | `AGENT_HOST_DENY_ROOTS` | 内置 ZX | 只能追加，不能删除内置项 |
@@ -598,19 +683,20 @@ Phase 1 完成定义：
 
 ## 8. 后续阶段
 
-**P2–P5 是后续工作，不纳入当前交付。** 当前只交付 Phase 1 只读能力与安全演示；
-写/编译/安装/企业分发需要单独立项、评审与验收。
+P2/P3 的核心能力（brokered write、快照、AppContainer 受控 exec）已落地，
+但 revision、build 脚本策略、网络白名单、企业分发仍未完成；P4/P5 仍需
+单独立项与验收。
 
 | 阶段 | 内容 | 关键前置 |
 |---|---|---|
-| P2 | host 写/删除/快照、grant 写授权、host 工作区 revision | P1 路径与 grant 测试全绿 |
-| P3 | `host.exec` + 工具链调用 + `output_roots` + build 脚本策略 | L3/L4 等级与审计契约 |
-| P4 | `host.install`（L4）、客户端安装包/签名更新、企业设备注册/吊销 | 签名安装器、企业策略、P1 生命周期稳定 |
+| P2 | host 写/删除/快照、grant 写授权、host 工作区 revision | **核心已完成**：写/删/快照/恢复；revision 未做 |
+| P3 | `host.exec` + 工具链调用 + `output_roots` + build 脚本策略 | **AppContainer exec 已完成**；build 脚本/网络白名单未做 |
+| P4 | `host.install`（L4）、客户端安装包/签名更新、企业设备注册/吊销 | **install 已人工化；设备注册/吊销已落地**；安装包/企业批量分发未做 |
 | P5 | sandbox WSL 瘦身/加固复核、跨 kind 策略、提示注入评估 | P1–P4 稳定运行 |
 
 跨 kind 编译/验证不在任何阶段默认开启；如需要，另立 RFC。
 
-## 9. 实现进度（2026-10-25）
+## 9. 实现进度（2026-10-27）
 
 | 项 | 状态 | 落点 |
 |---|---|---|
@@ -626,6 +712,20 @@ Phase 1 完成定义：
 | A2L 生命周期（单实例/暂停/离线） | 完成（骨架） | `host_broker/lifecycle.py` |
 | grant/ZX/路径/工具链策略 | 完成 | `host_broker/policy.py`、`paths.py`、`toolchain.py` |
 | Phase 1 只读能力 | 完成（本地 handler） | `host_broker/ops.py` |
+| Windows Job Object 限额/杀进程树 | 完成（P0） | `host_broker/win_isolation.py`、`host_broker/__main__.py` |
+| 低完整性令牌（显式 `--low-integrity`） | 完成（P0） | `host_broker/win_isolation.py`、`host_broker/__main__.py` |
+| AppContainer 只读 helper（`--security-tier appcontainer`） | 完成（P0） | `host_broker/win_isolation.py`、`host_broker/ops.py` |
+| Windows 红队用例（Job/低完整性/AppContainer/越权路径） | 完成 | `tests/unit/test_win_isolation.py`、`tests/unit/test_host_broker_ops.py` |
+| brokered write + 分块传输 + 宿主快照 | 完成（P1） | `host_broker/ops.py`、`host_broker/snapshots.py` |
+| 写/执行不可重放（`OP_UNCERTAIN`） | 完成（P1） | `host_broker/server.py`、`host_broker/op_journal.py` |
+| host 文件工具端到端（写/改/移动/删除/恢复） | 完成 | `execution/host_fs.py`、`execution/host_snapshots.py`、`tools/files.py` |
+| AppContainer 受控 exec（toolchain 显式注册） | 完成（P2） | `host_broker/exec.py`、`host_broker/win_isolation.py` |
+| 安装人工化（`host.install` 永不执行） | 完成 | `host_broker/ops.py` |
+| P1/P2 红队与适配测试 | 完成 | `tests/unit/test_host_broker_write.py`、`test_host_broker_exec.py`、`test_host_fs.py`、`test_host_file_tools.py` |
+| 企业设备台账 + 注册/吊销 CLI | 完成（P1） | `host_broker/devices.py` |
+| acceptor 接入校验 + 吊销断开 | 完成（P1） | `host_broker/acceptor.py`、`agent_server.py` |
+| A2L 签名策略（本地验签） | 完成（P2） | `host_broker/policy_doc.py`、`host_broker/__main__.py` |
+| 设备证明（软件 / TPM 背书密钥） | 完成（P2） | `host_broker/attestation.py`、`host_broker/{server,client}.py` |
 | grant 本地 UI | 协议帧已就绪；UI 待做 | `host_broker/protocol.py`、`host_broker/consent.py` |
 | A4 target 路由 + host 只读后端 | 完成 | `execution/service.py`、`execution/host_backend.py` |
 | 工作区 kind/handle 迁移 | 完成 | `control/schema.py`、`control/workspaces.py`、迁移 `0005` |

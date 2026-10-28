@@ -37,7 +37,12 @@
       this.name = "ConfigError";
     }
   };
-  var AUTH_MODES = ["desktop-token", "bearer", "bff-cookie"];
+  var AUTH_MODES = [
+    "desktop-token",
+    "bearer",
+    "bff-cookie",
+    "local-session"
+  ];
   var DEFAULT_SSE = {
     heartbeatMs: 15e3,
     idleTimeoutMs: 45e3,
@@ -74,7 +79,7 @@
       if (text.includes("?") || text.includes("#")) {
         throw new ConfigError("apiBaseUrl \u4E0D\u80FD\u5305\u542B query \u6216 fragment");
       }
-      return text.replace(/\/+$/, "");
+      return assertNotApiBase(text.replace(/\/+$/, ""));
     }
     let parsed;
     try {
@@ -91,7 +96,15 @@
     if (parsed.search || parsed.hash) {
       throw new ConfigError("apiBaseUrl \u4E0D\u80FD\u5305\u542B query \u6216 fragment");
     }
-    return text.replace(/\/+$/, "");
+    return assertNotApiBase(text.replace(/\/+$/, ""));
+  }
+  function assertNotApiBase(value) {
+    if (value === "/api" || value.endsWith("/api")) {
+      throw new ConfigError(
+        "apiBaseUrl \u4E0D\u80FD\u4EE5 /api \u7ED3\u5C3E\uFF1B\u53EA\u586B origin \u6216\u90E8\u7F72\u524D\u7F00"
+      );
+    }
+    return value;
   }
   function readAuthUrl(value, label) {
     if (value === void 0 || value === null || value === "") return "";
@@ -135,7 +148,7 @@
     const authMode = raw.authMode;
     if (typeof authMode !== "string" || !AUTH_MODES.includes(authMode)) {
       throw new ConfigError(
-        "authMode \u5FC5\u987B\u662F desktop-token\u3001bearer \u6216 bff-cookie"
+        "authMode \u5FC5\u987B\u662F desktop-token\u3001bearer\u3001bff-cookie \u6216 local-session"
       );
     }
     const authRaw = isRecord(raw.auth) ? raw.auth : {};
@@ -148,6 +161,11 @@
     if (authMode === "bff-cookie" && (!auth.loginUrl || !auth.refreshUrl)) {
       throw new ConfigError("bff-cookie \u6A21\u5F0F\u5FC5\u987B\u914D\u7F6E auth.loginUrl \u4E0E auth.refreshUrl");
     }
+    const costRaw = isRecord(raw.cost) ? raw.cost : {};
+    const cost = {
+      currency: costRaw.currency === "USD" ? "USD" : "CNY",
+      usdToCny: costRaw.currency === "USD" ? 1 : readNumber(costRaw.usdToCny, 7.2, 1e-4, 100, "cost.usdToCny")
+    };
     const sseRaw = isRecord(raw.sse) ? raw.sse : {};
     const sse = {
       heartbeatMs: readNumber(
@@ -202,6 +220,7 @@
       apiVersion,
       authMode,
       auth,
+      cost,
       sse,
       requestIdHeader
     };
@@ -247,8 +266,12 @@
       return path;
     }
     const normalized = path.startsWith("/") ? path : `/${path}`;
-    if (!activeConfig.apiBaseUrl) return normalized;
-    return `${activeConfig.apiBaseUrl}${normalized}`;
+    const versioned = normalized.replace(
+      /^\/api\/(?!v\d+\/)/,
+      `/api/${activeConfig.apiVersion}/`
+    );
+    if (!activeConfig.apiBaseUrl) return versioned;
+    return `${activeConfig.apiBaseUrl}${versioned}`;
   }
   function currentRuntimeConfig() {
     return activeConfig;
@@ -336,24 +359,26 @@
     return "";
   }
   function csrfCookie() {
-    return readCookie("csrf_token") || readCookie("XSRF-TOKEN");
+    return readCookie("csrf_token") || readCookie("XSRF-TOKEN") || readCookie("ca_csrf");
   }
   function applyAuthHeaders(headers, method) {
     const config = currentRuntimeConfig();
-    if (config?.authMode !== "bff-cookie") {
+    const cookieAuth = config?.authMode === "bff-cookie" || config?.authMode === "local-session";
+    if (!cookieAuth) {
       const token = getToken();
       if (token) headers.set("Authorization", `Bearer ${token}`);
     }
     headers.set("X-Frontend-Version", FRONTEND_VERSION);
-    if (config?.authMode === "bff-cookie" && !isSafeMethod(method)) {
+    if (cookieAuth && !isSafeMethod(method)) {
       const token = csrfCookie();
       if (token) {
-        headers.set(config.auth.csrfHeader || "X-CSRF-Token", token);
+        headers.set(config?.auth.csrfHeader || "X-CSRF-Token", token);
       }
     }
   }
   function authCredentials() {
-    return currentRuntimeConfig()?.authMode === "bff-cookie" ? "include" : "same-origin";
+    const mode = currentRuntimeConfig()?.authMode;
+    return mode === "bff-cookie" || mode === "local-session" ? "include" : "same-origin";
   }
   function authUrl(path) {
     if (/^https?:/i.test(path)) return path;
@@ -583,8 +608,12 @@
       this.tokenInput = getToken();
       installDesktopBridgeGuard();
       this.desktopAvailable = Boolean(window.pywebview && window.pywebview.api);
+      this.applyDesktopShell();
+      if (this.desktopAvailable) void this.syncDesktopWindowState();
       window.addEventListener("pywebviewready", () => {
         this.desktopAvailable = true;
+        this.applyDesktopShell();
+        void this.syncDesktopWindowState();
         this.probeProject();
       });
       this.loadSettings();
@@ -791,7 +820,10 @@
       notifications: "\u901A\u77E5\u4E2D\u5FC3",
       recovery: "\u6062\u590D\u4E2D\u5FC3",
       shortcuts: "\u5FEB\u6377\u952E",
-      settings: "\u8BBE\u7F6E"
+      settings: "\u8BBE\u7F6E",
+      minimize: "\u6700\u5C0F\u5316",
+      maximize: "\u6700\u5927\u5316\u6216\u8FD8\u539F",
+      closeWindow: "\u5173\u95ED\u7A97\u53E3"
     },
     nav: {
       sessions: "\u4F1A\u8BDD",
@@ -1001,7 +1033,8 @@
     auth: {
       bearer: "Bearer Token\uFF08\u4EC5\u5185\u5B58\uFF09",
       desktopToken: "\u684C\u9762\u4EE4\u724C\uFF08\u672C\u5730\u5B58\u50A8\uFF09",
-      bffCookie: "\u7EDF\u4E00\u767B\u5F55\uFF08BFF Cookie\uFF09"
+      bffCookie: "\u7EDF\u4E00\u767B\u5F55\uFF08BFF Cookie\uFF09",
+      localSession: "\u4F01\u4E1A\u8D26\u53F7\uFF08Session Cookie\uFF09"
     },
     commands: {
       title: "\u547D\u4EE4\u9762\u677F",
@@ -1109,7 +1142,10 @@
       notifications: "Notification center",
       recovery: "Recovery center",
       shortcuts: "Keyboard shortcuts",
-      settings: "Settings"
+      settings: "Settings",
+      minimize: "Minimize",
+      maximize: "Maximize or restore",
+      closeWindow: "Close window"
     },
     nav: {
       sessions: "Sessions",
@@ -1319,7 +1355,8 @@
     auth: {
       bearer: "Bearer token (memory only)",
       desktopToken: "Desktop token (local storage)",
-      bffCookie: "Unified login (BFF cookie)"
+      bffCookie: "Unified login (BFF cookie)",
+      localSession: "Enterprise account (session cookie)"
     },
     commands: {
       title: "Command palette",
@@ -1729,7 +1766,9 @@
         restoreDesktopToken();
       } else {
         clearStoredToken();
-        if (config.authMode === "bff-cookie") setToken("");
+        if (config.authMode === "bff-cookie" || config.authMode === "local-session") {
+          setToken("");
+        }
       }
       this.tokenInput = getToken();
     },
@@ -1752,7 +1791,9 @@
         this.startLogin();
         return;
       }
-      this.showLogin("\u8BA4\u8BC1\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u8F93\u5165 token");
+      this.showLogin(
+        this.authMode === "local-session" ? "\u767B\u5F55\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55" : "\u8BA4\u8BC1\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u8F93\u5165 token"
+      );
     },
     startLogin() {
       if (!this.authLoginUrl) {
@@ -1768,12 +1809,52 @@
         return this.t("auth.desktopToken");
       }
       if (this.authMode === "bff-cookie") return this.t("auth.bffCookie");
+      if (this.authMode === "local-session") return this.t("auth.localSession");
       return this.t("auth.bearer");
+    },
+    async loginWithPassword() {
+      const username = String(this.loginUsername || "").trim();
+      const password = String(this.loginPassword || "");
+      if (!username || !password) {
+        this.loginError = "\u8BF7\u8F93\u5165\u7528\u6237\u540D\u548C\u5BC6\u7801";
+        return;
+      }
+      try {
+        const response = await fetch(apiUrl("/api/auth/login"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        if (!response.ok) {
+          let message = "\u767B\u5F55\u5931\u8D25";
+          try {
+            const data = await response.json();
+            message = String(data.detail?.message || data.detail || message);
+          } catch (err) {
+          }
+          this.loginError = message;
+          return;
+        }
+        this.loginPassword = "";
+        this.loginError = "";
+        await this.bootstrap();
+      } catch (err) {
+        this.loginError = `\u767B\u5F55\u5931\u8D25\uFF1A${String(err)}`;
+      }
     },
     async logout() {
       const config = currentRuntimeConfig();
       try {
-        if (config?.auth.logoutUrl) {
+        if (this.authMode === "local-session") {
+          const headers = new Headers({ Accept: "application/json" });
+          applyAuthHeaders(headers, "POST");
+          await fetch(apiUrl("/api/auth/logout"), {
+            method: "POST",
+            credentials: "include",
+            headers
+          });
+        } else if (config?.auth.logoutUrl) {
           const headers = new Headers({ Accept: "application/json" });
           applyAuthHeaders(headers, "POST");
           await fetch(authUrl(config.auth.logoutUrl), {
@@ -2548,6 +2629,17 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     return escapeHtml(source);
   }
 
+  // src/ui/money.ts
+  function moneySymbol() {
+    return currentRuntimeConfig()?.cost?.currency === "USD" ? "$" : "\xA5";
+  }
+  function formatUsdAsMoney(usd, decimals = 4) {
+    const cost = currentRuntimeConfig()?.cost;
+    const rate = cost?.currency === "USD" ? 1 : cost?.usdToCny || 7.2;
+    const value = Number(usd || 0) * rate;
+    return `${moneySymbol()}${value.toFixed(decimals)}`;
+  }
+
   // src/features/view-model.ts
   var view_modelMixin = {
     tabClass(name) {
@@ -2747,9 +2839,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     },
     get usageTitle() {
       const parts = [];
-      if (this.usage.cost) parts.push(`\u8D39\u7528 $${this.usage.cost.toFixed(4)}`);
+      if (this.usage.cost) parts.push(`\u8D39\u7528 ${formatUsdAsMoney(this.usage.cost)}`);
       if (this.usage.budget) {
-        parts.push(`\u9884\u7B97 $${this.usage.budget.toFixed(2)}\uFF08${Math.round(this.usage.ratio * 100)}%\uFF09`);
+        parts.push(`\u9884\u7B97 ${formatUsdAsMoney(this.usage.budget, 2)}\uFF08${Math.round(this.usage.ratio * 100)}%\uFF09`);
       }
       if (this.usage.cache) parts.push(`cache hit ${this.usage.cache}`);
       return parts.join(" \xB7 ") || "\u672C\u8F6E token \u7528\u91CF";
@@ -5129,9 +5221,9 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return `\u5BA1\u67E5\uFF1A${event.status}`;
     },
     formatCost(event) {
-      let text = `$${Number(event.cost_usd || 0).toFixed(4)}`;
+      let text = formatUsdAsMoney(event.cost_usd);
       if (event.budget_usd > 0) {
-        text += ` / $${Number(event.budget_usd).toFixed(2)}\uFF08${Math.round((event.ratio || 0) * 100)}%\uFF09`;
+        text += ` / ${formatUsdAsMoney(event.budget_usd, 2)}\uFF08${Math.round((event.ratio || 0) * 100)}%\uFF09`;
       }
       return text;
     },
@@ -7025,7 +7117,51 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
   }
 
   // src/features/desktop.ts
+  function desktopBridge() {
+    return window.pywebview && window.pywebview.api;
+  }
   var desktopMixin = {
+    get desktopRestored() {
+      return !this.desktopMaximized;
+    },
+    applyDesktopShell() {
+      if (typeof document === "undefined" || !document.body) return;
+      document.body.classList.toggle("desktop-shell", Boolean(this.desktopAvailable));
+    },
+    async syncDesktopWindowState() {
+      const bridge = desktopBridge();
+      if (!bridge) return;
+      try {
+        const state = await bridge.window_state();
+        if (state && state.ok) this.desktopMaximized = Boolean(state.maximized);
+      } catch (err) {
+      }
+    },
+    async minimizeDesktop() {
+      const bridge = desktopBridge();
+      if (!bridge) return;
+      try {
+        await bridge.window_minimize();
+      } catch (err) {
+      }
+    },
+    async toggleDesktopMaximize() {
+      const bridge = desktopBridge();
+      if (!bridge) return;
+      try {
+        const state = await bridge.window_toggle_maximize();
+        if (state && state.ok) this.desktopMaximized = Boolean(state.maximized);
+      } catch (err) {
+      }
+    },
+    async closeDesktop() {
+      const bridge = desktopBridge();
+      if (!bridge) return;
+      try {
+        await bridge.window_close();
+      } catch (err) {
+      }
+    },
     async collectDiagnostics() {
       const bridge = window.pywebview && window.pywebview.api;
       if (!bridge || this.diagnosticsBusy) return;
@@ -8488,10 +8624,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       return this.ready === false && this.configLoaded && this.versionChecked && !this.configError && !this.versionError;
     },
     get authTokenVisible() {
-      return this.authMode !== "bff-cookie";
+      return this.authMode !== "bff-cookie" && this.authMode !== "local-session";
     },
     get authBffVisible() {
       return this.authMode === "bff-cookie";
+    },
+    get authLocalVisible() {
+      return this.authMode === "local-session";
     },
     get authModeText() {
       return this.t("settings.authMode", { mode: this.authModeLabel });
@@ -9245,6 +9384,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       authLogoutUrl: "",
       authCsrfHeader: "X-CSRF-Token",
       loginError: "",
+      loginUsername: "",
+      loginPassword: "",
       tokenInput: "",
       _authFailureAt: 0,
       healthText: "\u8FDE\u63A5\u4E2D\u2026",
@@ -9284,6 +9425,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       revisions: [],
       revisionBusy: false,
       desktopAvailable: false,
+      desktopMaximized: false,
       canCopyWorkspace: false,
       copyBusy: false,
       copyMessage: "",

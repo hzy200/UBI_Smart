@@ -11,12 +11,14 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
+from coding_agent.access import normalize_access_mode
 from coding_agent.agent_protocol import AgentContext
 from coding_agent.agent_server_support import _ContextSecretStore, _safe_tenant
 from coding_agent.config import Settings
 from coding_agent.execution.host_backend import HostExecutionBackend
 from coding_agent.execution.host_file_access import HostFileAccess
+from coding_agent.execution.host_fs import HostFs
+from coding_agent.execution.host_snapshots import HostSnapshotStore
 from coding_agent.runtime import AgentRuntime
 from coding_agent.workspace.model import normalize_workspace_kind
 
@@ -53,9 +55,21 @@ class AgentRuntimeFactory:
 
     def new(self, context: AgentContext) -> AgentRuntime:
         kind = normalize_workspace_kind(context.workspace_kind)
+        profile = str(self.settings.security_profile or "").lower()
+        if kind == "host" and profile == "untrusted":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "不可信仓库禁止使用 host 工作区；"
+                    "请改用 sandbox（WSL2）"
+                ),
+            )
         access = normalize_access_mode(context.access_mode) or "read_only"
         file_access = None
         targets = None
+        host_fs = None
+        host_snapshots = None
+        host_cache: dict[str, bytes] = {}
         workspace = context.workspace
         if kind == "host":
             if self.host_broker_acceptor is None:
@@ -79,6 +93,18 @@ class AgentRuntimeFactory:
                 caller,
                 workspace_id=context.workspace_id,
                 root_handle=context.root_handle,
+                cache=host_cache,
+            )
+            host_fs = HostFs(
+                caller,
+                workspace_id=context.workspace_id,
+                root_handle=context.root_handle,
+                cache=host_cache,
+            )
+            host_snapshots = HostSnapshotStore(
+                caller,
+                workspace_id=context.workspace_id,
+                root_handle=context.root_handle,
             )
             targets = {
                 "host": HostExecutionBackend(
@@ -87,8 +113,6 @@ class AgentRuntimeFactory:
                     root_handle=context.root_handle,
                 )
             }
-            # Phase 1 host 是只读能力；不暴露写/执行工具。
-            access = ACCESS_READ_ONLY
         elif not self.settings.workspace_registry:
             # 旧语义：A3 负责创建目录，保证单机/同进程部署可用。
             try:
@@ -104,7 +128,7 @@ class AgentRuntimeFactory:
         return self.runtime_factory(
             self.tenant_settings(context),
             workspace=workspace,
-            allow_write=False if kind == "host" else bool(context.allow_write),
+            allow_write=bool(context.allow_write),
             approval_mode="ask",
             access_mode=access,
             model_override=context.model,
@@ -113,4 +137,6 @@ class AgentRuntimeFactory:
             file_access=file_access,
             execution_targets=targets,
             workspace_kind=kind,
+            host_fs=host_fs,
+            host_snapshots=host_snapshots,
         )

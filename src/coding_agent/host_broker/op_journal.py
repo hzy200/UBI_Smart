@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from contextlib import closing
+import weakref
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,26 +40,64 @@ class OpRecord:
     meta: str = ""
 
 
+def _close_connection(conn: sqlite3.Connection) -> None:
+    try:
+        conn.close()
+    except Exception:  # noqa: BLE001 - 析构阶段不能抛
+        pass
+
+
 class OpJournal:
-    """SQLite 单文件日志；A2L 单实例使用，不做跨进程并发写。"""
+    """SQLite 单文件日志；A2L 单实例使用，不做跨进程并发写。
+
+    连接常驻：每次 `start`/`finish` 都新建连接 + 重放 PRAGMA，在 Windows
+    上单次约 7ms，直接抬高了每一次 A2L 往返。这里复用一个连接（由
+    `_lock` 串行化），提交语义仍是每次落盘。
+    """
 
     def __init__(self, path: str | Path, *, recover: bool = True) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._conn: sqlite3.Connection | None = self._connect()
+        self._finalizer = weakref.finalize(
+            self, _close_connection, self._conn
+        )
         self._init_schema()
         if recover:
             self.recover_started()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, timeout=10)
+        # 所有访问都在 self._lock 内，因此允许跨线程复用。
+        conn = sqlite3.connect(
+            self.path, timeout=10, check_same_thread=False
+        )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
+    def _db(self) -> sqlite3.Connection:
+        conn = self._conn
+        if conn is None:
+            raise RuntimeError("OpJournal 已关闭")
+        return conn
+
+    def close(self) -> None:
+        """关闭常驻连接；可重复调用。"""
+        with self._lock:
+            if self._conn is None:
+                return
+            try:
+                self._conn.commit()
+            except sqlite3.Error:
+                pass
+            self._finalizer()
+            self._conn = None
+
     def _init_schema(self) -> None:
-        with self._lock, closing(self._connect()) as conn:
+        with self._lock:
+            conn = self._db()
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS ops (
@@ -103,7 +141,8 @@ class OpJournal:
         op_id = str(op_id or "").strip()
         if not op_id:
             raise ValueError("op_id 不能为空")
-        with self._lock, closing(self._connect()) as conn:
+        with self._lock:
+            conn = self._db()
             cur = conn.execute(
                 """
                 INSERT INTO ops(op_id, kind, status, started_at, meta)
@@ -131,7 +170,8 @@ class OpJournal:
         """写入终态；只允许 finished/failed/cancelled/unknown。"""
         if status not in _TERMINAL and status != OP_UNKNOWN:
             raise ValueError(f"非法终态：{status!r}")
-        with self._lock, closing(self._connect()) as conn:
+        with self._lock:
+            conn = self._db()
             cur = conn.execute(
                 """
                 UPDATE ops
@@ -151,16 +191,33 @@ class OpJournal:
             return cur.rowcount > 0
 
     def get(self, op_id: str) -> OpRecord | None:
-        with self._lock, closing(self._connect()) as conn:
-            row = conn.execute(
+        with self._lock:
+            row = self._db().execute(
                 "SELECT * FROM ops WHERE op_id = ?",
                 (str(op_id or "").strip(),),
             ).fetchone()
         return self._row(row)
 
+    def discard(self, op_id: str) -> bool:
+        """删除一条尚未执行的 started 记录。
+
+        授权失败、路径越界等错误在写/执行真正发生前就返回；若把它们留在
+        日志里，同一 op_id 带 grant 重试会被误判为“结果未知”。只允许删除
+        `started`，终态记录永不删除。
+        """
+        with self._lock:
+            conn = self._db()
+            cur = conn.execute(
+                "DELETE FROM ops WHERE op_id = ? AND status = ?",
+                (str(op_id or "").strip(), OP_STARTED),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     def recover_started(self) -> int:
         """进程重启后把遗留的 started 标成 unknown，返回受影响行数。"""
-        with self._lock, closing(self._connect()) as conn:
+        with self._lock:
+            conn = self._db()
             cur = conn.execute(
                 """
                 UPDATE ops
@@ -173,8 +230,8 @@ class OpJournal:
             return cur.rowcount
 
     def unknown(self) -> list[OpRecord]:
-        with self._lock, closing(self._connect()) as conn:
-            rows = conn.execute(
+        with self._lock:
+            rows = self._db().execute(
                 "SELECT * FROM ops WHERE status = ? ORDER BY started_at",
                 (OP_UNKNOWN,),
             ).fetchall()

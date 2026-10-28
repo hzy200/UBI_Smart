@@ -72,6 +72,17 @@ class LauncherConfig:
     host_workspace_id: str = ""
     host_root_handle: str = ""
     host_security_tier: str = "lowpriv"
+    host_allow_write: bool = False
+    host_exec_enabled: bool = False
+    host_toolchains: str = ""
+    host_snapshot_dir: str = ""
+    host_policy_file: str = ""
+    host_policy_pubkey: str = ""
+    host_policy_pubkey_file: str = ""
+    host_attestation: str = "off"
+    host_attestation_key: str = ""
+    host_device_registry: str = ""
+    host_device_policy: str = "off"
 
     @classmethod
     def load(cls) -> LauncherConfig | None:
@@ -106,6 +117,37 @@ class LauncherConfig:
             ).strip(),
             host_security_tier=str(
                 data.get("host_security_tier") or "lowpriv"
+            ).strip(),
+            host_allow_write=bool(data.get("host_allow_write", False)),
+            host_exec_enabled=bool(
+                data.get("host_exec_enabled", False)
+            ),
+            host_toolchains=str(
+                data.get("host_toolchains") or ""
+            ).strip(),
+            host_snapshot_dir=str(
+                data.get("host_snapshot_dir") or ""
+            ).strip(),
+            host_policy_file=str(
+                data.get("host_policy_file") or ""
+            ).strip(),
+            host_policy_pubkey=str(
+                data.get("host_policy_pubkey") or ""
+            ).strip(),
+            host_policy_pubkey_file=str(
+                data.get("host_policy_pubkey_file") or ""
+            ).strip(),
+            host_attestation=str(
+                data.get("host_attestation") or "off"
+            ).strip(),
+            host_attestation_key=str(
+                data.get("host_attestation_key") or ""
+            ).strip(),
+            host_device_registry=str(
+                data.get("host_device_registry") or ""
+            ).strip(),
+            host_device_policy=str(
+                data.get("host_device_policy") or "off"
             ).strip(),
         )
 

@@ -166,7 +166,7 @@ def test_runtime_config_is_public_and_same_origin(settings) -> None:
     data = response.json()
     assert data["schemaVersion"] == 1
     assert data["apiBaseUrl"] == ""
-    assert data["apiVersion"] == "v0"
+    assert data["apiVersion"] == "v1"
     assert data["authMode"] == "bearer"
     assert data["sse"]["heartbeatMs"] == 15000
     assert data["sse"]["idleTimeoutMs"] == 45000
@@ -196,7 +196,8 @@ def test_runtime_config_stays_public_when_auth_is_enabled(settings) -> None:
 def test_healthz_reports_frontend_version_contract(settings) -> None:
     client = TestClient(web.create_app(settings))
     data = client.get("/healthz").json()
-    assert data["api_version"] == "v0"
+    assert data["api_version"] == "v1"
+    assert data["min_api_version"] == "v0"
     assert data["min_frontend_version"] == "0.1.0"
     assert data["capabilities_version"] == 1
     assert data["version"] == "0.1.0"
@@ -804,6 +805,26 @@ def test_transcript_updates_session_preview_and_unread(settings) -> None:
     row = client.get("/api/sessions").json()["sessions"][0]
     assert row["last_message"] == "目录里只有 a.txt"
     assert row["unread"] is True
+
+
+def test_api_v1_aliases_v0_with_deprecation(settings) -> None:
+    client = TestClient(web.create_app(settings))
+    v1 = client.get("/api/v1/sessions")
+    v0 = client.get("/api/sessions")
+
+    assert v1.status_code == v0.status_code == 200
+    assert v1.json() == v0.json()
+    assert v1.headers["x-api-version"] == "v1"
+    assert "deprecation" not in v1.headers
+    # 兼容窗口：旧路径仍可用，但明确标注弃用。
+    assert v0.headers["x-api-version"] == "v0"
+    assert v0.headers["deprecation"] == "true"
+
+
+def test_api_v1_keeps_query_and_unknown_paths(settings) -> None:
+    client = TestClient(web.create_app(settings))
+    assert client.get("/api/v1/sessions?limit=1").status_code == 200
+    assert client.get("/api/v1/does-not-exist").status_code == 404
 
 
 def test_importing_the_module_does_not_build_an_app() -> None:

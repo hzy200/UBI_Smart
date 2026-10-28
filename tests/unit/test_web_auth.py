@@ -68,7 +68,9 @@ def _client_with_tenant(monkeypatch, settings: Settings, config: AuthConfig):
         settings=settings,
     )
     monkeypatch.setattr(
-        web_app.TenantManager, "for_user", lambda self, _user: tenant
+        web_app.TenantManager,
+        "for_user",
+        lambda self, _user, *, org="": tenant,
     )
     return TestClient(web_app.create_app(settings, config))
 
@@ -158,12 +160,13 @@ def test_threads_are_isolated_between_users(monkeypatch, tmp_path) -> None:
         web_auth_tokens=json.dumps({"tok-a": "alice", "tok-b": "bob"}),
     )
 
-    def _tenant_for(self, user):  # noqa: ANN001
+    def _tenant_for(self, user, *, org=""):  # noqa: ANN001
         return WebTenant(
             user=user,
             multi_user=True,
             workspace=f"/tmp/ws/{user}",
             settings=settings,
+            org=org,
         )
 
     monkeypatch.setattr(web_app.TenantManager, "for_user", _tenant_for)

@@ -46,6 +46,8 @@ review_cadence: 每次新增决策时
 | [0017](0017-auth-model-for-separated-deployment.md) | 认证模型按部署形态分三档 | accepted | 安全 · 认证 · 部署 |
 | [0018](0018-desktop-bridge-boundary.md) | 桌面桥只绑定本地页面与本地 origin | accepted | 安全 · 桌面 · 前端 |
 | [0019](0019-per-session-frontend-views.md) | 前端按会话隔离 SessionView 与 SSE，支持后台流与实时分屏 | accepted | 架构 · 前端 · 状态 · SSE |
+| [0020](0020-frontend-release-artifact.md) | 前端发布产物与版本解耦 | accepted | 架构 · 部署 · 前端 |
+| [0021](0021-enterprise-mysql-account-store.md) | 企业账号、额度与上游 Key 统一存 MySQL | accepted | 架构 · 数据库 · 安全 |
 
 ## 待补录候选
 

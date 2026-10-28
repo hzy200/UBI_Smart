@@ -12,6 +12,7 @@ from typing import Any
 from rich.console import Console
 from rich.markup import escape
 
+from coding_agent.costs import CurrencyConfig
 from coding_agent.events import (
     AssistantToken,
     CostReport,
@@ -43,10 +44,12 @@ class CliRenderer:
         console: Console,
         emit: Callable[[str], None],
         render_plan: Callable[[list[str], int], None],
+        currency: CurrencyConfig | None = None,
     ) -> None:
         self.console = console
         self.emit = emit
         self.render_plan = render_plan
+        self.currency = currency or CurrencyConfig()
         self.state: dict[str, Any] = {
             "plan": [],
             "total": 1,
@@ -268,15 +271,16 @@ class CliRenderer:
         self.console.print(f"\n[red]运行失败：{escape(event.message)}[/]")
 
     def _cost_report(self, event: CostReport) -> None:
-        line = f"成本 ${event.cost_usd:.4f}"
+        line = f"成本 {self.currency.format(event.cost_usd)}"
         if event.budget_usd > 0:
             line += (
-                f" / 预算 ${event.budget_usd:.2f}（{event.ratio:.0%}）"
+                f" / 预算 {self.currency.format(event.budget_usd, decimals=2)}"
+                f"（{event.ratio:.0%}）"
             )
         if event.billed_usd:
             line += (
-                f" / 账单 ${event.billed_usd:.4f}"
-                f"（差 ${event.billing_delta_usd:+.4f}）"
+                f" / 账单 {self.currency.format(event.billed_usd)}"
+                f"（差 {self.currency.format(event.billing_delta_usd)}）"
             )
         self.console.print(f"[dim]{escape(line)}[/]")
         if event.billing_error:

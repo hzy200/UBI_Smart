@@ -4,13 +4,18 @@
  * 配置非法时必须失败关闭：阻断页优先于登录页，不能退回同源猜测。
  */
 
-export type AuthMode = 'desktop-token' | 'bearer' | 'bff-cookie';
+export type AuthMode = 'desktop-token' | 'bearer' | 'bff-cookie' | 'local-session';
 
 export interface RuntimeAuthConfig {
   loginUrl: string;
   refreshUrl: string;
   logoutUrl: string;
   csrfHeader: string;
+}
+
+export interface RuntimeCostConfig {
+  currency: 'CNY' | 'USD';
+  usdToCny: number;
 }
 
 export interface RuntimeSseConfig {
@@ -27,6 +32,7 @@ export interface RuntimeConfig {
   apiVersion: string;
   authMode: AuthMode;
   auth: RuntimeAuthConfig;
+  cost: RuntimeCostConfig;
   sse: RuntimeSseConfig;
   requestIdHeader: string;
 }
@@ -40,7 +46,12 @@ export class ConfigError extends Error {
   }
 }
 
-const AUTH_MODES: AuthMode[] = ['desktop-token', 'bearer', 'bff-cookie'];
+const AUTH_MODES: AuthMode[] = [
+  'desktop-token',
+  'bearer',
+  'bff-cookie',
+  'local-session',
+];
 const DEFAULT_SSE: RuntimeSseConfig = {
   heartbeatMs: 15000,
   idleTimeoutMs: 45000,
@@ -87,7 +98,7 @@ function readBaseUrl(value: unknown): string {
     if (text.includes('?') || text.includes('#')) {
       throw new ConfigError('apiBaseUrl 不能包含 query 或 fragment');
     }
-    return text.replace(/\/+$/, '');
+    return assertNotApiBase(text.replace(/\/+$/, ''));
   }
   let parsed: URL;
   try {
@@ -104,7 +115,17 @@ function readBaseUrl(value: unknown): string {
   if (parsed.search || parsed.hash) {
     throw new ConfigError('apiBaseUrl 不能包含 query 或 fragment');
   }
-  return text.replace(/\/+$/, '');
+  return assertNotApiBase(text.replace(/\/+$/, ''));
+}
+
+// 基址只描述 origin/部署前缀；版本段由 apiUrl 按运行时配置插入。
+function assertNotApiBase(value: string): string {
+  if (value === '/api' || value.endsWith('/api')) {
+    throw new ConfigError(
+      'apiBaseUrl 不能以 /api 结尾；只填 origin 或部署前缀',
+    );
+  }
+  return value;
 }
 
 function readAuthUrl(value: unknown, label: string): string {
@@ -151,7 +172,7 @@ export function validateRuntimeConfig(raw: unknown): RuntimeConfig {
   const authMode = raw.authMode;
   if (typeof authMode !== 'string' || !AUTH_MODES.includes(authMode as AuthMode)) {
     throw new ConfigError(
-      'authMode 必须是 desktop-token、bearer 或 bff-cookie',
+      'authMode 必须是 desktop-token、bearer、bff-cookie 或 local-session',
     );
   }
   const authRaw = isRecord(raw.auth) ? raw.auth : {};
@@ -167,6 +188,14 @@ export function validateRuntimeConfig(raw: unknown): RuntimeConfig {
   if (authMode === 'bff-cookie' && (!auth.loginUrl || !auth.refreshUrl)) {
     throw new ConfigError('bff-cookie 模式必须配置 auth.loginUrl 与 auth.refreshUrl');
   }
+  const costRaw = isRecord(raw.cost) ? raw.cost : {};
+  const cost: RuntimeCostConfig = {
+    currency: costRaw.currency === 'USD' ? 'USD' : 'CNY',
+    usdToCny:
+      costRaw.currency === 'USD'
+        ? 1
+        : readNumber(costRaw.usdToCny, 7.2, 0.0001, 100, 'cost.usdToCny'),
+  };
   const sseRaw = isRecord(raw.sse) ? raw.sse : {};
   const sse: RuntimeSseConfig = {
     heartbeatMs: readNumber(
@@ -224,6 +253,7 @@ export function validateRuntimeConfig(raw: unknown): RuntimeConfig {
     apiVersion,
     authMode: authMode as AuthMode,
     auth,
+    cost,
     sse,
     requestIdHeader,
   };
@@ -271,8 +301,14 @@ export function apiUrl(path: string): string {
     return path;
   }
   const normalized = path.startsWith('/') ? path : `/${path}`;
-  if (!activeConfig.apiBaseUrl) return normalized;
-  return `${activeConfig.apiBaseUrl}${normalized}`;
+  // 调用方仍写 `/api/...`；版本段集中在这里插入，避免 80 处调用各写一遍。
+  // 已带版本（/api/v1/...）的路径原样保留。
+  const versioned = normalized.replace(
+    /^\/api\/(?!v\d+\/)/,
+    `/api/${activeConfig.apiVersion}/`,
+  );
+  if (!activeConfig.apiBaseUrl) return versioned;
+  return `${activeConfig.apiBaseUrl}${versioned}`;
 }
 
 export function currentRuntimeConfig(): RuntimeConfig | null {

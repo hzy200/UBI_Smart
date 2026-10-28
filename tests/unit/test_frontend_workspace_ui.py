@@ -916,3 +916,15 @@ def test_csp_build_has_no_unsafe_eval_expressions() -> None:
     assert not incompatible, (
         "CSP 不兼容表达式：" + repr(incompatible[:5])
     )
+
+
+def test_admin_bundle_is_built_as_standalone_spa() -> None:
+    """管理端是独立静态入口，不能依赖服务端模板或内联脚本。"""
+    page = STATIC / "admin" / "index.html"
+    assert page.is_file(), "缺少 static/admin/index.html；请运行 node esbuild.mjs"
+    html = page.read_text(encoding="utf-8")
+    assert "/static/admin/app.js" in html
+    assert "/static/admin/app.css" in html
+    assert "unsafe-eval" not in html
+    assert (STATIC / "admin" / "app.js").is_file()
+    assert (STATIC / "admin" / "app.css").is_file()

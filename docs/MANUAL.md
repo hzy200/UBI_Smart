@@ -301,6 +301,49 @@ agent web --host 0.0.0.0 --port 8765 --allow-remote \
 
 或在可信反向代理终止 TLS 时使用 `--behind-proxy`，并确保代理传递认证头。
 
+### 4.6 企业账号与管理控制台（MySQL）
+
+**建库与迁移**：
+
+```bash
+mysql -u root -p < packaging/mysql/init.sql   # 先改两个 change-me 密码
+export AGENT_CONTROL_DB_URL='mysql+pymysql://coding_agent:***@127.0.0.1:3306/coding_agent'
+export AGENT_CONTROL_DB_AUTO_CREATE=false
+python -m coding_agent.control.migrate --backup
+# 或 coding-agent-control --migrate-only
+```
+
+**启动企业模式**：
+
+```bash
+export AGENT_WEB_ACCOUNTS_ENABLED=true
+export AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=true
+export AGENT_SECRET_MASTER_KEY="$(openssl rand -base64 32)"
+export AGENT_COST_CURRENCY=CNY
+export AGENT_USD_TO_CNY=7.2
+agent admin create --username admin --role owner
+agent web --host 127.0.0.1 --port 8765
+```
+
+- 账号、登录会话、会话目录、每日额度、token 用量与上游 Key 密文全部写入
+  MySQL；完整表结构、保留策略与备份见 [DATABASE.md](DATABASE.md)。
+- 管理员打开 `/admin` 登录，注册成员、设置每日 token/人民币成本额度、
+  分配上游 provider Key 并查看登录安全事件；Key 加密落库，页面只显示后四位。
+- 成本显示与额度使用人民币；上游价格仍按 USD 记账，按
+  `AGENT_USD_TO_CNY` 固定汇率换算。登录按来源 IP 限流。
+- 用户端使用同一套账号密码登录；服务端会话 Cookie 为 HttpOnly，写请求
+  校验 CSRF。
+- 独立静态站部署时，把发布包的 `admin/` 与 `static/` 一起托管，复制
+  `config.example.json` 为 `config.json` 并填写 `apiBaseUrl`；跨源部署需
+  设置 `AGENT_WEB_COOKIE_SECURE=true` 与精确 CORS 允许列表。
+- 配额按 UTC 日结算；运行前预留、结束后释放，实际用量来自审计 `run_end`
+  记录，resume 不会重复计费。
+- 备份/恢复：
+  ```bash
+  python scripts/backup_control_db.py --keep 14
+  python scripts/restore_control_db.py --source backups/control-*.sql
+  ```
+
 ## 5. 路径与状态文件
 
 宿主侧（相对启动目录）与沙箱侧（相对工作区）是两处：

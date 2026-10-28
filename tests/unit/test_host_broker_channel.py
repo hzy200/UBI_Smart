@@ -12,6 +12,7 @@ from coding_agent.host_broker.client import (
     HostBrokerOffline,
 )
 from coding_agent.host_broker.consent import AutoConsent
+from coding_agent.host_broker.errors import BrokerOpError
 from coding_agent.host_broker.lifecycle import BrokerLifecycle
 from coding_agent.host_broker.op_journal import OP_FINISHED, OpJournal
 from coding_agent.host_broker.policy import GrantStore
@@ -19,8 +20,10 @@ from coding_agent.host_broker.protocol import (
     A2L_PAUSED,
     CANCELLED,
     GRANT_RATE_LIMITED,
+    GRANT_REQUIRED,
     GRANT_USED,
     OP_NOT_ENABLED_IN_PHASE1,
+    OP_UNCERTAIN,
     PROTOCOL_VERSION,
     UNAUTHENTICATED,
     decode_frame,
@@ -425,5 +428,127 @@ def test_server_shutdown_marks_client_offline(tmp_path) -> None:
         with pytest.raises(HostBrokerOffline):
             await client.request("host.health", op_id="op-offline")
         await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_non_idempotent_op_is_never_replayed(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        journal = OpJournal(tmp_path / "ops.sqlite3")
+        calls: list[str] = []
+
+        async def handler(frame):
+            calls.append(frame.op_id)
+            return make_response(frame, data={"written": True})
+
+        server = HostBrokerServer(
+            server_t,
+            broker_id="b-1",
+            handler=handler,
+            journal=journal,
+            allowed_ops=frozenset({"host.write_text"}),
+        )
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(client_t, client_id="c-1", heartbeat_s=0.1)
+        await client.connect(timeout=2)
+
+        first = await client.request(
+            "host.write_text",
+            workspace=_workspace(),
+            payload={"path": "a.txt", "text": "x"},
+            op_id="op-write",
+        )
+        assert first.status == "ok"
+
+        second = await client.request(
+            "host.write_text",
+            workspace=_workspace(),
+            payload={"path": "a.txt", "text": "x"},
+            op_id="op-write",
+        )
+        assert second.error_code == OP_UNCERTAIN
+        assert calls == ["op-write"]
+        assert journal.get("op-write").status == OP_FINISHED
+
+        await server.shutdown()
+        await client.close()
+        await server_task
+
+    asyncio.run(scenario())
+
+
+def test_pre_execution_denial_discards_journal(tmp_path) -> None:
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        journal = OpJournal(tmp_path / "ops.sqlite3")
+
+        async def handler(frame):
+            raise BrokerOpError(GRANT_REQUIRED, "需要本地授权")
+
+        server = HostBrokerServer(
+            server_t,
+            broker_id="b-1",
+            handler=handler,
+            journal=journal,
+            allowed_ops=frozenset({"host.write_text"}),
+        )
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(client_t, client_id="c-1", heartbeat_s=0.1)
+        await client.connect(timeout=2)
+
+        response = await client.request(
+            "host.write_text",
+            workspace=_workspace(),
+            payload={"path": "a.txt", "text": "x"},
+            op_id="op-write",
+        )
+        assert response.error_code == GRANT_REQUIRED
+        assert journal.get("op-write") is None
+
+        await server.shutdown()
+        await client.close()
+        await server_task
+
+    asyncio.run(scenario())
+
+
+def test_hello_carries_device_attestation(tmp_path) -> None:
+    from coding_agent.host_broker.attestation import (
+        SoftwareKeyIdentity,
+        verify_evidence,
+    )
+
+    async def scenario() -> None:
+        client_t, server_t = memory_transport_pair()
+        identity = SoftwareKeyIdentity(tmp_path / "device.key")
+        server = HostBrokerServer(
+            server_t,
+            broker_id="b-1",
+            device_fingerprint="a2l-fp",
+            device_identity=identity,
+        )
+        server_task = asyncio.create_task(server.run())
+        client = HostBrokerClient(
+            client_t,
+            client_id="c-1",
+            a2l_id="b-1",
+            device_fingerprint="a2l-fp",
+            heartbeat_s=0.1,
+        )
+        hello = await client.connect(timeout=2)
+        meta = dict(hello.meta or {})
+        assert meta["attestation_kind"] == "software-ed25519"
+        assert meta["attestation_nonce"] == client.hello_nonce
+        verify_evidence(
+            kind=meta["attestation_kind"],
+            public_key_b64=meta["device_public_key"],
+            message=f"{client.hello_nonce}:b-1",
+            signature_b64=meta["attestation_signature"],
+        )
+
+        await client.close()
+        await server.shutdown()
+        await server_task
 
     asyncio.run(scenario())

@@ -26,12 +26,26 @@ B2 会话目录接入 + B3 SSE 事件传输重放 + B4 进程拆分与剩余 Age
 | `control_runs` | 运行索引（状态、起止、错误、token/成本） |
 | `control_audit_index` | 审计查询索引（引用 hash，不重写链） |
 | `control_provider_profiles` | Provider 档案（不含 API Key） |
-| `control_usage_daily` | 按天/租户/provider/model 的用量汇总 |
-| `control_meta` | schema 版本；当前 `1` |
+| `control_usage_daily` | 按天/租户/provider/model 的用量汇总（预留表） |
+| `control_meta` | schema 版本 |
 
-约束：不存 checkpoint、工作区文件、API Key、Agent 运行时状态。
-首次启动用 `create_all` 建表；**生产列变更需要 Alembic/迁移脚本**，不能依赖
-自动建表改列。
+企业版迁移 `0010_accounts_usage_quota` + `0011_cny_reservations_auth_events` 追加：
+
+| 表 | 内容 |
+|---|---|
+| `control_users` | 企业成员、角色、scrypt 密码哈希、状态 |
+| `control_auth_sessions` | 登录会话哈希、CSRF secret、过期/吊销 |
+| `control_auth_events` | 登录成功/失败/登出/限流事件 |
+| `control_provider_keys` | 上游 Key 的 AES-256-GCM 密文、nonce、后四位 |
+| `control_user_quotas` | 每日 token + 人民币（CNY）成本额度 |
+| `control_user_usage_daily` | 按用户/天的 token、worker token、USD 成本、预留 |
+| `control_quota_reservations` | 运行期配额预留，带 owner/expires_at |
+| `control_usage_events` | `run_end` 快照，按 `record_hash` 幂等 |
+| `control_usage_cursor` | 同 user/thread/run_epoch 的累计游标，用于 resume 差值 |
+
+约束：不存 checkpoint、工作区文件、明文 API Key、Agent 运行时状态。
+生产列变更只走 Alembic；`create_all` 仅用于本地测试/首次空库。
+完整的 MySQL 建库、保留、备份与运维见 [DATABASE.md](DATABASE.md)。
 
 ### 1.2 会话目录接入
 

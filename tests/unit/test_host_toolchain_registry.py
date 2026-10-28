@@ -55,3 +55,47 @@ def test_get_iter_and_clear() -> None:
     assert len(registry) == 1
     registry.clear()
     assert len(registry) == 0
+
+
+def test_commands_resolve_inside_root(tmp_path) -> None:
+    import os
+
+    root = tmp_path / "tc"
+    root.mkdir()
+    if os.name == "nt":
+        executable = root / "fake.exe"
+        executable.write_bytes(b"")
+    else:
+        executable = root / "fake"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        executable.chmod(0o755)
+    ref = ToolchainRef(
+        id="fake-1",
+        kind="shell",
+        root=str(root),
+        commands=("fake",),
+        output_roots=("build",),
+    )
+    registry = ToolchainRegistry([ref])
+    resolved = registry.resolve("fake-1", "fake")
+    assert resolved is not None
+    assert os.path.samefile(resolved, executable)
+    assert registry.exec_roots() == [str(root)]
+    serialized = json.dumps(registry.summary())
+    assert str(root) not in serialized
+
+
+def test_unresolvable_command_is_rejected(tmp_path) -> None:
+    root = tmp_path / "empty"
+    root.mkdir()
+    with pytest.raises(ValueError):
+        ToolchainRegistry(
+            [
+                ToolchainRef(
+                    id="x",
+                    kind="shell",
+                    root=str(root),
+                    commands=("definitely-missing",),
+                )
+            ]
+        )

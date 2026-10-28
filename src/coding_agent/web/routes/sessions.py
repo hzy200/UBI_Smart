@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -90,7 +91,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         seen: set[str] = set()
 
         if deps.agent_client is not None:
-            deps.load_configs(user, tenant)
+            await asyncio.to_thread(deps.load_configs, user, tenant)
             data = await deps.agent_json(
                 user, tenant, None, "GET", "/v1/sessions",
                 params={"limit": 500, "q": q},
@@ -100,8 +101,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 if not thread or (user.name, thread) in deps.deleted_sessions:
                     continue
                 seen.add(thread)
-                config = deps.config_for(
-                    user, tenant, thread, create=False
+                config = await asyncio.to_thread(
+                    deps.config_for, user, tenant, thread, create=False
                 )
                 rows.append(
                     {
@@ -144,8 +145,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 if (user.name, public_thread) in deps.deleted_sessions:
                     continue
                 seen.add(public_thread)
-                config = deps.config_for(
-                    user, tenant, public_thread, create=False
+                config = await asyncio.to_thread(
+                    deps.config_for, user, tenant, public_thread, create=False
                 )
                 rows.append(
                     {
@@ -172,7 +173,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                         "last_message": config.last_message if config else "",
                     }
                 )
-            deps.load_configs(user, tenant)
+            await asyncio.to_thread(deps.load_configs, user, tenant)
 
         with deps.registry_lock:
             pending = [
@@ -229,9 +230,13 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                     status_code=409,
                     detail="该会话正在运行或已挂起；请先结束/恢复",
                 )
-        deps.reject_deleted(user, public_thread)
-        existing = deps.config_for(
-            user, deps.tenant(user), public_thread, create=False
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
+        existing = await asyncio.to_thread(
+            deps.config_for,
+            user,
+            deps.tenant(user),
+            public_thread,
+            create=False,
         )
         if existing is not None:
             if (
@@ -300,8 +305,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             model=request.model,
             provider=request.provider,
         )
-        deps.set_config(user, tenant, config)
-        deps.persist_configs(user, tenant)
+        await asyncio.to_thread(deps.set_config, user, tenant, config)
+        await asyncio.to_thread(deps.persist_configs, user, tenant)
         return {
             "thread_id": public_thread,
             "workspace": workspace,
@@ -341,12 +346,14 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         except OSError as exc:
             with deps.registry_lock:
                 deps.session_configs.pop((user.name, public_thread), None)
-            deps.persist_configs(user, tenant)
+            await asyncio.to_thread(deps.persist_configs, user, tenant)
             raise HTTPException(
                 status_code=503, detail=f"保存导入轨迹失败：{exc}"
             ) from exc
 
-        config = deps.config_for(user, tenant, public_thread, create=False)
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
+        )
         title = " ".join(request.title.split())[:120]
         if not title:
             title = next(
@@ -370,8 +377,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 config.title = title
             config.last_message = preview
             config.unread = False
-            deps.set_config(user, tenant, config)
-            deps.persist_configs(user, tenant)
+            await asyncio.to_thread(deps.set_config, user, tenant, config)
+            await asyncio.to_thread(deps.persist_configs, user, tenant)
         return {
             "ok": True,
             "thread_id": public_thread,
@@ -391,15 +398,15 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         public_thread = check_thread_id(thread_id)
         deps.reject_active(user, public_thread)
         tenant = deps.tenant(user)
-        config = deps.config_for(
-            user, tenant, public_thread, create=False
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
         )
         if config is None:
             raise HTTPException(status_code=404, detail="会话不存在")
         deps.validate_provider(tenant, user, request.provider)
         config.model = request.model
         config.provider = request.provider
-        deps.set_config(user, tenant, config)
+        await asyncio.to_thread(deps.set_config, user, tenant, config)
         return {
             "ok": True,
             "thread_id": public_thread,
@@ -415,15 +422,15 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
     ) -> dict:
         deps.reject_db_degraded()
         public_thread = check_thread_id(thread_id)
-        deps.reject_deleted(user, public_thread)
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
         tenant = deps.tenant(user)
-        config = deps.config_for(
-            user, tenant, public_thread, create=False
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
         )
         if config is None:
             raise HTTPException(status_code=404, detail="会话不存在")
         config.title = " ".join(request.title.split())[:120]
-        deps.set_config(user, tenant, config)
+        await asyncio.to_thread(deps.set_config, user, tenant, config)
         return {
             "ok": True,
             "thread_id": public_thread,
@@ -439,10 +446,10 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         """更新会话展示元数据：置顶、归档、标签、未读。"""
         deps.reject_db_degraded()
         public_thread = check_thread_id(thread_id)
-        deps.reject_deleted(user, public_thread)
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
         tenant = deps.tenant(user)
-        config = deps.config_for(
-            user, tenant, public_thread, create=False
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
         )
         if config is None:
             raise HTTPException(status_code=404, detail="会话不存在")
@@ -459,7 +466,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 if clean and clean not in tags:
                     tags.append(clean)
             config.tags = tags[:8]
-        deps.set_config(user, tenant, config)
+        await asyncio.to_thread(deps.set_config, user, tenant, config)
         return {
             "ok": True,
             "thread_id": public_thread,
@@ -477,11 +484,11 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         public_thread = check_thread_id(thread_id)
         deps.reject_active(user, public_thread)
         tenant = deps.tenant(user)
-        deps.load_configs(user, tenant)
+        await asyncio.to_thread(deps.load_configs, user, tenant)
         with deps.registry_lock:
             deps.deleted_sessions.add((user.name, public_thread))
             deps.session_configs.pop((user.name, public_thread), None)
-        deps.persist_configs(user, tenant)
+        await asyncio.to_thread(deps.persist_configs, user, tenant)
         return {"ok": True, "thread_id": public_thread}
 
     @app.get("/api/sessions/{thread_id}/export")
@@ -491,10 +498,10 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         format: Literal["markdown", "json"] = "markdown",
     ) -> dict:
         public_thread = check_thread_id(thread_id)
-        deps.reject_deleted(user, public_thread)
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
         tenant = deps.tenant(user)
-        config = deps.config_for(
-            user, tenant, public_thread, create=False
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
         )
         if deps.agent_client is not None:
             data = await deps.agent_json(

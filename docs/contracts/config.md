@@ -9,7 +9,7 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **223** 个配置项。
+共 **250** 个配置项。
 
 ## 通用
 
@@ -49,6 +49,7 @@
 | `AGENT_CONTROL_DB_URL` | `control_db_url` | `str` | `""` | ---------- A2 控制面（Phase B，可选） ---------- 空 = 继续用 gui-sessions.json / 本地文件（Standalone 与旧部署）。 例：mysql+pymysql://user:pass@127.0.0.1/coding_agent |
 | `AGENT_CORS_ALLOWED_ORIGINS` | `web_cors_allowed_origins` | `str` | `""` | 独立源站前端允许的精确 origin（逗号分隔）；空 = 不启用 CORS。 只允许 scheme://host[:port]，不接受路径、通配符或 null。 |
 | `AGENT_COST_ALERT_RATIO` | `cost_alert_ratio` | `float` | `0.8` | 达到预算的该比例时发出告警（0~1） |
+| `AGENT_COST_CURRENCY` | `cost_currency` | `str` | `"CNY"` | 成本展示与额度计量货币；上游价格仍按 USD 计价。 |
 | `AGENT_DELEGATE_LARGE_CALLS` | `delegate_large_calls` | `int` | `4` |  |
 | `AGENT_DELEGATE_LARGE_FILES` | `delegate_large_files` | `int` | `300` |  |
 | `AGENT_DELEGATE_MEDIUM_CALLS` | `delegate_medium_calls` | `int` | `2` |  |
@@ -68,14 +69,24 @@
 | `AGENT_GRANTS_ENABLED` | `grants_enabled` | `bool` | `false` |  |
 | `AGENT_HOST_A2L_ID` | `host_a2l_id` | `str` | `"a2l-local"` |  |
 | `AGENT_HOST_BROKER_ACCOUNT` | `host_broker_account` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_ALLOW_WRITE` | `host_broker_allow_write` | `bool` | `false` | P1/P2：host 写与受控 exec 默认关闭；安装永远只返回人工指令。 |
+| `AGENT_HOST_BROKER_ATTESTATION` | `host_broker_attestation` | `str` | `"off"` |  |
+| `AGENT_HOST_BROKER_ATTESTATION_KEY` | `host_broker_attestation_key` | `str` | `""` |  |
 | `AGENT_HOST_BROKER_AUTOSTART` | `host_broker_autostart` | `bool` | `true` |  |
 | `AGENT_HOST_BROKER_DEVICE_CERT` | `host_broker_device_cert` | `str` | `""` |  |
 | `AGENT_HOST_BROKER_DEVICE_KEY` | `host_broker_device_key` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_DEVICE_POLICY` | `host_broker_device_policy` | `str` | `"off"` |  |
+| `AGENT_HOST_BROKER_DEVICE_REGISTRY` | `host_broker_device_registry` | `str` | `""` | 企业设备台账（A3 本地 JSON）；off = 兼容旧的单设备/自洽校验。 |
+| `AGENT_HOST_BROKER_DEVICE_RELOAD_S` | `host_broker_device_reload_s` | `int` | `2` |  |
 | `AGENT_HOST_BROKER_ENABLED` | `host_broker_enabled` | `bool` | `false` | ---------- A2L 宿主能力代理（Phase 1，默认关闭） ---------- A2L 绑定客户端生命周期：随客户端启动/退出，不注册系统服务。 |
+| `AGENT_HOST_BROKER_EXEC_ENABLED` | `host_broker_exec_enabled` | `bool` | `false` |  |
 | `AGENT_HOST_BROKER_HEARTBEAT_S` | `host_broker_heartbeat_s` | `int` | `15` |  |
 | `AGENT_HOST_BROKER_LISTEN_HOST` | `host_broker_listen_host` | `str` | `"127.0.0.1"` |  |
 | `AGENT_HOST_BROKER_LISTEN_PORT` | `host_broker_listen_port` | `int` | `8791` |  |
 | `AGENT_HOST_BROKER_PAUSED` | `host_broker_paused` | `bool` | `false` |  |
+| `AGENT_HOST_BROKER_POLICY_FILE` | `host_broker_policy_file` | `str` | `""` | A2L 本地验签的运行策略。 |
+| `AGENT_HOST_BROKER_POLICY_PUBKEY` | `host_broker_policy_pubkey` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_POLICY_PUBKEY_FILE` | `host_broker_policy_pubkey_file` | `str` | `""` |  |
 | `AGENT_HOST_BROKER_REQUIRE_TLS` | `host_broker_require_tls` | `bool` | `false` |  |
 | `AGENT_HOST_BROKER_SECURITY_TIER` | `host_broker_security_tier` | `str` | `"lowpriv"` | lowpriv 是 P1 默认；appcontainer 仅受限只读；user-t1 仅 local-dev。 |
 | `AGENT_HOST_BROKER_STORE` | `host_broker_store` | `str` | `""` |  |
@@ -83,11 +94,13 @@
 | `AGENT_HOST_BROKER_TLS_CERT` | `host_broker_tls_cert` | `str` | `""` |  |
 | `AGENT_HOST_BROKER_TLS_KEY` | `host_broker_tls_key` | `str` | `""` |  |
 | `AGENT_HOST_BROKER_TLS_SERVER_NAME` | `host_broker_tls_server_name` | `str` | `""` |  |
+| `AGENT_HOST_BROKER_TOOLCHAINS` | `host_broker_toolchains` | `str` | `""` | JSON 数组；每项 {id,kind,root,commands,output_roots}。root 不下发模型。 |
 | `AGENT_HOST_BROKER_URL` | `host_broker_url` | `str` | `""` |  |
 | `AGENT_HOST_DENY_ROOTS` | `host_deny_roots` | `str` | `""` |  |
 | `AGENT_HOST_ROOT_HANDLE` | `host_root_handle` | `str` | `""` |  |
 | `AGENT_HOST_ROOT_POLICY` | `host_root_policy` | `str` | `"local_ntfs_only"` |  |
 | `AGENT_HOST_SENSITIVE_ROOTS` | `host_sensitive_roots` | `str` | `""` |  |
+| `AGENT_HOST_SNAPSHOT_DIR` | `host_snapshot_dir` | `str` | `""` |  |
 | `AGENT_HOST_TOOLCHAIN_ROOTS` | `host_toolchain_roots` | `str` | `""` |  |
 | `AGENT_HOST_WORKSPACE_ID` | `host_workspace_id` | `str` | `""` |  |
 | `AGENT_IDEMPOTENCY_TTL_S` | `idempotency_ttl_s` | `int` | `600` | 幂等键保留时间。 |
@@ -159,6 +172,7 @@
 | `AGENT_ORCHESTRATOR_WRITE_SCOPE_ENFORCE` | `orchestrator_write_scope_enforce` | `bool` | `true` | 写 worker 的 write_scope 在 I/O 前强制校验（三重防线之一）。 |
 | `AGENT_PERSISTENT_SHELL` | `persistent_shell` | `bool` | `true` | 常驻 WSL bash 会话池。默认开启：实测读/检索从 ~170ms 降到 ~20ms。 会话异常时会自动退回逐命令 wsl.exe，因此可安全地作为默认值。 |
 | `AGENT_PERSISTENT_SHELL_POOL` | `persistent_shell_pool` | `int` | `4` |  |
+| `AGENT_QUOTA_RESERVATION_TTL_S` | `quota_reservation_ttl_s` | `int` | `3600` | 配额预留的存活时间；进程崩溃后由其他实例/下次启动清理。 |
 | `AGENT_RATE_LIMIT_STATE_PATH` | `rate_limit_state_path` | `str` | `""` | 跨进程限流状态文件；留空 = <当前目录>/.agent/rate_limits.json；:memory: 关闭 |
 | `AGENT_READ_CACHE_MAX_BYTES` | `read_cache_max_bytes` | `int` | `"64 * 1024 * 1024"` | run 级文件内容缓存的字节上限（LRU）。0 = 关闭缓存。 |
 | `AGENT_READ_DENY_GLOBS` | `read_deny_globs` | `str` | `"DEFAULT_READ_DENY_GLOBS"` | 秘密文件读保护 glob（逗号分隔）；.env.example 等模板自动放行。 |
@@ -173,6 +187,8 @@
 | `AGENT_RUN_DEADLINE_S` | `run_deadline_s` | `int` | `1800` | 一次完整运行（含审批/暂停后的 resume）的总墙钟上限，0 表示不限制。 与 recursion_limit 互补：后者管步数，这里管时间（例如模型长时间卡住）。 |
 | `AGENT_RUN_LEASE_TTL_S` | `run_lease_ttl_s` | `int` | `120` | ---------- 一致性与内部签名（M4） ---------- 会话级运行租约 TTL；A2 崩溃后到期自动释放。 |
 | `AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS` | `sandbox_max_concurrent_commands` | `int` | `8` | 同时启动的 wsl.exe 进程上限。并发 worker 会各自调用沙箱，没有这层 背压时 4 个 worker 的一次工具轮次就能同时拉起十几个 WSL 进程。 |
+| `AGENT_SECRET_MASTER_KEY` | `secret_master_key` | `str` | `""` | 上游 provider Key 的 AES-GCM 主密钥（base64 32B）或文件。 |
+| `AGENT_SECRET_MASTER_KEY_FILE` | `secret_master_key_file` | `str` | `""` |  |
 | `AGENT_SECRET_PROVIDER` | `secret_provider` | `str` | `"auto"` | auto \| keyring \| systemd；服务器部署用 systemd-creds，Vault/KMS 走同一 Protocol。 |
 | `AGENT_SECURITY_PROFILE` | `security_profile` | `str` | `"local"` | ---------- 安全 profile 与不可信仓库 ---------- local（默认，面向可信仓库）\| untrusted（bwrap + 禁网 + 强制 ask + 不信任仓库指令/记忆）。 |
 | `AGENT_SESSION_BRIEF_CHARS` | `session_brief_chars` | `int` | `4000` | 编排子图/worker 的会话约束摘要上限（字符）。独立子图不复制 messages， 这里从 checkpoint 抽最近若干轮压缩后注入；0 表示关闭。 |
@@ -190,14 +206,21 @@
 | `AGENT_TOOL_JOURNAL_ENABLED` | `tool_journal_enabled` | `bool` | `true` | 有副作用工具的执行日志：崩溃后同一 call_id 不自动重放。 |
 | `AGENT_TRUST_REPO_INSTRUCTIONS` | `trust_repo_instructions` | `bool` | `true` | 仓库内的 AGENTS.md / CLAUDE.md 是否作为可信指令注入。 |
 | `AGENT_TRUST_REPO_MEMORY` | `trust_repo_memory` | `bool` | `true` | 是否读取仓库内 `.agent/memory.md`；false 时记忆改存 memory_root。 |
+| `AGENT_USD_TO_CNY` | `usd_to_cny` | `float` | `7.2` |  |
 | `AGENT_VERIFY_COMMAND` | `verify_command` | `str` | `""` | 留空表示按项目清单自动识别（pytest / cargo / go / npm / make） |
 | `AGENT_VERIFY_ENABLED` | `verify_enabled` | `bool` | `true` | ---------- 验证 ---------- |
 | `AGENT_VERIFY_ONLY_FINAL` | `verify_only_final` | `bool` | `true` | 多步计划里，非最终的 implement 步不跑全量测试：早期步骤只完成了一部分， 全量套件必然因为后面还没做的步骤而失败，会把 agent 卡死在这一步。 只在 kind=verify 或最后一步验证；单步任务不受影响。 |
 | `AGENT_VERIFY_TIMEOUT` | `verify_timeout` | `int` | `300` | 自动验证的独立超时。测试/构建通常比普通 shell 命令长，不能共用 60s； 0 表示回退到 shell_timeout。 |
+| `AGENT_WEB_ACCOUNTS_ENABLED` | `web_accounts_enabled` | `bool` | `false` | 企业账号：打开后使用 control_users / session Cookie 登录。 |
+| `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL` | `web_accounts_require_mysql` | `bool` | `true` | 企业账号的生产约束：只允许 MySQL；本地测试可显式关闭。 |
+| `AGENT_WEB_ACCOUNT_TENANT` | `web_account_tenant` | `str` | `"default"` |  |
 | `AGENT_WEB_ALLOW_ANONYMOUS_LOCAL` | `web_allow_anonymous_local` | `bool` | `true` | 未配置 token 时是否允许 loopback 匿名访问（单用户本地模式）。 |
 | `AGENT_WEB_AUTH_TOKENS` | `web_auth_tokens` | `str` | `""` | ---------- Web 多用户 ---------- JSON：{"token": "user"}；与 AGENT_WEB_AUTH_TOKENS_FILE 二选一。 |
 | `AGENT_WEB_AUTH_TOKENS_FILE` | `web_auth_tokens_file` | `str` | `""` |  |
+| `AGENT_WEB_COOKIE_SECURE` | `web_cookie_secure` | `bool` | `false` | 跨源部署时 Cookie 必须 Secure；同源反代可关。 |
 | `AGENT_WEB_DATA_ROOT` | `web_data_root` | `str` | `""` | per-user 宿主侧数据根目录（审计/checkpoint/steering）； 空 = <当前目录>/.agent/web/users。 |
+| `AGENT_WEB_FRONTEND_DIR` | `web_frontend_dir` | `str` | `""` | 前端发布包根目录（含 index.html / sw.js / manifest.webmanifest）。 空 = 包内 web/static（桌面与开发回退）。 |
+| `AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN` | `web_login_rate_limit_per_min` | `int` | `10` | 登录按来源 IP 的固定窗口限流。 |
 | `AGENT_WEB_MAX_BODY_BYTES` | `web_max_body_bytes` | `int` | `"256 * 1024"` |  |
 | `AGENT_WEB_MAX_PROMPT_CHARS` | `web_max_prompt_chars` | `int` | `100000` |  |
 | `AGENT_WEB_MAX_RUNTIMES` | `web_max_runtimes` | `int` | `8` |  |
@@ -206,8 +229,12 @@
 | `AGENT_WEB_MAX_UPLOAD_FILES` | `web_max_upload_files` | `int` | `20` | 单次请求最多上传几个文件。 |
 | `AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES` | `web_max_upload_total_bytes` | `int` | `209715200` | 每个会话累计上传上限，防止反复上传占满工作区。 |
 | `AGENT_WEB_MEMORY_ROOT` | `web_memory_root` | `str` | `""` | per-user WSL 侧记忆根目录；空 = 沙箱 $HOME/agent-memory。 记忆在沙箱内、仓库之外，避免不可信仓库预置记忆。 |
+| `AGENT_WEB_QUOTA_RESERVE_TOKENS` | `web_quota_reserve_tokens` | `int` | `0` | 运行前为 token 限额预留的量；0 = 只做事后限额。 |
 | `AGENT_WEB_RATE_LIMIT_PER_MIN` | `web_rate_limit_per_min` | `int` | `60` |  |
 | `AGENT_WEB_RUNTIME_TTL_S` | `web_runtime_ttl_s` | `int` | `1800` | 挂起 runtime 的空闲保留时间；超时后释放，resume 时从 checkpoint 重建。 |
+| `AGENT_WEB_SERVE_FRONTEND` | `web_serve_frontend` | `bool` | `true` | 是否由 A2 托管前端页面。独立静态站/CDN 部署时关闭，只保留 API； 桌面模式（desktop_mode）始终强制开启，否则没有页面可加载。 |
+| `AGENT_WEB_SESSION_TTL_S` | `web_session_ttl_s` | `int` | `"12 * 3600"` |  |
+| `AGENT_WEB_STATIC_DIR` | `web_static_dir` | `str` | `""` | /static 挂载目录；空 = 与 web_frontend_dir 相同。 发布包通常为 <frontend_dir>/static，包内则两者同目录。 |
 | `AGENT_WEB_WORKSPACES_ROOT` | `web_workspaces_root` | `str` | `""` | per-user 工作区根目录；空 = 沙箱 $HOME/agent-ws/users。 |
 | `AGENT_WORKSPACE_ARCHIVE_ROOT` | `workspace_archive_root` | `str` | `""` | revision 归档根；空 = 关闭归档（仍可运行，但不能灾难恢复）。 |
 | `AGENT_WORKSPACE_EXTRACT_MAX_RATIO` | `workspace_extract_max_ratio` | `int` | `200` | 解压比上限：解压后总字节 / 归档字节，防止 zip bomb。 |

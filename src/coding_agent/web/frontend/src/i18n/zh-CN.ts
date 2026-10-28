@@ -15,6 +15,9 @@ export const zhCN = {
     recovery: '恢复中心',
     shortcuts: '快捷键',
     settings: '设置',
+    minimize: '最小化',
+    maximize: '最大化或还原',
+    closeWindow: '关闭窗口',
   },
   nav: {
     sessions: '会话',
@@ -225,6 +228,7 @@ export const zhCN = {
     bearer: 'Bearer Token（仅内存）',
     desktopToken: '桌面令牌（本地存储）',
     bffCookie: '统一登录（BFF Cookie）',
+    localSession: '企业账号（Session Cookie）',
   },
   commands: {
     title: '命令面板',

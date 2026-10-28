@@ -27,6 +27,7 @@ from coding_agent.host_broker.protocol import (
     GRANT_USED,
     INTERNAL,
     OP_NOT_ENABLED_IN_PHASE1,
+    OP_UNCERTAIN,
     OP_UNKNOWN,
     PROTOCOL_VERSION,
     UNAUTHENTICATED,
@@ -53,8 +54,49 @@ PHASE1_REQUEST_OPS = frozenset(
         "host.find_files",
         "host.stat",
         "host.read_text",
+        "host.read_chunk",
         "host.toolchains",
         "host.env.inspect",
+        "host.snapshot_list",
+    }
+)
+
+WRITE_REQUEST_OPS = frozenset(
+    {
+        "host.write_begin",
+        "host.write_chunk",
+        "host.write_commit",
+        "host.write_abort",
+        "host.write_text",
+        "host.write_many_commit",
+        "host.delete",
+        "host.mkdir",
+        "host.snapshot_save",
+        "host.restore",
+    }
+)
+
+EXEC_REQUEST_OPS = frozenset({"host.exec"})
+INSTALL_REQUEST_OPS = frozenset({"host.install"})
+
+# 写/执行/安装：同一 op_id 不能盲目重放。
+NON_IDEMPOTENT_OPS = WRITE_REQUEST_OPS | EXEC_REQUEST_OPS | INSTALL_REQUEST_OPS
+
+# 这些错误发生在真正写入/执行之前；日志行可以丢弃，允许换 grant 重试。
+PRE_EXECUTION_DENIALS = frozenset(
+    {
+        "DENIED_ZX",
+        "DENIED_SCOPE",
+        "DENIED_VERB",
+        "GRANT_REQUIRED",
+        "GRANT_EXPIRED",
+        "GRANT_REVOKED",
+        "SENSITIVE_ROOT",
+        "PATH_ESCAPE",
+        "INVALID_PATH",
+        "CONFLICT",
+        "TOOLCHAIN_UNAVAILABLE",
+        "EXEC_UNAVAILABLE",
     }
 )
 
@@ -93,6 +135,8 @@ class HostBrokerServer:
         hello_nonce_ttl_s: float = 300.0,
         grant_rate_limit_s: float = 5.0,
         max_pending_grants: int = 1,
+        allowed_ops: frozenset[str] | None = None,
+        device_identity: Any | None = None,
     ) -> None:
         self.transport = transport
         self.broker_id = str(broker_id or "")
@@ -109,6 +153,8 @@ class HostBrokerServer:
         self.hello_nonce_ttl_s = max(1.0, float(hello_nonce_ttl_s))
         self.grant_rate_limit_s = max(0.0, float(grant_rate_limit_s))
         self.max_pending_grants = max(1, int(max_pending_grants))
+        self.allowed_ops = frozenset(allowed_ops or PHASE1_REQUEST_OPS)
+        self.device_identity = device_identity
         self._running = False
         self._authenticated = False
         self._client_id = ""
@@ -199,6 +245,19 @@ class HostBrokerServer:
             if self.require_encrypted and not peer_fp:
                 await self._reject_hello(frame, "缺少对端证书指纹")
                 return
+            attestation: dict[str, str] = {}
+            if self.device_identity is not None:
+                try:
+                    evidence = self.device_identity.attest(
+                        f"{nonce}:{self.broker_id}"
+                    )
+                    attestation = evidence.to_meta()
+                    attestation["attestation_nonce"] = nonce
+                except Exception as exc:  # noqa: BLE001 - fail closed
+                    await self._reject_hello(
+                        frame, f"设备证明失败：{exc}"
+                    )
+                    return
             self._seen_nonces[nonce] = now + self.hello_nonce_ttl_s
             self._authenticated = True
             self._client_id = str(meta.get("client_id") or "")
@@ -211,6 +270,7 @@ class HostBrokerServer:
                     a2l_id=self.broker_id,
                     device_fingerprint=self.device_fingerprint,
                     nonce=nonce,
+                    attestation=attestation,
                 )
             )
             return
@@ -320,12 +380,12 @@ class HostBrokerServer:
                 make_error(frame, A2L_PAUSED, "A2L 已暂停/离线")
             )
             return
-        if frame.kind not in PHASE1_REQUEST_OPS:
+        if frame.kind not in self.allowed_ops:
             await self._send(
                 make_error(
                     frame,
                     OP_NOT_ENABLED_IN_PHASE1,
-                    f"Phase 1 未开放：{frame.kind}",
+                    f"未开放：{frame.kind}",
                 )
             )
             return
@@ -341,6 +401,7 @@ class HostBrokerServer:
                         )
                     )
                     return
+        non_idempotent = frame.kind in NON_IDEMPOTENT_OPS
         started = True
         if self.journal is not None:
             started = self.journal.start(
@@ -351,9 +412,25 @@ class HostBrokerServer:
                     "grant_id": frame.grant_id,
                 },
             )
-        if not started:
-            # 只读 op 可以安全重试；写/执行阶段必须改为 unknown 语义。
-            pass
+        if not started and non_idempotent:
+            # 写/执行/安装不能靠重放确认结果；交给 A3 验证或人工处理。
+            existing = (
+                self.journal.get(frame.op_id)
+                if self.journal is not None
+                else None
+            )
+            await self._send(
+                make_error(
+                    frame,
+                    OP_UNCERTAIN,
+                    "该 op_id 已存在，写/执行结果未知，拒绝重放",
+                    data={
+                        "status": getattr(existing, "status", ""),
+                        "kind": getattr(existing, "kind", frame.kind),
+                    },
+                )
+            )
+            return
         try:
             result = await self.handler(frame)
             result = with_ids(result, frame)
@@ -361,7 +438,9 @@ class HostBrokerServer:
             if self.journal is not None:
                 self.journal.finish(
                     frame.op_id,
-                    OP_FINISHED if result.status == "ok" else OP_FAILED,
+                    OP_FINISHED
+                    if result.status in {"ok", "manual"}
+                    else OP_FAILED,
                     result=result.data,
                 )
         except asyncio.CancelledError:
@@ -374,7 +453,10 @@ class HostBrokerServer:
                 )
             )
             if self.journal is not None:
-                self.journal.finish(frame.op_id, OP_CANCELLED)
+                self.journal.finish(
+                    frame.op_id,
+                    OP_UNKNOWN if non_idempotent else OP_CANCELLED,
+                )
             return
         except HandlerError as exc:
             await self._send(
@@ -386,14 +468,22 @@ class HostBrokerServer:
                 )
             )
             if self.journal is not None:
-                self.journal.finish(
-                    frame.op_id, OP_FAILED, result={"error": exc.message}
-                )
+                if exc.code in PRE_EXECUTION_DENIALS:
+                    # 这类错误在写入/执行前返回，允许换 grant 后用新 op_id 重试。
+                    self.journal.discard(frame.op_id)
+                else:
+                    self.journal.finish(
+                        frame.op_id,
+                        OP_UNKNOWN if non_idempotent else OP_FAILED,
+                        result={"error": exc.message},
+                    )
         except Exception as exc:  # noqa: BLE001 - 边界处转成协议错误
             await self._send(make_error(frame, INTERNAL, str(exc)))
             if self.journal is not None:
                 self.journal.finish(
-                    frame.op_id, OP_FAILED, result={"error": str(exc)}
+                    frame.op_id,
+                    OP_UNKNOWN if non_idempotent else OP_FAILED,
+                    result={"error": str(exc)},
                 )
 
     async def _default_handler(self, frame: Frame) -> Frame:

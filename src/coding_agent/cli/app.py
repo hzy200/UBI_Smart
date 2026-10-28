@@ -38,6 +38,7 @@ from coding_agent.audit import (
     verify_audit_files,
 )
 from coding_agent.audit.logger import now_iso
+from coding_agent.cli.admin import register_admin_commands
 from coding_agent.cli.platform import SandboxProbe, resolve_workspace
 from coding_agent.cli.renderer import CliRenderer
 from coding_agent.config import (
@@ -70,6 +71,8 @@ _configure_stdio()
 
 app = typer.Typer(add_completion=True, no_args_is_help=True, help="终端原生编程智能体")
 console = Console()
+
+register_admin_commands(app, console)
 
 
 def _package_version() -> str:
@@ -183,6 +186,84 @@ def _check_langsmith(settings: Settings) -> list[bool]:
     return [_report("LangSmith 追踪", True, detail)]
 
 
+def _check_host_isolation(settings: Settings) -> list[bool]:
+    """A2L 隔离能力：可选能力 WARN，配置依赖缺失才 FAIL。"""
+    from coding_agent.host_broker.availability import probe_isolation
+
+    if not settings.host_broker_enabled:
+        return [_report("A2L host 隔离", True, "未启用")]
+    availability = probe_isolation()
+    results = [
+        _report(
+            "A2L Job Object",
+            availability.job_object,
+            availability.reasons.get("job_object", ""),
+        ),
+        _report(
+            "A2L AppContainer",
+            availability.appcontainer,
+            availability.reasons.get("appcontainer", ""),
+        ),
+        _report(
+            "A2L 低完整性",
+            availability.low_integrity,
+            availability.reasons.get("low_integrity", ""),
+        ),
+    ]
+    tier = str(settings.host_broker_security_tier or "")
+    if tier == "appcontainer" and not availability.appcontainer:
+        results.append(
+            _report(
+                "A2L 安全档",
+                False,
+                "配置为 appcontainer 但当前机器不可用",
+            )
+        )
+    if settings.host_broker_exec_enabled:
+        if not availability.appcontainer:
+            results.append(
+                _report(
+                    "A2L host.exec",
+                    False,
+                    "已启用但 AppContainer 不可用；exec 会 fail closed",
+                )
+            )
+        elif tier != "appcontainer":
+            _warn(
+                "A2L host.exec",
+                f"已启用但 security_tier={tier}；exec 只在 appcontainer 档工作",
+            )
+    if availability.tpm:
+        _warn("A2L TPM", "可用（CNG Platform Crypto Provider）")
+    else:
+        _warn(
+            "A2L TPM",
+            availability.reasons.get(
+                "tpm", "不可用；设备证明会回退软件密钥"
+            ),
+        )
+    if availability.software_attestation:
+        _warn("A2L 软件设备证明", "可用")
+    elif str(settings.host_broker_attestation or "off") != "off":
+        results.append(
+            _report(
+                "A2L 软件设备证明",
+                False,
+                availability.reasons.get(
+                    "software_attestation", "cryptography 或密钥目录不可用"
+                ),
+            )
+        )
+    else:
+        _warn(
+            "A2L 软件设备证明",
+            availability.reasons.get(
+                "software_attestation", "不可用"
+            ),
+        )
+    return results
+
+
 def _check_memory_vectors(settings: Settings) -> list[bool]:
     ok, detail = embedding_status(settings)
     return [_report("记忆向量检索", ok, detail)]
@@ -261,6 +342,7 @@ def doctor() -> None:
     results.extend(_check_langsmith(settings))
     results.extend(_check_memory_vectors(settings))
     results.extend(_check_file_locks(settings))
+    results.extend(_check_host_isolation(settings))
     profile = str(settings.security_profile or "local").strip().lower()
     results.append(
         _report(
@@ -468,7 +550,14 @@ def _make_renderer() -> Callable[[Event], None]:
 
     具体映射在 `cli/renderer.py` 的表驱动实现里；TUI / Web 各写一份自己的。
     """
-    return CliRenderer(console, _emit, _render_plan).render
+    from coding_agent.costs import CurrencyConfig
+
+    return CliRenderer(
+        console,
+        _emit,
+        _render_plan,
+        currency=CurrencyConfig.from_settings(get_settings()),
+    ).render
 
 
 def _is_danger_level(level: str) -> bool:
@@ -1601,6 +1690,11 @@ def web(
         "--allow-insecure-remote",
         help="显式允许无 TLS 的远程监听（不推荐）",
     ),
+    no_frontend: bool = typer.Option(
+        False,
+        "--no-frontend",
+        help="只提供 API，不托管 /、/static、sw.js（独立静态站部署）",
+    ),
 ) -> None:
     """启动 Web 界面。
 
@@ -1618,11 +1712,12 @@ def web(
     from coding_agent.web.auth import AuthConfig
 
     settings = get_settings()
+    updates: dict[str, object] = {"security_profile": security_profile}
     if workspace:
-        settings = settings.model_copy(update={"wsl_workspace": workspace})
-    settings = apply_security_profile(
-        settings.model_copy(update={"security_profile": security_profile})
-    )
+        updates["wsl_workspace"] = workspace
+    if no_frontend:
+        updates["web_serve_frontend"] = False
+    settings = apply_security_profile(settings.model_copy(update=updates))
 
     try:
         auth = AuthConfig.from_settings(settings)

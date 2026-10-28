@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -61,6 +62,12 @@ class RunDeps:
     lease_ttl_s: int = 900
     audit_flush: Callable[..., Awaitable[None]] | None = None
     idempotency: Any | None = None
+    # 企业每日额度；None = 未启用控制面。
+    control_store: Any | None = None
+    quota_reserve_tokens: int = 0
+    usd_to_cny: float = 7.2
+    quota_owner: str = ""
+    quota_ttl_s: int = 3600
 
 
 def _lease_key(user: AuthUser, public_thread: str) -> str:
@@ -126,6 +133,80 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
     def _idem_abort(key: str) -> None:
         if deps.idempotency is not None and str(key or "").strip():
             deps.idempotency.abort(key)
+
+    async def _reserve_quota(user: AuthUser) -> dict[str, Any]:
+        if deps.control_store is None:
+            return {}
+        day = datetime.now(UTC).date().isoformat()
+        try:
+            reserved = await asyncio.to_thread(
+                deps.control_store.reserve_quota,
+                user.tenant,
+                user.name,
+                day,
+                tokens=max(0, int(deps.quota_reserve_tokens or 0)),
+                cost_usd=max(0.0, float(deps.settings.run_cost_budget_usd or 0)),
+                usd_to_cny=float(deps.usd_to_cny or 1),
+                owner=deps.quota_owner,
+                ttl_s=int(deps.quota_ttl_s or 3600),
+            )
+        except Exception as exc:  # noqa: BLE001
+            from coding_agent.control.store import QuotaExceeded
+
+            if isinstance(exc, QuotaExceeded):
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "code": "quota.exceeded",
+                        "message": "每日额度已用尽",
+                        "details": {
+                            **exc.details,
+                            "reset_at": "次日 00:00 UTC",
+                        },
+                    },
+                ) from exc
+            raise
+        if not reserved:
+            return {}
+        return {**reserved, "day": day}
+
+    async def _release_quota(
+        user: AuthUser, reservation: dict[str, Any]
+    ) -> None:
+        if not reservation or deps.control_store is None:
+            return
+        try:
+            await asyncio.to_thread(
+                deps.control_store.settle_quota,
+                str(reservation.get("id") or ""),
+            )
+        except Exception:  # noqa: BLE001 - 释放失败不应影响响应
+            pass
+
+    def _finalize_stream(
+        response: StreamingResponse,
+        user: AuthUser,
+        tenant: WebTenant | None,
+        config: Any,
+        reservation: dict[str, Any],
+    ) -> StreamingResponse:
+        """流结束后释放配额并拉取审计，保证本地运行也能计量。"""
+        original = response.body_iterator
+
+        async def body() -> Any:
+            try:
+                async for chunk in original:
+                    yield chunk
+            finally:
+                if deps.audit_flush is not None and tenant is not None:
+                    try:
+                        await deps.audit_flush(user, tenant, config)
+                    except Exception:  # noqa: BLE001 - 计量失败不阻断响应
+                        pass
+                await _release_quota(user, reservation)
+
+        response.body_iterator = body()
+        return response
 
     def _acquire_lease(
         user: AuthUser, public_thread: str, idempotency_key: str
@@ -212,11 +293,11 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         user: UserDep,
     ) -> dict:
         public_thread = check_thread_id(thread_id)
-        deps.reject_deleted(user, public_thread)
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
         tenant = deps.tenant(user)
         if deps.agent_client is not None:
-            config = deps.config_for(
-                user, tenant, public_thread, create=False
+            config = await asyncio.to_thread(
+                deps.config_for, user, tenant, public_thread, create=False
             )
             try:
                 return await deps.agent_client.approvals(
@@ -231,7 +312,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         temporary = None
         runtime = entry.runtime if entry is not None else None
         if runtime is None:
-            config = deps.config_for(user, tenant, public_thread)
+            config = await asyncio.to_thread(
+                deps.config_for, user, tenant, public_thread
+            )
             temporary = deps.new_runtime(tenant, config)
             runtime = temporary
         try:
@@ -273,19 +356,24 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 ),
             )
         public_thread = check_thread_id(request.thread_id)
-        deps.reject_deleted(user, public_thread)
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
         if deps.agent_client is not None:
             tenant = deps.tenant(user)
-            config = deps.config_for(user, tenant, public_thread)
+            config = await asyncio.to_thread(
+                deps.config_for, user, tenant, public_thread
+            )
             if not config.title:
                 config.title = " ".join(request.prompt.split())[:120]
             config.last_message = " ".join(request.prompt.split())[:160]
             config.unread = False
-            deps.set_config(user, tenant, config)
-            lease_id = _acquire_lease(
-                user, public_thread, idempotency_key
-            )
+            await asyncio.to_thread(deps.set_config, user, tenant, config)
+            # 配额必须在远端启动运行之前扣：失败时不能留下已启动的孤儿 run。
+            reservation = await _reserve_quota(user)
+            lease_id = ""
             try:
+                lease_id = _acquire_lease(
+                    user, public_thread, idempotency_key
+                )
                 stream = await deps.agent_client.open_run(
                     AgentRunRequest(
                         context=deps.agent_context(
@@ -296,16 +384,27 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                     )
                 )
             except Exception as exc:  # noqa: BLE001
-                _release_lease(user, public_thread, lease_id)
+                if lease_id:
+                    _release_lease(user, public_thread, lease_id)
+                await _release_quota(user, reservation)
+                if isinstance(exc, HTTPException):
+                    raise
                 raise deps.agent_failure(exc) from exc
             progress, terminal = _lease_callbacks(
                 user, public_thread, lease_id, tenant, config
             )
-            return await deps.proxy_agent(
-                stream,
-                public_thread=public_thread,
-                on_progress=progress,
-                on_terminal=terminal,
+            try:
+                response = await deps.proxy_agent(
+                    stream,
+                    public_thread=public_thread,
+                    on_progress=progress,
+                    on_terminal=terminal,
+                )
+            except Exception:
+                await _release_quota(user, reservation)
+                raise
+            return _finalize_stream(
+                response, user, tenant, config, reservation
             )
         key = (user.name, public_thread)
         with deps.registry_lock:
@@ -316,10 +415,12 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 )
         deps.stream_guard(key)
         tenant = deps.tenant(user)
-        config = deps.config_for(user, tenant, public_thread)
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread
+        )
         config.last_message = " ".join(request.prompt.split())[:160]
         config.unread = False
-        deps.set_config(user, tenant, config)
+        await asyncio.to_thread(deps.set_config, user, tenant, config)
         runtime = deps.new_runtime(tenant, config)
         with deps.registry_lock:
             deps.runtimes.put(key, runtime)
@@ -327,16 +428,25 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             request.prompt,
             thread_id=tenant.thread_id(public_thread),
         )
-        if deps.stream_buffer:
-            return deps.buffered_sse(
-                deps.start_stream(key, public_thread, runtime, events)
+        reservation = await _reserve_quota(user)
+        try:
+            if deps.stream_buffer:
+                response = deps.buffered_sse(
+                    deps.start_stream(key, public_thread, runtime, events)
+                )
+            else:
+                response = deps.sse_response(
+                    key,
+                    public_thread,
+                    runtime,
+                    events,
+                )
+        except Exception:
+            await _release_quota(user, reservation)
+            raise
+        return _finalize_stream(
+                response, user, tenant, config, reservation
             )
-        return deps.sse_response(
-            key,
-            public_thread,
-            runtime,
-            events,
-        )
 
     @app.post("/api/steer/{thread_id}")
     async def steer(
@@ -355,8 +465,8 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         try:
             if deps.agent_client is not None:
                 tenant = deps.tenant(user)
-                config = deps.config_for(
-                    user, tenant, public_thread, create=False
+                config = await asyncio.to_thread(
+                    deps.config_for, user, tenant, public_thread, create=False
                 )
                 result = await deps.agent_client.steer(
                     deps.agent_context(user, tenant, config),
@@ -407,16 +517,18 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         deps.rate_limit(user)
         await deps.sweep_expired()
         public_thread = check_thread_id(thread_id)
-        deps.reject_deleted(user, public_thread)
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
         if deps.agent_client is not None:
             tenant = deps.tenant(user)
-            config = deps.config_for(
-                user, tenant, public_thread, create=False
+            config = await asyncio.to_thread(
+                deps.config_for, user, tenant, public_thread, create=False
             )
-            lease_id = _acquire_lease(
-                user, public_thread, idempotency_key
-            )
+            reservation = await _reserve_quota(user)
+            lease_id = ""
             try:
+                lease_id = _acquire_lease(
+                    user, public_thread, idempotency_key
+                )
                 stream = await deps.agent_client.open_resume(
                     deps.agent_context(
                         user, tenant, config, include_keys=True
@@ -425,16 +537,27 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                     request.decisions,
                 )
             except Exception as exc:  # noqa: BLE001
-                _release_lease(user, public_thread, lease_id)
+                if lease_id:
+                    _release_lease(user, public_thread, lease_id)
+                await _release_quota(user, reservation)
+                if isinstance(exc, HTTPException):
+                    raise
                 raise deps.agent_failure(exc) from exc
             progress, terminal = _lease_callbacks(
                 user, public_thread, lease_id, tenant, config
             )
-            return await deps.proxy_agent(
-                stream,
-                public_thread=public_thread,
-                on_progress=progress,
-                on_terminal=terminal,
+            try:
+                response = await deps.proxy_agent(
+                    stream,
+                    public_thread=public_thread,
+                    on_progress=progress,
+                    on_terminal=terminal,
+                )
+            except Exception:
+                await _release_quota(user, reservation)
+                raise
+            return _finalize_stream(
+                response, user, tenant, config, reservation
             )
         key = (user.name, public_thread)
         existing = deps.get_entry(user.name, public_thread)
@@ -456,11 +579,20 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 detail="该会话是 steering 暂停；请用 /api/resume_steering",
             )
         events = runtime.resume(internal, request.decisions)
-        if deps.stream_buffer:
-            return deps.buffered_sse(
-                deps.start_stream(key, public_thread, runtime, events)
+        reservation = await _reserve_quota(user)
+        try:
+            if deps.stream_buffer:
+                response = deps.buffered_sse(
+                    deps.start_stream(key, public_thread, runtime, events)
+                )
+            else:
+                response = deps.sse_response(key, public_thread, runtime, events)
+        except Exception:
+            await _release_quota(user, reservation)
+            raise
+        return _finalize_stream(
+                response, user, tenant, config, reservation
             )
-        return deps.sse_response(key, public_thread, runtime, events)
 
     @app.post("/api/resume_steering/{thread_id}")
     async def resume_steering(
@@ -473,16 +605,18 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         deps.rate_limit(user)
         await deps.sweep_expired()
         public_thread = check_thread_id(thread_id)
-        deps.reject_deleted(user, public_thread)
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
         if deps.agent_client is not None:
             tenant = deps.tenant(user)
-            config = deps.config_for(
-                user, tenant, public_thread, create=False
+            config = await asyncio.to_thread(
+                deps.config_for, user, tenant, public_thread, create=False
             )
-            lease_id = _acquire_lease(
-                user, public_thread, idempotency_key
-            )
+            reservation = await _reserve_quota(user)
+            lease_id = ""
             try:
+                lease_id = _acquire_lease(
+                    user, public_thread, idempotency_key
+                )
                 stream = await deps.agent_client.open_resume_steering(
                     deps.agent_context(
                         user, tenant, config, include_keys=True
@@ -490,16 +624,27 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                     public_thread,
                 )
             except Exception as exc:  # noqa: BLE001
-                _release_lease(user, public_thread, lease_id)
+                if lease_id:
+                    _release_lease(user, public_thread, lease_id)
+                await _release_quota(user, reservation)
+                if isinstance(exc, HTTPException):
+                    raise
                 raise deps.agent_failure(exc) from exc
             progress, terminal = _lease_callbacks(
                 user, public_thread, lease_id, tenant, config
             )
-            return await deps.proxy_agent(
-                stream,
-                public_thread=public_thread,
-                on_progress=progress,
-                on_terminal=terminal,
+            try:
+                response = await deps.proxy_agent(
+                    stream,
+                    public_thread=public_thread,
+                    on_progress=progress,
+                    on_terminal=terminal,
+                )
+            except Exception:
+                await _release_quota(user, reservation)
+                raise
+            return _finalize_stream(
+                response, user, tenant, config, reservation
             )
         key = (user.name, public_thread)
         deps.stream_guard(key)
@@ -516,11 +661,20 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 ),
             )
         events = runtime.resume_steering(internal)
-        if deps.stream_buffer:
-            return deps.buffered_sse(
-                deps.start_stream(key, public_thread, runtime, events)
+        reservation = await _reserve_quota(user)
+        try:
+            if deps.stream_buffer:
+                response = deps.buffered_sse(
+                    deps.start_stream(key, public_thread, runtime, events)
+                )
+            else:
+                response = deps.sse_response(key, public_thread, runtime, events)
+        except Exception:
+            await _release_quota(user, reservation)
+            raise
+        return _finalize_stream(
+                response, user, tenant, config, reservation
             )
-        return deps.sse_response(key, public_thread, runtime, events)
 
     @app.get("/api/status/{thread_id}")
     async def status(
@@ -530,8 +684,8 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         public_thread = check_thread_id(thread_id)
         if deps.agent_client is not None:
             tenant = deps.tenant(user)
-            config = deps.config_for(
-                user, tenant, public_thread, create=False
+            config = await asyncio.to_thread(
+                deps.config_for, user, tenant, public_thread, create=False
             )
             try:
                 return await deps.agent_client.status(
@@ -587,8 +741,8 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         start = max(0, int(after), header_seq)
         if deps.agent_client is not None:
             tenant = deps.tenant(user)
-            config = deps.config_for(
-                user, tenant, public_thread, create=False
+            config = await asyncio.to_thread(
+                deps.config_for, user, tenant, public_thread, create=False
             )
             try:
                 stream = await deps.agent_client.open_stream(
@@ -635,8 +789,8 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
     ) -> dict:
         public_thread = check_thread_id(thread_id)
         tenant = deps.tenant(user)
-        config = deps.config_for(
-            user, tenant, public_thread, create=False
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
         )
         transcript, transcript_has_more = load_transcript(
             tenant,
@@ -690,7 +844,7 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         """保存桌面 UI 的完整对话轨迹（含工具卡片与过程中间态）。"""
         deps.rate_limit(user)
         public_thread = check_thread_id(thread_id)
-        deps.reject_deleted(user, public_thread)
+        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
         tenant = deps.tenant(user)
         try:
             payload = await request.json()
@@ -713,13 +867,13 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             if text:
                 preview = text[:160]
                 break
-        config = deps.config_for(
-            user, tenant, public_thread, create=False
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
         )
         if config is not None:
             if preview:
                 config.last_message = preview
             if isinstance(payload.get("unread"), bool):
                 config.unread = bool(payload.get("unread"))
-            deps.set_config(user, tenant, config)
+            await asyncio.to_thread(deps.set_config, user, tenant, config)
         return {"ok": True, "count": len(messages)}

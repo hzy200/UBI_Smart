@@ -20,6 +20,7 @@ from coding_agent.web.models import ClientErrorReport
 from coding_agent.web.validation import check_thread_id
 from coding_agent.web.version import (
     CAPABILITIES_VERSION,
+    MIN_API_VERSION,
     MIN_FRONTEND_VERSION,
     WEB_API_VERSION,
 )
@@ -69,6 +70,7 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
             "status": "ok",
             "version": __version__,
             "api_version": WEB_API_VERSION,
+            "min_api_version": MIN_API_VERSION,
             "min_frontend_version": MIN_FRONTEND_VERSION,
             "capabilities_version": CAPABILITIES_VERSION,
             "agent_state": getattr(

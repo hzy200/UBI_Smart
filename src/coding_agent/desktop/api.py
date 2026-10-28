@@ -97,6 +97,31 @@ _DENIED = {
 }
 
 
+def _active_window():
+    try:
+        import webview
+
+        return webview.windows[0] if webview.windows else None
+    except Exception:  # noqa: BLE001 - 桥接调用可能在窗口销毁后到达
+        return None
+
+
+def _window_maximized(window) -> bool:
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            handle = getattr(getattr(window, "native", None), "Handle", None)
+            if handle is not None:
+                return bool(ctypes.windll.user32.IsZoomed(int(handle.ToInt64())))
+        except Exception:  # noqa: BLE001 - 取不到原生句柄时退回 .NET 状态
+            pass
+    try:
+        return "Maximized" in str(window.native.WindowState)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class DesktopApi:
     def __init__(
         self,
@@ -380,4 +405,40 @@ class DesktopApi:
             webbrowser.open(str(url))
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True}
+
+    @_requires_trust(_DENIED)
+    def window_state(self) -> dict:
+        """返回自绘标题栏需要的窗口状态。"""
+        window = _active_window()
+        if window is None:
+            return {"ok": False, "error": "窗口尚未就绪", "maximized": False}
+        return {"ok": True, "maximized": _window_maximized(window)}
+
+    @_requires_trust(_DENIED)
+    def window_minimize(self) -> dict:
+        window = _active_window()
+        if window is None:
+            return {"ok": False, "error": "窗口尚未就绪"}
+        window.minimize()
+        return {"ok": True, "maximized": False}
+
+    @_requires_trust(_DENIED)
+    def window_toggle_maximize(self) -> dict:
+        window = _active_window()
+        if window is None:
+            return {"ok": False, "error": "窗口尚未就绪", "maximized": False}
+        maximized = _window_maximized(window)
+        if maximized:
+            window.restore()
+        else:
+            window.maximize()
+        return {"ok": True, "maximized": not maximized}
+
+    @_requires_trust(_DENIED)
+    def window_close(self) -> dict:
+        window = _active_window()
+        if window is None:
+            return {"ok": False, "error": "窗口尚未就绪"}
+        window.destroy()
         return {"ok": True}

@@ -206,21 +206,33 @@ def _relpath(path: str, root: str) -> str:
 
 def build_file_tools(
     settings: Settings,
-    sandbox: WslSandbox,
+    sandbox: WslSandbox | None = None,
     *,
     allow_write: bool,
     write_scope: list[str] | None = None,
     read_cache: MutableMapping[str, bytes] | None = None,
     file_access: FileAccess | None = None,
+    fs: Any | None = None,
+    snapshots: Any | None = None,
+    root: str | None = None,
 ) -> list[BaseTool]:
-    root = resolve_workspace(settings, sandbox)
-    fs = SandboxFs(sandbox, root, cache=read_cache)
-    snapshots = SnapshotStore(
-        sandbox,
-        fs,
-        root,
-        manifest_root=settings.resolved_snapshot_manifest_dir,
-    )
+    if root is None:
+        if sandbox is None:
+            raise ValueError("build_file_tools 需要 sandbox 或 root")
+        root = resolve_workspace(settings, sandbox)
+    if fs is None:
+        if sandbox is None:
+            raise ValueError("build_file_tools 需要 sandbox 或 fs")
+        fs = SandboxFs(sandbox, root, cache=read_cache)
+    if snapshots is None:
+        if sandbox is None:
+            raise ValueError("build_file_tools 需要 sandbox 或 snapshots")
+        snapshots = SnapshotStore(
+            sandbox,
+            fs,
+            root,
+            manifest_root=settings.resolved_snapshot_manifest_dir,
+        )
     access: FileAccess = file_access or SandboxFileAccess(fs, root)
 
     def _display(target: str) -> str:

@@ -57,6 +57,7 @@ from coding_agent.web.errors import (
 )
 from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
 from coding_agent.web.middleware import (
+    ApiVersionRewriteMiddleware,
     BodySizeLimitMiddleware,
     FixedWindowRateLimiter,
     FrontendVersionMiddleware,
@@ -66,6 +67,8 @@ from coding_agent.web.middleware import (
 from coding_agent.web.models import (
     SessionConfig,
 )
+from coding_agent.web.routes.admin import AdminDeps, register_admin_routes
+from coding_agent.web.routes.auth import AuthRouteDeps, register_auth_routes
 from coding_agent.web.routes.compact import CompactDeps, register_compact_routes
 from coding_agent.web.routes.desktop import (
     DesktopDeps,
@@ -100,10 +103,53 @@ from coding_agent.web.services import (
     ProviderService,
     SessionCatalog,
 )
-from coding_agent.web.version import MIN_FRONTEND_VERSION, WEB_API_VERSION
+from coding_agent.web.version import (
+    MIN_API_VERSION,
+    MIN_FRONTEND_VERSION,
+    WEB_API_VERSION,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 _LOG = logging.getLogger(__name__)
+
+
+def resolve_frontend_dirs(
+    settings: Settings, desktop_mode: bool
+) -> tuple[bool, Path, Path]:
+    """解析前端托管开关与目录。
+
+    显式配置的目录或发布包缺文件时启动失败（fail-closed），避免独立部署
+    静默退回包内旧产物。未配置时保持包内 `web/static` 的原有行为。
+    """
+    frontend_raw = str(settings.web_frontend_dir or "").strip()
+    static_raw = str(settings.web_static_dir or "").strip()
+    frontend_dir = (
+        Path(frontend_raw).expanduser().resolve()
+        if frontend_raw
+        else STATIC_DIR
+    )
+    if static_raw:
+        static_dir = Path(static_raw).expanduser().resolve()
+    elif (frontend_dir / "static").is_dir() and (frontend_dir / "index.html").is_file():
+        # 发布包结构：<release>/index.html + <release>/static/*。
+        static_dir = frontend_dir / "static"
+    else:
+        # 包内结构：index.html 与 app.js 同目录。
+        static_dir = frontend_dir
+    # 桌面壳必须能加载页面，配置不能把它关掉。
+    serve = bool(settings.web_serve_frontend) or bool(desktop_mode)
+    if not serve:
+        return False, frontend_dir, static_dir
+    for label, directory in (
+        ("AGENT_WEB_FRONTEND_DIR", frontend_dir),
+        ("AGENT_WEB_STATIC_DIR", static_dir),
+    ):
+        if not directory.is_dir():
+            raise ValueError(f"{label} 指向的目录不存在：{directory}")
+    for name in ("index.html", "sw.js", "manifest.webmanifest"):
+        if not (frontend_dir / name).is_file():
+            raise ValueError(f"前端发布包缺少 {name}：{frontend_dir}")
+    return True, frontend_dir, static_dir
 
 WEB_APPROVAL_MODE = "ask"
 # 每个会话的重放缓冲上限；超出后丢最旧事件（序号仍连续）。
@@ -143,6 +189,24 @@ def _is_suspended(event: Event) -> bool:
     return isinstance(event, ApprovalRequested) or (
         isinstance(event, SteeringApplied) and event.action == "pause"
     )
+
+
+def _events_after(
+    entry: StreamEntry, last: int
+) -> list[tuple[int, Event]]:
+    """只从缓冲尾部取 `seq > last` 的事件。
+
+    事件按 seq 单调追加，裁剪只发生在头部；从尾部反向扫描到游标即可，
+    稳态每次只处理新事件。旧实现每次循环都 `list(entry.events)` 全量
+    重扫，长会话下是 O(n²)。
+    """
+    fresh: list[tuple[int, Event]] = []
+    for seq, event in reversed(entry.events):
+        if seq <= last:
+            break
+        fresh.append((seq, event))
+    fresh.reverse()
+    return fresh
 
 
 def _event_key(user: str, public_thread: str) -> str:
@@ -189,6 +253,9 @@ def create_app(
         )
     # provider 档案是叠加在环境配置之上的；保留环境基线用于删除档案后回退。
     base_llm_providers = str(settings.llm_providers or "")
+    serve_frontend, frontend_dir, static_dir = resolve_frontend_dirs(
+        settings, desktop_mode
+    )
     auth = auth or AuthConfig.from_settings(settings)
     app = FastAPI(title="CodingAgent", docs_url=None, redoc_url=None)
 
@@ -255,7 +322,14 @@ def create_app(
     app.add_exception_handler(Exception, _unhandled_exception_handler)
 
     # 认证开启 ≠ 多用户。桌面壳有 token，但仍是单用户本地模式。
-    is_multi_user = auth.enabled if multi_user is None else bool(multi_user)
+    accounts_expected = bool(
+        settings.web_accounts_enabled and str(settings.control_db_url or "").strip()
+    )
+    is_multi_user = (
+        True
+        if accounts_expected
+        else (auth.enabled if multi_user is None else bool(multi_user))
+    )
     default_access = normalize_access_mode(default_access_mode)
     app.state.is_multi_user = is_multi_user
 
@@ -287,6 +361,71 @@ def create_app(
             _LOG.warning(
                 "控制面数据库不可用，进入只读降级：%s", exc
             )
+
+    if control_store is not None:
+        try:
+            # 只清理过期预留；其他实例仍在运行的预留不能被误清零。
+            control_store.purge_expired_reservations()
+        except Exception:  # noqa: BLE001 - 清理失败不阻断启动
+            _LOG.warning("清理配额预留失败", exc_info=True)
+
+    if settings.web_accounts_enabled:
+        if not control_db_url:
+            raise RuntimeError(
+                "AGENT_WEB_ACCOUNTS_ENABLED=true 时必须配置 "
+                "AGENT_CONTROL_DB_URL（生产要求 MySQL）"
+            )
+        if settings.web_accounts_require_mysql:
+            from sqlalchemy.engine import make_url
+
+            backend = make_url(control_db_url).get_backend_name()
+            if backend != "mysql":
+                raise RuntimeError(
+                    "企业账号要求 MySQL（AGENT_CONTROL_DB_URL 当前为 "
+                    f"{backend}）；仅本地测试可设置 "
+                    "AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=false"
+                )
+
+    # 企业账号：只有显式开启且控制面数据库可用时才绑定会话后端。
+    account_store = None
+    session_store = None
+    auth_events = None
+    credential_store = None
+    if control_store is not None and settings.web_accounts_enabled:
+        from coding_agent.control.credentials import CredentialStore
+
+        credential_store = CredentialStore.from_settings(
+            control_store.engine, settings
+        )
+    if control_store is not None and settings.web_accounts_enabled:
+        from coding_agent.control.accounts import (
+            AuthEventStore,
+            SessionStore,
+            UserStore,
+        )
+
+        account_store = UserStore(
+            control_store.engine, tenant=settings.web_account_tenant
+        )
+        session_store = SessionStore(
+            control_store.engine, ttl_s=settings.web_session_ttl_s
+        )
+        auth_events = AuthEventStore(
+            control_store.engine, tenant=settings.web_account_tenant
+        )
+        auth.bind_accounts(account_store, session_store)
+        if settings.control_db_auto_create:
+            _LOG.warning(
+                "企业账号已启用且 AGENT_CONTROL_DB_AUTO_CREATE=true；"
+                "生产环境应关闭自动建表并使用 Alembic 迁移"
+            )
+    elif settings.web_accounts_enabled:
+        _LOG.warning(
+            "AGENT_WEB_ACCOUNTS_ENABLED 已开启，但控制面数据库不可用；"
+            "账号登录保持关闭"
+        )
+    app.state.account_store = account_store
+    app.state.session_store = session_store
 
     # M4：运行租约与幂等键只在控制面数据库可用时装配。
     run_leases = None
@@ -372,6 +511,7 @@ def create_app(
         settings,
         base_llm_providers=base_llm_providers,
         is_multi_user=is_multi_user,
+        credentials=credential_store,
     )
     runtimes = LocalRuntimeRegistry(
         allow_write=allow_write,
@@ -415,7 +555,7 @@ def create_app(
 
     def _tenant(user: AuthUser) -> WebTenant:
         try:
-            tenant = tenants.for_user(user.name)
+            tenant = tenants.for_user(user.name, org=user.tenant)
         except TenantError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - 沙箱/目录不可用
@@ -433,6 +573,24 @@ def create_app(
         raise HTTPException(
             status_code=429,
             detail="请求过于频繁",
+            headers={"Retry-After": str(retry)},
+        )
+
+    login_limiter = FixedWindowRateLimiter(
+        per_minute=settings.web_login_rate_limit_per_min
+    )
+
+    def _login_rate_limit(ip: str) -> None:
+        key = ip or "unknown"
+        if login_limiter.allow(key):
+            return
+        retry = login_limiter.retry_after(key)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "auth.rate_limited",
+                "message": "登录尝试过于频繁，请稍后再试",
+            },
             headers={"Retry-After": str(retry)},
         )
 
@@ -580,9 +738,7 @@ def create_app(
             entry.subscribers.append(queue)
             try:
                 while True:
-                    for seq, event in list(entry.events):
-                        if seq <= last:
-                            continue
+                    for seq, event in _events_after(entry, last):
                         last = seq
                         yield _sse_with_id(event, seq)
                     if entry.done and last >= entry.seq:
@@ -594,10 +750,9 @@ def create_app(
                         continue
                     if item is None:
                         # 先把 done 前最后一批事件发完，再退出。
-                        for seq, event in list(entry.events):
-                            if seq > last:
-                                last = seq
-                                yield _sse_with_id(event, seq)
+                        for seq, event in _events_after(entry, last):
+                            last = seq
+                            yield _sse_with_id(event, seq)
                         break
                     seq, event = item
                     if seq <= last:
@@ -707,7 +862,10 @@ def create_app(
             return key, entry.runtime
         # 进程重启/TTL 清理后，从 per-user checkpoint 重建。
         tenant = _tenant(user)
-        config = catalog.config_for(user, tenant, public_thread)
+        # 进程重启后首次恢复可能触发控制面读取；不要在事件循环线程里做 DB I/O。
+        config = await asyncio.to_thread(
+            catalog.config_for, user, tenant, public_thread
+        )
         runtime = _new_runtime(tenant, config)
         with registry_lock:
             runtimes.put(key, runtime)
@@ -744,6 +902,12 @@ def create_app(
             headers=sse_headers(public_thread),
         )
 
+    # 最内层：把 /api/v1/* 重写为 /api/*，路由只注册一份。
+    app.add_middleware(
+        ApiVersionRewriteMiddleware,
+        current=WEB_API_VERSION,
+        deprecated=MIN_API_VERSION,
+    )
     app.add_middleware(
         BodySizeLimitMiddleware,
         max_bytes=settings.web_max_body_bytes,
@@ -763,11 +927,11 @@ def create_app(
     )
     app.add_middleware(SecurityHeadersMiddleware, hsts=hsts)
     if cors_origins:
-        # 独立源站形态：Bearer 模式不带 Cookie，因此 credentials=False。
+        # 企业账号用 Cookie 时，独立源站需要 credentials；静态 Bearer 不需要。
         app.add_middleware(
             StrictCORSMiddleware,
             allow_origins=cors_origins,
-            allow_credentials=False,
+            allow_credentials=bool(settings.web_accounts_enabled),
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=[
                 "Authorization",
@@ -858,15 +1022,22 @@ def create_app(
         """前端运行时配置；公开但只含非敏感传输参数。
 
         独立部署时由静态站自己提供 config.json；这里的默认值用于桌面
-        与同域反代。路径版本暂为 v0（尚未迁移到 /api/v1）。
+        与同域反代。
         """
         return JSONResponse(
             {
                 "schemaVersion": 1,
                 "apiBaseUrl": "",
                 "apiVersion": WEB_API_VERSION,
-                "authMode": "desktop-token" if desktop_mode else "bearer",
-                "auth": {},
+                "authMode": (
+                    "desktop-token"
+                    if desktop_mode
+                    else ("local-session" if account_store is not None else "bearer")
+                ),
+                "auth": {
+                    "csrfHeader": "X-CSRF-Token",
+                },
+                "cost": currency.as_dict(),
                 "sse": {
                     "heartbeatMs": SSE_HEARTBEAT_MS,
                     "idleTimeoutMs": SSE_HEARTBEAT_MS * 3,
@@ -879,30 +1050,47 @@ def create_app(
             headers={"Cache-Control": "no-cache"},
         )
 
-    @app.get("/", response_class=HTMLResponse)
-    async def index() -> str:
-        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    app.state.serve_frontend = serve_frontend
+    app.state.frontend_dir = str(frontend_dir)
+    app.state.static_dir = str(static_dir)
 
-    @app.get("/sw.js", include_in_schema=False)
-    async def service_worker() -> FileResponse:
-        """Service Worker 必须从根路径提供，才能控制 `/` 与应用外壳。"""
-        return FileResponse(
-            STATIC_DIR / "sw.js",
-            media_type="application/javascript",
-            headers={
-                "Service-Worker-Allowed": "/",
-                "Cache-Control": "no-cache",
-            },
+    if serve_frontend:
+
+        @app.get("/", response_class=HTMLResponse)
+        async def index() -> str:
+            return (frontend_dir / "index.html").read_text(encoding="utf-8")
+
+        @app.get("/admin", response_class=HTMLResponse)
+        @app.get("/admin/", response_class=HTMLResponse)
+        async def admin_index() -> str:
+            """管理端是独立静态入口；数据仍全部走 /api/admin/*。"""
+            page = frontend_dir / "admin" / "index.html"
+            if not page.is_file():
+                raise HTTPException(status_code=404, detail="管理端未构建")
+            return page.read_text(encoding="utf-8")
+
+        @app.get("/sw.js", include_in_schema=False)
+        async def service_worker() -> FileResponse:
+            """Service Worker 必须从根路径提供，才能控制 `/` 与应用外壳。"""
+            return FileResponse(
+                frontend_dir / "sw.js",
+                media_type="application/javascript",
+                headers={
+                    "Service-Worker-Allowed": "/",
+                    "Cache-Control": "no-cache",
+                },
+            )
+
+        @app.get("/manifest.webmanifest", include_in_schema=False)
+        async def manifest() -> FileResponse:
+            return FileResponse(
+                frontend_dir / "manifest.webmanifest",
+                media_type="application/manifest+json",
+            )
+
+        app.mount(
+            "/static", StaticFiles(directory=static_dir), name="static"
         )
-
-    @app.get("/manifest.webmanifest", include_in_schema=False)
-    async def manifest() -> FileResponse:
-        return FileResponse(
-            STATIC_DIR / "manifest.webmanifest",
-            media_type="application/manifest+json",
-        )
-
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     def _reject_if_active(user: AuthUser, public_thread: str) -> None:
         if _get_entry(user.name, public_thread) is not None:
@@ -914,6 +1102,8 @@ def create_app(
     def _config_and_tenant(
         user: AuthUser, public_thread: str
     ) -> tuple[WebTenant, SessionConfig | None]:
+        # create=False 只读内存：会话目录首次 load 已由路由层用 to_thread
+        # 完成。不要再在这里触发同步控制面 DB 调用。
         tenant = _tenant(user)
         config = catalog.config_for(user, tenant, public_thread, create=False)
         if config is None:
@@ -941,6 +1131,38 @@ def create_app(
         ),
     )
 
+    from coding_agent.costs import CurrencyConfig
+
+    currency = CurrencyConfig.from_settings(settings)
+    register_auth_routes(
+        app,
+        AuthRouteDeps(
+            settings=settings,
+            auth=auth,
+            accounts=account_store,
+            sessions=session_store,
+            control_store=control_store,
+            rate_limit=_rate_limit,
+            login_rate_limit=_login_rate_limit,
+            auth_events=auth_events,
+            currency=currency,
+        ),
+    )
+
+    register_admin_routes(
+        app,
+        AdminDeps(
+            settings=settings,
+            accounts=account_store,
+            sessions=session_store,
+            control_store=control_store,
+            provider_rows=providers.rows,
+            user_store=providers.user_store,
+            auth_events=auth_events,
+            currency=currency,
+        ),
+    )
+
     register_provider_routes(
         app,
         ProviderDeps(
@@ -957,23 +1179,46 @@ def create_app(
         ),
     )
 
+    def _local_audit_records(tenant: WebTenant) -> list[dict[str, Any]]:
+        """本地运行没有 A3 HTTP，直接从租户审计目录取最近记录。"""
+        from coding_agent.audit import audit_files_by_day, read_records_many
+
+        groups = audit_files_by_day(tenant.settings.resolved_audit_dir)
+        paths: list[Any] = []
+        for day in sorted(groups)[-2:]:
+            paths.extend(groups[day])
+        return [
+            record.model_dump(exclude_none=True)
+            for record in read_records_many(paths, limit=500)
+        ]
+
     async def _flush_audit(
         user: AuthUser, tenant: WebTenant, config: Any
     ) -> None:
-        """运行终态后把 A3 审计幂等写入控制面索引。"""
-        if agent_client is None or control_store is None:
+        """运行终态后把审计幂等写入控制面索引与用量表。"""
+        if control_store is None:
             return
         try:
-            data = await agent_client.json_request(
-                gateway.context(
-                    user, tenant, config, include_keys=False
-                ),
-                "GET",
-                "/v1/audit",
-                params={"limit": 500},
-            )
-            control_store.index_audit(
-                user.name, list(data.get("records", []))
+            if agent_client is not None:
+                data = await agent_client.json_request(
+                    gateway.context(
+                        user, tenant, config, include_keys=False
+                    ),
+                    "GET",
+                    "/v1/audit",
+                    params={"limit": 500},
+                )
+                records = list(data.get("records", []))
+            else:
+                records = await asyncio.to_thread(
+                    _local_audit_records, tenant
+                )
+            await asyncio.to_thread(
+                control_store.index_audit,
+                user.name,
+                records,
+                usage_tenant=user.tenant,
+                usage_user=user.name,
             )
         except Exception:  # noqa: BLE001 - 索引失败不影响运行
             _LOG.warning("终态审计索引回写失败", exc_info=True)
@@ -1163,6 +1408,11 @@ def create_app(
             lease_ttl_s=int(settings.run_lease_ttl_s or 900),
             audit_flush=_flush_audit,
             idempotency=idempotency,
+            control_store=control_store,
+            quota_reserve_tokens=int(settings.web_quota_reserve_tokens or 0),
+            usd_to_cny=float(settings.usd_to_cny or 1),
+            quota_owner=app_instance_id,
+            quota_ttl_s=int(settings.quota_reservation_ttl_s or 3600),
         ),
     )
 

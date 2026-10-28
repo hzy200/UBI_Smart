@@ -377,6 +377,15 @@ def build_host_broker_command(
     security_tier: str = "lowpriv",
     auto_approve: bool = False,
     journal: str = "",
+    allow_write: bool = False,
+    allow_exec: bool = False,
+    toolchains: str = "",
+    snapshot_dir: str = "",
+    policy_file: str = "",
+    policy_pubkey: str = "",
+    policy_pubkey_file: str = "",
+    attestation: str = "off",
+    attestation_key: str = "",
 ) -> list[str]:
     command = [
         sys.executable,
@@ -397,7 +406,45 @@ def build_host_broker_command(
         command.append("--auto-approve")
     if journal:
         command.extend(["--journal", journal])
+    if allow_write:
+        command.append("--allow-write")
+    if allow_exec:
+        command.append("--allow-exec")
+    if snapshot_dir:
+        command.extend(["--snapshot-dir", snapshot_dir])
+    if policy_file:
+        command.extend(["--policy-file", policy_file])
+    if policy_pubkey:
+        command.extend(["--policy-pubkey", policy_pubkey])
+    if policy_pubkey_file:
+        command.extend(["--policy-pubkey-file", policy_pubkey_file])
+    if attestation and attestation != "off":
+        command.extend(["--attestation", attestation])
+    if attestation_key:
+        command.extend(["--attestation-key", attestation_key])
+    for item in _toolchain_args(toolchains):
+        command.extend(["--toolchain-json", item])
     return command
+
+
+def _toolchain_args(raw: str) -> list[str]:
+    """配置里可以是 JSON 数组或对象；转成可重复的 --toolchain-json。"""
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []
+    if isinstance(data, dict):
+        return [json.dumps(data, ensure_ascii=False)]
+    if isinstance(data, list):
+        return [
+            json.dumps(item, ensure_ascii=False)
+            for item in data
+            if isinstance(item, dict)
+        ]
+    return []
 
 
 def start_host_broker(
@@ -410,6 +457,15 @@ def start_host_broker(
     port: int | None = None,
     security_tier: str = "lowpriv",
     auto_approve: bool = False,
+    allow_write: bool = False,
+    allow_exec: bool = False,
+    toolchains: str = "",
+    snapshot_dir: str = "",
+    policy_file: str = "",
+    policy_pubkey: str = "",
+    policy_pubkey_file: str = "",
+    attestation: str = "off",
+    attestation_key: str = "",
 ) -> HostBrokerProc:
     """在 Windows 本机启动 A2L 子进程；随客户端退出而终止。"""
     chosen = (
@@ -425,6 +481,15 @@ def start_host_broker(
         root_handle=root_handle,
         security_tier=security_tier,
         auto_approve=auto_approve,
+        allow_write=allow_write,
+        allow_exec=allow_exec,
+        toolchains=toolchains,
+        snapshot_dir=snapshot_dir,
+        policy_file=policy_file,
+        policy_pubkey=policy_pubkey,
+        policy_pubkey_file=policy_pubkey_file,
+        attestation=attestation,
+        attestation_key=attestation_key,
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     handle = log_path.open("a", encoding="utf-8")

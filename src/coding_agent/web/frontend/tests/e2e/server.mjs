@@ -16,7 +16,7 @@ const PORT = Number(process.env.E2E_PORT || 4173);
 const CONFIG = {
   schemaVersion: 1,
   apiBaseUrl: '',
-  apiVersion: 'v0',
+  apiVersion: 'v1',
   authMode: 'desktop-token',
   auth: {
     loginUrl: '',
@@ -68,7 +68,8 @@ const SESSIONS = {
 const BASE_STUBS = {
   '/config.json': CONFIG,
   '/healthz': {
-    api_version: 'v0',
+    api_version: 'v1',
+    min_api_version: 'v0',
     min_frontend_version: '0.1.0',
     version: '0.1.0',
     capabilities_version: 1,
@@ -107,6 +108,121 @@ const BASE_STUBS = {
   '/api/workspaces': { workspaces: [] },
   '/api/uploads': { uploads: [] },
   '/api/approvals': { approvals: [] },
+  '/api/me': {
+    user: {
+      id: 'u-admin',
+      username: 'admin',
+      tenant: 'default',
+      role: 'owner',
+      email: 'admin@example.com',
+      status: 'active',
+      created_at: '2026-10-01T00:00:00+00:00',
+      last_login_at: '2026-10-28T00:00:00+00:00',
+    },
+    quotas: { daily_tokens: 0, daily_cost_cny: 0, enabled: false },
+    usage_today: {
+      day: '2026-10-28',
+      input_tokens: 0,
+      output_tokens: 0,
+      worker_input_tokens: 0,
+      worker_output_tokens: 0,
+      tokens: 0,
+      cost_usd: 0,
+      billed_usd: 0,
+      cost_cny: 0,
+      billed_cny: 0,
+      currency: 'CNY',
+      runs: 0,
+      reserved_tokens: 0,
+      reserved_usd: 0,
+    },
+  },
+  '/api/admin/users': {
+    users: [
+      {
+        id: 'u-admin',
+        username: 'admin',
+        tenant: 'default',
+        email: 'admin@example.com',
+        role: 'owner',
+        status: 'active',
+        created_at: '2026-10-01T00:00:00+00:00',
+        last_login_at: '2026-10-28T00:00:00+00:00',
+      },
+      {
+        id: 'u-alice',
+        username: 'alice',
+        tenant: 'default',
+        email: 'alice@example.com',
+        role: 'member',
+        status: 'active',
+        created_at: '2026-10-02T00:00:00+00:00',
+        last_login_at: '',
+      },
+    ],
+  },
+  '/api/admin/providers': {
+    providers: [
+      {
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        base_url: 'https://api.deepseek.com',
+        has_key: false,
+        last4: '',
+      },
+    ],
+  },
+  '/api/admin/usage': {
+    rows: [
+      {
+        day: '2026-10-28',
+        user: 'alice',
+        input_tokens: 1200,
+        output_tokens: 300,
+        worker_input_tokens: 0,
+        worker_output_tokens: 0,
+        tokens: 1500,
+        cost_usd: 0.012,
+        billed_usd: 0.012,
+        cost_cny: 0.0864,
+        billed_cny: 0.0864,
+        currency: 'CNY',
+        runs: 2,
+        reserved_tokens: 0,
+        reserved_usd: 0,
+      },
+    ],
+    totals: {
+      day: '',
+      input_tokens: 1200,
+      output_tokens: 300,
+      worker_input_tokens: 0,
+      worker_output_tokens: 0,
+      tokens: 1500,
+      cost_usd: 0.012,
+      billed_usd: 0.012,
+      cost_cny: 0.0864,
+      billed_cny: 0.0864,
+      currency: 'CNY',
+      runs: 2,
+      reserved_tokens: 0,
+      reserved_usd: 0,
+    },
+    currency: 'CNY',
+    usd_to_cny: 7.2,
+  },
+  '/api/admin/auth-events': {
+    events: [
+      {
+        id: 'ev-1',
+        username: 'alice',
+        event: 'login_ok',
+        ip: '127.0.0.1',
+        request_id: 'req-e2e',
+        ts: '2026-10-28T08:00:00+00:00',
+      },
+    ],
+  },
   '/api/git': {
     is_repo: true,
     branch: 'main',
@@ -168,12 +284,56 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (url.pathname.startsWith('/api/')) {
-    json(res, BASE_STUBS[url.pathname] || {});
+    // 前端按运行时 apiVersion 请求 /api/v1/*；桩统一按 /api/* 匹配。
+    const key = url.pathname.replace(/^\/api\/v\d+\//, '/api/');
+    if (key.startsWith('/api/admin/users/u-alice')) {
+      if (key.endsWith('/providers')) {
+        json(res, {
+          providers: [
+            {
+              provider: 'deepseek',
+              model: 'deepseek-chat',
+              base_url: 'https://api.deepseek.com',
+              has_key: true,
+              last4: '1234',
+            },
+          ],
+        });
+        return;
+      }
+      if (key.endsWith('/quotas')) {
+        json(res, {
+          quota: { daily_tokens: 50000, daily_cost_cny: 14.4, enabled: true },
+          usage: {
+            day: '2026-10-28',
+            input_tokens: 32000,
+            output_tokens: 8000,
+            worker_input_tokens: 2000,
+            worker_output_tokens: 1000,
+            tokens: 43000,
+            cost_usd: 1.42,
+            billed_usd: 1.42,
+            cost_cny: 10.224,
+            billed_cny: 10.224,
+            currency: 'CNY',
+            runs: 6,
+            reserved_tokens: 0,
+            reserved_usd: 0,
+          },
+        });
+        return;
+      }
+      json(res, { user: BASE_STUBS['/api/admin/users'].users[1] });
+      return;
+    }
+    json(res, BASE_STUBS[key] || {});
     return;
   }
   let file;
   if (url.pathname === '/' || url.pathname === '/index.html') {
     file = path.join(STATIC, 'index.html');
+  } else if (url.pathname === '/admin' || url.pathname === '/admin/') {
+    file = path.join(STATIC, 'admin', 'index.html');
   } else if (url.pathname.startsWith('/static/')) {
     file = path.join(STATIC, url.pathname.slice('/static/'.length));
   } else {

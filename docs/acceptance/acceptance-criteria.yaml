@@ -1948,7 +1948,7 @@ criteria:
     then: 版本兼容矩阵与契约测试通过；静态资源可独立回滚；保留一个版本的
           API 托管回退入口；失败可仅靠配置/路由回滚
     status: partial
-    note: 版本同步/运行时契约/API 托管回退测试、CI frontend-static artifact 与
-          RELEASING.md 回滚步骤已落地；真实独立部署与回滚演练待部署环境验证。
-    tests: [tests/unit/test_frontend_release_contract.py::test_versions_are_in_sync, tests/unit/test_frontend_release_contract.py::test_runtime_config_and_healthz_agree, tests/unit/test_frontend_release_contract.py::test_api_hosted_frontend_fallback_remains, tests/unit/test_web_app.py::test_index_has_no_build_chain]
+    note: 版本解耦、版本化发布包（manifest/SHA256）、校验脚本、纯 API 模式、
+          /api/v1 兼容窗口与回退入口已落地；真实边缘部署与回滚演练待环境验证。
+    tests: [tests/unit/test_frontend_release_contract.py::test_versions_are_independently_releasable, tests/unit/test_frontend_release_contract.py::test_release_bundle_matches_version_contract, tests/unit/test_frontend_release_contract.py::test_runtime_config_and_healthz_agree, tests/unit/test_frontend_release_contract.py::test_api_hosted_frontend_fallback_remains, tests/unit/test_frontend_hosting.py::test_serve_frontend_false_keeps_api_only, tests/unit/test_web_app.py::test_api_v1_aliases_v0_with_deprecation, tests/unit/test_web_app.py::test_index_has_no_build_chain]
     see: docs/RELEASING.md

@@ -34,6 +34,15 @@ def test_schema_is_mysql_compatible_and_versioned(tmp_path) -> None:
         "control_provider_profiles",
         "control_usage_daily",
         "control_meta",
+        "control_users",
+        "control_auth_sessions",
+        "control_auth_events",
+        "control_provider_keys",
+        "control_user_quotas",
+        "control_user_usage_daily",
+        "control_quota_reservations",
+        "control_usage_events",
+        "control_usage_cursor",
     } <= tables
     ddl = str(
         CreateTable(ControlSession.__table__).compile(dialect=mysql.dialect())
@@ -181,6 +190,39 @@ def test_audit_index_is_idempotent(tmp_path) -> None:
             select(func.count()).select_from(ControlAuditIndex)
         )
     assert count == 1
+    store.close()
+
+
+def test_audit_index_only_checks_the_current_batch(tmp_path) -> None:
+    store = ControlStore(_url(tmp_path))
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import Session
+
+    def row(value: str) -> dict:
+        return {
+            "hash": value,
+            "ts": "2026-01-01T00:00:00+00:00",
+            "thread_id": "t1",
+            "kind": "tool_call",
+            "tool": "shell_exec",
+            "level": "L0",
+            "decision": "auto",
+            "ok": True,
+        }
+
+    # 已有 1000 条历史记录；下一批包含 999 条旧记录 + 1 条新记录。
+    assert store.index_audit("local", [row(f"h{i}") for i in range(1000)]) == 1000
+    assert store.index_audit(
+        "local", [row(f"h{i}") for i in range(999)] + [row("new")]
+    ) == 1
+    # 同一批里的重复 hash 也只能插入一次。
+    assert store.index_audit("local", [row("dup"), row("dup")]) == 1
+
+    with Session(store.engine) as session:
+        count = session.scalar(
+            select(func.count()).select_from(ControlAuditIndex)
+        )
+    assert count == 1002
     store.close()
 
 

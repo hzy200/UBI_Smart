@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import deque
 
@@ -26,6 +27,32 @@ from coding_agent.web.errors import (
 from coding_agent.web.version import frontend_is_too_old
 
 _LOG = logging.getLogger(__name__)
+
+# 发布包里的资源名形如 app.8821a0ed4a57.js；内容变则名字变，可以长缓存。
+_HASHED_ASSET = re.compile(r"\.[0-9a-f]{8,}\.(?:js|css|svg|woff2?)$")
+
+
+def cache_control_for_path(path: str) -> str:
+    """按路径给出 Cache-Control；未知响应保守走 no-store。"""
+    if path == "/healthz" or path.startswith("/api/"):
+        return "no-store"
+    if path in {
+        "/",
+        "/index.html",
+        "/admin",
+        "/admin/",
+        "/config.json",
+        "/sw.js",
+        "/manifest.webmanifest",
+    }:
+        return "no-cache"
+    if path.startswith("/static/"):
+        # 只有带内容哈希的文件才允许 immutable；包内固定名（开发/桌面）
+        # 必须 no-cache，否则升级后浏览器会一直用旧文件。
+        if _HASHED_ASSET.search(path):
+            return "public, max-age=31536000, immutable"
+        return "no-cache"
+    return "no-store"
 
 _CSP = (
     "default-src 'self'; "
@@ -83,6 +110,61 @@ class RequestIdMiddleware:
                     (time.monotonic() - started) * 1000,
                 )
             reset_request_id(token)
+
+
+class ApiVersionRewriteMiddleware:
+    """把 `/api/v1/*` 重写为 `/api/*`，并标记旧路径为弃用。
+
+    路由只注册一份 `/api/*`，避免每个 `register_*_routes` 写两遍。
+    v0 兼容窗口用 `Deprecation: true` 标注，不设置硬过期。
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        current: str = "v1",
+        deprecated: str = "v0",
+    ) -> None:
+        self.app = app
+        self.current = current
+        self.deprecated = deprecated
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = str(scope.get("path") or "")
+        prefix = f"/api/{self.current}"
+        version = ""
+        rewritten = path
+        if path == prefix or path.startswith(prefix + "/"):
+            rewritten = "/api" + path[len(prefix):]
+            version = self.current
+        elif path == "/api" or path.startswith("/api/"):
+            version = self.deprecated
+        else:
+            await self.app(scope, receive, send)
+            return
+
+        scope = dict(scope)
+        scope["path"] = rewritten
+        state = scope.get("state")
+        state = dict(state) if isinstance(state, dict) else {}
+        state["api_version"] = version
+        scope["state"] = state
+
+        async def send_with_version(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.setdefault("X-API-Version", version)
+                if version == self.deprecated:
+                    headers.setdefault("Deprecation", "true")
+            await send(message)
+
+        await self.app(scope, receive, send_with_version)
 
 
 class FrontendVersionMiddleware:
@@ -149,7 +231,10 @@ class SecurityHeadersMiddleware:
                     "Permissions-Policy",
                     "camera=(), microphone=(), geolocation=()",
                 )
-                headers.setdefault("Cache-Control", "no-store")
+                headers.setdefault(
+                    "Cache-Control",
+                    cache_control_for_path(str(scope.get("path") or "")),
+                )
                 if self.hsts or scope.get("scheme") == "https":
                     headers.setdefault(
                         "Strict-Transport-Security",

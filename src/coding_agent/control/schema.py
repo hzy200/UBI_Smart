@@ -2,14 +2,17 @@
 
 设计边界：
 
-- 只放业务/索引数据：会话目录、运行索引、审计索引、Provider 档案、用量汇总；
-- 不放 checkpoint、工作区文件、API Key、Agent 运行时状态；
+- 只放业务/索引数据：会话目录、运行索引、审计索引、Provider 档案、用量汇总、
+  企业账号与会话、加密后的上游 provider Key；
+- 不放 checkpoint、工作区文件、明文 API Key、Agent 运行时状态；
 - 同一套模型跑 MySQL（生产）与 SQLite（开发/测试）；
 - 迁移暂由 `create_all` 承担首次建表；生产升级要接 Alembic/迁移脚本，
   不能靠自动建表改已有列。
 """
 
 from __future__ import annotations
+
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
@@ -18,13 +21,14 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-CONTROL_SCHEMA_VERSION = "8"
+CONTROL_SCHEMA_VERSION = "11"
 
 
 class Base(DeclarativeBase):
@@ -116,6 +120,9 @@ class ControlAuditIndex(Base):
 
     __table_args__ = (
         Index("ix_control_audit_tenant_thread", "tenant", "thread_id", "ts"),
+        # 幂等索引按 (tenant, record_hash) 查已有记录；没有这条索引时
+        # 每次都要扫描该租户的全部审计行。
+        Index("ix_control_audit_tenant_hash", "tenant", "record_hash"),
     )
 
 
@@ -257,3 +264,199 @@ class WorkspaceRevision(Base):
             "created_at",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# 企业账号、会话与配额（迁移 0010）
+# ---------------------------------------------------------------------------
+
+
+class ControlUser(Base):
+    """企业成员账号；密码只存 scrypt 哈希。"""
+
+    __tablename__ = "control_users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # 账号作用域；单企业部署默认 default。与租户工作区键解耦。
+    tenant: Mapped[str] = mapped_column(String(128), default="default", index=True)
+    username: Mapped[str] = mapped_column(String(64))
+    email: Mapped[str] = mapped_column(String(255), default="")
+    # owner | admin | member
+    role: Mapped[str] = mapped_column(String(16), default="member")
+    password_hash: Mapped[str] = mapped_column(String(255), default="")
+    # active | disabled
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    updated_at: Mapped[str] = mapped_column(String(32), default="")
+    last_login_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        UniqueConstraint("tenant", "username", name="uq_control_user_tenant_name"),
+        Index("ix_control_users_status", "tenant", "status"),
+    )
+
+
+class ControlAuthSession(Base):
+    """服务端会话；只存 session token 的 sha256，不存明文。"""
+
+    __tablename__ = "control_auth_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    csrf_secret: Mapped[str] = mapped_column(String(64), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+    revoked_at: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index("ix_control_auth_sessions_expires", "expires_at"),
+    )
+
+
+class ControlAuthEvent(Base):
+    """登录成功/失败/登出/限流事件；不含密码或 token。"""
+
+    __tablename__ = "control_auth_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128), default="", index=True)
+    username: Mapped[str] = mapped_column(String(64), default="")
+    event: Mapped[str] = mapped_column(String(32), default="")
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    request_id: Mapped[str] = mapped_column(String(64), default="")
+    ts: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index("ix_control_auth_events_ts", "tenant", "ts"),
+        Index(
+            "ix_control_auth_events_user_ts", "tenant", "username", "ts"
+        ),
+    )
+
+
+class ControlProviderKey(Base):
+    """上游模型 Key；只存 AES-GCM 密文与后四位，绝不明文。"""
+
+    __tablename__ = "control_provider_keys"
+
+    tenant: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user: Mapped[str] = mapped_column(String(64), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ciphertext: Mapped[str] = mapped_column(Text, default="")
+    nonce: Mapped[str] = mapped_column(String(64), default="")
+    key_version: Mapped[int] = mapped_column(Integer, default=1)
+    last4: Mapped[str] = mapped_column(String(8), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[str] = mapped_column(String(32), default="")
+
+
+class ControlUserQuota(Base):
+    """每日额度；0 表示该维度不限制。"""
+
+    __tablename__ = "control_user_quotas"
+
+    tenant: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user: Mapped[str] = mapped_column(String(64), primary_key=True)
+    daily_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    # 额度以人民币配置；实际用量仍按 USD 记账后再换算。
+    daily_cost_cny: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), default=0
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_by: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[str] = mapped_column(String(32), default="")
+
+
+class ControlUserUsageDaily(Base):
+    """按用户/天的用量与预留；token 含主 agent 与 worker。"""
+
+    __tablename__ = "control_user_usage_daily"
+
+    tenant: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)
+    input_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    worker_input_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    worker_output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    billed_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    runs: Mapped[int] = mapped_column(Integer, default=0)
+    reserved_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    reserved_usd: Mapped[float] = mapped_column(Float, default=0.0)
+
+    __table_args__ = (
+        Index("ix_control_user_usage_day", "tenant", "day"),
+    )
+
+
+class ControlQuotaReservation(Base):
+    """运行期配额预留；带 owner/expires_at，支持多实例与崩溃恢复。"""
+
+    __tablename__ = "control_quota_reservations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128), default="", index=True)
+    user: Mapped[str] = mapped_column(String(64), default="", index=True)
+    day: Mapped[str] = mapped_column(String(10), default="")
+    tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    owner: Mapped[str] = mapped_column(String(64), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index(
+            "ix_control_quota_reservations_user_day",
+            "tenant",
+            "user",
+            "day",
+        ),
+        Index(
+            "ix_control_quota_reservations_expires", "expires_at"
+        ),
+    )
+
+
+class ControlUsageEvent(Base):
+    """run_end 快照；record_hash 唯一键保证审计重放幂等。"""
+
+    __tablename__ = "control_usage_events"
+
+    tenant: Mapped[str] = mapped_column(String(128), primary_key=True)
+    record_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user: Mapped[str] = mapped_column(String(64), default="")
+    thread_id: Mapped[str] = mapped_column(String(128), default="")
+    run_epoch: Mapped[str] = mapped_column(String(36), default="")
+    ts: Mapped[str] = mapped_column(String(32), default="")
+    tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    input_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    worker_input_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    worker_output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    billed_usd: Mapped[float] = mapped_column(Float, default=0.0)
+
+    __table_args__ = (
+        Index("ix_control_usage_events_ts", "tenant", "ts"),
+    )
+
+
+class ControlUsageCursor(Base):
+    """同一 thread/run_epoch 的累计值，用于 resume 时取增量。"""
+
+    __tablename__ = "control_usage_cursor"
+
+    tenant: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # 同一 public thread 可能被不同用户复用；游标必须带 user。
+    user: Mapped[str] = mapped_column(String(64), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    run_epoch: Mapped[str] = mapped_column(String(36), default="")
+    tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    input_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    worker_input_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    worker_output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    billed_usd: Mapped[float] = mapped_column(Float, default=0.0)

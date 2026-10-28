@@ -17,6 +17,9 @@ export const enUS: Messages = {
     recovery: 'Recovery center',
     shortcuts: 'Keyboard shortcuts',
     settings: 'Settings',
+    minimize: 'Minimize',
+    maximize: 'Maximize or restore',
+    closeWindow: 'Close window',
   },
   nav: {
     sessions: 'Sessions',
@@ -227,6 +230,7 @@ export const enUS: Messages = {
     bearer: 'Bearer token (memory only)',
     desktopToken: 'Desktop token (local storage)',
     bffCookie: 'Unified login (BFF cookie)',
+    localSession: 'Enterprise account (session cookie)',
   },
   commands: {
     title: 'Command palette',

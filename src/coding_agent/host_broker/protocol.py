@@ -31,6 +31,10 @@ WORKSPACE_HANDLE_UNKNOWN = "WORKSPACE_HANDLE_UNKNOWN"
 WORKSPACE_UNAVAILABLE = "WORKSPACE_UNAVAILABLE"
 OP_UNKNOWN = "OP_UNKNOWN"
 OP_NOT_ENABLED_IN_PHASE1 = "OP_NOT_ENABLED_IN_PHASE1"
+OP_UNCERTAIN = "OP_UNCERTAIN"
+CONFLICT = "CONFLICT"
+EXEC_UNAVAILABLE = "EXEC_UNAVAILABLE"
+INSTALL_MANUAL_ONLY = "INSTALL_MANUAL_ONLY"
 INVALID_REQUEST = "INVALID_REQUEST"
 FILE_NOT_FOUND = "FILE_NOT_FOUND"
 FILE_TOO_LARGE = "FILE_TOO_LARGE"
@@ -253,21 +257,26 @@ def make_hello_ok(
     a2l_id: str = "",
     device_fingerprint: str = "",
     nonce: str = "",
+    attestation: dict[str, str] | None = None,
 ) -> Frame:
-    return Frame(
-        type="hello_ok",
-        id=_new_id(),
-        meta={
-            "broker_id": str(broker_id or ""),
-            "security_tier": str(security_tier or ""),
-            "threat_model": str(threat_model or ""),
-            "capabilities": dict(capabilities or {}),
-            "a2l_id": str(a2l_id or ""),
-            "device_fingerprint": str(device_fingerprint or ""),
-            "nonce": str(nonce or ""),
-            "protocol_version": PROTOCOL_VERSION,
-        },
-    )
+    meta = {
+        "broker_id": str(broker_id or ""),
+        "security_tier": str(security_tier or ""),
+        "threat_model": str(threat_model or ""),
+        "capabilities": dict(capabilities or {}),
+        "a2l_id": str(a2l_id or ""),
+        "device_fingerprint": str(device_fingerprint or ""),
+        "nonce": str(nonce or ""),
+        "protocol_version": PROTOCOL_VERSION,
+    }
+    if attestation:
+        meta.update(
+            {
+                str(key): str(value)
+                for key, value in attestation.items()
+            }
+        )
+    return Frame(type="hello_ok", id=_new_id(), meta=meta)
 
 
 def make_heartbeat() -> Frame:

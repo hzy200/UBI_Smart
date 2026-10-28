@@ -51,6 +51,12 @@ field_groups:
         type: "str"
       - name: workspace
         type: "str"
+      - name: run_epoch
+        type: "str"
+      - name: provider
+        type: "str"
+      - name: model
+        type: "str"
       - name: call_id
         type: "str"
       - name: tool
@@ -76,6 +82,10 @@ field_groups:
       - name: input_tokens
         type: "int | None"
       - name: output_tokens
+        type: "int | None"
+      - name: worker_input_tokens
+        type: "int | None"
+      - name: worker_output_tokens
         type: "int | None"
       - name: cost_usd
         type: "float | None"

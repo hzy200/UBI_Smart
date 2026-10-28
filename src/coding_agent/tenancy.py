@@ -35,6 +35,8 @@ class WebTenant:
     settings: Settings
     data_dir: Path | None = None
     memory_dir: str = ""
+    # 企业账号所属组织；仅用于集中密钥/报表作用域，不参与工作区路径。
+    org: str = ""
 
     def thread_id(self, public_thread: str) -> str:
         """内部 thread id；多用户加 user 前缀，避免共享限流文件里串号。"""
@@ -139,7 +141,7 @@ class TenantManager:
             return normalize_root(text)
         return ensure_inside(text, self._workspaces_root())
 
-    def for_user(self, user: str) -> WebTenant:
+    def for_user(self, user: str, *, org: str = "") -> WebTenant:
         safe = self._safe_user(user)
         with self._lock:
             cached = self._tenants.get(safe)
@@ -157,6 +159,7 @@ class TenantManager:
                 workspace=workspace,
                 settings=self.settings,
                 memory_dir=str(self.settings.memory_root or ""),
+                org=str(org or ""),
             )
         else:
             workspaces_root = self._workspaces_root()
@@ -188,6 +191,7 @@ class TenantManager:
                 settings=tenant_settings,
                 data_dir=data_dir,
                 memory_dir=memory_dir,
+                org=str(org or ""),
             )
 
         with self._lock:

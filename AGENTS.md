@@ -41,6 +41,8 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 | 控制面 MySQL 初始化（不安装 MySQL） | `python scripts/setup_control_mysql.py --dry-run` |
 | 性能基线 | `python scripts/phase_f_bench.py` |
 | 前端构建 / 类型检查 | `python scripts/build_frontend.py` |
+| 生成前端发布包 | `python scripts/build_frontend_release.py --out dist/frontend` |
+| 校验发布包 | `python scripts/check_frontend_release.py --dir dist/frontend/<version>` |
 | 提交前一把梭 | `make check`（= lint + 快反馈） |
 | 环境自检（不需要 API Key） | `agent doctor` |
 | 重生成 L0 契约 | `python scripts/gen_contracts.py` |

@@ -5,18 +5,15 @@ on:
   pull_request:
 
 jobs:
-  check:
-    # GitHub 托管 runner 没有 WSL，因此只跑不依赖沙箱与 API Key 的用例。
-    # 需要真实 WSL 的集成测试在本地用 `pytest -m wsl` 跑。
-    # 测试套件覆盖了 TUI（textual）与 Web（fastapi），所以要装齐 ui / web。
+  frontend:
+    # 前端独立发版：构建、类型检查、单测、E2E，并产出可校验的发布包。
+    # 后端 job 不消费这个 artifact，两者可以独立上线/回滚。
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: 安装（开发 + 界面 + 控制面数据库依赖）
-        run: pip install -e ".[dev,ui,web,db]"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -29,15 +26,16 @@ jobs:
           # E2E 使用 runner 自带的 Chrome（channel: chrome），不下载浏览器。
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: npm ci
-      - name: Lint
-        run: ruff check src tests
       - name: 前端构建
         # static/app.js 是生成物：源码改了但没重建会让 CI 红。
         run: |
           python scripts/build_frontend.py
-          git diff --exit-code -- src/coding_agent/web/static/app.js
+          git diff --exit-code -- \
+            src/coding_agent/web/static/app.js \
+            src/coding_agent/web/static/index.html \
+            src/coding_agent/web/static/style.css \
+            src/coding_agent/web/static/admin
       - name: 前端类型检查
-        # 用 npm ci 装好的本地 tsc，避免与运行时测试使用两套 TypeScript 版本。
         working-directory: src/coding_agent/web/frontend
         run: npx tsc --noEmit
       - name: 前端单元测试
@@ -46,23 +44,34 @@ jobs:
         working-directory: src/coding_agent/web/frontend
         run: npm test
       - name: 前端真实浏览器 E2E
-        # 使用 GitHub runner 自带的 Google Chrome（playwright channel: chrome）。
         working-directory: src/coding_agent/web/frontend
         run: npx playwright test
+      - name: 生成独立发布包
+        run: python scripts/build_frontend_release.py --skip-build
+      - name: 校验发布包
+        run: |
+          version=$(sed -n "s/.*FRONTEND_VERSION = '\\([^']*\\)'.*/\\1/p" src/coding_agent/web/frontend/src/version.ts)
+          python scripts/check_frontend_release.py --dir "dist/frontend/$version"
       - name: 上传前端独立产物
-        # 独立静态站可直接取这个 artifact；API 托管首页仍保留一个版本作回退。
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-static
-          path: |
-            src/coding_agent/web/static/app.js
-            src/coding_agent/web/static/index.html
-            src/coding_agent/web/static/style.css
-            src/coding_agent/web/static/manifest.webmanifest
-            src/coding_agent/web/static/icon.svg
-            src/coding_agent/web/static/sw.js
-            src/coding_agent/web/static/vendor
+          name: frontend-release
+          path: dist/frontend
           retention-days: 14
+
+  backend:
+    # 后端不依赖前端构建产物：包内 static/ 是回退快照，测试只读源码树。
+    # GitHub 托管 runner 没有 WSL，因此只跑不依赖沙箱与 API Key 的用例。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装（开发 + 界面 + 控制面数据库依赖）
+        run: pip install -e ".[dev,ui,web,db]"
+      - name: Lint
+        run: ruff check src tests
       - name: 测试 + 覆盖率
         # 门槛（fail_under=76）与说明在 pyproject.toml 的 [tool.coverage.report]。
         # term-missing 是刻意的：沙箱层与能力层的缺口必须留在日志里能看见。
@@ -82,8 +91,6 @@ jobs:
         # 执行真实命令的那一层在 CI 里**一行都没跑**，它的低覆盖就写在上面
         # 覆盖率报告的 Missing 列里（tools/files.py、sandbox/snapshots.py…）。
         # 用 ::warning:: 让它成为 GitHub 界面上的可见标注，而不是埋在日志里。
-        # 这一步是**信息性**的：它绝不能因为收集本身出问题就把构建弄红 ——
-        # 真正该红的是上面的覆盖率门槛。
         run: |
           skipped=$(pytest -m wsl --collect-only -q 2>/dev/null | tail -1 || true)
           echo "::warning::CI 是 Linux runner、没有 WSL2，沙箱层用例未执行（$skipped）。仅快反馈用例通过 ≠ 沙箱层可用。"

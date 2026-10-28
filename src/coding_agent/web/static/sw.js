@@ -42,6 +42,9 @@ function isNetworkOnly(url) {
     || url.pathname === '/healthz'
     || url.pathname === '/config.json'
     || url.pathname === '/sw.js'
+    // 管理端是独立入口：不能回退到用户端外壳，也不缓存其页面。
+    || url.pathname === '/admin'
+    || url.pathname.startsWith('/admin/')
   );
 }
 

@@ -1,4 +1,4 @@
-<!-- owner: 项目作者 · last_reviewed: 2026-10-24 · review_cadence: 命令、状态数字或架构变动时 -->
+<!-- owner: 项目作者 · last_reviewed: 2026-10-28 · review_cadence: 命令、状态数字或架构变动时 -->
 
 # CodingAgent
 
@@ -26,7 +26,8 @@ orchestrator 子图，拆成 DAG 并发处理，最后把结构化结果交回�
 | 覆盖率 | **82.68%**（CI 子集，`fail_under=76`；见 [COVERAGE.md](docs/COVERAGE.md)） |
 | 全量含 WSL | 本轮未重跑；WSL/执行面仍由 `-m wsl` / `-m execution` 平台门禁守着 |
 | lint | `ruff check src tests` 干净 |
-| 前端 | `build_frontend.py` 构建 + `tsc --noEmit` 通过，`static/app.js` 无漂移 |
+| 前端 | 用户端 + React 管理端构建通过，`tsc --noEmit` 通过，生成物无漂移 |
+| 企业版 | 账号/额度/用量/上游 Key 落 MySQL；`/admin` 独立 SPA；迁移 `0010` |
 | 说明 | 另有 3 个 `llm` 标记用例需要 `DEEPSEEK_API_KEY`，默认排除；不加 `-m` 时会真实调用模型 |
 
 > 上表是 **2026-10-24 本机实跑**的快照；最新结果见上方 CI badge。
@@ -190,6 +191,9 @@ CodingAgent/
 │  ├─ agent_server.py          # A3 独立进程入口：仅装配
 │  ├─ agent_server_routes/     # A3 领域路由（lifecycle / workspace / state）
 │  ├─ control/                 # A2 控制面：schema / store / 迁移 / 备份
+│  │  ├─ accounts.py           #   企业账号、scrypt 密码、登录会话
+│  │  ├─ credentials.py        #   上游 Key 的 AES-GCM 加密存储
+│  │  └─ migrations/           #   Alembic；0010 企业账号/额度/用量
 │  ├─ workspace/               # A2/A3 共用的只读工作区浏览
 │  ├─ graph/                   # 主图
 │  │  ├─ state.py              #   跨节点状态
@@ -237,13 +241,15 @@ CodingAgent/
 │  ├─ audit/                   # JSONL 审计
 │  ├─ cli/                     # 命令 + 表驱动事件渲染（cli/renderer.py）
 │  ├─ tui/                     # Textual 界面 + 表驱动事件映射
-│  └─ web/ desktop/            # Web 路由 + 桌面壳（A1）
+│  ├─ web/                     # Web 路由（含 auth/admin）、用户端与管理端（A1）
+│  │  └─ frontend/src/admin/   #   React 企业控制台（独立静态入口）
+│  └─ desktop/                 # 桌面壳（A1）
 ├─ tests/
 │  ├─ unit/                    # 纯逻辑 + 假图驱动的 runtime 事件流
 │  ├─ integration/             # 真实 WSL 沙箱
 │  ├─ tui/                     # 无头界面
 │  └─ eval/                    # 能力评测（需 API Key，不进 CI）
-├─ docs/                       # 架构、harness、工作流、验收、威胁模型等
+├─ docs/                       # 架构、harness、工作流、数据库、验收、威胁模型等
 ├─ scripts/demo.py             # 四场景演示脚本
 ├─ .github/workflows/ci.yml    # ruff + 快反馈测试
 ├─ Makefile                    # make check / test-all
@@ -262,6 +268,8 @@ CodingAgent/
 | 改调度策略 | `orchestrator/scheduler.py`（ready/依赖/重试/deadline） |
 | 改写隔离 | `orchestrator/implement.py` + `orchestrator/merge.py` + `tools/files.py` |
 | 增加宿主内部命令 | `execution/host_ops.py` 登记 kind → 更新 ADR-0011 → 补 `test_host_ops.py` |
+| 企业账号 / 额度 / 上游 Key | `control/accounts.py`、`control/credentials.py`、`web/routes/admin.py`、`frontend/src/admin/` |
+| MySQL 表 / 迁移 | `control/schema.py` → `migrations/versions/` → 更新 `docs/DATABASE.md` 与 `test_mysql_ddl.py` |
 | 加一个前端 | 只依赖 `runtime.AgentRuntime` + `events`，**不要**导入 `tools/`/`sandbox/` |
 
 **不纳入版本控制**：`.env`（密钥）、`.agent/`（审计、checkpoint、快照、artifact、
@@ -288,8 +296,9 @@ pip install -e ".[dev,ui,web]"
 | `dev` | `pytest` / `ruff` / `pytest-xdist` / `pytest-cov` |
 | `ui` | `agent tui`（Textual） |
 | `web` | `agent web`（FastAPI + uvicorn） |
+| `db` | 控制面 MySQL 驱动、Alembic 迁移与 `--migrate-only` |
 | `desktop` | `agent gui`（pywebview 窗口） |
-| `secrets` | GUI 注入 API Key（OS 密钥环） |
+| `secrets` | 单机 GUI 注入 API Key（OS 密钥环） |
 | `embeddings` | 记忆向量检索（fastembed 本地模型） |
 
 验证安装：
@@ -329,6 +338,7 @@ agent gui --write                 # 允许会话选择审批写/自动写
 | `agent gui` | 桌面图形界面：SSE、计划/工具/文件、审批、快照回滚、模型/密钥、上传（需 `.[web,desktop]`，密钥注入再加 `.[secrets]`） |
 | `agent steer --thread-id <id> <action>` | 向运行中的会话注入 pause/cancel/add/replan |
 | `agent web` | Web 验证/多用户界面：SSE、审批、pause/cancel/add/replan、resume（需 `.[web]`） |
+| `agent admin create` | 在 MySQL 控制面创建企业管理员（需 `.[db]` + `AGENT_CONTROL_DB_URL`） |
 | `agent snapshots` / `undo` / `diff` | 查看快照、回滚、看改动 |
 | `agent sessions` / `history` | 历史会话列表 / 单个会话的对话记录（支持 `--json`） |
 | `agent memory` | 查看/维护项目记忆 |
@@ -619,6 +629,33 @@ Markdown/代码块渲染、审批弹窗。侧栏常驻显示会话、工作区�
 `tsc --noEmit` 并校验生成物无漂移。端点与 TUI 共用同一套 runtime/steering 语义。
 Web 在 runtime 被 TTL 清理或进程重启后，会从 per-user checkpoint 重建并 resume。
 
+**企业版**（`AGENT_WEB_ACCOUNTS_ENABLED=true`）：
+
+- 企业账号、登录会话、会话目录、每日配额、token 用量与上游 Key 密文统一写入
+  MySQL；生产强制 `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=true`；
+- 用户端改用账号密码登录（HttpOnly Session Cookie + CSRF），静态 Bearer
+  token 仍保留为过渡/内网方案；
+- 管理员访问 `/admin` 独立 React 控制台：注册用户、禁用/启用、重置密码、
+  分配上游模型 Key、设置每日 token/人民币成本额度、查看按用户/天用量与
+  登录安全事件；
+- 上游 Key 用 AES-256-GCM 加密，主密钥来自 `AGENT_SECRET_MASTER_KEY`，页面
+  只显示后四位；
+- CLI、TUI、Web 与管理端的成本显示统一按 `AGENT_COST_CURRENCY`（默认 CNY）
+  换算；上游账单与运行时事件仍以 USD 为事实源；
+- 建库、迁移、保留策略与备份见 [docs/DATABASE.md](docs/DATABASE.md)，
+  决策见 [ADR-0021](docs/adr/0021-enterprise-mysql-account-store.md)。
+
+```bash
+mysql -u root -p < packaging/mysql/init.sql
+export AGENT_CONTROL_DB_URL='mysql+pymysql://coding_agent:***@127.0.0.1:3306/coding_agent'
+export AGENT_CONTROL_DB_AUTO_CREATE=false
+python -m coding_agent.control.migrate --backup
+export AGENT_WEB_ACCOUNTS_ENABLED=true
+export AGENT_SECRET_MASTER_KEY="$(openssl rand -base64 32)"
+agent admin create --username admin --role owner
+agent web --port 8765
+```
+
 **CLI 实时干预**：`agent steer --thread-id <id> pause|cancel|add|replan`
 把指令写入 `.agent/steering/`，运行中的进程在下一个边界消费。
 Web、CLI（`agent resume`）都支持跨进程 resume；TUI 持有进程内 runtime。
@@ -788,8 +825,21 @@ python scripts/phase_f_bench.py
 | `AGENT_TRUST_REPO_INSTRUCTIONS` | `true` | 是否把仓库 `AGENTS.md` / `CLAUDE.md` 当可信指令注入 |
 | `AGENT_TRUST_REPO_MEMORY` | `true` | 是否读取仓库 `.agent/memory.md`；false 时记忆移到 `AGENT_MEMORY_ROOT` / `$HOME/.agent-memory` |
 | `AGENT_READ_DENY_GLOBS` | `.env,*.pem,...` | 秘密文件读保护；`.env.example` 等模板自动放行 |
-| `AGENT_WEB_AUTH_TOKENS` | 空 | JSON `{"token":"user"}`；支持 `sha256:<hex>` |
+| `AGENT_WEB_AUTH_TOKENS` | 空 | JSON `{"token":"user"}`；支持 `sha256:<hex>`；内网/过渡方案 |
 | `AGENT_WEB_AUTH_TOKENS_FILE` | 空 | 从文件读取同样格式的 token 表 |
+| `AGENT_CONTROL_DB_URL` | 空 | 控制面数据库；企业版必须为 MySQL |
+| `AGENT_CONTROL_DB_AUTO_CREATE` | `true` | 生产设为 `false`，只走 Alembic |
+| `AGENT_WEB_ACCOUNTS_ENABLED` | `false` | 启用企业账号密码登录与 `/admin` |
+| `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL` | `true` | 企业账号只允许 MySQL；SQLite 仅测试时关 |
+| `AGENT_WEB_ACCOUNT_TENANT` | `default` | 企业账号作用域 |
+| `AGENT_WEB_COOKIE_SECURE` | `false` | 跨源/HTTPS 部署必须开启；开启后 SameSite=None |
+| `AGENT_WEB_SESSION_TTL_S` | `43200` | 登录会话有效期 |
+| `AGENT_SECRET_MASTER_KEY` / `_FILE` | 空 | 上游 Key 的 AES-256-GCM 主密钥（32B） |
+| `AGENT_WEB_QUOTA_RESERVE_TOKENS` | `0` | 运行前 token 预留；0 = 只做事后限额 |
+| `AGENT_COST_CURRENCY` | `CNY` | 成本展示/额度货币；上游价格仍按 USD 记账 |
+| `AGENT_USD_TO_CNY` | `7.2` | 固定汇率；管理员额度按人民币配置 |
+| `AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN` | `10` | 每来源 IP 的登录尝试上限 |
+| `AGENT_QUOTA_RESERVATION_TTL_S` | `3600` | 配额预留守活时间，过期由其他实例清理 |
 | `AGENT_WEB_WORKSPACES_ROOT` | `$HOME/agent-ws/users`（WSL） | per-user 工作区根 |
 | `AGENT_WEB_DATA_ROOT` | `./.agent/web/users`（宿主） | per-user 审计/checkpoint/steering 根 |
 | `AGENT_WEB_MEMORY_ROOT` | `$HOME/agent-memory`（WSL） | per-user 记忆根 |
@@ -871,7 +921,8 @@ python scripts/phase_f_bench.py
 | [docs/PHASE_E.md](docs/PHASE_E.md) | 前端体验、SSE 治理与长会话手测清单 |
 | [docs/CI.md](docs/CI.md) | CI/Docs 流水线步骤与覆盖率门槛 |
 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | 环境配置、依赖版本快照、复现与导出、常见问题 |
-| [docs/MANUAL.md](docs/MANUAL.md) | **配置指南与使用手册**：配置分组、常用配方、CLI/TUI/REPL/Web、审批、排障 |
+| [docs/MANUAL.md](docs/MANUAL.md) | **配置指南与使用手册**：配置分组、常用配方、CLI/TUI/REPL/Web、企业版、审批、排障 |
+| [docs/DATABASE.md](docs/DATABASE.md) | MySQL 长期存储：建库、表目录、索引、保留、备份恢复与运维 |
 | [docs/USAGE.md](docs/USAGE.md) | 常见工作流、配置来源、故障排查 |
 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 需求逐条对照、自检清单、已知限制 |
 | [docs/rfc/](docs/rfc/README.md) | RFC 流程与模板（动手前的范围与权衡；批准后落 ADR、契约与验收锚点） |

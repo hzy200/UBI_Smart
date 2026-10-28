@@ -2,7 +2,54 @@
 
 import { shouldSystemNotify } from '../ui/notifications';
 
+function desktopBridge() {
+  return window.pywebview && window.pywebview.api;
+}
+
 export const desktopMixin = {
+  get desktopRestored() {
+    return !this.desktopMaximized;
+  },
+
+  applyDesktopShell() {
+    if (typeof document === 'undefined' || !document.body) return;
+    document.body.classList.toggle('desktop-shell', Boolean(this.desktopAvailable));
+  },
+
+  async syncDesktopWindowState() {
+    const bridge = desktopBridge();
+    if (!bridge) return;
+    try {
+      const state = await bridge.window_state();
+      if (state && state.ok) this.desktopMaximized = Boolean(state.maximized);
+    } catch (err) { /* 桥接不可用时保持默认状态 */ }
+  },
+
+  async minimizeDesktop() {
+    const bridge = desktopBridge();
+    if (!bridge) return;
+    try {
+      await bridge.window_minimize();
+    } catch (err) { /* ignore */ }
+  },
+
+  async toggleDesktopMaximize() {
+    const bridge = desktopBridge();
+    if (!bridge) return;
+    try {
+      const state = await bridge.window_toggle_maximize();
+      if (state && state.ok) this.desktopMaximized = Boolean(state.maximized);
+    } catch (err) { /* ignore */ }
+  },
+
+  async closeDesktop() {
+    const bridge = desktopBridge();
+    if (!bridge) return;
+    try {
+      await bridge.window_close();
+    } catch (err) { /* ignore */ }
+  },
+
   async collectDiagnostics() {
     const bridge = window.pywebview && window.pywebview.api;
     if (!bridge || this.diagnosticsBusy) return;

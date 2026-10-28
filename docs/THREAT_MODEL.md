@@ -90,11 +90,24 @@ Linux 用户空间（非 root）
 - 秘密文件读保护 + 工具日志脱敏 + 审计哈希链；
 - 单 Web 进程锁，避免多进程绕过配额。
 
+企业账号（`AGENT_WEB_ACCOUNTS_ENABLED`）：
+
+- 密码只存 scrypt 哈希；会话只存 token 的 sha256，Cookie 为 HttpOnly；
+- Cookie 身份的非幂等请求强制双提交 CSRF + Origin/Sec-Fetch-Site 校验；
+- 管理员权限在服务端校验（`/api/admin/*`），禁用用户立即吊销会话；
+- 登录按来源 IP 固定窗口限流，成功/失败/登出/限流写入
+  `control_auth_events`（不含密码或 token）；
+- 上游 provider Key 用 AES-256-GCM 加密落库，主密钥缺失时拒绝写入；
+- 按用户/日原子预留额度（独立 reservation 行 + owner/expires_at），
+  运行结束按 id 释放；多实例只清理自己的过期预留，不会误伤活动运行；
+- 计量按审计 `record_hash` 幂等，resume 用 `run_epoch` 取累计差值，
+  成本按 USD 记账、人民币展示与配额判断。
+
 设计冻结、尚未实现（见 §5.13 与 [RFC-0003](rfc/0003-frontend-backend-separation.md)）：
 
-- 浏览器凭证按部署形态分档：桌面一次性 token、内网短期 Bearer、公网 BFF Cookie；
+- 公网 BFF Cookie + OIDC/SSO（当前企业账号为本地密码）；
 - CORS 精确允许列表、错误响应也带 CORS 头、`Vary: Origin`；
-- Cookie 模式 CSRF、注销/吊销、单飞刷新；
+- 单飞 refresh 与短期 Bearer 轮换；
 - 全链路 `X-Request-ID` 与稳定错误 `code`；
 - 前端运行时基址，禁止把凭证或基址写死。
 
@@ -117,10 +130,22 @@ T4 不是 T3 的别名：T3 是“多用户经公网访问同一服务”，T4 �
 已规划的控制：
 
 - A2L **只主动外连**，不开入站端口；设备证书/mTLS 绑定 `a2l_id` 与用户；
+- A3 本地设备台账（`DEVICE_POLICY=enforce`）按证书指纹预登记/吊销；
+  吊销后 acceptor 周期重载并断开在线连接；
+- A2L 用固定 Ed25519 公钥验签运行策略（写/exec/toolchain/限额），
+  服务端静态改策略不能生效；
+- A2L 可对连接 nonce 做设备证明：Windows TPM 背书密钥（CNG）优先，
+  不可用回退软件 Ed25519；A3 用台账公钥校验；
+- `security_profile=untrusted` 禁止 host 工作区与 `host_exec`；host 后端
+  只面向可信本机仓库，`agent doctor` 显示隔离能力真实可用性；
 - 服务端请求不是授权；A2L 每次执行都独立做本地 grant + ZX 判定；
 - grant 的 scope/verbs/TTL 只存客户端，服务端只持有 `grant_id`；
-- ZX 由 `lowpriv` + OS ACL 强制（默认）；`appcontainer` 仅受限只读档；
-  `user-t1` 仅 `local-dev`；
+- ZX 由 `lowpriv` + OS ACL 强制（默认）；`appcontainer` 提供只读 helper 与
+  **受控 exec**；`user-t1` 仅 `local-dev`；
+- 写/执行先落 `op_journal`，同一 `op_id` 不重放（`OP_UNCERTAIN`）；
+  写前在工作区外留快照，恢复时校验 sha256；
+- `host.exec` 只接受已注册 toolchain 的 argv，不经 shell；只在 AppContainer
+  内运行，只对 `output_roots` 可写，默认无网络；安装（`host.install`）永不执行；
 - typed ops 白名单，未知 op fail closed；本地同意 UI + 可撤销/可过期 grant；
 - 本地哈希链审计在 agent 不可写目录，异步转发 A2；
 - A2L 离线时 A4 降级 `sandbox`，不假装 host 可用；
@@ -129,10 +154,13 @@ T4 不是 T3 的别名：T3 是“多用户经公网访问同一服务”，T4 �
   不得以 LocalSystem/root 运行，按交互用户会话隔离；
 - 自身更新只接受签名包/管理员策略，不接受服务端静默推送。
 
-残余风险：Windows 没有等价 bwrap；`user-t1` 只是 T1；构建脚本/安装器本身就是
-任意代码执行；提示注入可把“改文件”升级为“在用户本机装软件”；服务端仍有
-机会在用户不仔细看的情况下诱导同意；客户端运行期间 A2L 持续在线，攻击窗口
-覆盖整个客户端会话，必须靠最小权限与本地可见性补偿。
+残余风险：Windows 没有等价 bwrap；`user-t1` 只是 T1；AppContainer exec 仍非
+T2，toolchain root 需整树授 `RX`，超时对孙进程是 best-effort；构建脚本/安装器
+本身就是任意代码执行；提示注入可把“改文件”升级为“在用户本机执行命令/装软件”；
+设备证明没有 PCR quote/远程启动度量，软件回退只证明密钥持有；设备台账是本地
+JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细看的情况下诱导同意；
+客户端运行期间 A2L 持续在线，攻击窗口覆盖整个客户端会话，必须靠最小权限与
+本地可见性补偿。
 
 **验证入口**（Phase 1 落地后）：
 `tests/unit/test_host_policy.py`、`tests/unit/test_host_broker_channel.py`、
@@ -259,9 +287,11 @@ T4 不是 T3 的别名：T3 是“多用户经公网访问同一服务”，T4 �
   `--write` 显式开启，持久化配置不能反向提权。
 - **上传**：单文件/数量/工作区跨会话累计限额、basename 清洗、SandboxFs 路径双重校验、写审计；
   写入 `.agent/uploads`，不自动执行/解压，不授予模型源码写权限。
-- **密钥**：GUI 注入的 key 只进 OS 密钥环，不回传、不写 `.env`、不写日志；
+- **密钥**：单机 GUI 注入的 key 只进 OS 密钥环；企业模式由管理员写入
+  `control_provider_keys`，只存 AES-256-GCM 密文与后四位，主密钥来自
+  `AGENT_SECRET_MASTER_KEY`/KMS，缺失时拒绝写入；解密失败 fail closed，
+  不回退 keyring。任何路径都不回传明文、不写 `.env`、不写日志；
   连通性测试显式 `trust_env=False`，不走环境代理；
-  多用户 Web 按 `coding-agent:<user>` 隔离；仍推荐管理员统一配置默认 key，
   `base_url` 始终由管理员配置。
 - **达标**：T2 场景仍应禁用 `approve` 模式（L2 仍会被自动放行）；只读 GUI
   不应被当成“可以运行测试”的沙箱。

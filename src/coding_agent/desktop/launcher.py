@@ -10,6 +10,7 @@ import os
 import secrets
 import threading
 import time
+from pathlib import Path
 
 from coding_agent.desktop.api import (
     DesktopApi,
@@ -67,6 +68,38 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _icon_path() -> str:
+    """窗口图标；PyInstaller 会把 web/static 放到同一相对位置。"""
+    candidate = Path(__file__).resolve().parent.parent / "web" / "static" / "icon.ico"
+    return str(candidate) if candidate.is_file() else ""
+
+
+def _restore_resize_border(window: object) -> None:
+    """给无边框窗口补回可缩放边框。
+
+    pywebview 的 frameless 会移除 WS_THICKFRAME，随之失去边缘缩放和正确的
+    最大化工作区。标题栏仍由页面自绘，这里只恢复样式位和阴影边框。
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        handle = getattr(getattr(window, "native", None), "Handle", None)
+        if handle is None:
+            return
+        hwnd = int(handle.ToInt64())
+        user32 = ctypes.windll.user32
+        gwl_style = -16
+        style = user32.GetWindowLongW(hwnd, gwl_style)
+        # WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX
+        user32.SetWindowLongW(hwnd, gwl_style, style | 0x00040000 | 0x00010000 | 0x00020000)
+        # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED
+        user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+    except Exception:  # noqa: BLE001 - 样式恢复失败不应阻止窗口显示
+        _LOG.exception("恢复无边框窗口缩放边框失败")
+
+
 def _open_window(
     control: ControlServer,
     agent: AgentServer,
@@ -90,11 +123,15 @@ def _open_window(
         height=920,
         min_size=(980, 620),
         maximized=True,
+        frameless=True,
+        easy_drag=False,
+        background_color="#0f1117",
         text_select=True,
         zoomable=True,
         confirm_close=True,
         js_api=DesktopApi(config, allowed_origin=origin),
     )
+    window.events.shown += lambda: _restore_resize_border(window)
 
     holder = {
         "agent": agent,
@@ -192,6 +229,15 @@ def _open_window(
             log_path=logs_dir() / "host-broker.log",
             port=current.port if current is not None else None,
             security_tier=config.host_security_tier,
+            allow_write=config.host_allow_write,
+            allow_exec=config.host_exec_enabled,
+            toolchains=config.host_toolchains,
+            snapshot_dir=config.host_snapshot_dir,
+            policy_file=config.host_policy_file,
+            policy_pubkey=config.host_policy_pubkey,
+            policy_pubkey_file=config.host_policy_pubkey_file,
+            attestation=config.host_attestation,
+            attestation_key=config.host_attestation_key,
         )
         with lock:
             holder["host_broker"] = fresh
@@ -254,7 +300,7 @@ def _open_window(
                 except Exception:  # noqa: BLE001
                     pass
         threading.Thread(target=closer, daemon=True).start()
-    webview.start()
+    webview.start(icon=_icon_path())
     # 窗口已经消失，这里只等待后台清理完成后进程再退出。
     if shutdown_thread is not None:
         shutdown_thread.join(timeout=12)
@@ -359,6 +405,18 @@ def main(argv: list[str] | None = None) -> int:
             # 授权请求走 A2 的聊天界面，不再弹独立的本机窗口。
             "AGENT_CONSENT_URL": f"http://127.0.0.1:{control_port}",
             "AGENT_CONSENT_TOKEN": consent_token,
+            "AGENT_HOST_BROKER_ALLOW_WRITE": (
+                "1" if config.host_allow_write else "0"
+            ),
+            "AGENT_HOST_BROKER_EXEC_ENABLED": (
+                "1" if config.host_exec_enabled else "0"
+            ),
+            "AGENT_HOST_BROKER_TOOLCHAINS": config.host_toolchains,
+            "AGENT_HOST_SNAPSHOT_DIR": config.host_snapshot_dir,
+            "AGENT_HOST_BROKER_DEVICE_REGISTRY": (
+                config.host_device_registry
+            ),
+            "AGENT_HOST_BROKER_DEVICE_POLICY": config.host_device_policy,
         }
         # _agent_env 读取进程环境；显式设置，保证 A3 启动监听。
         os.environ.update(host_env)
@@ -380,6 +438,15 @@ def main(argv: list[str] | None = None) -> int:
                     root_handle=host_root_handle,
                     log_path=logs_dir() / "host-broker.log",
                     security_tier=config.host_security_tier,
+                    allow_write=config.host_allow_write,
+                    allow_exec=config.host_exec_enabled,
+                    toolchains=config.host_toolchains,
+                    snapshot_dir=config.host_snapshot_dir,
+                    policy_file=config.host_policy_file,
+                    policy_pubkey=config.host_policy_pubkey,
+                    policy_pubkey_file=config.host_policy_pubkey_file,
+                    attestation=config.host_attestation,
+                    attestation_key=config.host_attestation_key,
                 )
                 _LOG.info("A2L started on %s", host_broker.port)
         except Exception:
@@ -419,7 +486,7 @@ def main(argv: list[str] | None = None) -> int:
                 width=720,
                 height=420,
             )
-            webview.start()
+            webview.start(icon=_icon_path())
         except Exception:  # noqa: BLE001
             pass
         return 3

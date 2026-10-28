@@ -253,8 +253,11 @@ export const cspMixin = {
     return this.ready === false && this.configLoaded && this.versionChecked
       && !this.configError && !this.versionError;
   },
-  get authTokenVisible() { return this.authMode !== 'bff-cookie'; },
+  get authTokenVisible() {
+    return this.authMode !== 'bff-cookie' && this.authMode !== 'local-session';
+  },
   get authBffVisible() { return this.authMode === 'bff-cookie'; },
+  get authLocalVisible() { return this.authMode === 'local-session'; },
   get authModeText() {
     return this.t('settings.authMode', { mode: this.authModeLabel });
   },

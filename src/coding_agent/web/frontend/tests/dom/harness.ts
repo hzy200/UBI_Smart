@@ -10,7 +10,7 @@ const STATIC = path.resolve(process.cwd(), '../static');
 const CONFIG = {
   schemaVersion: 1,
   apiBaseUrl: '',
-  apiVersion: 'v0',
+  apiVersion: 'v1',
   authMode: 'desktop-token',
   auth: {
     loginUrl: '',
@@ -46,7 +46,8 @@ const GIT_CHANGES = [
 const BASE_STUBS: Record<string, any> = {
   '/config.json': CONFIG,
   '/healthz': {
-    api_version: 'v0',
+    api_version: 'v1',
+    min_api_version: 'v0',
     min_frontend_version: '0.1.0',
     version: '0.1.0',
     capabilities_version: 1,
@@ -164,6 +165,8 @@ const BASE_STUBS: Record<string, any> = {
 };
 
 function jsonStub(pathname: string, search: URLSearchParams): any {
+  // 前端按运行时 apiVersion 请求 /api/v1/*；测试桩统一按 /api/* 匹配。
+  pathname = pathname.replace(/^\/api\/v\d+\//, '/api/');
   if (pathname === '/api/files') {
     return { entries: TREE_FILES[search.get('path') || ''] || [] };
   }

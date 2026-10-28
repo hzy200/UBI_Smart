@@ -49,8 +49,40 @@ review_cadence: 前端交互、事件契约、权限模型或桌面壳变动时
 web/frontend/src/*.ts            --esbuild------>  web/static/app.js   (IIFE)
 web/frontend/src/templates/*.html --build-ui.mjs--> web/static/index.html
 web/frontend/src/styles/*.css     --build-ui.mjs--> web/static/style.css
+web/frontend/src/admin/*.tsx      --esbuild------>  web/static/admin/app.js  (React IIFE)
+web/frontend/src/admin/admin.css  --esbuild------>  web/static/admin/app.css
+web/frontend/src/admin/index.html --build-ui.mjs--> web/static/admin/index.html
 web/static/vendor/*                                (直接由 A2 提供)
 ```
+
+管理端是**独立静态入口**：只从站点根 `config.json` 读取 `apiBaseUrl`，
+数据全部经 `/api/admin/*`，不依赖服务端模板注入；同域反代与独立静态站
+两种部署都可用。发布包会把 `admin/index.html` 放到发布根目录。
+
+用户端与管理端的成本显示统一走运行时配置的 `cost` 段：
+`{"currency":"CNY","usdToCny":7.2}`；上游事件仍携带 `cost_usd`，前端只做
+展示换算，配额判断由服务端完成。
+
+### 管理端
+
+`src/admin/` 使用 React 19 + TSX，esbuild 直接打包；不引入 UI 库/路由库，
+用简单状态路由。页面：
+
+| 页面 | 功能 |
+|---|---|
+| 登录 | 企业账号密码；HttpOnly Session Cookie + CSRF |
+| 用户 | 搜索/状态筛选、新建、禁用/启用、最近登录 |
+| 用户详情 | 今日用量进度、每日 token/人民币额度、上游 Key 加密分配、登录安全事件、重置密码 |
+| 用量 | 近 7/30/90 天、按用户/天汇总、token/人民币成本/运行次数 |
+| Provider | 部署环境可用的 provider 列表与 Key 配置状态 |
+
+约束：
+
+- 不写内联 `<style>`/`<script>`，复用 `script-src 'self'` CSP；
+- 管理员权限只在服务端判定；前端隐藏入口不构成授权；
+- `admin/index.html`、`admin/app.js`、`admin/app.css` 都是生成物；
+- 发布哈希需同时重写根 `index.html` 与 `admin/index.html`；
+- Service Worker 对 `/admin` 强制网络，不回退用户端外壳。
 
 - `app.js`、`index.html`、`style.css` 都是生成物，**不要手改**；
   改 `frontend/src` 后必须重建（`node esbuild.mjs` 会同时构建三者）。
@@ -620,7 +652,9 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 - 默认空基址 = 同源，桌面与同域反代零配置；独立源站只改配置；
 - 配置不含密钥和业务开关；能力仍以 `/api/capabilities` 为准；
 - 配置非法/加载失败显示阻断页，不显示登录页；
-- fetch/SSE/XHR 上传统一走同一 URL 拼接函数，禁止裸 `/api` 字面量。
+- fetch/SSE/XHR 上传统一走同一 URL 拼接函数，禁止裸 `/api` 字面量；
+- 调用方仍写 `/api/...`，`apiUrl()` 按运行时 `apiVersion` 插入
+  `/api/v1/`；`apiBaseUrl` 不得以 `/api` 结尾（版本段由前端统一加）。
 
 ### 15.3 认证
 
@@ -647,13 +681,15 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
   `code · request_id`，便于对照服务端日志；
 - 全链路透传 `X-Request-ID`：A2 生成/校验后回写响应头与错误体，
   内部调用通过 context var 传给 A3；SSE 首个注释帧也带；
-- `/healthz` 返回 `api_version` 与 `min_frontend_version`；
-  不兼容时阻断；请求带 `X-Frontend-Version`。
+- `/healthz` 返回 `api_version`、`min_api_version` 与
+  `min_frontend_version`；不兼容时阻断；请求带 `X-Frontend-Version`。
+- 当前 API 为 `v1`；`/api/v1/*` 由最内层中间件重写为 `/api/*`，
+  `/api/*` 在兼容窗口内继续可用并返回 `Deprecation: true`。
 - 服务端对携带非法或过旧 `X-Frontend-Version` 的 `/api/*` 请求返回
   426 `version.frontend_too_old`；未携带该头的旧客户端在升级窗口内放行。
-- 前端版本常量在 `frontend/src/version.ts`；服务端在
-  `web/version.py` 维护 `api_version/min_frontend_version/capabilities_version`，
-  发布时需同步。
+- 前端版本常量在 `frontend/src/version.ts`；服务端在 `web/version.py`
+  维护 `api_version`、`min_api_version`、`min_frontend_version` 与
+  `capabilities_version`。前后端版本独立递增，只保留最小兼容约束。
 
 ### 15.5 CORS、SSE 与上传
 
@@ -698,7 +734,10 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 6. SSE 心跳与代理规则；
 7. 上传预检与限额；
 8. 桌面桥 origin 绑定；
-9. 独立发版与契约测试。
+9. 独立发版与契约测试：`scripts/build_frontend_release.py` 生成版本化
+   产物与 `manifest.json`，`scripts/check_frontend_release.py` 校验哈希与
+   版本契约；A2 可用 `AGENT_WEB_SERVE_FRONTEND=0` 切为纯 API。
+   详见 [RELEASING.md](RELEASING.md) 与 [ADR-0020](adr/0020-frontend-release-artifact.md)。
 
 前两步完成前，不启用跨域或 Cookie 模式。
 

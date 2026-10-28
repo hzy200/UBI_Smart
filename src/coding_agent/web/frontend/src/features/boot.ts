@@ -56,9 +56,13 @@ export const bootMixin = {
     this.tokenInput = getToken();
     installDesktopBridgeGuard();
     this.desktopAvailable = Boolean(window.pywebview && window.pywebview.api);
+    this.applyDesktopShell();
+    if (this.desktopAvailable) void this.syncDesktopWindowState();
     // pywebview 可能在 Alpine 初始化之后才注入 API；以事件为准再更新一次。
     window.addEventListener('pywebviewready', () => {
       this.desktopAvailable = true;
+      this.applyDesktopShell();
+      void this.syncDesktopWindowState();
       this.probeProject();
     });
     this.loadSettings();

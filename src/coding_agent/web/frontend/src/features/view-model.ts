@@ -6,6 +6,7 @@ import {
   formatTokens,
   renderMarkdown,
 } from '../ui/format';
+import { formatUsdAsMoney } from '../ui/money';
 
 export const view_modelMixin = {
   tabClass(name) { return this.tab === name ? 'active' : ''; },
@@ -164,9 +165,9 @@ export const view_modelMixin = {
   },
   get usageTitle() {
     const parts = [];
-    if (this.usage.cost) parts.push(`费用 $${this.usage.cost.toFixed(4)}`);
+    if (this.usage.cost) parts.push(`费用 ${formatUsdAsMoney(this.usage.cost)}`);
     if (this.usage.budget) {
-      parts.push(`预算 $${this.usage.budget.toFixed(2)}（${Math.round(this.usage.ratio * 100)}%）`);
+      parts.push(`预算 ${formatUsdAsMoney(this.usage.budget, 2)}（${Math.round(this.usage.ratio * 100)}%）`);
     }
     if (this.usage.cache) parts.push(`cache hit ${this.usage.cache}`);
     return parts.join(' · ') || '本轮 token 用量';

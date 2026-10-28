@@ -53,3 +53,15 @@ def test_rejects_invalid_terminal_status(tmp_path) -> None:
     journal.start("op-1", "read_file")
     with pytest.raises(ValueError):
         journal.finish("op-1", "maybe")
+
+
+def test_close_is_idempotent_and_releases_the_file(tmp_path) -> None:
+    path = tmp_path / "ops.sqlite3"
+    journal = OpJournal(path)
+    journal.start("op-1", "read_file")
+    journal.close()
+    journal.close()
+    with pytest.raises(RuntimeError):
+        journal.get("op-1")
+    # 连接已关闭：Windows 上文件句柄不应再阻止删除。
+    path.unlink()

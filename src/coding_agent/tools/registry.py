@@ -42,6 +42,10 @@ def build_tools(
     read_cache: MutableMapping[str, bytes] | None = None,
     file_access: Any | None = None,
     host_mode: bool = False,
+    host_fs: Any | None = None,
+    host_snapshots: Any | None = None,
+    host_root: str = "",
+    host_exec: Any | None = None,
 ) -> list[BaseTool]:
     """构造本次会话的全部工具。
 
@@ -58,14 +62,22 @@ def build_tools(
     sandbox = sandbox or build_sandbox(settings)
 
     if host_mode:
-        # Phase 1 host 只暴露只读文件/检索；shell、git、依赖、测试、记忆都不碰。
+        # host 只暴露文件/检索；shell、git、依赖、测试、记忆都不碰。
+        # 写工具只有在注入 HostFs + HostSnapshotStore 时才开放，避免退回
+        # 用 WSL 路径写用户的 NTFS 工作区。
+        host_write = bool(
+            allow_write and host_fs is not None and host_snapshots is not None
+        )
         host_tools: list[BaseTool] = []
         host_tools += build_file_tools(
             settings,
             sandbox,
-            allow_write=False,
+            allow_write=host_write,
             read_cache=read_cache,
             file_access=file_access,
+            fs=host_fs,
+            snapshots=host_snapshots,
+            root=host_root,
         )
         host_tools += [
             tool
@@ -74,6 +86,15 @@ def build_tools(
             )
             if tool.name == "find_files"
         ]
+        profile = str(settings.security_profile or "").lower()
+        if (
+            host_exec is not None
+            and settings.host_broker_exec_enabled
+            and profile not in {"untrusted", "production", "ops"}
+        ):
+            from coding_agent.tools.host_exec import build_host_exec_tool
+
+            host_tools.append(build_host_exec_tool(host_exec))
         return [_instrument(tool) for tool in host_tools]
 
     tools: list[BaseTool] = [

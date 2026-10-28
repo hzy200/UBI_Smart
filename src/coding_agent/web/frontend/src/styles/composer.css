@@ -88,3 +88,61 @@
   padding: 6px 0;
 }
 .history-more button { font-size: 12px; }
+
+/* 输入区：更柔和的层次与聚焦光晕。 */
+.composer {
+  padding: 12px 16px 14px;
+  background:
+    linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 88%, var(--bg)));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent);
+}
+.composer textarea {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  line-height: 1.6;
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-normal);
+}
+.composer textarea:focus {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px var(--accent-soft),
+    0 8px 24px color-mix(in srgb, var(--bg) 45%, transparent);
+}
+.composer-actions button,
+.composer-actions .upload-label { border-radius: 8px; }
+.send-btn { min-width: 72px; font-weight: 600; }
+.split-composer textarea { border-radius: 8px; }
+
+/* 空会话：轻量引导卡，不抢对话注意力。 */
+.transcript > .empty,
+.transcript.is-virtual > .empty {
+  align-self: center;
+  width: min(100%, 520px);
+  margin: auto;
+  padding: 20px 26px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.7;
+  text-wrap: pretty;
+  color: var(--text-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 140% at 50% 0%, var(--accent-soft), transparent 62%),
+    color-mix(in srgb, var(--panel) 70%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+.transcript > .empty::before,
+.transcript.is-virtual > .empty::before {
+  content: ">_";
+  display: block;
+  margin-bottom: 8px;
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--accent);
+}

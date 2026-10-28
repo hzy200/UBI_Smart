@@ -51,6 +51,10 @@ class AuditRecord(BaseModel):
 
     thread_id: str = ""
     workspace: str = ""
+    # 一次运行实例的幂等键；resume 复用同一值。计量侧据此取累计差值。
+    run_epoch: str = ""
+    provider: str = ""
+    model: str = ""
 
     # ---- tool_call ----
     call_id: str = ""
@@ -73,6 +77,9 @@ class AuditRecord(BaseModel):
     # ---- run_end：模型回报的 token 用量（provider 未提供时为 None）----
     input_tokens: int | None = None
     output_tokens: int | None = None
+    # 编排 worker 的用量；计量时与主 agent 相加。
+    worker_input_tokens: int | None = None
+    worker_output_tokens: int | None = None
     cost_usd: float | None = None
     billed_usd: float | None = None
     # provider prefix cache 命中/未命中 token（未回报时为 None）

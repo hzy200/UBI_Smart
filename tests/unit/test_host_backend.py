@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+
 import pytest
 
 from coding_agent.config import Settings
@@ -27,6 +29,20 @@ class FakeCaller:
             return {"entries": [{"kind": "f", "path": "a.py"}]}
         if kind == "host.stat":
             return {"exists": True, "is_file": True, "size": 6}
+        if kind == "host.read_chunk":
+            data = b"hello\n"[int(payload["offset"]) :]
+            return {
+                "data_b64": base64.b64encode(data).decode("ascii"),
+                "next": 6,
+                "size": 6,
+                "eof": True,
+            }
+        if kind == "host.write_begin":
+            return {"upload_id": "u-1"}
+        if kind == "host.write_chunk":
+            return {"offset": len(payload.get("data_b64", ""))}
+        if kind == "host.write_commit":
+            return {"bytes": 1, "sha256": "x", "snapshot_id": "s-1"}
         raise HostCallError("OP_UNKNOWN", kind)
 
 
@@ -58,7 +74,7 @@ class FakeSandboxBackend:
         return len(data)
 
 
-def test_host_backend_maps_only_read_ops() -> None:
+def test_host_backend_maps_read_and_write_ops() -> None:
     caller = FakeCaller()
     backend = HostExecutionBackend(
         caller,
@@ -74,8 +90,7 @@ def test_host_backend_maps_only_read_ops() -> None:
 
     with pytest.raises(ExecutionError):
         backend.read_text("/abs/a.py", max_bytes=10)
-    with pytest.raises(ExecutionError):
-        backend.write_bytes("a.py", b"x")
+    assert backend.write_bytes("a.py", b"x") == 1
     with pytest.raises(ExecutionError):
         backend.run("echo x", cwd=".")
 
@@ -108,7 +123,19 @@ def test_service_routes_by_workspace_kind(tmp_path) -> None:
     assert result.data["target"] == "host"
     assert result.data["content"] == "hello\n"
     assert sandbox.calls == []
-    assert caller.calls[0][0] == "host.read_text"
+    assert caller.calls[0][0] == "host.stat"
+    assert any(call[0] == "host.read_chunk" for call in caller.calls)
+
+
+def test_host_chunk_stays_within_frame_limit() -> None:
+    from coding_agent.execution.host_file_access import CHUNK_BYTES
+    from coding_agent.host_broker.ops import MAX_CHUNK_BYTES
+    from coding_agent.host_broker.protocol import MAX_FRAME_BYTES
+
+    assert CHUNK_BYTES <= MAX_CHUNK_BYTES
+    # base64 膨胀 4/3；留 1 KiB 给 JSON 包装字段。
+    encoded = base64.b64encode(b"x" * CHUNK_BYTES)
+    assert len(encoded) + 1024 < MAX_FRAME_BYTES
 
 
 def test_service_rejects_target_kind_mismatch(tmp_path) -> None:

@@ -213,7 +213,11 @@ LSP）；`symbol_search` 强制退回 AST，`code_intel` 跳过。允许宿主�
 - `/api/health` 与 runtime 使用同一租户密钥存储；provider 配置损坏时返回
   200 + `error`，不会 500。
 - 多用户 Web 模式的 key 按用户隔离在 OS 密钥环（service 为
-  `coding-agent:<user>`）；管理员仍可通过环境变量统一配置默认 key。
+  `coding-agent:<user>`）；企业模式改由管理员在 `/admin` 写入
+  `control_provider_keys`，只存 AES-256-GCM 密文与后四位，用户端与管理员
+  都拿不到明文。详见 [DATABASE.md](DATABASE.md)。
+- `/admin` 是独立的 React 静态控制台，不属于桌面壳；它只调用
+  `/api/admin/*`，不注入 `pywebview`，也不会加载本地原生桥。
 - 用户只能提交 key，不能提交任意 `base_url`；provider 的 base_url 仍由管理员
   配置，避免 SSRF。
 

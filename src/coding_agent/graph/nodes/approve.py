@@ -35,6 +35,7 @@ from coding_agent.tools.files import (
     WRITE_TOOL_NAME,
 )
 from coding_agent.tools.git import GIT_ADD, GIT_COMMIT, GIT_DIFF, GIT_LOG, GIT_STATUS
+from coding_agent.tools.host_exec import HOST_EXEC_TOOL_NAME
 from coding_agent.tools.memory import MEMORY_SAVE, MEMORY_SEARCH
 from coding_agent.tools.search import FIND_FILES, SEARCH_CODE
 from coding_agent.tools.shell import SHELL_TOOL_NAME
@@ -123,6 +124,12 @@ def _describe(name: str, args: dict[str, Any]) -> str:
     """给审批弹窗/提示用的一行摘要。"""
     if name == SHELL_TOOL_NAME:
         return str(args.get("command", ""))
+    if name == HOST_EXEC_TOOL_NAME:
+        argv = args.get("argv") or []
+        return (
+            f"{args.get('toolchain', '')}: "
+            + " ".join(str(item) for item in argv)
+        )
     if name == GIT_COMMIT:
         return f"git commit -m {args.get('message', '')!r}"
     if name == DEPS_INSTALL:

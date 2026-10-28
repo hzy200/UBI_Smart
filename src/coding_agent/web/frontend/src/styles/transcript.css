@@ -269,3 +269,37 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 80px;
 }
+
+/* 对话与代码块的质感：靠边界与光影区分角色，不增加装饰噪声。 */
+.transcript { padding: 20px 24px 28px; gap: 16px; }
+.msg-body { box-shadow: var(--shadow-sm); }
+.msg-user .msg-body {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 24%, var(--panel)),
+      color-mix(in srgb, var(--accent) 14%, var(--panel)));
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-bottom-right-radius: 4px;
+}
+.msg:not(.msg-user):not(.msg-system) .msg-body { border-bottom-left-radius: 4px; }
+.code-block { box-shadow: var(--shadow-sm); }
+.code-block-head {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--panel-2) 92%, var(--panel)),
+      var(--panel-2));
+}
+.code-lang { color: var(--accent); font-weight: 600; }
+.inline-tool {
+  background:
+    linear-gradient(180deg,
+      var(--panel-2),
+      color-mix(in srgb, var(--panel-2) 82%, var(--bg)));
+  box-shadow: var(--shadow-sm);
+}
+.reasoning {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--panel) 92%, var(--bg)),
+      var(--panel));
+}

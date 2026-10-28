@@ -12,7 +12,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 
 from coding_agent.config import Settings
-from coding_agent.orchestrator import scheduler as scheduler_module
+from coding_agent.orchestrator import scheduler_run as scheduler_runtime
 from coding_agent.orchestrator.contracts import (
     TaskGraph,
     TaskSpec,
@@ -1245,7 +1245,7 @@ def test_dispatch_streams_worker_started_before_the_worker_finishes(
     runner_ended = 0.0
 
     monkeypatch.setattr(
-        scheduler_module,
+        scheduler_runtime,
         "get_stream_writer",
         lambda: (lambda payload: emitted.append((time.perf_counter(), payload))),
     )

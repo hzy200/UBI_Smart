@@ -10,7 +10,7 @@ import pytest
 
 from coding_agent.config import Settings
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
-from coding_agent.orchestrator import scheduler as scheduler_module
+from coding_agent.orchestrator import scheduler_run as scheduler_runtime
 from coding_agent.orchestrator.contracts import WorkerResult
 from coding_agent.orchestrator.scheduler import make_scheduler_node
 from coding_agent.steering import SteeringController
@@ -478,7 +478,7 @@ def test_deadline_does_not_finish_a_worker_that_never_started(
     """排队等 semaphore 的任务不能只发 finished、不发 started。"""
     events: list[dict[str, Any]] = []
     monkeypatch.setattr(
-        scheduler_module, "get_stream_writer", lambda: events.append
+        scheduler_runtime, "get_stream_writer", lambda: events.append
     )
 
     async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:

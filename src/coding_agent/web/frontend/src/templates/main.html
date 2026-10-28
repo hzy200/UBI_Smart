@@ -228,7 +228,7 @@
                 :aria-label="i18n.main.taskInput"
                 :placeholder="i18n.composer.placeholder"></textarea>
       <div class="composer-actions">
-        <button @click="send" :disabled="sendDisabled" x-text="i18n.composer.send"></button>
+        <button class="primary send-btn" @click="send" :disabled="sendDisabled" x-text="i18n.composer.send"></button>
         <button data-action="steer" data-steer="pause" @click="onAction" :disabled="pauseDisabled" x-text="i18n.composer.pause"></button>
         <button data-action="steer" data-steer="cancel" @click="onAction" :disabled="cancelDisabled" x-text="i18n.composer.cancel"></button>
         <button @click="resumeSteering" :disabled="resumeDisabled" x-text="i18n.composer.resume"></button>

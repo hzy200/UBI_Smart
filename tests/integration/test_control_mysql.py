@@ -18,7 +18,9 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
+from coding_agent.control.accounts import SessionStore, UserStore
 from coding_agent.control.backup import backup, restore
+from coding_agent.control.credentials import CredentialStore
 from coding_agent.control.migrate import (
     alembic_config,
     current_revision,
@@ -78,6 +80,49 @@ def test_mysql_upgrade_store_backup_restore(tmp_path: Path) -> None:
         rows, _ = store.load_sessions("local")
         assert rows[0]["title"] == "before"
 
+        users = UserStore(store.engine)
+        user = users.create("alice", "password-123", email="a@example.com")
+        assert users.authenticate("alice", "password-123")["id"] == user["id"]
+        sessions = SessionStore(store.engine)
+        token = sessions.create(user["id"])
+        assert sessions.resolve(token["token"])[0]["username"] == "alice"
+
+        credentials = CredentialStore(store.engine, b"k" * 32)
+        credentials.set("default", "alice", "deepseek", "sk-mysql-1234")
+        assert credentials.get("default", "alice", "deepseek") == "sk-mysql-1234"
+
+        store.set_quota(
+            "default",
+            "alice",
+            daily_tokens=1000,
+            daily_cost_cny=7.2,
+            enabled=True,
+        )
+        reservation = store.reserve_quota(
+            "default", "alice", "2026-10-28", tokens=200
+        )
+        assert reservation["tokens"] == 200
+        store.settle_quota(reservation["id"])
+        store.record_usage(
+            "default",
+            "alice",
+            [
+                {
+                    "kind": "run_end",
+                    "hash": "mysql-h1",
+                    "thread_id": "t1",
+                    "run_epoch": "e1",
+                    "ts": "2026-10-28T10:00:00+00:00",
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "cost_usd": 0.01,
+                }
+            ],
+        )
+        assert store.get_usage_day(
+            "default", "alice", "2026-10-28"
+        )["tokens"] == 120
+
         result = backup(url, tmp_path, keep=2)
         assert result.kind == "mysql"
         assert Path(result.path).is_file()
@@ -91,6 +136,18 @@ def test_mysql_upgrade_store_backup_restore(tmp_path: Path) -> None:
         store = ControlStore(url, auto_create=False)
         rows, _ = store.load_sessions("local")
         assert rows[0]["title"] == "before"
+        assert UserStore(store.engine).authenticate(
+            "alice", "password-123"
+        )["id"] == user["id"]
+        assert store.get_usage_day(
+            "default", "alice", "2026-10-28"
+        )["tokens"] == 120
+        assert (
+            CredentialStore(store.engine, b"k" * 32).get(
+                "default", "alice", "deepseek"
+            )
+            == "sk-mysql-1234"
+        )
         store.close()
         assert current_revision(url) == head
     finally:

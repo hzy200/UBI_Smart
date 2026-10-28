@@ -52,26 +52,33 @@ function readCookie(name: string) {
 }
 
 function csrfCookie() {
-  return readCookie('csrf_token') || readCookie('XSRF-TOKEN');
+  return (
+    readCookie('csrf_token') ||
+    readCookie('XSRF-TOKEN') ||
+    readCookie('ca_csrf')
+  );
 }
 
 export function applyAuthHeaders(headers: Headers, method?: string) {
   const config = currentRuntimeConfig();
-  if (config?.authMode !== 'bff-cookie') {
+  const cookieAuth =
+    config?.authMode === 'bff-cookie' || config?.authMode === 'local-session';
+  if (!cookieAuth) {
     const token = getToken();
     if (token) headers.set('Authorization', `Bearer ${token}`);
   }
   headers.set('X-Frontend-Version', FRONTEND_VERSION);
-  if (config?.authMode === 'bff-cookie' && !isSafeMethod(method)) {
+  if (cookieAuth && !isSafeMethod(method)) {
     const token = csrfCookie();
     if (token) {
-      headers.set(config.auth.csrfHeader || 'X-CSRF-Token', token);
+      headers.set(config?.auth.csrfHeader || 'X-CSRF-Token', token);
     }
   }
 }
 
 function authCredentials(): RequestCredentials {
-  return currentRuntimeConfig()?.authMode === 'bff-cookie'
+  const mode = currentRuntimeConfig()?.authMode;
+  return mode === 'bff-cookie' || mode === 'local-session'
     ? 'include'
     : 'same-origin';
 }

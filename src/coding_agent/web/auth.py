@@ -1,10 +1,10 @@
-"""Web Bearer Token 认证。
+"""Web 认证：企业账号会话 + 静态 Bearer 兼容。
 
-token 通过 `AGENT_WEB_AUTH_TOKENS`（JSON `{"token": "user"}`）或
-`AGENT_WEB_AUTH_TOKENS_FILE`（同格式文件）配置。支持 `sha256:<hex>`
-形式，避免在环境变量里保存明文 token；客户端仍发送明文，服务端做哈希比较。
+企业模式使用 `AGENT_WEB_ACCOUNTS_ENABLED` 打开数据库账号：用户名/密码登录，
+服务端只存 session token 的 sha256，Cookie 为 HttpOnly；写请求走双提交
+CSRF。`AGENT_WEB_AUTH_TOKENS` 继续作为内网/桌面过渡方案，优先级最高。
 
-未配置 token 时只允许 loopback 匿名访问（单用户本地模式）。远程匿名必须
+未配置任何认证时只允许 loopback 匿名访问（单用户本地模式）。远程匿名必须
 显式打开 `web_allow_anonymous_local` 之外的开关 —— 当前实现直接拒绝，避免
 误把公网端口暴露成无鉴权 RCE。
 """
@@ -18,6 +18,8 @@ import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
@@ -25,19 +27,29 @@ from coding_agent.config import Settings
 
 _BEARER_PREFIX = "bearer "
 _USER_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 @dataclass(frozen=True, slots=True)
 class AuthUser:
     name: str
+    user_id: str = ""
+    tenant: str = "local"
+    role: str = "user"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthConfig:
-    """token -> user 的只读映射。"""
+    """静态 token 映射 + 可选的企业账号/会话后端。"""
 
     tokens: dict[str, str]
     allow_anonymous_local: bool = True
+    accounts: Any | None = None
+    sessions: Any | None = None
+    cookie_secure: bool = False
+    session_cookie: str = "ca_session"
+    csrf_cookie: str = "ca_csrf"
+    csrf_header: str = "X-CSRF-Token"
 
     @classmethod
     def from_settings(cls, settings: Settings) -> AuthConfig:
@@ -57,11 +69,16 @@ class AuthConfig:
         return cls(
             tokens=tokens,
             allow_anonymous_local=bool(settings.web_allow_anonymous_local),
+            cookie_secure=bool(settings.web_cookie_secure),
         )
+
+    def bind_accounts(self, accounts: Any, sessions: Any) -> None:
+        self.accounts = accounts
+        self.sessions = sessions
 
     @property
     def enabled(self) -> bool:
-        return bool(self.tokens)
+        return bool(self.tokens) or self.accounts is not None
 
     def authenticate(self, token: str) -> str | None:
         if not token or not self.tokens:
@@ -96,17 +113,63 @@ class AuthConfig:
         token = ""
         if header.lower().startswith(_BEARER_PREFIX):
             token = header[len(_BEARER_PREFIX) :].strip()
-        if self.enabled:
-            user = self.authenticate(token)
-            if user is None:
-                raise _unauthorized()
-            return AuthUser(user)
+        if token:
+            # Bearer 只匹配静态 token；认证失败直接 401，不降级到 Cookie。
+            if self.tokens:
+                user = self.authenticate(token)
+                if user is not None:
+                    return AuthUser(user)
+            raise _unauthorized()
 
-        # 未配置 token：只允许本机匿名。
+        if self.sessions is not None:
+            raw = request.cookies.get(self.session_cookie, "")
+            if raw:
+                resolved = self.sessions.resolve(raw)
+                if resolved is None:
+                    raise _unauthorized()
+                row, csrf = resolved
+                request.state.auth_via_cookie = True
+                request.state.auth_csrf = csrf
+                request.state.session_token = raw
+                return AuthUser(
+                    name=str(row.get("username") or ""),
+                    user_id=str(row.get("id") or ""),
+                    tenant=str(row.get("tenant") or "default"),
+                    role=str(row.get("role") or "member"),
+                )
+
+        if self.enabled:
+            raise _unauthorized()
+
+        # 未配置认证：只允许本机匿名。
         client = request.client.host if request.client else ""
         if self.allow_anonymous_local and self.is_loopback(client):
             return AuthUser("local")
         raise _unauthorized()
+
+    def require_csrf(self, request: Request) -> None:
+        """Cookie 身份的非幂等请求必须带双提交 CSRF token。"""
+        if request.method.upper() not in _UNSAFE_METHODS:
+            return
+        if not getattr(request.state, "auth_via_cookie", False):
+            return
+        site = request.headers.get("sec-fetch-site", "").lower()
+        if site == "cross-site":
+            raise _forbidden("跨站请求被拒绝")
+        origin = request.headers.get("origin", "")
+        if origin and not _origin_matches(request, origin):
+            raise _forbidden("请求来源不可信")
+        header = request.headers.get(self.csrf_header, "")
+        cookie = request.cookies.get(self.csrf_cookie, "")
+        expected = str(getattr(request.state, "auth_csrf", "") or "")
+        if not header or not cookie:
+            raise _forbidden("缺少 CSRF token")
+        if not (
+            secrets.compare_digest(header, cookie)
+            and expected
+            and secrets.compare_digest(header, expected)
+        ):
+            raise _forbidden("CSRF token 不匹配")
 
 
 def _unauthorized() -> HTTPException:
@@ -115,6 +178,28 @@ def _unauthorized() -> HTTPException:
         detail="需要认证",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def _forbidden(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={"code": "auth.forbidden", "message": message},
+    )
+
+
+def _origin_matches(request: Request, origin: str) -> bool:
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    candidates = {
+        str(request.headers.get("host") or "").lower(),
+        str(request.headers.get("x-forwarded-host") or "").lower(),
+        str(request.url.netloc or "").lower(),
+    }
+    return parsed.netloc.lower() in candidates
 
 
 def _parse_tokens(raw: str, *, source: str) -> dict[str, str]:

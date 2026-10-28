@@ -1154,7 +1154,7 @@ def test_sidebar_shows_model_and_cost() -> None:
 
             info = _widget_text(app, "#session-info")
             assert "deepseek-chat" in info
-            assert "$0.0123" in info
+            assert "¥0.0886" in info
             assert "就绪" in info
 
     _run(scenario())
@@ -1274,7 +1274,7 @@ def test_status_cost_and_checkpoints_commands() -> None:
 
             text = _transcript_text(app)
             assert "执行中" in text or "就绪" in text
-            assert "$0.0200" in text
+            assert "¥0.1440" in text
             assert "in 120 / out 30" in text
             assert "cp-1" in text
 

@@ -9,7 +9,7 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 223,
+  "count": 250,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
@@ -45,6 +45,7 @@
     "AGENT_CONTROL_DB_URL",
     "AGENT_CORS_ALLOWED_ORIGINS",
     "AGENT_COST_ALERT_RATIO",
+    "AGENT_COST_CURRENCY",
     "AGENT_DELEGATE_LARGE_CALLS",
     "AGENT_DELEGATE_LARGE_FILES",
     "AGENT_DELEGATE_MEDIUM_CALLS",
@@ -64,14 +65,24 @@
     "AGENT_GRANTS_ENABLED",
     "AGENT_HOST_A2L_ID",
     "AGENT_HOST_BROKER_ACCOUNT",
+    "AGENT_HOST_BROKER_ALLOW_WRITE",
+    "AGENT_HOST_BROKER_ATTESTATION",
+    "AGENT_HOST_BROKER_ATTESTATION_KEY",
     "AGENT_HOST_BROKER_AUTOSTART",
     "AGENT_HOST_BROKER_DEVICE_CERT",
     "AGENT_HOST_BROKER_DEVICE_KEY",
+    "AGENT_HOST_BROKER_DEVICE_POLICY",
+    "AGENT_HOST_BROKER_DEVICE_REGISTRY",
+    "AGENT_HOST_BROKER_DEVICE_RELOAD_S",
     "AGENT_HOST_BROKER_ENABLED",
+    "AGENT_HOST_BROKER_EXEC_ENABLED",
     "AGENT_HOST_BROKER_HEARTBEAT_S",
     "AGENT_HOST_BROKER_LISTEN_HOST",
     "AGENT_HOST_BROKER_LISTEN_PORT",
     "AGENT_HOST_BROKER_PAUSED",
+    "AGENT_HOST_BROKER_POLICY_FILE",
+    "AGENT_HOST_BROKER_POLICY_PUBKEY",
+    "AGENT_HOST_BROKER_POLICY_PUBKEY_FILE",
     "AGENT_HOST_BROKER_REQUIRE_TLS",
     "AGENT_HOST_BROKER_SECURITY_TIER",
     "AGENT_HOST_BROKER_STORE",
@@ -79,11 +90,13 @@
     "AGENT_HOST_BROKER_TLS_CERT",
     "AGENT_HOST_BROKER_TLS_KEY",
     "AGENT_HOST_BROKER_TLS_SERVER_NAME",
+    "AGENT_HOST_BROKER_TOOLCHAINS",
     "AGENT_HOST_BROKER_URL",
     "AGENT_HOST_DENY_ROOTS",
     "AGENT_HOST_ROOT_HANDLE",
     "AGENT_HOST_ROOT_POLICY",
     "AGENT_HOST_SENSITIVE_ROOTS",
+    "AGENT_HOST_SNAPSHOT_DIR",
     "AGENT_HOST_TOOLCHAIN_ROOTS",
     "AGENT_HOST_WORKSPACE_ID",
     "AGENT_IDEMPOTENCY_TTL_S",
@@ -155,6 +168,7 @@
     "AGENT_ORCHESTRATOR_WRITE_SCOPE_ENFORCE",
     "AGENT_PERSISTENT_SHELL",
     "AGENT_PERSISTENT_SHELL_POOL",
+    "AGENT_QUOTA_RESERVATION_TTL_S",
     "AGENT_RATE_LIMIT_STATE_PATH",
     "AGENT_READ_CACHE_MAX_BYTES",
     "AGENT_READ_DENY_GLOBS",
@@ -169,6 +183,8 @@
     "AGENT_RUN_DEADLINE_S",
     "AGENT_RUN_LEASE_TTL_S",
     "AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS",
+    "AGENT_SECRET_MASTER_KEY",
+    "AGENT_SECRET_MASTER_KEY_FILE",
     "AGENT_SECRET_PROVIDER",
     "AGENT_SECURITY_PROFILE",
     "AGENT_SESSION_BRIEF_CHARS",
@@ -186,14 +202,21 @@
     "AGENT_TOOL_JOURNAL_ENABLED",
     "AGENT_TRUST_REPO_INSTRUCTIONS",
     "AGENT_TRUST_REPO_MEMORY",
+    "AGENT_USD_TO_CNY",
     "AGENT_VERIFY_COMMAND",
     "AGENT_VERIFY_ENABLED",
     "AGENT_VERIFY_ONLY_FINAL",
     "AGENT_VERIFY_TIMEOUT",
+    "AGENT_WEB_ACCOUNTS_ENABLED",
+    "AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL",
+    "AGENT_WEB_ACCOUNT_TENANT",
     "AGENT_WEB_ALLOW_ANONYMOUS_LOCAL",
     "AGENT_WEB_AUTH_TOKENS",
     "AGENT_WEB_AUTH_TOKENS_FILE",
+    "AGENT_WEB_COOKIE_SECURE",
     "AGENT_WEB_DATA_ROOT",
+    "AGENT_WEB_FRONTEND_DIR",
+    "AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN",
     "AGENT_WEB_MAX_BODY_BYTES",
     "AGENT_WEB_MAX_PROMPT_CHARS",
     "AGENT_WEB_MAX_RUNTIMES",
@@ -202,8 +225,12 @@
     "AGENT_WEB_MAX_UPLOAD_FILES",
     "AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES",
     "AGENT_WEB_MEMORY_ROOT",
+    "AGENT_WEB_QUOTA_RESERVE_TOKENS",
     "AGENT_WEB_RATE_LIMIT_PER_MIN",
     "AGENT_WEB_RUNTIME_TTL_S",
+    "AGENT_WEB_SERVE_FRONTEND",
+    "AGENT_WEB_SESSION_TTL_S",
+    "AGENT_WEB_STATIC_DIR",
     "AGENT_WEB_WORKSPACES_ROOT",
     "AGENT_WORKSPACE_ARCHIVE_ROOT",
     "AGENT_WORKSPACE_EXTRACT_MAX_RATIO",
@@ -509,6 +536,14 @@
       "doc": "达到预算的该比例时发出告警（0~1）"
     },
     {
+      "name": "cost_currency",
+      "env": "AGENT_COST_CURRENCY",
+      "type": "str",
+      "default": "CNY",
+      "section": "通用",
+      "doc": "成本展示与额度计量货币；上游价格仍按 USD 计价。"
+    },
+    {
       "name": "delegate_large_calls",
       "env": "AGENT_DELEGATE_LARGE_CALLS",
       "type": "int",
@@ -661,6 +696,30 @@
       "doc": ""
     },
     {
+      "name": "host_broker_allow_write",
+      "env": "AGENT_HOST_BROKER_ALLOW_WRITE",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "P1/P2：host 写与受控 exec 默认关闭；安装永远只返回人工指令。"
+    },
+    {
+      "name": "host_broker_attestation",
+      "env": "AGENT_HOST_BROKER_ATTESTATION",
+      "type": "str",
+      "default": "off",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_attestation_key",
+      "env": "AGENT_HOST_BROKER_ATTESTATION_KEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "host_broker_autostart",
       "env": "AGENT_HOST_BROKER_AUTOSTART",
       "type": "bool",
@@ -685,12 +744,44 @@
       "doc": ""
     },
     {
+      "name": "host_broker_device_policy",
+      "env": "AGENT_HOST_BROKER_DEVICE_POLICY",
+      "type": "str",
+      "default": "off",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_device_registry",
+      "env": "AGENT_HOST_BROKER_DEVICE_REGISTRY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "企业设备台账（A3 本地 JSON）；off = 兼容旧的单设备/自洽校验。"
+    },
+    {
+      "name": "host_broker_device_reload_s",
+      "env": "AGENT_HOST_BROKER_DEVICE_RELOAD_S",
+      "type": "int",
+      "default": 2,
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "host_broker_enabled",
       "env": "AGENT_HOST_BROKER_ENABLED",
       "type": "bool",
       "default": false,
       "section": "通用",
       "doc": "---------- A2L 宿主能力代理（Phase 1，默认关闭） ---------- A2L 绑定客户端生命周期：随客户端启动/退出，不注册系统服务。"
+    },
+    {
+      "name": "host_broker_exec_enabled",
+      "env": "AGENT_HOST_BROKER_EXEC_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
     },
     {
       "name": "host_broker_heartbeat_s",
@@ -721,6 +812,30 @@
       "env": "AGENT_HOST_BROKER_PAUSED",
       "type": "bool",
       "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_policy_file",
+      "env": "AGENT_HOST_BROKER_POLICY_FILE",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "A2L 本地验签的运行策略。"
+    },
+    {
+      "name": "host_broker_policy_pubkey",
+      "env": "AGENT_HOST_BROKER_POLICY_PUBKEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_broker_policy_pubkey_file",
+      "env": "AGENT_HOST_BROKER_POLICY_PUBKEY_FILE",
+      "type": "str",
+      "default": "",
       "section": "通用",
       "doc": ""
     },
@@ -781,6 +896,14 @@
       "doc": ""
     },
     {
+      "name": "host_broker_toolchains",
+      "env": "AGENT_HOST_BROKER_TOOLCHAINS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "JSON 数组；每项 {id,kind,root,commands,output_roots}。root 不下发模型。"
+    },
+    {
       "name": "host_broker_url",
       "env": "AGENT_HOST_BROKER_URL",
       "type": "str",
@@ -815,6 +938,14 @@
     {
       "name": "host_sensitive_roots",
       "env": "AGENT_HOST_SENSITIVE_ROOTS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "host_snapshot_dir",
+      "env": "AGENT_HOST_SNAPSHOT_DIR",
       "type": "str",
       "default": "",
       "section": "通用",
@@ -1389,6 +1520,14 @@
       "doc": ""
     },
     {
+      "name": "quota_reservation_ttl_s",
+      "env": "AGENT_QUOTA_RESERVATION_TTL_S",
+      "type": "int",
+      "default": 3600,
+      "section": "通用",
+      "doc": "配额预留的存活时间；进程崩溃后由其他实例/下次启动清理。"
+    },
+    {
       "name": "rate_limit_state_path",
       "env": "AGENT_RATE_LIMIT_STATE_PATH",
       "type": "str",
@@ -1499,6 +1638,22 @@
       "default": 8,
       "section": "通用",
       "doc": "同时启动的 wsl.exe 进程上限。并发 worker 会各自调用沙箱，没有这层 背压时 4 个 worker 的一次工具轮次就能同时拉起十几个 WSL 进程。"
+    },
+    {
+      "name": "secret_master_key",
+      "env": "AGENT_SECRET_MASTER_KEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "上游 provider Key 的 AES-GCM 主密钥（base64 32B）或文件。"
+    },
+    {
+      "name": "secret_master_key_file",
+      "env": "AGENT_SECRET_MASTER_KEY_FILE",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
     },
     {
       "name": "secret_provider",
@@ -1637,6 +1792,14 @@
       "doc": "是否读取仓库内 `.agent/memory.md`；false 时记忆改存 memory_root。"
     },
     {
+      "name": "usd_to_cny",
+      "env": "AGENT_USD_TO_CNY",
+      "type": "float",
+      "default": 7.2,
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "verify_command",
       "env": "AGENT_VERIFY_COMMAND",
       "type": "str",
@@ -1669,6 +1832,30 @@
       "doc": "自动验证的独立超时。测试/构建通常比普通 shell 命令长，不能共用 60s； 0 表示回退到 shell_timeout。"
     },
     {
+      "name": "web_accounts_enabled",
+      "env": "AGENT_WEB_ACCOUNTS_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "企业账号：打开后使用 control_users / session Cookie 登录。"
+    },
+    {
+      "name": "web_accounts_require_mysql",
+      "env": "AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "企业账号的生产约束：只允许 MySQL；本地测试可显式关闭。"
+    },
+    {
+      "name": "web_account_tenant",
+      "env": "AGENT_WEB_ACCOUNT_TENANT",
+      "type": "str",
+      "default": "default",
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "web_allow_anonymous_local",
       "env": "AGENT_WEB_ALLOW_ANONYMOUS_LOCAL",
       "type": "bool",
@@ -1693,12 +1880,36 @@
       "doc": ""
     },
     {
+      "name": "web_cookie_secure",
+      "env": "AGENT_WEB_COOKIE_SECURE",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "跨源部署时 Cookie 必须 Secure；同源反代可关。"
+    },
+    {
       "name": "web_data_root",
       "env": "AGENT_WEB_DATA_ROOT",
       "type": "str",
       "default": "",
       "section": "通用",
       "doc": "per-user 宿主侧数据根目录（审计/checkpoint/steering）； 空 = <当前目录>/.agent/web/users。"
+    },
+    {
+      "name": "web_frontend_dir",
+      "env": "AGENT_WEB_FRONTEND_DIR",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "前端发布包根目录（含 index.html / sw.js / manifest.webmanifest）。 空 = 包内 web/static（桌面与开发回退）。"
+    },
+    {
+      "name": "web_login_rate_limit_per_min",
+      "env": "AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN",
+      "type": "int",
+      "default": 10,
+      "section": "通用",
+      "doc": "登录按来源 IP 的固定窗口限流。"
     },
     {
       "name": "web_max_body_bytes",
@@ -1765,6 +1976,14 @@
       "doc": "per-user WSL 侧记忆根目录；空 = 沙箱 $HOME/agent-memory。 记忆在沙箱内、仓库之外，避免不可信仓库预置记忆。"
     },
     {
+      "name": "web_quota_reserve_tokens",
+      "env": "AGENT_WEB_QUOTA_RESERVE_TOKENS",
+      "type": "int",
+      "default": 0,
+      "section": "通用",
+      "doc": "运行前为 token 限额预留的量；0 = 只做事后限额。"
+    },
+    {
       "name": "web_rate_limit_per_min",
       "env": "AGENT_WEB_RATE_LIMIT_PER_MIN",
       "type": "int",
@@ -1779,6 +1998,30 @@
       "default": 1800,
       "section": "通用",
       "doc": "挂起 runtime 的空闲保留时间；超时后释放，resume 时从 checkpoint 重建。"
+    },
+    {
+      "name": "web_serve_frontend",
+      "env": "AGENT_WEB_SERVE_FRONTEND",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "是否由 A2 托管前端页面。独立静态站/CDN 部署时关闭，只保留 API； 桌面模式（desktop_mode）始终强制开启，否则没有页面可加载。"
+    },
+    {
+      "name": "web_session_ttl_s",
+      "env": "AGENT_WEB_SESSION_TTL_S",
+      "type": "int",
+      "default": "12 * 3600",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "web_static_dir",
+      "env": "AGENT_WEB_STATIC_DIR",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "/static 挂载目录；空 = 与 web_frontend_dir 相同。 发布包通常为 <frontend_dir>/static，包内则两者同目录。"
     },
     {
       "name": "web_workspaces_root",

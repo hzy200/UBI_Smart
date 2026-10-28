@@ -185,6 +185,32 @@ class Settings(BaseSettings):
     host_broker_device_key: str = Field(
         default="", alias="AGENT_HOST_BROKER_DEVICE_KEY"
     )
+    # 企业设备台账（A3 本地 JSON）；off = 兼容旧的单设备/自洽校验。
+    host_broker_device_registry: str = Field(
+        default="", alias="AGENT_HOST_BROKER_DEVICE_REGISTRY"
+    )
+    host_broker_device_policy: str = Field(
+        default="off", alias="AGENT_HOST_BROKER_DEVICE_POLICY"
+    )
+    host_broker_device_reload_s: int = Field(
+        default=2, alias="AGENT_HOST_BROKER_DEVICE_RELOAD_S"
+    )
+    # A2L 本地验签的运行策略。
+    host_broker_policy_file: str = Field(
+        default="", alias="AGENT_HOST_BROKER_POLICY_FILE"
+    )
+    host_broker_policy_pubkey: str = Field(
+        default="", alias="AGENT_HOST_BROKER_POLICY_PUBKEY"
+    )
+    host_broker_policy_pubkey_file: str = Field(
+        default="", alias="AGENT_HOST_BROKER_POLICY_PUBKEY_FILE"
+    )
+    host_broker_attestation: str = Field(
+        default="off", alias="AGENT_HOST_BROKER_ATTESTATION"
+    )
+    host_broker_attestation_key: str = Field(
+        default="", alias="AGENT_HOST_BROKER_ATTESTATION_KEY"
+    )
     host_broker_tls_ca: str = Field(
         default="", alias="AGENT_HOST_BROKER_TLS_CA"
     )
@@ -232,6 +258,20 @@ class Settings(BaseSettings):
     )
     host_toolchain_roots: str = Field(
         default="", alias="AGENT_HOST_TOOLCHAIN_ROOTS"
+    )
+    # P1/P2：host 写与受控 exec 默认关闭；安装永远只返回人工指令。
+    host_broker_allow_write: bool = Field(
+        default=False, alias="AGENT_HOST_BROKER_ALLOW_WRITE"
+    )
+    host_broker_exec_enabled: bool = Field(
+        default=False, alias="AGENT_HOST_BROKER_EXEC_ENABLED"
+    )
+    # JSON 数组；每项 {id,kind,root,commands,output_roots}。root 不下发模型。
+    host_broker_toolchains: str = Field(
+        default="", alias="AGENT_HOST_BROKER_TOOLCHAINS"
+    )
+    host_snapshot_dir: str = Field(
+        default="", alias="AGENT_HOST_SNAPSHOT_DIR"
     )
     # shell 隔离后端：off（默认，仅工作区 cwd 约束）| bwrap（挂载命名空间隔离）
     # bwrap 模式下若沙箱内不可用，会**拒绝执行**（fail closed），不静默降级
@@ -641,6 +681,50 @@ class Settings(BaseSettings):
     web_auth_tokens_file: str = Field(
         default="", alias="AGENT_WEB_AUTH_TOKENS_FILE"
     )
+    # 企业账号：打开后使用 control_users / session Cookie 登录。
+    web_accounts_enabled: bool = Field(
+        default=False, alias="AGENT_WEB_ACCOUNTS_ENABLED"
+    )
+    web_account_tenant: str = Field(
+        default="default", alias="AGENT_WEB_ACCOUNT_TENANT"
+    )
+    # 企业账号的生产约束：只允许 MySQL；本地测试可显式关闭。
+    web_accounts_require_mysql: bool = Field(
+        default=True, alias="AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL"
+    )
+    # 跨源部署时 Cookie 必须 Secure；同源反代可关。
+    web_cookie_secure: bool = Field(
+        default=False, alias="AGENT_WEB_COOKIE_SECURE"
+    )
+    web_session_ttl_s: int = Field(
+        default=12 * 3600, alias="AGENT_WEB_SESSION_TTL_S"
+    )
+    # 运行前为 token 限额预留的量；0 = 只做事后限额。
+    web_quota_reserve_tokens: int = Field(
+        default=0, alias="AGENT_WEB_QUOTA_RESERVE_TOKENS"
+    )
+    # 成本展示与额度计量货币；上游价格仍按 USD 计价。
+    cost_currency: str = Field(
+        default="CNY", alias="AGENT_COST_CURRENCY"
+    )
+    usd_to_cny: float = Field(
+        default=7.2, alias="AGENT_USD_TO_CNY"
+    )
+    # 登录按来源 IP 的固定窗口限流。
+    web_login_rate_limit_per_min: int = Field(
+        default=10, alias="AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN"
+    )
+    # 配额预留的存活时间；进程崩溃后由其他实例/下次启动清理。
+    quota_reservation_ttl_s: int = Field(
+        default=3600, alias="AGENT_QUOTA_RESERVATION_TTL_S"
+    )
+    # 上游 provider Key 的 AES-GCM 主密钥（base64 32B）或文件。
+    secret_master_key: str = Field(
+        default="", alias="AGENT_SECRET_MASTER_KEY"
+    )
+    secret_master_key_file: str = Field(
+        default="", alias="AGENT_SECRET_MASTER_KEY_FILE"
+    )
     # per-user 工作区根目录；空 = 沙箱 $HOME/agent-ws/users。
     web_workspaces_root: str = Field(
         default="", alias="AGENT_WEB_WORKSPACES_ROOT"
@@ -692,6 +776,21 @@ class Settings(BaseSettings):
     # 只允许 scheme://host[:port]，不接受路径、通配符或 null。
     web_cors_allowed_origins: str = Field(
         default="", alias="AGENT_CORS_ALLOWED_ORIGINS"
+    )
+    # 是否由 A2 托管前端页面。独立静态站/CDN 部署时关闭，只保留 API；
+    # 桌面模式（desktop_mode）始终强制开启，否则没有页面可加载。
+    web_serve_frontend: bool = Field(
+        default=True, alias="AGENT_WEB_SERVE_FRONTEND"
+    )
+    # 前端发布包根目录（含 index.html / sw.js / manifest.webmanifest）。
+    # 空 = 包内 web/static（桌面与开发回退）。
+    web_frontend_dir: str = Field(
+        default="", alias="AGENT_WEB_FRONTEND_DIR"
+    )
+    # /static 挂载目录；空 = 与 web_frontend_dir 相同。
+    # 发布包通常为 <frontend_dir>/static，包内则两者同目录。
+    web_static_dir: str = Field(
+        default="", alias="AGENT_WEB_STATIC_DIR"
     )
 
     # ---------- A2 控制面（Phase B，可选） ----------

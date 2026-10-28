@@ -16,15 +16,27 @@ review_cadence: 工作流文件变动时
 ## CI（`.github/workflows/ci.yml`）
 
 触发：push / pull_request。Linux runner（**没有 WSL2**）。
+前后端拆成两个并行 job：`frontend` 产出发布包，`backend` 不依赖前端构建。
+
+`frontend` job：
+
+| 步骤 | 命令 |
+|---|---|
+| 前端构建/类型 | `python scripts/build_frontend.py` + `tsc --noEmit` + `git diff --exit-code` 用户端与管理端产物 |
+| 前端单测 / E2E | `npm test` + `npx playwright test`（含 `/admin` smoke） |
+| 生成独立产物 | `python scripts/build_frontend_release.py --skip-build` |
+| 校验产物 | `python scripts/check_frontend_release.py --dir dist/frontend/<version>` |
+| 上传 artifact | `frontend-release`（含 manifest.json / SHA256SUMS） |
+
+`backend` job：
 
 | 步骤 | 命令 |
 |---|---|
 | 安装 | `pip install -e ".[dev,ui,web,db]"` |
 | lint | `ruff check src tests` |
-| 前端构建/类型 | `python scripts/build_frontend.py` + `tsc --noEmit` + `git diff --exit-code static/app.js` |
-| 前端独立产物 | 上传 `frontend-static` artifact（静态包可直接用于独立静态站） |
 | 测试 + 覆盖率 | `pytest -m "not wsl and not llm" --cov --cov-report=term-missing` |
 | 执行契约 | `pytest -m execution -q` |
+| MySQL DDL 离线校验 | `pytest tests/unit/test_mysql_ddl.py` |
 | Phase D 故障演练 | `python scripts/phase_d_smoke.py --timeout 60` |
 | Phase F 迁移/回滚 | `python scripts/phase_f_drill.py` |
 | 显式化沙箱缺口 | `::warning::` 提示 wsl 用例未执行 |
@@ -47,6 +59,11 @@ review_cadence: 工作流文件变动时
 增量选择器只在本地缩短反馈，不能替代这里的全量。
 
 ### 已知缺口
+
+真实 MySQL 的账号/加密 Key/配额/用量/备份恢复契约用
+`AGENT_TEST_MYSQL_URL=... pytest -m mysql` 执行；CI 默认不带 MySQL 实例，
+但 `test_mysql_ddl.py` 会离线编译全部迁移，拦截方言问题。运维见
+[DATABASE.md](DATABASE.md)。
 
 CI 是 Linux runner、没有 WSL2，所以 `wsl` 标记的用例**一行都没跑**。
 沙箱层与能力层的覆盖全靠本地 `-m wsl`。CI 会用 `::warning::` 显式标注这一点——

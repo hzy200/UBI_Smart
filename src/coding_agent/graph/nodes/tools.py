@@ -57,6 +57,7 @@ from coding_agent.tools.files import (
     WRITE_TOOL_NAME,
 )
 from coding_agent.tools.git import GIT_ADD, GIT_COMMIT
+from coding_agent.tools.host_exec import HOST_EXEC_TOOL_NAME
 from coding_agent.tools.shell import SHELL_TOOL_NAME
 from coding_agent.tools.testrun import RUN_TESTS_TOOL
 
@@ -132,7 +133,7 @@ def _needs_journal(name: str, args: dict[str, Any]) -> bool:
     只读工具不需要日志；写文件、git、依赖安装、测试执行（会跑工作区代码）
     以及写入类 shell 命令需要，避免崩溃恢复时重复执行。
     """
-    if name == RUN_TESTS_TOOL:
+    if name in {RUN_TESTS_TOOL, HOST_EXEC_TOOL_NAME}:
         return True
     if name in MUTATING_TOOLS:
         return True
@@ -147,7 +148,7 @@ def _mutates_workspace(name: str, args: dict[str, Any]) -> bool:
     只认工具名会漏掉经 shell 的修改（`sed -i` / `git add` / `mkdir`…）：
     那些调用同样改了文件，却不会置 `dirty`，verify 就被跳过了。
     """
-    if name in MUTATING_TOOLS:
+    if name in {HOST_EXEC_TOOL_NAME, *MUTATING_TOOLS}:
         return True
     if name == SHELL_TOOL_NAME:
         return tool_level(name, args) >= CommandLevel.LOW_WRITE

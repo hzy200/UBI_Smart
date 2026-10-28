@@ -11,6 +11,7 @@ import {
 } from '../api/http';
 import {
   ConfigError,
+  apiUrl,
   currentRuntimeConfig,
 } from '../runtime-config';
 import { clearHistoryCache } from '../state/history-cache';
@@ -29,7 +30,12 @@ export const authMixin = {
       restoreDesktopToken();
     } else {
       clearStoredToken();
-      if (config.authMode === 'bff-cookie') setToken('');
+      if (
+        config.authMode === 'bff-cookie' ||
+        config.authMode === 'local-session'
+      ) {
+        setToken('');
+      }
     }
     this.tokenInput = getToken();
   },
@@ -54,7 +60,11 @@ export const authMixin = {
       this.startLogin();
       return;
     }
-    this.showLogin('认证已失效，请重新输入 token');
+    this.showLogin(
+      this.authMode === 'local-session'
+        ? '登录已失效，请重新登录'
+        : '认证已失效，请重新输入 token',
+    );
   },
 
   startLogin() {
@@ -72,13 +82,53 @@ export const authMixin = {
       return this.t('auth.desktopToken');
     }
     if (this.authMode === 'bff-cookie') return this.t('auth.bffCookie');
+    if (this.authMode === 'local-session') return this.t('auth.localSession');
     return this.t('auth.bearer');
+  },
+
+  async loginWithPassword() {
+    const username = String(this.loginUsername || '').trim();
+    const password = String(this.loginPassword || '');
+    if (!username || !password) {
+      this.loginError = '请输入用户名和密码';
+      return;
+    }
+    try {
+      const response = await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      if (!response.ok) {
+        let message = '登录失败';
+        try {
+          const data = await response.json();
+          message = String(data.detail?.message || data.detail || message);
+        } catch (err) { /* 非 JSON 错误体 */ }
+        this.loginError = message;
+        return;
+      }
+      this.loginPassword = '';
+      this.loginError = '';
+      await this.bootstrap();
+    } catch (err) {
+      this.loginError = `登录失败：${String(err)}`;
+    }
   },
 
   async logout() {
     const config = currentRuntimeConfig();
     try {
-      if (config?.auth.logoutUrl) {
+      if (this.authMode === 'local-session') {
+        const headers = new Headers({ Accept: 'application/json' });
+        applyAuthHeaders(headers, 'POST');
+        await fetch(apiUrl('/api/auth/logout'), {
+          method: 'POST',
+          credentials: 'include',
+          headers,
+        });
+      } else if (config?.auth.logoutUrl) {
         const headers = new Headers({ Accept: 'application/json' });
         applyAuthHeaders(headers, 'POST');
         await fetch(authUrl(config.auth.logoutUrl), {

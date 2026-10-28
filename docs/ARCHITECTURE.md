@@ -621,14 +621,19 @@ Standalone 是原 Agent 的保留通道：CLI/TUI 直接持有 A3+A4，不要求
 - A2 不执行工具；A4 仍是唯一执行入口，`ExecutionService` 按 `target` 选择
   `host` 或 `sandbox` 后端；A2L 是 `host` 后端的执行者，不是 A5，也不重编号 A1–A4。
 - A2L 只主动外连；断线时 A4 降级 `sandbox`，任务不阻塞，也不假装 host 可用。
-- 安全档：默认 `lowpriv` + ACL 强制 ZX；`appcontainer` 仅受限只读档单独验证；
-  `user-t1` 仅 `local-dev`，明确是 T1 而不是 T2。Windows 没有等价 bwrap，
-  不能宣称 host 后端具备 T2 隔离。
+- 安全档：默认 `lowpriv` + ACL 强制 ZX；`appcontainer` 提供只读 helper 与
+  受控 exec；`user-t1` 仅 `local-dev`，明确是 T1 而不是 T2。Windows 没有
+  等价 bwrap，不能宣称 host 后端具备 T2 隔离。
+- host 写走 brokered write：写前工作区外快照、`expected_sha256` 冲突检测、
+  同一 `op_id` 不重放；exec 只接受已注册 toolchain 的 argv，且只在
+  AppContainer 内运行；安装（`host.install`）永不自动执行。
+- 企业设备：A3 本地台账预登记/吊销证书指纹；A2L 用固定公钥验签运行策略，
+  并可对连接 nonce 提供软件或 TPM 背书密钥证明。均不替代本地同意/grant。
 - 宿主编译/安装是代码执行：L3/L4、`output_roots`、安装器哈希与本地审计是
   必要条件；不可信仓库仍走 `sandbox`。
 
-当前交付只包含 Phase 1 只读 + 安全演示；P2–P5（写/编译/安装/企业分发）
-标为后续。接口与文件清单见 [PHASE_A2L.md](PHASE_A2L.md)。
+P2/P3 核心（写/快照/AppContainer exec）已落地；revision、企业分发与
+安装包/设备注册仍为后续。接口与文件清单见 [PHASE_A2L.md](PHASE_A2L.md)。
 
 ## 13. A2/A3 边界与数据归属
 
@@ -638,14 +643,22 @@ Standalone 是原 Agent 的保留通道：CLI/TUI 直接持有 A3+A4，不要求
   workspace→absolute path 映射、客户端本地审计链与同意记录。
   A2 只持有 `grant_id`/`a2l_id`/`root_handle` 引用；grant scope、verbs/TTL 与
   host 绝对路径 **不上云**。A2L 断线时 A4 只能走 `sandbox`。
-- **MySQL 只属于 A2**：用户、租户、会话目录、运行/审批索引、用量汇总、Provider
-  档案、设置、上传元数据。**不存** checkpoint、文件内容、API Key、运行状态。
+- **MySQL 只属于 A2**：企业账号/角色/会话、租户、会话目录、运行/审批索引、
+  每日用量与配额、Provider 档案、设置、上传元数据。**不存** checkpoint、
+  文件内容、明文 API Key、运行状态。企业模式的上游 provider Key 只存
+  AES-256-GCM 密文与后四位（ADR-0021）。
+- **企业账号与计量**：`control_users` / `control_auth_sessions` /
+  `control_user_quotas` / `control_user_usage_daily` / `control_usage_events`
+  长期驻留 MySQL；`/admin` 是独立静态 SPA，只调用 `/api/admin/*`。用量以
+  `run_end` 审计为事实源，按 `record_hash` 幂等、按 `run_epoch` 处理 resume。
+  生产要求 `AGENT_CONTROL_DB_AUTO_CREATE=false` + Alembic（见
+  [DATABASE.md](DATABASE.md)）。
 - **A3 拥有** checkpoint、运行状态、pending approval、steering、记忆与本地审计链。
 - **A4 拥有**工作区、快照、附件字节、Git/worktree；`sandbox` 工作区在 ext4，
   `host` 工作区的字节在用户 NTFS 且由 A2L 保管。
 - **密钥**由 A2 的 SecretProvider 托管，短期注入 A3 内存；桌面用 OS 密钥环，
-  服务器用 Vault/KMS/systemd-creds；WSL 无 Secret Service 时不落盘、不入
-  MySQL/日志/前端。
+  服务器用 Vault/KMS/systemd-creds 或数据库密文（企业模式）；WSL 无 Secret
+  Service 时不落盘、不入日志/前端，数据库只见密文。
 - **审计**：A3 本地哈希链是可信源，A2 只建查询索引，不重写链。
 - **事件**：MySQL 只做查询索引；多实例用共享事件传输层按 `seq` 重放，
   单实例保留内存适配器。

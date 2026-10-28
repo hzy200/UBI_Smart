@@ -14,6 +14,7 @@ import type {
   AgentEvent,
 } from '../contracts';
 import { includesQuery } from '../ui/search';
+import { formatUsdAsMoney } from '../ui/money';
 
 export const eventsMixin = {
   handleEvent(event: AgentEvent) {
@@ -347,9 +348,9 @@ export const eventsMixin = {
   },
 
   formatCost(event) {
-    let text = `$${Number(event.cost_usd || 0).toFixed(4)}`;
+    let text = formatUsdAsMoney(event.cost_usd);
     if (event.budget_usd > 0) {
-      text += ` / $${Number(event.budget_usd).toFixed(2)}（${Math.round((event.ratio || 0) * 100)}%）`;
+      text += ` / ${formatUsdAsMoney(event.budget_usd, 2)}（${Math.round((event.ratio || 0) * 100)}%）`;
     }
     return text;
   },

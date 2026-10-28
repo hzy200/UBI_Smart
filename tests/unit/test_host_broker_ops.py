@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pytest
 
@@ -13,6 +14,7 @@ from coding_agent.host_broker.policy import GrantStore, HostPolicy
 from coding_agent.host_broker.protocol import (
     DENIED_ZX,
     GRANT_REQUIRED,
+    OP_NOT_ENABLED_IN_PHASE1,
     make_request,
 )
 from coding_agent.host_broker.toolchain import ToolchainRef, ToolchainRegistry
@@ -70,6 +72,84 @@ def test_read_requires_grant_then_succeeds(tmp_path) -> None:
     )
     assert response.status == "ok"
     assert "print" in response.data["text"]
+
+
+def test_unknown_write_exec_and_install_are_manual_or_denied(
+    tmp_path,
+) -> None:
+    ops, grants, root = _ops(tmp_path)
+    (root / "a.py").write_text("x", encoding="utf-8")
+    grant = grants.issue(
+        scope=[str(root)], verbs=["read", "write", "exec", "install"]
+    )
+    # 未实现的写 op 仍拒绝。
+    with pytest.raises(BrokerOpError) as exc:
+        asyncio.run(
+            ops.handle(
+                _frame(
+                    "host.write_bytes",
+                    grant_id=grant.grant_id,
+                    payload={"path": "a.py"},
+                )
+            )
+        )
+    assert exc.value.code == OP_NOT_ENABLED_IN_PHASE1
+
+    # 未开启 exec 时 fail closed。
+    with pytest.raises(BrokerOpError) as exc:
+        asyncio.run(
+            ops.handle(
+                _frame(
+                    "host.exec",
+                    grant_id=grant.grant_id,
+                    payload={"path": "a.py"},
+                )
+            )
+        )
+    assert exc.value.code == "EXEC_UNAVAILABLE"
+
+    # install 永远只返回人工指令，不执行。
+    install = asyncio.run(
+        ops.handle(
+            _frame(
+                "host.install",
+                grant_id=grant.grant_id,
+                payload={
+                    "manager": "pip",
+                    "command": "pip install requests",
+                },
+            )
+        )
+    )
+    assert install.data["manual"] is True
+    assert install.data["executed"] is False
+
+    for rel in ("../outside.txt",):
+        with pytest.raises(BrokerOpError) as exc:
+            asyncio.run(
+                ops.handle(
+                    _frame(
+                        "host.read_text",
+                        grant_id=grant.grant_id,
+                        payload={"path": rel},
+                    )
+                )
+            )
+        assert exc.value.code in {"PATH_ESCAPE", "INVALID_PATH"}
+
+    if os.name == "nt":
+        for rel in (r"\\server\share\a.txt", "a.txt:secret"):
+            with pytest.raises(BrokerOpError) as exc:
+                asyncio.run(
+                    ops.handle(
+                        _frame(
+                            "host.read_text",
+                            grant_id=grant.grant_id,
+                            payload={"path": rel},
+                        )
+                    )
+                )
+            assert exc.value.code in {"PATH_ESCAPE", "INVALID_PATH"}
 
 
 def test_zx_wins_over_grant(tmp_path) -> None:

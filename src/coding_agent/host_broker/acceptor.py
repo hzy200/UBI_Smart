@@ -13,6 +13,7 @@ import threading
 from typing import Any
 
 from coding_agent.host_broker.client import HostBrokerClient
+from coding_agent.host_broker.devices import DeviceRegistry
 from coding_agent.host_broker.errors import BrokerOpError
 from coding_agent.host_broker.protocol import GATEWAY_OFFLINE
 from coding_agent.host_broker.sync_client import GrantCache, call_with_grant
@@ -85,6 +86,8 @@ class HostBrokerAcceptor:
         a2l_id: str = "",
         server_fingerprint: str = "",
         device_fingerprint: str = "",
+        device_registry: DeviceRegistry | None = None,
+        device_reload_s: float = 2.0,
     ) -> None:
         self.host = host
         self.port = int(port)
@@ -97,6 +100,8 @@ class HostBrokerAcceptor:
         self.a2l_id = str(a2l_id or "")
         self.server_fingerprint = str(server_fingerprint or "")
         self.device_fingerprint = str(device_fingerprint or "")
+        self.device_registry = device_registry
+        self.device_reload_s = max(0.5, float(device_reload_s))
         self.loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
             target=self._run_loop,
@@ -108,6 +113,8 @@ class HostBrokerAcceptor:
         self._clients: dict[str, HostBrokerClient] = {}
         # 每个 A2L 连接复用一个 caller，grant 缓存才能跨工具调用生效。
         self._callers: dict[str, AcceptedHostCaller] = {}
+        self._client_ids: dict[str, tuple[str, str]] = {}
+        self._watch_task: asyncio.Task[None] | None = None
         self._closed = False
 
     def start(self) -> int:
@@ -128,7 +135,71 @@ class HostBrokerAcceptor:
             port=self.port,
             tls=self.tls,
         )
+        if self.device_registry is not None:
+            self._watch_task = asyncio.create_task(self._watch_devices())
         self._ready.set()
+
+    def _authorize_device(self, client: HostBrokerClient, hello) -> str:
+        """返回空串表示通过；否则返回拒绝原因。"""
+        if self.device_registry is None:
+            return ""
+        meta = dict(hello.meta or {})
+        a2l_id = str(meta.get("a2l_id") or "")
+        fingerprint = ""
+        if client.transport is not None:
+            fingerprint = client.transport.peer_cert_fingerprint()
+        fingerprint = fingerprint or str(meta.get("device_fingerprint") or "")
+        decision = self.device_registry.authorize(a2l_id, fingerprint)
+        if not decision.allowed:
+            return f"{a2l_id}: {decision.reason}"
+        record = decision.record
+        if record is not None and record.public_key:
+            evidence = {
+                "kind": str(meta.get("attestation_kind") or ""),
+                "signature": str(
+                    meta.get("attestation_signature") or ""
+                ),
+            }
+            attested = self.device_registry.verify_attestation(
+                record,
+                a2l_id=a2l_id,
+                nonce=client.hello_nonce,
+                evidence=evidence,
+            )
+            if not attested.allowed:
+                return f"{a2l_id}: {attested.reason}"
+        return ""
+
+    async def _watch_devices(self) -> None:
+        assert self.device_registry is not None
+        while not self._closed:
+            await asyncio.sleep(self.device_reload_s)
+            self.device_registry.reload_if_changed()
+            for broker_id, client in list(self._clients.items()):
+                a2l_id, fingerprint = self._client_ids.get(
+                    broker_id, ("", "")
+                )
+                decision = self.device_registry.authorize(
+                    a2l_id, fingerprint
+                )
+                if decision.allowed:
+                    continue
+                print(
+                    f"A2L 设备已失效，断开 {broker_id}：{decision.reason}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                await self._drop_client(broker_id, client)
+
+    async def _drop_client(
+        self, broker_id: str, client: HostBrokerClient
+    ) -> None:
+        self._clients.pop(broker_id, None)
+        self._client_ids.pop(broker_id, None)
+        caller = self._callers.pop(broker_id, None)
+        if caller is not None:
+            caller.close()
+        await client.close()
 
     async def _on_connection(self, transport: TcpTransport) -> None:
         client = HostBrokerClient(
@@ -137,15 +208,30 @@ class HostBrokerAcceptor:
             security_tier=self.security_tier,
             heartbeat_s=self.heartbeat_s,
             request_timeout_s=self.request_timeout_s,
-            a2l_id=self.a2l_id,
+            # 有设备台账时允许多个 a2l_id，由台账逐台校验。
+            a2l_id=(
+                "" if self.device_registry is not None else self.a2l_id
+            ),
             server_fingerprint=self.server_fingerprint,
             device_fingerprint=self.device_fingerprint,
             require_encrypted=self.require_encrypted,
         )
         try:
             hello = await client.connect()
+            reason = self._authorize_device(client, hello)
+            if reason:
+                print(
+                    f"A2L 设备未通过校验：{reason}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return
             broker_id = str(
                 (hello.meta or {}).get("broker_id") or client.client_id
+            )
+            meta = dict(hello.meta or {})
+            fingerprint = transport.peer_cert_fingerprint() or str(
+                meta.get("device_fingerprint") or ""
             )
             print(
                 f"A2L connected: {broker_id}",
@@ -154,6 +240,10 @@ class HostBrokerAcceptor:
             )
             old = self._clients.get(broker_id)
             self._clients[broker_id] = client
+            self._client_ids[broker_id] = (
+                str(meta.get("a2l_id") or ""),
+                fingerprint,
+            )
             if old is not None:
                 await old.close()
             while not self._closed and client.is_online:
@@ -162,6 +252,7 @@ class HostBrokerAcceptor:
             for key, value in list(self._clients.items()):
                 if value is client:
                     self._clients.pop(key, None)
+                    self._client_ids.pop(key, None)
             for key, caller in list(self._callers.items()):
                 if caller.client is client:
                     self._callers.pop(key, None)
@@ -192,9 +283,16 @@ class HostBrokerAcceptor:
         self._closed = True
 
         async def _stop() -> None:
+            if self._watch_task is not None:
+                self._watch_task.cancel()
+                try:
+                    await self._watch_task
+                except (asyncio.CancelledError, Exception):
+                    pass
             for client in list(self._clients.values()):
                 await client.close()
             self._clients.clear()
+            self._client_ids.clear()
             self._callers.clear()
             # 给 _on_connection 一个检查 closed / offline 的机会，避免在
             # transport 处理任务仍 pending 时停掉事件循环。

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 
-WEB_API_VERSION = "v0"
+# 前端请求 /api/v1/*；A2 同时保留 /api/* 作为兼容窗口（带 Deprecation）。
+WEB_API_VERSION = "v1"
+MIN_API_VERSION = "v0"
 MIN_FRONTEND_VERSION = "0.1.0"
 CAPABILITIES_VERSION = 1
 

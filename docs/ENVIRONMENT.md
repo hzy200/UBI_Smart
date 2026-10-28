@@ -100,8 +100,14 @@ sudo packaging/systemd/install.sh --python /opt/coding-agent/venv/bin/python
 
 - 安装脚本创建 `coding-agent` 用户与 `/etc/coding-agent`、`/var/lib/coding-agent`、
   `/srv/coding-agent/workspaces`，并注册两个 systemd 单元；
-- MySQL 初始化：`mysql -u root -p < packaging/mysql/init.sql`，然后在
-  `/etc/coding-agent/control.env` 配置 `AGENT_CONTROL_DB_URL`；
+- MySQL 初始化：`mysql -u root -p < packaging/mysql/init.sql`（运行账号
+  `coding_agent` + 迁移账号 `coding_agent_migrator`），然后在
+  `/etc/coding-agent/control.env` 配置 `AGENT_CONTROL_DB_URL`、
+  `AGENT_CONTROL_DB_AUTO_CREATE=false`；
+- 企业账号：`AGENT_WEB_ACCOUNTS_ENABLED=true`、
+  `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=true`、`AGENT_SECRET_MASTER_KEY`，
+  然后 `agent admin create --username admin --role owner`；管理员访问 `/admin`
+  管理用户、额度与上游 Key；表结构与保留策略见 [DATABASE.md](DATABASE.md)；
 - A2 的 `ExecStartPre --migrate-only` 在启动前迁移，迁移前自动备份；
 - 备份/恢复：`scripts/backup_control_db.py` / `restore_control_db.py`；
 - 故障演练：`python scripts/phase_d_smoke.py`（不需要 API Key）；

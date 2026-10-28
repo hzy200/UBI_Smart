@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("alembic")
 
 from alembic import command  # noqa: E402
-from sqlalchemy import create_engine, text  # noqa: E402
+from sqlalchemy import create_engine, inspect, text  # noqa: E402
 
 from coding_agent.control.migrate import (  # noqa: E402
     BASELINE_REVISION,
@@ -21,7 +21,7 @@ from coding_agent.control.migrate import (  # noqa: E402
 )
 from coding_agent.control.store import ControlStore  # noqa: E402
 
-REVISION = "0008_session_unread_preview"
+REVISION = "0009_audit_hash_index"
 
 
 def _url(tmp_path: Path) -> str:
@@ -51,6 +51,16 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
     assert has_table(url, "run_leases")
     assert has_table(url, "idempotency_keys")
     assert current_revision(url) == REVISION
+
+    engine = create_engine(url, future=True)
+    try:
+        indexes = {
+            item["name"]
+            for item in inspect(engine).get_indexes("control_audit_index")
+        }
+    finally:
+        engine.dispose()
+    assert "ix_control_audit_tenant_hash" in indexes
 
     again = upgrade(url)
     assert again == {"action": "upgrade", "revision": REVISION}

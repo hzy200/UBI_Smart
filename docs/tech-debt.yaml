@@ -88,16 +88,23 @@ items:
     do_not: 不要在各文档之间互相抄数字 —— 抄一次错一次
 
   - id: TD-011
-    title: Windows host 后端没有等价 bwrap，user-t1 只是 T1
-    where: host_broker/policy.py, host_broker/paths.py
-    why_now: lowpriv + ACL 能强制 ZX，但不是内核级隔离；AppContainer 更受限但
-      不适合作为默认；Phase 1 只做只读，尚未验证写/执行/安装路径
+    title: Windows host 后端没有等价 bwrap，exec 仍不是 T2
+    where: host_broker/policy.py, host_broker/paths.py, host_broker/win_isolation.py, host_broker/exec.py
+    why_now: P0/P1/P2 已加 Job Object、可选低完整性、AppContainer 只读 helper、
+      brokered write + 工作区外快照、不可重放、AppContainer 受控 exec 与
+      真机红队用例；但 AppContainer exec 只覆盖已注册工具链，toolchain root
+      需整树授 RX，超时对孙进程是 best-effort，lowpriv 账户/ACL 部署与
+      企业设备注册仍未自动化，仍不是内核级隔离
     debt_type: 安全
     severity: high
-    workaround: 默认关闭 A2L；默认 lowpriv + ACL；appcontainer 仅受限只读；不可信仓库留在 sandbox
+    workaround: 默认关闭写/exec；写仍需 grant；exec 只在 appcontainer 档且
+      显式注册可信 toolchain；untrusted profile 禁止 host 工作区与 host_exec；
+      agent doctor 探测 AppContainer/Job/TPM；不可信仓库留在 sandbox；
+      install 永不自动
     owner: 项目作者
-    due: 开放 host.exec/host.install 之前
-    do_not: 不要把 user-t1 写成 T2，也不要用“绝对禁止”包装策略 glob
+    due: 面向不可信仓库开放 host.exec 之前
+    do_not: 不要把 user-t1 写成 T2，也不要用“绝对禁止”包装策略 glob；
+      不要把 AppContainer exec 描述成内核级隔离，也不要让它接收 shell 字符串
 
   - id: TD-012
     title: host/sandbox 跨 kind 编译/验证不支持
@@ -113,15 +120,20 @@ items:
 
   - id: TD-013
     title: A2L 是 T4 横向执行面，服务端失陷可触达所有客户端
-    where: host_broker/server.py, host_broker/consent.py
-    why_now: P0 已落地 mTLS/设备指纹、hello nonce 防重放、grant one-shot/
-      限流/断线撤销；但企业设备注册、吊销与红队演练仍未做，横向风险不能消除
+    where: host_broker/{server,client,acceptor,devices,policy_doc,attestation}.py
+    why_now: P0 已有 mTLS/设备指纹、hello nonce、grant one-shot/限流/断线撤销；
+      P1/P2 已加本地设备台账/注册吊销 CLI、acceptor 吊销断开、A2L 验签策略、
+      软件/TPM 背书密钥的设备证明；但仍无 PCR quote/远程启动证明、无 CSR、
+      无控制面 MySQL 设备表、无红队演练，横向风险不能归零
     debt_type: 安全
     severity: high
-    workaround: 默认关闭；企业先小范围部署；启用 TLS 与本地同意；断线即撤销
+    workaround: 默认关闭；企业启用 DEVICE_POLICY=enforce + 签名策略 + TLS；
+      吊销靠台账重载；agent doctor 显示设备证明可用性；untrusted profile
+      禁止 host 工作区与 host_exec；不可信仓库不用 host 后端
     owner: 项目作者
     due: 企业批量分发之前
-    do_not: 不要让服务端推送自动更新或下发 grant scope
+    do_not: 不要把 TPM CNG 密钥证明写成 PCR/远程证明；不要让服务端推送
+      自动更新、下发 grant scope 或替代本地同意
 
   - id: TD-014
     title: A2L 生命周期管理与企业分发未实现

@@ -33,6 +33,16 @@ from coding_agent.web.models import SessionConfig
 _LOG = logging.getLogger(__name__)
 
 
+def _last4(store: Any, name: str) -> str:
+    getter = getattr(store, "last4", None)
+    if not callable(getter):
+        return ""
+    try:
+        return str(getter(name) or "")
+    except Exception:  # noqa: BLE001 - 展示用字段失败不影响列表
+        return ""
+
+
 class ProviderService:
     def __init__(
         self,
@@ -40,10 +50,13 @@ class ProviderService:
         *,
         base_llm_providers: str,
         is_multi_user: bool,
+        credentials: Any | None = None,
     ) -> None:
         self.settings = settings
         self.base_llm_providers = base_llm_providers
         self.is_multi_user = is_multi_user
+        # 企业模式：DB 加密密钥优先，未命中回退 keyring。
+        self.credentials = credentials
 
     def profiles_path(self) -> Path:
         return Path(self.settings.resolved_audit_dir).parent / (
@@ -65,22 +78,42 @@ class ProviderService:
             self.settings.llm_providers = self.base_llm_providers
         return profiles
 
-    def user_store(self, user: AuthUser) -> SecretStore:
-        return (
+    def user_store(self, user: AuthUser) -> Any:
+        fallback = (
             SecretStore(f"coding-agent:{user.name}")
             if self.is_multi_user
             else SecretStore()
         )
+        if self.credentials is not None:
+            from coding_agent.control.credentials import ScopedSecretStore
 
-    def tenant_store(self, tenant: WebTenant) -> SecretStore:
-        return (
+            return ScopedSecretStore(
+                self.credentials,
+                fallback,
+                tenant=user.tenant or "default",
+                user=user.name,
+            )
+        return fallback
+
+    def tenant_store(self, tenant: WebTenant) -> Any:
+        fallback = (
             SecretStore(f"coding-agent:{tenant.user}")
             if self.is_multi_user
             else SecretStore()
         )
+        if self.credentials is not None:
+            from coding_agent.control.credentials import ScopedSecretStore
+
+            return ScopedSecretStore(
+                self.credentials,
+                fallback,
+                tenant=tenant.org or "default",
+                user=tenant.user,
+            )
+        return fallback
 
     def rows(
-        self, cfg: Settings, store: SecretStore
+        self, cfg: Settings, store: Any
     ) -> list[dict[str, Any]]:
         """列出 provider/model；绝不返回密钥明文。"""
         raw = str(cfg.llm_providers or "").strip()
@@ -92,6 +125,7 @@ class ProviderService:
                     "model": cfg.deepseek_model,
                     "base_url": cfg.deepseek_base_url,
                     "has_key": key,
+                    "last4": _last4(store, "deepseek"),
                     "capabilities": [],
                     "task_types": [],
                 }
@@ -121,6 +155,7 @@ class ProviderService:
                         item.get("base_url") or cfg.deepseek_base_url
                     ),
                     "has_key": key,
+                    "last4": _last4(store, name),
                     "capabilities": [
                         str(value)
                         for value in (item.get("capabilities") or [])
@@ -162,12 +197,15 @@ class ProviderService:
                     continue
                 if str(item.get("name") or f"provider-{index}") != name:
                     continue
-                api_key = str(item.get("api_key") or "")
-                env_name = str(item.get("api_key_env") or "")
-                if not api_key and env_name:
-                    api_key = os.environ.get(env_name, "")
+                # 用户/租户存储优先：管理员在 /admin 分配的 Key 必须覆盖
+                # 部署环境的共享 Key，否则界面显示已配置但运行时仍用旧 Key。
+                api_key = store.get(name)
                 if not api_key:
-                    api_key = store.get(name)
+                    api_key = str(item.get("api_key") or "")
+                if not api_key:
+                    env_name = str(item.get("api_key_env") or "")
+                    if env_name:
+                        api_key = os.environ.get(env_name, "")
                 return {
                     "name": name,
                     "base_url": str(
@@ -513,6 +551,13 @@ class SessionCatalog:
             self.persist(user, tenant)
 
     def load(self, user: AuthUser, tenant: WebTenant) -> None:
+        """首次加载该用户的会话目录。
+
+        这是会碰控制面 DB 的同步入口；async 路由必须经
+        `asyncio.to_thread` 调用，不能在事件循环线程里直接执行。
+        一旦 `sessions_loaded` 记录该用户，后续 `config_for` /
+        `is_deleted` 只读内存。
+        """
         with self.registry_lock:
             if user.name in self.sessions_loaded:
                 return
@@ -633,6 +678,12 @@ class SessionCatalog:
         *,
         create: bool = True,
     ) -> SessionConfig | None:
+        """取会话配置；只在首次 load 或 create=True 且缺失时碰 DB。
+
+        调用方约定：async 路由中的 `config_for` / `set_config` /
+        `load_configs` / `persist_configs` 一律经 `asyncio.to_thread`；
+        已加载后的 `config_for(create=False)` 是纯内存读取。
+        """
         self.load(user, tenant)
         key = (user.name, public_thread)
         with self.registry_lock:

@@ -97,3 +97,26 @@
   color: var(--bad);
   background: var(--bad-soft);
 }
+
+/* 侧栏层次：用极轻的渐变把头部、列表与主区拉开。 */
+.sidebar {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--panel) 96%, var(--bg)),
+      var(--panel));
+}
+.sidebar-head {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--panel) 86%, var(--bg)),
+      var(--panel));
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.session-group { border-top-color: var(--border-subtle); }
+.session-item { border-radius: 8px; }
+.session-item.active {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    0 0 0 1px var(--accent-soft);
+}
+.session-tag { background: color-mix(in srgb, var(--panel-2) 70%, transparent); }

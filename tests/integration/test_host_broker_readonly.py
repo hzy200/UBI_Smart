@@ -262,6 +262,7 @@ def test_windows_host_readonly_e2e(tmp_path) -> None:
     finally:
         caller.close()
         broker.stop()
+        journal.close()
         lifecycle.stop()
 
 
@@ -306,3 +307,4 @@ def test_acceptor_handshake_and_local_grant(tmp_path) -> None:
     finally:
         acceptor.stop()
         a2l.stop()
+        journal.close()

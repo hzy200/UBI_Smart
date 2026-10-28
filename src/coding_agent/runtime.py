@@ -310,6 +310,7 @@ class _StreamCtx:
     step_idx: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    run_epoch: str = ""
     answer: str = ""
     last_verification: dict[str, Any] = field(default_factory=dict)
     last_review: dict[str, Any] = field(default_factory=dict)
@@ -350,6 +351,8 @@ class AgentRuntime:
         file_access: Any | None = None,
         execution_targets: dict[str, Any] | None = None,
         workspace_kind: str = "sandbox",
+        host_fs: Any | None = None,
+        host_snapshots: Any | None = None,
     ) -> None:
         self.settings = apply_security_profile(settings or get_settings())
         # production/ops 是只读审计档：无论调用方传了什么，都强制关闭写能力
@@ -394,6 +397,8 @@ class AgentRuntime:
         self.file_access = file_access
         self.execution_targets = dict(execution_targets or {})
         self.workspace_kind = normalize_workspace_kind(workspace_kind)
+        self.host_fs = host_fs
+        self.host_snapshots = host_snapshots
         self.policy = SessionPolicy(
             allow_write=allow_write,
             approval_mode=approval_mode or self.settings.approval_mode,
@@ -520,6 +525,8 @@ class AgentRuntime:
     @property
     def snapshots(self) -> SnapshotStore:
         """文件快照存储，供 `/undo` `/diff` 使用。"""
+        if self.workspace_kind == "host" and self.host_snapshots is not None:
+            return self.host_snapshots
         if self._snapshots is None:
             self._snapshots = SnapshotStore(
                 self._sandbox,
@@ -1046,6 +1053,9 @@ class AgentRuntime:
         前端可以不调用：每次写入都已 commit，进程退出不会丢已落盘的 checkpoint。
         """
         self._release_workspace_lock()
+        if self._execution is not None:
+            self._execution.close()
+            self._execution = None
         if self._store is not None:
             await self._store.aclose()
             self._graph = None
@@ -1103,6 +1113,10 @@ class AgentRuntime:
         结果是所有命令都被判「工作目录非法」。
         """
         update: dict[str, Any] = {"wsl_workspace": self.workspace}
+        if self.workspace_kind == "host":
+            # host 的 verify/tests 仍会走 WSL，不能拿它验证 NTFS 工作区。
+            update["verify_enabled"] = False
+            update["orchestrator_enabled"] = False
         if self.access_mode == ACCESS_READ_ONLY:
             # 只读 = 不运行。自动 verify 会执行测试命令，编排 implement 会写
             # 工作区；两者都必须在配置层关掉，不能只靠 approval_gate。
@@ -1137,6 +1151,9 @@ class AgentRuntime:
                 secret_store=self.secret_store,
                 file_access=self.file_access,
                 host_mode=self.workspace_kind == "host",
+                host_fs=self.host_fs,
+                host_snapshots=self.host_snapshots,
+                host_exec=self.execution_targets.get("host"),
             )
         return self._graph
 
@@ -2128,25 +2145,6 @@ class AgentRuntime:
                 detail=truncate(json.dumps(concurrency, ensure_ascii=False)),
             )
         )
-        self._audit(
-            AuditRecord(
-                ts=now_iso(),
-                kind=audit_models.RUN_END,
-                thread_id=ctx.thread_id,
-                detail=truncate(run_detail),
-                # provider 未回报用量时保持 None（exclude_none 会省略该字段）
-                input_tokens=ctx.input_tokens or None,
-                output_tokens=ctx.output_tokens or None,
-                cost_usd=usage["cost_usd"] or None,
-                billed_usd=summary.billed_usd or None,
-                cache_hit_tokens=int(usage.get("cache_hit_tokens", 0)) or None,
-                cache_miss_tokens=int(usage.get("cache_miss_tokens", 0)) or None,
-            )
-        )
-        # 收尾兜底：正常路径下 act 已经收口（空操作），但若某条路径让 act 没能
-        # 跑（计划被砍、异常恢复等），这里补上，保证 StepStarted 一定有配对
-        for event in self._close_step(ctx, cancelled=True):
-            yield event
         worker_in = (
             int(ctx.progress.get("worker_input_tokens", 0))
             if ctx.progress.get("worker_tokens_reported")
@@ -2157,6 +2155,30 @@ class AgentRuntime:
             if ctx.progress.get("worker_tokens_reported")
             else None
         )
+        self._audit(
+            AuditRecord(
+                ts=now_iso(),
+                kind=audit_models.RUN_END,
+                thread_id=ctx.thread_id,
+                run_epoch=ctx.run_epoch,
+                provider=self.provider_name,
+                model=self.model_override,
+                detail=truncate(run_detail),
+                # provider 未回报用量时保持 None（exclude_none 会省略该字段）
+                input_tokens=ctx.input_tokens or None,
+                output_tokens=ctx.output_tokens or None,
+                worker_input_tokens=worker_in,
+                worker_output_tokens=worker_out,
+                cost_usd=usage["cost_usd"] or None,
+                billed_usd=summary.billed_usd or None,
+                cache_hit_tokens=int(usage.get("cache_hit_tokens", 0)) or None,
+                cache_miss_tokens=int(usage.get("cache_miss_tokens", 0)) or None,
+            )
+        )
+        # 收尾兜底：正常路径下 act 已经收口（空操作），但若某条路径让 act 没能
+        # 跑（计划被砍、异常恢复等），这里补上，保证 StepStarted 一定有配对
+        for event in self._close_step(ctx, cancelled=True):
+            yield event
         yield CostReport(
             run_id=ctx.thread_id,
             input_tokens=int(usage["input_tokens"]),
@@ -2225,7 +2247,22 @@ class AgentRuntime:
                     ts=now_iso(),
                     kind=audit_models.RUN_ERROR,
                     thread_id=ctx.thread_id,
+                    run_epoch=ctx.run_epoch,
+                    provider=self.provider_name,
+                    model=self.model_override,
                     detail=detail,
+                    input_tokens=ctx.input_tokens or None,
+                    output_tokens=ctx.output_tokens or None,
+                    worker_input_tokens=(
+                        int(ctx.progress.get("worker_input_tokens", 0))
+                        if ctx.progress.get("worker_tokens_reported")
+                        else None
+                    ),
+                    worker_output_tokens=(
+                        int(ctx.progress.get("worker_output_tokens", 0))
+                        if ctx.progress.get("worker_tokens_reported")
+                        else None
+                    ),
                 )
             )
         except Exception:  # noqa: BLE001, S110 - 已在错误路径上，不再二次抛出
@@ -2308,6 +2345,9 @@ class AgentRuntime:
         # 模型回报的用量、计划、验证/审查结果与 step 配对状态都存 progress：
         # 挂起与恢复是两次 `_stream`，存局部会把挂起前的那一段整个丢掉。
         # provider 未提供用量时保持 0，收尾落成 None（0 与「未回报」必须能区分）。
+        if fresh_run:
+            # 计量幂等键：resume 复用同一 epoch，新的用户消息生成新 epoch。
+            progress["run_epoch"] = uuid4().hex
         ctx = _StreamCtx(
             runtime=self,
             thread_id=thread_id,
@@ -2319,6 +2359,7 @@ class AgentRuntime:
             step_idx=int(progress.get("step_idx", 0)),
             input_tokens=int(progress.get("input_tokens", 0)),
             output_tokens=int(progress.get("output_tokens", 0)),
+            run_epoch=str(progress.get("run_epoch") or ""),
             last_verification=progress.setdefault("last_verification", {}),
             last_review=progress.setdefault("last_review", {}),
             step_open=bool(progress.get("step_open", False)),
@@ -2359,6 +2400,9 @@ class AgentRuntime:
                         ts=now_iso(),
                         kind=audit_models.RUN_START,
                         thread_id=thread_id,
+                        run_epoch=ctx.run_epoch,
+                        provider=self.provider_name,
+                        model=self.model_override,
                         workspace=self.workspace,
                         detail=truncate(prompt),
                     )

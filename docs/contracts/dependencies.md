@@ -22,6 +22,7 @@
 - `python-dotenv>=1.0`
 - `httpx>=0.27`
 - `sqlalchemy>=2.0`
+- `cryptography>=42`
 
 ## 可选 extras
 

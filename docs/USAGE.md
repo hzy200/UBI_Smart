@@ -459,6 +459,28 @@ Web 会话固定只读：`/api/run` 不接受写权限，所有写操作请用�
 Web 默认按**不可信仓库**运行：`untrusted` profile（bwrap + 禁网 + 强制 ask +
 不信任仓库指令/记忆），并且只监听 `127.0.0.1`。
 
+### 企业账号（推荐）
+
+```bash
+mysql -u root -p < packaging/mysql/init.sql
+export AGENT_CONTROL_DB_URL='mysql+pymysql://coding_agent:***@127.0.0.1:3306/coding_agent'
+export AGENT_CONTROL_DB_AUTO_CREATE=false
+export AGENT_WEB_ACCOUNTS_ENABLED=true
+export AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=true
+export AGENT_SECRET_MASTER_KEY="$(openssl rand -base64 32)"
+python -m coding_agent.control.migrate --backup
+agent admin create --username admin --role owner
+agent web --port 8765
+```
+
+- 账号、会话、每日配额、token 用量与上游 Key 密文统一写 MySQL；
+- 管理员访问 `/admin` 注册用户、设置每日 token/成本额度、分配上游 Key；
+- 用户端使用账号密码登录，Session Cookie 为 HttpOnly，写请求校验 CSRF；
+- 跨源静态站部署设 `AGENT_WEB_COOKIE_SECURE=true` 并配置精确 CORS；
+- 完整表结构与运维见 [DATABASE.md](DATABASE.md)。
+
+### 静态 Bearer（内网/过渡）
+
 1. 配置 Bearer Token（推荐用文件，权限 0600）：
 
 ```bash

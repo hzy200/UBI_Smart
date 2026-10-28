@@ -24,6 +24,7 @@ OutputBaseFilename=CodingAgent-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\..\src\coding_agent\web\static\icon.ico
 UninstallDisplayIcon={app}\CodingAgent.exe
 CloseApplications=yes
 
@@ -34,8 +35,8 @@ Source: "..\..\dist\CodingAgent\*"; DestDir: "{app}"; Flags: recursesubdirs crea
 Source: "..\vendor\MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
-Name: "{group}\CodingAgent"; Filename: "{app}\CodingAgent.exe"
-Name: "{autodesktop}\CodingAgent"; Filename: "{app}\CodingAgent.exe"; Tasks: desktopicon
+Name: "{group}\CodingAgent"; Filename: "{app}\CodingAgent.exe"; IconFilename: "{app}\CodingAgent.exe"
+Name: "{autodesktop}\CodingAgent"; Filename: "{app}\CodingAgent.exe"; IconFilename: "{app}\CodingAgent.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"

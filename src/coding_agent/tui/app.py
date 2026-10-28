@@ -24,6 +24,7 @@ from textual.widgets import Footer, Header, Input, RichLog, Static, TextArea
 
 from coding_agent.audit import read_records_many
 from coding_agent.config import Settings, get_settings
+from coding_agent.costs import CurrencyConfig
 from coding_agent.events import (
     ApprovalRequested,
     AssistantToken,
@@ -381,6 +382,9 @@ class AgentTuiApp(App[None]):
     ) -> None:
         super().__init__()
         self._settings = settings
+        self._currency = CurrencyConfig.from_settings(
+            settings or get_settings()
+        )
         self._workspace = workspace
         self._allow_write = allow_write
         self._runtime_factory = runtime_factory
@@ -514,7 +518,10 @@ class AgentTuiApp(App[None]):
             info.append(f" · {elapsed:.0f}s", style="dim")
         info.append("\n")
         if self._cost_usd:
-            info.append(f"本轮成本 ${self._cost_usd:.4f}\n", style="dim")
+            info.append(
+                f"本轮成本 {self._currency.format(self._cost_usd)}\n",
+                style="dim",
+            )
         if self._workers_active:
             info.append(f"活跃 worker {self._workers_active}\n", style="dim")
         self.query_one("#session-info", Static).update(info)
@@ -881,11 +888,17 @@ class AgentTuiApp(App[None]):
         self._cost_budget = float(event.budget_usd or 0.0)
         self._cost_alerts = list(event.alerts)
         self._render_session_info()
-        line = f"成本 ${event.cost_usd:.4f}"
+        line = f"成本 {self._currency.format(event.cost_usd)}"
         if event.budget_usd > 0:
-            line += f" / 预算 ${event.budget_usd:.2f}（{event.ratio:.0%}）"
+            line += (
+                f" / 预算 {self._currency.format(event.budget_usd, decimals=2)}"
+                f"（{event.ratio:.0%}）"
+            )
         if event.billed_usd:
-            line += f" / 账单 ${event.billed_usd:.4f}（差 ${event.billing_delta_usd:+.4f}）"
+            line += (
+                f" / 账单 {self._currency.format(event.billed_usd)}"
+                f"（差 {self._currency.format(event.billing_delta_usd)}）"
+            )
         self._write(line, "dim")
         if event.billing_error:
             self._write(f"账单对账失败：{event.billing_error}", "yellow")
@@ -1258,18 +1271,22 @@ class AgentTuiApp(App[None]):
             elapsed = max(0.0, time.monotonic() - self._run_started)
             self._write(f"耗时    {elapsed:.0f}s", "dim")
         self._write(f"活跃 worker  {self._workers_active}", "dim")
-        self._write(f"成本    ${self._cost_usd:.4f}", "dim")
+        self._write(
+            f"成本    {self._currency.format(self._cost_usd)}", "dim"
+        )
 
     def _show_cost(self) -> None:
         if not self._cost_usd and not self._input_tokens and not self._output_tokens:
             self._write("本轮还没有收到成本报告。", "dim")
             return
         budget = (
-            f" / 预算 ${self._cost_budget:.2f}"
+            f" / 预算 {self._currency.format(self._cost_budget, decimals=2)}"
             if self._cost_budget > 0
             else ""
         )
-        self._write(f"本轮成本 ${self._cost_usd:.4f}{budget}", "")
+        self._write(
+            f"本轮成本 {self._currency.format(self._cost_usd)}{budget}", ""
+        )
         self._write(
             f"tokens  in {self._input_tokens} / out {self._output_tokens}",
             "dim",

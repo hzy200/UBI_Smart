@@ -172,6 +172,37 @@ def test_buffer_evicts_old_events_by_size(settings, monkeypatch) -> None:
     assert replay[-1][1]["type"] == "run_finished"
 
 
+def test_events_after_only_scans_from_the_tail() -> None:
+    from coding_agent.events import AssistantToken
+    from coding_agent.web.app import StreamEntry, _events_after
+
+    class CountingList(list):
+        reads = 0
+
+        def __getitem__(self, index):
+            self.reads += 1
+            return super().__getitem__(index)
+
+    items = CountingList(
+        (seq, AssistantToken(node="act", text=str(seq)))
+        for seq in range(1, 5001)
+    )
+    entry = StreamEntry(
+        key=("u", "t"),
+        public_thread="t",
+        runtime=object(),
+        events=items,
+    )
+
+    fresh = _events_after(entry, 4998)
+    assert [seq for seq, _ in fresh] == [4999, 5000]
+    # 只读尾部三项：5000、4999、以及用于断点的 4998。
+    assert items.reads <= 4
+
+    assert len(_events_after(entry, 0)) == 5000
+    assert _events_after(entry, 6000) == []
+
+
 def test_resume_rejects_a_finished_stream(settings, monkeypatch) -> None:
     monkeypatch.setattr(
         local_runtime, "AgentRuntime", lambda *a, **k: FakeRuntime()

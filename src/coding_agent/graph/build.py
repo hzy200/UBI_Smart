@@ -195,6 +195,9 @@ def build_graph(
     secret_store: Any | None = None,
     file_access: Any | None = None,
     host_mode: bool = False,
+    host_fs: Any | None = None,
+    host_snapshots: Any | None = None,
+    host_exec: Any | None = None,
 ):
     # 一次运行只该有一份沙箱：环境探测（$HOME、bwrap、rg）的结果缓存在**实例**上，
     # 各建一份就等于各探一遍 —— 曾经这里是 runtime / build_tools / verify 三份，
@@ -237,6 +240,10 @@ def build_graph(
         read_cache=read_cache,
         file_access=file_access,
         host_mode=host_mode,
+        host_fs=host_fs,
+        host_snapshots=host_snapshots,
+        host_root="",
+        host_exec=host_exec,
     )
     # 有副作用工具的执行日志放在宿主审计目录，不依赖沙箱。
     journal = ToolJournal(
