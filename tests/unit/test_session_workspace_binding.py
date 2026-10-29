@@ -30,6 +30,7 @@ def _deps(
     *,
     registry_enabled: bool,
     bind_row: dict | None = None,
+    access_limit=None,
 ) -> SessionDeps:
     store: dict[tuple[str, str], SessionConfig] = configs
 
@@ -73,6 +74,11 @@ def _deps(
         session_configs=store,
         deleted_sessions=set(),
         runtimes=_Runtimes(),
+        **(
+            {"access_limit": access_limit}
+            if access_limit is not None
+            else {}
+        ),
     )
 
 
@@ -193,3 +199,24 @@ def test_registry_off_ignores_workspace_id() -> None:
     )
     assert response.status_code == 200
     assert response.json()["workspace_id"] == ""
+
+
+def test_account_access_limit_clamps_new_session() -> None:
+    configs: dict = {}
+    deps = _deps(
+        configs,
+        registry_enabled=False,
+        access_limit=lambda _user: "read_only",
+    )
+    client = _client(deps)
+    response = client.post(
+        "/api/sessions",
+        json={
+            "thread_id": "limited",
+            "workspace": "/tmp/legacy",
+            "access_mode": "write_auto",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["access_mode"] == "read_only"
+    assert configs[("alice", "limited")].access_mode == "read_only"

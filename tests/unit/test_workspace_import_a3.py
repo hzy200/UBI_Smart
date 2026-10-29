@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
+import threading
 from pathlib import Path
 
 import pytest
@@ -10,9 +12,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from coding_agent.agent_protocol import AgentContext
+from coding_agent.agent_server_routes import imports
 from coding_agent.agent_server_routes.imports import (
     ImportDeps,
     _activate,
+    _spawn_job,
     _tree_size,
     register_import_routes,
     tar_command,
@@ -166,3 +170,193 @@ def test_registry_off_returns_404(monkeypatch) -> None:
         json={"source_path": "/mnt/d/proj"},
     )
     assert response.status_code == 404
+
+
+def _job_deps(tmp_path) -> ImportDeps:
+    return ImportDeps(
+        context=lambda _request: AgentContext(
+            workspace="/home/agent/ws/demo", workspace_id="wid"
+        ),
+        new_runtime=lambda _context: None,
+        close_runtime=_noop,
+        settings=_settings(agent_data_root=str(tmp_path)),
+    )
+
+
+def test_spawn_job_keeps_reference_and_records_failure(tmp_path) -> None:
+    deps = _job_deps(tmp_path)
+    job = {
+        "job_id": "job-1",
+        "status": "queued",
+        "_cancel": threading.Event(),
+    }
+
+    async def boom() -> None:
+        await asyncio.sleep(0)
+        raise RuntimeError("boom")
+
+    async def scenario() -> None:
+        task = _spawn_job(deps, job, boom())
+        assert job["_task"] is task
+        with pytest.raises(RuntimeError):
+            await task
+        await asyncio.sleep(0)
+        assert "_task" not in job
+        assert job["status"] == "failed"
+        assert "boom" in job["error"]
+
+    asyncio.run(scenario())
+
+
+def test_spawn_job_timeout_marks_failed(tmp_path) -> None:
+    deps = _job_deps(tmp_path)
+    job = {
+        "job_id": "job-2",
+        "status": "queued",
+        "_cancel": threading.Event(),
+    }
+
+    async def slow() -> None:
+        await asyncio.sleep(10)
+
+    async def scenario() -> None:
+        task = _spawn_job(deps, job, slow(), timeout_s=0.01)
+        with pytest.raises(TimeoutError):
+            await task
+        await asyncio.sleep(0)
+        assert job["status"] == "failed"
+        assert "超时" in job["error"]
+        assert job["_cancel"].is_set()
+
+    asyncio.run(scenario())
+
+
+class _Exec:
+    def __init__(self, *, ok: bool = True) -> None:
+        self.ok = ok
+
+    def host_run(self, command: str, *, kind: str, cwd: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            ok=self.ok,
+            stdout="",
+            stderr="" if self.ok else "failed",
+        )
+
+
+class _ImportRuntime:
+    def __init__(self, execution) -> None:
+        self.execution = execution
+
+
+def _import_deps(tmp_path, execution, close=None):
+    settings = _settings()
+    context = AgentContext(
+        workspace=str(tmp_path / "ws"),
+        workspace_id="w1",
+        user="alice",
+    )
+    deps = ImportDeps(
+        context=lambda _request: context,
+        new_runtime=lambda _context: _ImportRuntime(execution),
+        close_runtime=close or _noop,
+        settings=settings,
+    )
+    return deps, context
+
+
+def _import_job(tmp_path) -> dict:
+    return {
+        "job_id": "j1",
+        "source": str(tmp_path / "src"),
+        "target": str(tmp_path / "ws"),
+        "_cancel": threading.Event(),
+        "status": "queued",
+    }
+
+
+def test_run_import_success_and_cancel(tmp_path, monkeypatch) -> None:
+    from coding_agent.agent_server_models import WorkspaceImportBody
+
+    exec_ = _Exec()
+    deps, context = _import_deps(tmp_path, exec_)
+    monkeypatch.setattr(imports, "_tree_size", lambda _path: (10, 2))
+    monkeypatch.setattr(imports, "_attach_git_history", lambda *a: None)
+    monkeypatch.setattr(imports, "_activate_replace", lambda *a: None)
+    monkeypatch.setattr(imports, "_cleanup", lambda *a: None)
+    monkeypatch.setattr(imports, "_remove_file", lambda *a: None)
+    monkeypatch.setattr(
+        imports,
+        "_create_revision",
+        lambda *a, **k: {"revision_id": "r1", "archive_path": ""},
+    )
+    body = WorkspaceImportBody(
+        source_path=str(tmp_path / "src"), max_files=10
+    )
+    job = _import_job(tmp_path)
+    asyncio.run(imports._run_import(deps, context, job, body))
+    assert job["status"] == "active"
+    assert job["revision"]["revision_id"] == "r1"
+
+    job = _import_job(tmp_path)
+    job["_cancel"].set()
+    asyncio.run(imports._run_import(deps, context, job, body))
+    assert job["status"] == "cancelled"
+
+
+def test_run_import_failure_branches(tmp_path, monkeypatch) -> None:
+    from coding_agent.agent_server_models import WorkspaceImportBody
+
+    body = WorkspaceImportBody(
+        source_path=str(tmp_path / "src"), max_files=10
+    )
+    monkeypatch.setattr(imports, "_cleanup", lambda *a: None)
+    monkeypatch.setattr(imports, "_remove_file", lambda *a: None)
+    monkeypatch.setattr(imports, "_attach_git_history", lambda *a: None)
+    monkeypatch.setattr(imports, "_activate_replace", lambda *a: None)
+    monkeypatch.setattr(
+        imports,
+        "_create_revision",
+        lambda *a, **k: {"revision_id": "r1", "archive_path": ""},
+    )
+
+    # 执行面不可用。
+    class _NoExec:
+        pass
+
+    deps, context = _import_deps(tmp_path, _NoExec())
+    job = _import_job(tmp_path)
+    asyncio.run(imports._run_import(deps, context, job, body))
+    assert job["status"] == "failed"
+
+    # host_run 失败。
+    deps, context = _import_deps(tmp_path, _Exec(ok=False))
+    job = _import_job(tmp_path)
+    asyncio.run(imports._run_import(deps, context, job, body))
+    assert job["status"] == "failed"
+
+    # 配额/字节/文件数上限。
+    for kwargs in (
+        {"quota_bytes": 1},
+        {"max_bytes": 1},
+        {"max_files": 1},
+    ):
+        deps, context = _import_deps(tmp_path, _Exec())
+        monkeypatch.setattr(imports, "_tree_size", lambda _path: (10, 2))
+        job = _import_job(tmp_path)
+        limited = WorkspaceImportBody(
+            source_path=str(tmp_path / "src"), **kwargs
+        )
+        asyncio.run(imports._run_import(deps, context, job, limited))
+        assert job["status"] == "failed"
+
+    # close_runtime 抛错不影响任务结果。
+    async def _boom(_runtime):
+        raise RuntimeError("close failed")
+
+    deps, context = _import_deps(tmp_path, _Exec(), close=_boom)
+    monkeypatch.setattr(imports, "_tree_size", lambda _path: (10, 2))
+    job = _import_job(tmp_path)
+    asyncio.run(imports._run_import(deps, context, job, body))
+    assert job["status"] == "active"

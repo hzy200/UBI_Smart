@@ -146,7 +146,15 @@ export function UserDetail({
             <h2>{user.username}</h2>
             <p>
               <span className={`pill role-${user.role}`}>
-                {user.role === 'owner' ? '所有者' : user.role === 'admin' ? '管理员' : '成员'}
+                {user.role === 'owner'
+                  ? '所有者'
+                  : user.role === 'admin'
+                    ? '管理员'
+                    : user.role === 'approver'
+                      ? '审批人'
+                      : user.role === 'auditor'
+                        ? '审计员'
+                        : '成员'}
               </span>
               <span className={`pill ${user.status === 'active' ? 'ok' : 'bad'}`}>
                 {user.status === 'active' ? '启用' : '禁用'}

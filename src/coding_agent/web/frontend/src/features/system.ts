@@ -43,6 +43,11 @@ export const systemMixin = {
     if (Number.isFinite(capabilitiesVersion) && capabilitiesVersion > 0) {
       this.capabilitiesVersion = capabilitiesVersion;
     }
+    this.oidcAvailable = Boolean(this.capabilities.oidc_enabled);
+    this.fourEyes = Boolean(this.capabilities.four_eyes);
+    this.fourEyesMinLevel = Number(
+      this.capabilities.four_eyes_min_level || 3,
+    );
     const budget = Number(this.capabilities.run_cost_budget_usd || 0);
     const maxUpload = Number(this.capabilities.max_upload_bytes || 0);
     const projectUpload = Number(

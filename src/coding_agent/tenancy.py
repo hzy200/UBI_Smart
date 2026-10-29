@@ -1,7 +1,7 @@
 """Web 租户隔离：每个用户独立的 workspace、宿主数据目录与 WSL 记忆目录。
 
 关键边界：
-- workspace / memory 在 WSL 内，由 `sandbox.run(mkdir -p)` 创建；
+- workspace / memory 在 WSL 内，由 `SandboxFs.mkdir` 创建（不拼 shell）；
 - audit / checkpoint / steering 在**宿主**文件系统（AuditLogger、SQLite、
   SteeringController 都跑在宿主）；
 - 用户只能得到 `workspaces_root/<user>`，不能指定任意主机路径。
@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import re
-import shlex
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +17,13 @@ from typing import Any
 
 from coding_agent.config import Settings
 from coding_agent.sandbox.backend import build_sandbox
-from coding_agent.sandbox.pathguard import ensure_inside, normalize_root
+from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
+from coding_agent.sandbox.pathguard import (
+    PathGuardError,
+    SandboxPathError,
+    ensure_inside,
+    normalize_root,
+)
 
 _USER_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
@@ -122,16 +127,28 @@ class TenantManager:
             raise TenantError(f"非法用户名：{user!r}")
         return text
 
-    def _mkdir_wsl(self, path: str) -> None:
-        result = self.sandbox.run(f"mkdir -p {shlex.quote(path)}")
-        if not result.ok:
-            raise TenantError(f"无法创建目录 {path}：{result.render(300)}")
+    def _ensure_dir(self, path: str, root: str) -> None:
+        """创建租户目录（宿主管理动作，不执行模型意图）。
+
+        走 `SandboxFs.mkdir` 而不是自己拼 `mkdir -p`：这是 A2 侧最后一处直接
+        跑命令的地方之一（TD-034）。`root` 是允许范围的上界 —— 路径本来就由
+        `ensure_inside` 推出，这里再让 A4 按同样的根复核一次，避免"上游算对了、
+        下游照抄"的假设。
+        """
+        try:
+            SandboxFs(self.sandbox, root).mkdir(path)
+        except (SandboxFsError, SandboxPathError) as exc:
+            raise TenantError(f"无法创建目录 {path}：{exc}") from exc
 
     def resolve_workspace(self, user: str, requested: str = "") -> str:
         """把会话请求里的工作区解析成允许的绝对路径。
 
         单用户本地模式允许用户选择任意绝对路径（GUI 里还会有显式确认）；
-        多用户模式只允许落在该用户的 workspaces_root 之下，不能传任意主机路径。
+        多用户模式只允许落在该用户**自己的**目录之下。
+
+        注意边界是 `workspaces_root/<user>` 而不是 `workspaces_root`：
+        审计、checkpoint、记忆各自按用户隔离，但**工作区文件不隔离**，
+        只校验到全局根会让 A 传 `.../users/B` 直接拿到 B 工作区的读写执行权。
         """
         tenant = self.for_user(user)
         text = str(requested or "").strip()
@@ -139,7 +156,12 @@ class TenantManager:
             return tenant.workspace
         if not self.multi_user:
             return normalize_root(text)
-        return ensure_inside(text, self._workspaces_root())
+        try:
+            return ensure_inside(text, tenant.workspace)
+        except PathGuardError as exc:
+            raise TenantError(
+                f"工作区不在 {tenant.user} 的目录内：{exc}"
+            ) from exc
 
     def for_user(self, user: str, *, org: str = "") -> WebTenant:
         safe = self._safe_user(user)
@@ -168,8 +190,8 @@ class TenantManager:
                 f"{workspaces_root}/{safe}", workspaces_root
             )
             memory_dir = ensure_inside(f"{memory_root}/{safe}", memory_root)
-            self._mkdir_wsl(workspace)
-            self._mkdir_wsl(memory_dir)
+            self._ensure_dir(workspace, workspaces_root)
+            self._ensure_dir(memory_dir, memory_root)
 
             data_dir = self.data_root / safe
             data_dir.mkdir(parents=True, exist_ok=True)

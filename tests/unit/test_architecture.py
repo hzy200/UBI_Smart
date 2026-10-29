@@ -22,8 +22,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.regression
-
 SRC = Path(__file__).resolve().parents[2] / "src" / "coding_agent"
 
 # 前端包：只允许依赖 runtime / events / config 这些中立层
@@ -235,3 +233,135 @@ def test_shared_modules_stay_neutral() -> None:
     for rel in ("agent_protocol.py", "event_transport.py", "workspace/browse.py"):
         imported = _imported_modules(SRC / rel)
         assert not any(_has_prefix(imported, item) for item in forbidden), rel
+
+
+# ---------------- 依赖形状：环与跨层边 ----------------
+#
+# `docs/COMPLEXITY.md` 曾写「依赖无环」，而同一文档的依赖图里就画着
+# `graph -> orchestrator` 与 `orchestrator -> graph.state`（包的**双向**依赖）。
+# 两者都对：包级是有环的，模块级是无环的 —— 真正的约束在模块粒度。
+# 下面把这句话变成可执行的事实，并按"不许新增"冻结已知例外。
+
+# 2026-10-29 清零：`scheduler_run` 曾顶层 import `scheduler`，而 `scheduler`
+# 在函数里反向 import `scheduler_run` —— 靠"晚导入"绕开导入期环。现在纯函数
+# 下沉到 `scheduler_plan.py`，两个模块之间只剩单向边。
+# 基线必须保持为空：新增任何环都得先拆掉，而不是往这里加。
+_KNOWN_CYCLIC_MODULES: set[str] = set()
+
+
+def _all_modules() -> dict[str, Path]:
+    return {
+        ".".join(
+            ["coding_agent", *path.relative_to(SRC).with_suffix("").parts]
+        ): path
+        for path in sorted(SRC.rglob("*.py"))
+        if "__pycache__" not in path.parts
+    }
+
+
+def _module_graph() -> dict[str, set[str]]:
+    """模块级依赖图（只保留项目内的模块）。"""
+    modules = _all_modules()
+    return {
+        name: {
+            imported
+            for imported in _imported_modules(path)
+            if imported in modules and imported != name
+        }
+        for name, path in modules.items()
+    }
+
+
+def _reachable(start: str, goal: str, graph: dict[str, set[str]]) -> bool:
+    seen = {start}
+    queue = [start]
+    while queue:
+        node = queue.pop()
+        for target in graph.get(node, ()):
+            if target == goal:
+                return True
+            if target not in seen:
+                seen.add(target)
+                queue.append(target)
+    return False
+
+
+def _cyclic_modules(graph: dict[str, set[str]]) -> set[str]:
+    """处在某个环上的模块（含自环）。"""
+    cyclic: set[str] = set()
+    for node, targets in graph.items():
+        for target in targets:
+            if target == node or _reachable(target, node, graph):
+                cyclic.update((node, target))
+    return cyclic
+
+
+def test_dependency_graph_has_no_new_cycles() -> None:
+    """模块级依赖图必须是 DAG —— 已知例外冻结在 `_KNOWN_CYCLIC_MODULES`。
+
+    为什么只看模块级：把模块折叠成包之后，`graph ⇄ orchestrator`、
+    `config ⇄ llm` 看起来都是环，因为它们**搭的车不一样**（前者真的双向，
+    后者是延迟 import + 属性访问）。Python 在乎的是模块级顺序，所以这里
+    冻结的也是模块级事实。
+    """
+    cyclic = _cyclic_modules(_module_graph())
+    assert not cyclic - _KNOWN_CYCLIC_MODULES, (
+        f"新增了依赖环（涉及的模块：{sorted(cyclic - _KNOWN_CYCLIC_MODULES)}）。"
+        f"环会让模块初始化顺序变成隐式契约；请先用本地函数/延迟导入拆掉，"
+        f"确有必要时才更新本文件的已知例外并写清理由。"
+    )
+    assert not _KNOWN_CYCLIC_MODULES - cyclic, (
+        f"已知环已不存在（{sorted(_KNOWN_CYCLIC_MODULES - cyclic)}）："
+        f"请从 `_KNOWN_CYCLIC_MODULES` 里删掉，基线不该留着已经修好的东西。"
+    )
+
+
+def test_orchestrator_does_not_import_graph_build() -> None:
+    """包级环安全的前提：`orchestrator` 不得指向 `graph.build`。
+
+    `graph/build.py` 已经 import 了整个 orchestrator；反向 import 会立刻
+    闭合模块级环。上一条测试的报错里也能看到，但这里给了更准的位置。
+    """
+    for path in _modules("orchestrator"):
+        imported = _imported_modules(path)
+        assert "coding_agent.graph.build" not in imported, (
+            f"{path.relative_to(SRC)} 反向依赖了 graph.build："
+            f"`graph -> orchestrator` 已经是单向边，反向会形成模块级环。"
+        )
+
+
+# CLI 跑在宿主上，直接 import 控制面会把 A1/A2 边界压平：改用户、改配额如果
+# 走 `control.store` 而不是 A2 的 HTTP 面，鉴权与审批就被绕过去了。每条边都要
+# 显式登记 —— 新增即失败，偿还条件见 docs/tech-debt.yaml TD-032。
+#
+# `cli/admin.py -> control` 保留但已收窄：它现在只调
+# `control.bootstrap.create_first_admin()`（租户下没有任何账号时才允许创建，
+# 见 tests/unit/test_admin_bootstrap.py），不再持有 `ControlStore` 句柄。
+# 冷启动必须有这条路径 —— 服务还没起来，走 HTTP 无门。
+_FROZEN_CLI_EDGES = {
+    ("cli/admin.py", "coding_agent.control"),
+    ("cli/app.py", "coding_agent.web"),
+    ("cli/app.py", "coding_agent.tui"),
+}
+
+
+def test_cli_cross_layer_imports_are_frozen() -> None:
+    actual: set[tuple[str, str]] = set()
+    for path in _modules("cli"):
+        imported = _imported_modules(path)
+        for forbidden in (
+            "coding_agent.control",
+            "coding_agent.web",
+            "coding_agent.tui",
+        ):
+            if _has_prefix(imported, forbidden):
+                actual.add((path.relative_to(SRC).as_posix(), forbidden))
+
+    assert not actual - _FROZEN_CLI_EDGES, (
+        f"CLI 新增了跨层边：{sorted(actual - _FROZEN_CLI_EDGES)}。"
+        f"CLI 应当经 runtime 或 A2 的 HTTP 面行事，不要直接拿着 control.store 改用户。"
+    )
+    assert not _FROZEN_CLI_EDGES - actual, (
+        f"冻结的跨层边已不存在：{sorted(_FROZEN_CLI_EDGES - actual)}。"
+        f"请从 `_FROZEN_CLI_EDGES` 删掉 —— 基线里不留已经修好的债。"
+    )

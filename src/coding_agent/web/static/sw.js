@@ -4,14 +4,17 @@
  * 避免把认证数据或事件流写进缓存。
  */
 
-const CACHE = 'codingagent-shell-v1';
+const CACHE = 'codingagent-shell-v2';
 const SHELL = [
   '/',
   '/static/index.html',
   '/static/app.js',
   '/static/style.css',
   '/static/manifest.webmanifest',
-  '/static/icon.svg',
+  '/static/favicon-32.png',
+  '/static/icon-192.png',
+  '/static/icon-512.png',
+  '/static/apple-touch-icon.png',
   '/static/vendor/alpine-csp.min.js',
   '/static/vendor/highlight.min.js',
   '/static/vendor/marked.min.js',

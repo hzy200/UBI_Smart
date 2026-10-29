@@ -17,8 +17,13 @@ from coding_agent import control_server
 class _Settings:
     agent_internal_url = ""
     agent_internal_token = ""
+    agent_internal_hmac_key = ""
+    agent_internal_hmac_required = False
     control_db_url = ""
     resolved_audit_dir = "/tmp/audit"
+    web_accounts_enabled = False
+    web_cookie_secure = False
+    drain_timeout_s = 60
 
 
 class _FakeAuth:
@@ -220,6 +225,25 @@ def test_non_loopback_requires_auth(patched, monkeypatch) -> None:
     assert excinfo.value.code == 2
 
 
+def test_remote_internal_url_requires_context_hmac(patched, monkeypatch) -> None:
+    """A2→A3 跨机时 context 必须验签：只靠内部 token 等于把 tenant 交给中间人。"""
+    settings = _Settings()
+    assert control_server._internal_url_is_remote(settings) is False
+    settings.agent_internal_url = "http://127.0.0.1:8790"
+    assert control_server._internal_url_is_remote(settings) is False
+    settings.agent_internal_url = "http://10.0.0.5:8790"
+    assert control_server._internal_url_is_remote(settings) is True
+
+    monkeypatch.setattr(control_server, "get_settings", lambda: settings)
+    with pytest.raises(SystemExit) as excinfo:
+        _main(monkeypatch)
+    assert excinfo.value.code == 2
+
+    # 配了 key 就放行（后续启动流程仍由 patched fixture 接管）。
+    settings.agent_internal_hmac_key = "k"
+    assert _main(monkeypatch) == 0
+
+
 def test_loopback_start_installs_shutdown(patched, monkeypatch, capsys) -> None:
     code = _main(
         monkeypatch,
@@ -244,6 +268,23 @@ def test_loopback_start_installs_shutdown(patched, monkeypatch, capsys) -> None:
     assert payload["event"] == "coding_agent_control_plane"
     assert payload["agent_state"] == "in_process"
     assert patched.created[-1]["client_source"] == "web"
+
+
+def test_non_loopback_accounts_require_secure_cookie(
+    patched, monkeypatch
+) -> None:
+    settings = _Settings()
+    settings.web_accounts_enabled = True
+    settings.web_cookie_secure = False
+    monkeypatch.setattr(control_server, "get_settings", lambda: settings)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("tok\n"))
+    with pytest.raises(SystemExit) as excinfo:
+        _main(monkeypatch, "--host", "0.0.0.0", "--token-stdin")
+    assert excinfo.value.code == 2
+
+    settings.web_cookie_secure = True
+    monkeypatch.setattr(sys, "stdin", io.StringIO("tok\n"))
+    assert _main(monkeypatch, "--host", "0.0.0.0", "--token-stdin") == 0
 
 
 def test_token_stdin_builds_local_auth(patched, monkeypatch) -> None:

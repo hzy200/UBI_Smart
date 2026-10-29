@@ -377,7 +377,7 @@ WARN  环境变量被 .env 覆盖 — LANGSMITH_API_KEY 在环境变量里也有
 ### 测试太慢
 
 ```bash
-pytest -m "not wsl and not llm"   # 跳过真实沙箱与真实模型，约 1 分钟
+pytest -m "not wsl and not wsl_env and not llm"   # 跳过真实沙箱与真实模型，约 1 分钟
 ```
 
 集成测试的开销几乎全在 `wsl.exe` 进程启动上。分层与守卫见

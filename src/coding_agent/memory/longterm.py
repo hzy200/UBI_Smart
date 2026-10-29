@@ -17,7 +17,6 @@ import json
 import math
 import posixpath
 import re
-import shlex
 import time
 from collections import Counter
 from collections.abc import Iterable, Iterator
@@ -195,37 +194,34 @@ class LongTermMemory:
 
         拿不到锁时**仍然继续写**：记忆是辅助能力，不能因为一个残留锁把
         `/remember` 永久卡死。这个降级窗口很小，且写入仍是完整的。
+
+        这里只用 `SandboxFs` 的目录能力（`mkdir` / `mkdir_exclusive` /
+        `rmdir` / `stat`），不再拼 shell：早先实现直接取 `self._fs._sandbox`
+        跑 `mkdir`/`rmdir` 脚本，等于在 A4 之外又开了一条命令通道（TD-034）。
         """
-        sandbox = getattr(self._fs, "_sandbox", None)
-        if sandbox is None:
+        mkdir_exclusive = getattr(self._fs, "mkdir_exclusive", None)
+        if not callable(mkdir_exclusive):
             yield  # 测试用的假 fs：单进程，无竞争
             return
         lock_dir = posixpath.join(
             self.state_root, AGENT_STATE_DIRNAME, "memory.lock.d"
         )
-        quoted = shlex.quote(lock_dir)
-        owner = shlex.quote(posixpath.join(lock_dir, "owner"))
-        parent = shlex.quote(posixpath.dirname(lock_dir))
-        acquire = (
-            f"mkdir -p {parent} 2>/dev/null && "
-            f"mkdir {quoted} 2>/dev/null && "
-            f"printf '%s %s\\n' \"$$\" \"$(date +%s)\" "
-            f"> {owner} 2>/dev/null"
-        )
-        # 进程崩溃会留下锁目录。超过阈值后清掉 owner 再 rmdir；
-        # 只动这个固定路径，不碰工作区里的其它内容。
-        cleanup_stale = (
-            f"now=$(date +%s); "
-            f"mtime=$(stat -c %Y {quoted} 2>/dev/null || echo $now); "
-            f"if [ $((now - mtime)) -gt {LOCK_STALE_SECONDS} ]; then "
-            f"rm -f {owner} 2>/dev/null; rmdir {quoted} 2>/dev/null; fi"
-        )
+        try:
+            # 首次写入时 `.agent/` 可能还不存在；`mkdir` 是 -p 语义，
+            # 只负责保证父目录在，互斥仍靠下面的原子 mkdir。
+            self._fs.mkdir(posixpath.dirname(lock_dir))
+        except (SandboxFsError, SandboxPathError):
+            yield
+            return
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            # 首次写入时 `.agent/` 可能还不存在；-p 只建父目录，锁本身仍是原子 mkdir
-            if sandbox.run(acquire).ok:
+            try:
+                acquired = mkdir_exclusive(lock_dir)
+            except (SandboxFsError, SandboxPathError):
+                acquired = False
+            if acquired:
                 break
-            sandbox.run(cleanup_stale)
+            self._clear_stale_lock(lock_dir)
             time.sleep(0.05)
         else:
             yield
@@ -233,9 +229,26 @@ class LongTermMemory:
         try:
             yield
         finally:
-            sandbox.run(
-                f"rm -f {owner} 2>/dev/null; rmdir {quoted} 2>/dev/null"
-            )
+            try:
+                self._fs.rmdir(lock_dir)
+            except (SandboxFsError, SandboxPathError):
+                pass
+
+    def _clear_stale_lock(self, lock_dir: str) -> None:
+        """进程崩溃会留下锁目录；只有超过阈值才清，且只动这一个固定路径。"""
+        try:
+            info = self._fs.stat(lock_dir)
+        except (SandboxFsError, SandboxPathError):
+            return
+        if not info.exists:
+            return
+        age = time.time() - float(getattr(info, "mtime", 0.0) or 0.0)
+        if age <= LOCK_STALE_SECONDS:
+            return
+        try:
+            self._fs.rmdir(lock_dir)
+        except (SandboxFsError, SandboxPathError):
+            pass
 
     # ------------------------------------------------------------------
 

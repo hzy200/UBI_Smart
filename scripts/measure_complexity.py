@@ -5,6 +5,11 @@ docs/COMPLEXITY.md 里的数字必须能从源码重算，否则就是第二份�
 
     python scripts/measure_complexity.py            # 文本报告
     python scripts/measure_complexity.py --json     # 机器可读
+    python scripts/measure_complexity.py --check docs/COMPLEXITY.md
+
+`--check` 存在的原因：本文的表格过去是手抄的，于是出现过"文档写 179 文件 /
+43,789 行，实际 249 / 67,322"这种**过期半年**的情况。现在关键数字由脚本
+反查文档，对不上就红 —— 数字腐烂变成 CI 失败，而不是某天被偶然发现。
 
 口径
 ----
@@ -22,6 +27,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import statistics
 from collections import Counter
 from pathlib import Path
@@ -178,11 +184,150 @@ def render(data: dict) -> str:
     return "\n".join(out)
 
 
+def _expected_in_doc(data: dict) -> list[str]:
+    """`docs/COMPLEXITY.md` 里必须出现的当前数字。"""
+    s, fl, cy, t = (
+        data["source"],
+        data["function_length"],
+        data["cyclomatic"],
+        data["tests"],
+    )
+    return [
+        f"**{s['files']}**",          # 源文件
+        f"**{s['lines']:,}**",        # 源码行数
+        f"**{s['functions']:,}**",    # 函数/方法
+        f"**{t['files']} / {t['lines']:,}**",  # 测试文件 / 行数
+        f"**{t['ratio']} : 1**",      # 测试:源码
+        f"**{fl['median']:.0f} 行**",
+        f"{fl['over_40_pct']}%",
+        f"**{cy['over_10_pct']}%**",
+        f"**{cy['max']}**",
+    ]
+
+
+def _check(path: Path, data: dict) -> list[str]:
+    if not path.is_file():
+        return [f"文档不存在：{path}"]
+    text = path.read_text(encoding="utf-8")
+    errors = [
+        f"文档里缺少当前数字 {token!r}（重跑本脚本后更新 {path.name}）"
+        for token in _expected_in_doc(data)
+        if token not in text
+    ]
+    errors.extend(_detail_errors(text, data))
+    return errors
+
+
+# 文档里的路径去掉了 `src/coding_agent/` 前缀（`runtime.py`、`web/app.py`）。
+def _short(path: str) -> str:
+    return path.split("src/coding_agent/", 1)[-1]
+
+
+def _section(text: str, start: str, end: str) -> str:
+    head = text.find(start)
+    if head < 0:
+        return ""
+    tail = text.find(end, head + len(start))
+    return text[head : tail if tail >= 0 else len(text)]
+
+
+def _first_table(section: str) -> list[str]:
+    """只取章节里第一张表：§3 后面还有一张"拆分后"的补充表，列数不同。"""
+    rows: list[str] = []
+    started = False
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not started:
+            if stripped.startswith("| 函数"):
+                started = True
+            continue
+        if not stripped.startswith("|"):
+            break
+        rows.append(stripped)
+    return rows
+
+
+# 表格里数字加不加粗（`**66**`）都合法，解析时统一剥掉。
+_CC_ROW = re.compile(
+    r"^\|\s*`(?P<name>[^`]+)`\s*\|\s*(?P<length>\*{0,2}[\d,]+\*{0,2})\s*\|"
+    r"\s*\*{0,2}(?P<cc>\d+)\*{0,2}\s*\|"
+)
+_FILE_ROW = re.compile(
+    r"^\|\s*`(?P<file>[^`]+)`\s*\|\s*\*{0,2}(?P<lines>[\d,]+)\*{0,2}\s*\|"
+)
+
+
+def _detail_errors(text: str, data: dict) -> list[str]:
+    """§3（热点函数）与 §4（最大文件）的明细也要对得上。
+
+    聚合数字对得上、明细表却过期是最难发现的一种腐烂：谁也不会去逐行核。
+    """
+    hot: list[tuple[str, int, int]] = []
+    for line in _first_table(_section(text, "## 3.", "## 4.")):
+        match = _CC_ROW.match(line.strip())
+        if match:
+            hot.append(
+                (
+                    match.group("name"),
+                    int(match.group("length").replace(",", "").strip("*")),
+                    int(match.group("cc")),
+                )
+            )
+    measured_hot = [
+        (f"{_short(item['file'])}::{item['name']}", item["length"], item["cc"])
+        for item in data["top_cc"]
+    ]
+
+    big: list[tuple[str, int]] = []
+    for line in _section(text, "## 4.", "## 5.").splitlines():
+        match = _FILE_ROW.match(line.strip())
+        if match:
+            big.append(
+                (
+                    match.group("file"),
+                    int(match.group("lines").replace(",", "").strip("*")),
+                )
+            )
+    measured_big = [
+        (_short(item["file"]), item["lines"]) for item in data["top_files"]
+    ]
+
+    return _compare("§3 复杂度热点", hot, measured_hot) + _compare(
+        "§4 最大文件", big, measured_big
+    )
+
+
+def _compare(label: str, documented: list, measured: list) -> list[str]:
+    if documented == measured:
+        return []
+    missing = [row for row in measured if row not in documented]
+    stale = [row for row in documented if row not in measured]
+    parts: list[str] = []
+    if missing:
+        parts.append("缺少 " + "；".join(str(row) for row in missing[:3]))
+    if stale:
+        parts.append("过期 " + "；".join(str(row) for row in stale[:3]))
+    return [f"{label}与实测不一致：{'，'.join(parts)}（重跑本脚本后更新文档）"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="静态复杂度度量（零依赖）")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
+    parser.add_argument(
+        "--check",
+        metavar="DOC",
+        help="校验文档里的关键数字是否与当前源码一致",
+    )
     args = parser.parse_args()
     data = collect()
+    if args.check:
+        errors = _check(Path(args.check), data)
+        for error in errors:
+            print(error)
+        if errors:
+            return 1
+        print(f"{args.check} 的数字与源码一致。")
+        return 0
     print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else render(data))
     return 0
 

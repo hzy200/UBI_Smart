@@ -36,6 +36,18 @@ def test_write_then_read(tmp_path) -> None:
     assert [r.tool for r in records] == ["shell_exec", "file_edit"]
 
 
+def test_write_fsyncs_each_record(tmp_path, monkeypatch) -> None:
+    import coding_agent.audit.logger as audit_logger
+
+    calls: list[int] = []
+    monkeypatch.setattr(
+        audit_logger.os, "fsync", lambda fd: calls.append(int(fd))
+    )
+    logger = AuditLogger(tmp_path)
+    logger.write(_record(tool="shell_exec"))
+    assert len(calls) == 1
+
+
 def test_file_is_append_only_jsonl(tmp_path) -> None:
     logger = AuditLogger(tmp_path)
     logger.write(_record(tool="a"))
@@ -231,3 +243,90 @@ def test_record_serializes_without_none_noise() -> None:
     payload = _record(tool="shell_exec", exit_code=0).model_dump_json(exclude_none=True)
     assert "exit_code" in payload
     assert "snapshot_id" not in payload  # None 字段不落库，日志更紧凑
+
+
+class _FakeSocket:
+    sent: list[tuple[bytes, tuple[str, int]]] = []
+    fail = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> bool:
+        return False
+
+    def sendto(self, data: bytes, address: tuple[str, int]) -> None:
+        if _FakeSocket.fail:
+            raise OSError("unreachable")
+        _FakeSocket.sent.append((data, address))
+
+
+def test_syslog_export_and_invalid_address(tmp_path, monkeypatch) -> None:
+    import coding_agent.audit.logger as audit_logger
+
+    _FakeSocket.sent = []
+    _FakeSocket.fail = False
+    monkeypatch.setattr(
+        audit_logger.socket, "socket", lambda *_a, **_k: _FakeSocket()
+    )
+    logger = AuditLogger(
+        tmp_path, syslog_address="127.0.0.1:5514"
+    )
+    logger.write(_record(tool="shell_exec"))
+    assert len(_FakeSocket.sent) == 1
+    payload, address = _FakeSocket.sent[0]
+    assert address == ("127.0.0.1", 5514)
+    assert json.loads(payload.decode("utf-8"))["tool"] == "shell_exec"
+
+    _FakeSocket.fail = True
+    logger.write(_record(tool="file_read"))
+    assert len(_FakeSocket.sent) == 1
+
+    with pytest.raises(ValueError, match="host:port"):
+        AuditLogger(tmp_path, syslog_address="bad")
+
+
+def test_webhook_delivery_and_failure_count(tmp_path, monkeypatch) -> None:
+    import coding_agent.audit.logger as audit_logger
+    from coding_agent import observability
+
+    seen = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> bool:
+            return False
+
+        def read(self, _n: int) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, timeout=3):
+        seen["url"] = request.full_url
+        seen["data"] = request.data
+        seen["auth"] = request.headers.get("Authorization")
+        return _Resp()
+
+    monkeypatch.setattr(
+        audit_logger.urllib.request, "urlopen", fake_urlopen
+    )
+    logger = AuditLogger(
+        tmp_path,
+        webhook_url="http://siem.local/audit",
+        webhook_token="secret",
+    )
+    logger._deliver_webhook('{"tool":"shell_exec"}')
+    assert seen["url"] == "http://siem.local/audit"
+    assert b"shell_exec" in seen["data"]
+    assert seen["auth"] == "Bearer secret"
+
+    before = observability.snapshot()["agent_silent_failures_total"]
+
+    def boom(*_args, **_kwargs):
+        raise OSError("down")
+
+    monkeypatch.setattr(audit_logger.urllib.request, "urlopen", boom)
+    logger._deliver_webhook("{}")
+    after = observability.snapshot()["agent_silent_failures_total"]
+    assert after == before + 1

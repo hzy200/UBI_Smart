@@ -66,10 +66,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # 手动触发的能力评测。eval 会真实启动 WSL 沙箱，因此只能跑在
-  # self-hosted WSL runner 上；没有该 runner 时请不要勾选 run_eval。
+  # 能力评测。会真实启动 WSL 沙箱，因此只能跑在 self-hosted WSL runner 上。
+  #
+  # 定时触发（TD-006）：`tests/eval` 不在 PR 门禁里，套件什么时候饱和的没人
+  # 知道。这里让它每周跟 `llm-tests` 一起跑 —— 但**必须**仓库变量
+  # `WSL_RUNNER_READY=true` 才启用：runner 没注册时 job 会一直排队，
+  # 而不是快速失败，那比不跑更糟。注册完 runner 再把这个变量打开。
   llm-eval:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_eval }}
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' && inputs.run_eval) ||
+        (github.event_name == 'schedule' && vars.WSL_RUNNER_READY == 'true')
+      }}
     runs-on: [self-hosted, wsl]
     timeout-minutes: 120
     steps:
@@ -86,9 +94,32 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: >-
           python -m tests.eval.runner
-          --suite "${{ inputs.suite }}"
-          --repeat "${{ inputs.repeat }}"
+          --suite "${{ inputs.suite || 'default' }}"
+          --repeat "${{ inputs.repeat || '1' }}"
           --baseline "llm-eval-${{ github.run_id }}.json"
+
+      # 把 JSON 读成结论：饱和要出现在摘要里（否则等于没跑），
+      # 退化才让 job 红（见 scripts/eval_gate.py 的判定口径）。
+      - name: 解读评测结果
+        if: always()
+        run: |
+          result="llm-eval-${{ github.run_id }}.json"
+          if [ ! -f "$result" ]; then
+            echo "### ⚠️ 评测没有产出结果文件，无法判定" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::评测未产出 $result（runner 可能中途失败）"
+            exit 0
+          fi
+          base="tests/eval/baseline.json"
+          if [ "${{ inputs.suite || 'default' }}" = "long" ]; then
+            base="tests/eval/baseline_long.json"
+          fi
+          if [ -f "$base" ]; then
+            python scripts/eval_gate.py "$result" --compare "$base" --markdown \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            python scripts/eval_gate.py "$result" --markdown \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: 上传评测结果
         if: always()

@@ -1,75 +1,113 @@
-"""分层项目指令：发现顺序、合并与容量上限。"""
+"""分层项目指令：发现顺序、合并与容量上限。
+
+发现走 `SandboxFs.find_files`（不拼 shell），所以这里假的是 fs 而不是
+sandbox —— 指令文件的内容会直接进模型上下文，这条路径不该再握着"任意命令"
+的能力（TD-034）。
+"""
 
 from __future__ import annotations
 
 from coding_agent import instructions
-from coding_agent.sandbox.wsl_exec import ExecResult
-
-
-class _Sandbox:
-    def __init__(self, stdout: str = "") -> None:
-        self.stdout = stdout
-        self.commands: list[str] = []
-
-    def run(self, command: str, *, cwd=None, timeout=None) -> ExecResult:  # noqa: ANN001
-        self.commands.append(command)
-        return ExecResult(
-            command=command,
-            exit_code=0,
-            stdout=self.stdout,
-            stderr="",
-            duration_ms=0,
-        )
+from coding_agent.sandbox.fs import FileStat, SandboxFsError
 
 
 class _Fs:
-    def __init__(self, files: dict[str, str]) -> None:
+    """只实现 instructions 用到的三个接口。"""
+
+    def __init__(
+        self, files: dict[str, str], *, discover_error: bool = False
+    ) -> None:
         self.files = files
+        self.discover_error = discover_error
+        self.calls: list[tuple] = []
+
+    def find_files(
+        self,
+        names,
+        *,
+        max_depth: int = 4,
+        exclude_dirs=(),
+        limit: int = 200,
+    ) -> list[str]:
+        self.calls.append(("find_files", tuple(names), max_depth))
+        if self.discover_error:
+            raise SandboxFsError("find 不可用")
+        found = [
+            path
+            for path in self.files
+            if path.rsplit("/", 1)[-1] in names
+        ]
+        return sorted(found)[:limit]
+
+    def stat(self, path: str) -> FileStat:
+        return FileStat(
+            exists=path in self.files,
+            is_file=True,
+            size=len(self.files.get(path, "")),
+            real_path=path,
+        )
 
     def read_text(self, path: str, *, max_bytes: int) -> str:
-        from coding_agent.sandbox.fs import SandboxFsError
-
         if path not in self.files:
             raise SandboxFsError("not found")
         return self.files[path]
 
 
-def test_discover_orders_shallow_before_deep() -> None:
-    sandbox = _Sandbox(
-        "./src/deep/AGENTS.md\n./CLAUDE.md\n./src/AGENTS.md\n./README.md\n"
-    )
-    found = instructions.discover_instruction_paths(sandbox, "/work")
-    assert found == ["CLAUDE.md", "src/AGENTS.md", "src/deep/AGENTS.md"]
-
-
-def test_discover_filters_unrelated_names() -> None:
-    sandbox = _Sandbox("./README.md\n./docs/guide.md\n")
-    assert instructions.discover_instruction_paths(sandbox, "/work") == []
-
-
-def test_untrusted_repo_instructions_are_not_loaded() -> None:
-    sandbox = _Sandbox("./AGENTS.md\n")
-
-    text = instructions.load_project_instructions(
-        sandbox, "/work", trusted=False
-    )
-
-    assert text == ""
-    assert sandbox.commands == []  # 连发现都不做
-
-
-def test_load_merges_files_with_headers(monkeypatch) -> None:
-    sandbox = _Sandbox("./CLAUDE.md\n./src/AGENTS.md\n")
-    fs = _Fs(
-        {
-            "CLAUDE.md": "根目录规则",
-            "src/AGENTS.md": "子目录规则",
-        }
-    )
+def _patch(monkeypatch, fs: _Fs) -> _Fs:
     monkeypatch.setattr(
         instructions, "SandboxFs", lambda _sandbox, _root: fs
     )
-    text = instructions.load_project_instructions(sandbox, "/work")
+    return fs
+
+
+def test_discover_orders_shallow_before_deep(monkeypatch) -> None:
+    fs = _patch(
+        monkeypatch,
+        _Fs(
+            {
+                "src/deep/AGENTS.md": "",
+                "CLAUDE.md": "",
+                "src/AGENTS.md": "",
+            }
+        ),
+    )
+    found = instructions.discover_instruction_paths(object(), "/work")
+    assert found == ["CLAUDE.md", "src/AGENTS.md", "src/deep/AGENTS.md"]
+    assert fs.calls[0][2] == instructions.MAX_DEPTH
+
+
+def test_discover_ignores_unrelated_files(monkeypatch) -> None:
+    _patch(monkeypatch, _Fs({"README.md": "", "docs/guide.md": ""}))
+    assert instructions.discover_instruction_paths(object(), "/work") == []
+
+
+def test_discover_falls_back_to_root_when_scan_fails(monkeypatch) -> None:
+    """扫描失败时至少看根目录，不因为 find 不可用就整片丢失。"""
+    _patch(
+        monkeypatch,
+        _Fs({"AGENTS.md": "根规则", "src/AGENTS.md": "子规则"}, discover_error=True),
+    )
+    found = instructions.discover_instruction_paths(object(), "/work")
+    assert found == ["AGENTS.md"]
+
+
+def test_untrusted_repo_instructions_are_not_loaded(monkeypatch) -> None:
+    fs = _patch(monkeypatch, _Fs({"AGENTS.md": "根规则"}))
+
+    text = instructions.load_project_instructions(
+        object(), "/work", trusted=False
+    )
+
+    assert text == ""
+    assert fs.calls == []  # 连发现都不做
+
+
+def test_load_merges_files_with_headers(monkeypatch) -> None:
+    _patch(
+        monkeypatch,
+        _Fs({"CLAUDE.md": "根目录规则", "src/AGENTS.md": "子目录规则"}),
+    )
+    text = instructions.load_project_instructions(object(), "/work")
     assert "### CLAUDE.md" in text
     assert "### src/AGENTS.md" in text
     # 更具体的子目录指令排在后面
@@ -77,8 +115,5 @@ def test_load_merges_files_with_headers(monkeypatch) -> None:
 
 
 def test_no_instruction_files_returns_empty(monkeypatch) -> None:
-    sandbox = _Sandbox("")
-    monkeypatch.setattr(
-        instructions, "SandboxFs", lambda _sandbox, _root: _Fs({})
-    )
-    assert instructions.load_project_instructions(sandbox, "/work") == ""
+    _patch(monkeypatch, _Fs({}))
+    assert instructions.load_project_instructions(object(), "/work") == ""

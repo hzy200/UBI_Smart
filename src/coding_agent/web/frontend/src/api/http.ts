@@ -5,6 +5,7 @@
  */
 
 import { FRONTEND_VERSION } from '../version';
+import { detectLocale, translate } from '../i18n';
 import { apiUrl, currentRuntimeConfig } from '../runtime-config';
 import { responseCache } from './cache';
 import type { CacheOptions } from './cache';
@@ -129,7 +130,10 @@ export class ProblemError extends Error {
     retryable: boolean;
     details: any;
   }) {
-    super(message);
+    // 后端文案以中文为事实源；已知错误码按当前语言本地化，未知码保留原文。
+    const key = `errors.codes.${info.code}`;
+    const localized = translate(detectLocale(), key);
+    super(localized === key ? message : localized);
     this.name = 'ProblemError';
     this.status = info.status;
     this.code = info.code;

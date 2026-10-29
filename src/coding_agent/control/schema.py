@@ -28,7 +28,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-CONTROL_SCHEMA_VERSION = "11"
+CONTROL_SCHEMA_VERSION = "15"
 
 
 class Base(DeclarativeBase):
@@ -266,6 +266,37 @@ class WorkspaceRevision(Base):
     )
 
 
+class ControlWorkspaceAcl(Base):
+    """工作区只读共享授权（P1-3）。
+
+    只共享元数据与 revision 的可见性，**不共享执行**：创建会话仍要求
+    `workspace.owner == user`，所以被授权者看得到却跑不了。
+    """
+
+    __tablename__ = "control_workspace_acl"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128), default="")
+    workspace_id: Mapped[str] = mapped_column(String(36), default="")
+    grantee: Mapped[str] = mapped_column(String(128), default="")
+    # 预留权限位；当前只有 read，写入必须走 owner。
+    permission: Mapped[str] = mapped_column(String(16), default="read")
+    granted_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant",
+            "workspace_id",
+            "grantee",
+            name="uq_workspace_acl_tenant_ws_grantee",
+        ),
+        Index(
+            "ix_workspace_acl_tenant_grantee", "tenant", "grantee"
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # 企业账号、会话与配额（迁移 0010）
 # ---------------------------------------------------------------------------
@@ -281,8 +312,12 @@ class ControlUser(Base):
     tenant: Mapped[str] = mapped_column(String(128), default="default", index=True)
     username: Mapped[str] = mapped_column(String(64))
     email: Mapped[str] = mapped_column(String(255), default="")
-    # owner | admin | member
+    # owner | admin | approver | auditor | member
     role: Mapped[str] = mapped_column(String(16), default="member")
+    # 管理员可把成员限制为 read_only / write_ask；会话创建与运行都按此钳制。
+    max_access_mode: Mapped[str] = mapped_column(
+        String(16), default="write_auto"
+    )
     password_hash: Mapped[str] = mapped_column(String(255), default="")
     # active | disabled
     status: Mapped[str] = mapped_column(String(16), default="active")
@@ -310,6 +345,23 @@ class ControlAuthSession(Base):
 
     __table_args__ = (
         Index("ix_control_auth_sessions_expires", "expires_at"),
+    )
+
+
+class ControlPasswordReset(Base):
+    """一次性密码重置 token；只存 sha256，成功即标记 used。"""
+
+    __tablename__ = "control_password_resets"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+    used_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index("ix_control_password_resets_user", "user_id"),
+        Index("ix_control_password_resets_expires", "expires_at"),
     )
 
 
@@ -460,3 +512,116 @@ class ControlUsageCursor(Base):
     worker_output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     billed_usd: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class ControlUserIdentity(Base):
+    """OIDC 身份到本地用户的绑定；同一 issuer+subject 只允许一个用户。"""
+
+    __tablename__ = "control_user_identities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128), default="default", index=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    issuer: Mapped[str] = mapped_column(String(255), default="")
+    subject: Mapped[str] = mapped_column(String(255), default="")
+    email: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant",
+            "issuer",
+            "subject",
+            name="uq_user_identity_tenant_issuer_subject",
+        ),
+    )
+
+
+class ControlOidcState(Base):
+    """一次性 OIDC state/nonce/PKCE verifier；消费后删除。"""
+
+    __tablename__ = "control_oidc_states"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128), default="default")
+    nonce: Mapped[str] = mapped_column(String(128), default="")
+    code_verifier: Mapped[str] = mapped_column(String(128), default="")
+    redirect_uri: Mapped[str] = mapped_column(String(512), default="")
+    # 回调后回跳路径；只接受站内绝对路径。
+    return_to: Mapped[str] = mapped_column(String(512), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index("ix_control_oidc_states_expires", "expires_at"),
+    )
+
+
+class ControlUserMfa(Base):
+    """TOTP 密钥密文与恢复码哈希；一个用户一行。"""
+
+    __tablename__ = "control_user_mfa"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    secret_ciphertext: Mapped[str] = mapped_column(Text, default="")
+    nonce: Mapped[str] = mapped_column(String(64), default="")
+    key_version: Mapped[int] = mapped_column(Integer, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # JSON 数组；只存 sha256(recovery_code)，不存明文。
+    recovery_hashes: Mapped[str] = mapped_column(Text, default="[]")
+    last_used_step: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    updated_at: Mapped[str] = mapped_column(String(32), default="")
+
+
+class ControlMfaChallenge(Base):
+    """登录第二步的短时挑战；只存 token 哈希。"""
+
+    __tablename__ = "control_mfa_challenges"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index("ix_control_mfa_challenges_expires", "expires_at"),
+    )
+
+
+class ControlApproval(Base):
+    """四眼审批事实；L3 决定只能由非发起人的管理员写入。"""
+
+    __tablename__ = "control_approvals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128), default="default", index=True)
+    thread_id: Mapped[str] = mapped_column(String(128), default="")
+    call_id: Mapped[str] = mapped_column(String(128), default="")
+    tool: Mapped[str] = mapped_column(String(64), default="")
+    command: Mapped[str] = mapped_column(Text, default="")
+    level: Mapped[str] = mapped_column(String(32), default="")
+    level_int: Mapped[int] = mapped_column(Integer, default=0)
+    requested_by: Mapped[str] = mapped_column(String(64), default="")
+    # pending / approved / denied / expired
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    decided_by: Mapped[str] = mapped_column(String(64), default="")
+    decided_at: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant",
+            "thread_id",
+            "call_id",
+            name="uq_approval_tenant_thread_call",
+        ),
+        Index(
+            "ix_control_approvals_pending",
+            "tenant",
+            "status",
+            "created_at",
+        ),
+    )

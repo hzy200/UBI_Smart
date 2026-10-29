@@ -465,6 +465,15 @@ class _ShellSessionPool:
                         self._active.discard(session)
                     session.close()
 
+    def cancel_active(self) -> int:
+        """关闭所有会话；正在执行的命令会因管道关闭而返回。"""
+        with self._lock:
+            sessions = list(self._active) + list(self._idle)
+            self._idle.clear()
+        for session in sessions:
+            session.close()
+        return len(sessions)
+
     def _take(self) -> _ShellSession:
         with self._lock:
             if self._closed:
@@ -610,6 +619,9 @@ class WslSandbox:
         # 会话池的创建/关闭可能来自不同线程；指标更新也有复合操作。
         self._session_lock = threading.Lock()
         self._stats_lock = threading.Lock()
+        # 在飞的一次性 wsl.exe 进程；cancel_active() 用来响应 /cancel。
+        self._active_lock = threading.Lock()
+        self._active_procs: set[subprocess.Popen] = set()
         # bwrap 只绑定工作区；仓库外的 per-user 记忆目录需要显式可写绑定。
         self._bind_lock = threading.Lock()
         self._extra_binds: set[str] = set()
@@ -1082,12 +1094,18 @@ class WslSandbox:
         except FileNotFoundError as exc:
             raise WslUnavailableError("找不到 wsl.exe，请确认已启用 WSL2。") from exc
 
-        out, err, timed_out, out_cut, err_cut = _communicate_limited(
-            proc,
-            script.encode("utf-8"),
-            timeout=limit,
-            limit=capture_limit,
-        )
+        with self._active_lock:
+            self._active_procs.add(proc)
+        try:
+            out, err, timed_out, out_cut, err_cut = _communicate_limited(
+                proc,
+                script.encode("utf-8"),
+                timeout=limit,
+                limit=capture_limit,
+            )
+        finally:
+            with self._active_lock:
+                self._active_procs.discard(proc)
         exit_code = (
             TIMEOUT_EXIT_CODE
             if timed_out or proc.returncode is None
@@ -1115,6 +1133,28 @@ class WslSandbox:
             duration_ms=duration_ms,
             timed_out=timed_out,
         )
+
+    def cancel_active(self) -> int:
+        """终止当前在飞的 wsl.exe 与常驻 shell 会话（best-effort）。
+
+        `/cancel` 只能协作式生效；对于已经卡在同步 `communicate()` 里的命令，
+        杀掉进程是唯一能让工具线程尽快返回的办法。返回终止的进程/会话数。
+        """
+        killed = 0
+        with self._active_lock:
+            procs = list(self._active_procs)
+            self._active_procs.clear()
+        for proc in procs:
+            try:
+                proc.kill()
+                killed += 1
+            except OSError:
+                continue
+        with self._session_lock:
+            pool = self._session_pool
+        if pool is not None:
+            killed += pool.cancel_active()
+        return killed
 
 
 DEFAULT_WORKSPACE_DIRNAME = "agent-ws"

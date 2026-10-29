@@ -13,13 +13,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import queue
 import re
 import secrets as _secrets
+import socket
+import threading
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
 from coding_agent.audit.models import AuditRecord
 from coding_agent.filelock import FileLock
+from coding_agent.observability import inc
 from coding_agent.security.secrets import redact_secrets
 
 MAX_ARG_CHARS = 400
@@ -207,6 +213,23 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _parse_syslog(address: str) -> tuple[str, int] | None:
+    text = str(address or "").strip()
+    if not text:
+        return None
+    host, sep, port = text.rpartition(":")
+    if not sep or not host:
+        raise ValueError(
+            f"AGENT_AUDIT_SYSLOG_ADDRESS 必须是 host:port：{text!r}"
+        )
+    try:
+        return host.strip("[]"), int(port)
+    except ValueError as exc:
+        raise ValueError(
+            f"AGENT_AUDIT_SYSLOG_ADDRESS 端口非法：{text!r}"
+        ) from exc
+
+
 class AuditLogger:
     """按天分文件的追加式审计日志。
 
@@ -216,11 +239,23 @@ class AuditLogger:
     """
 
     def __init__(
-        self, directory: str | Path, *, enabled: bool = True, max_bytes: int = 0
+        self,
+        directory: str | Path,
+        *,
+        enabled: bool = True,
+        max_bytes: int = 0,
+        syslog_address: str = "",
+        webhook_url: str = "",
+        webhook_token: str = "",
     ) -> None:
         self.directory = Path(directory)
         self.enabled = enabled
         self.max_bytes = max_bytes
+        self._syslog = _parse_syslog(syslog_address)
+        self.webhook_url = str(webhook_url or "").strip()
+        self.webhook_token = str(webhook_token or "")
+        self._webhook_queue: queue.Queue[str] | None = None
+        self._webhook_thread: threading.Thread | None = None
         # 「当天该写哪一片」的缓存。只在跨天或需要换片时才重新扫目录 ——
         # 一个任务上百条记录，每条都 glob 一次纯属浪费（见 C5）。
         self._active: tuple[str, Path] | None = None
@@ -261,6 +296,64 @@ class AuditLogger:
         self._active = (day, target)
         return target
 
+    def _emit_syslog(self, line: str) -> None:
+        if self._syslog is None:
+            return
+        try:
+            with socket.socket(
+                socket.AF_INET, socket.SOCK_DGRAM
+            ) as sock:
+                sock.sendto(line.encode("utf-8"), self._syslog)
+        except OSError:
+            inc(
+                "agent_silent_failures_total",
+                {"site": "audit_syslog"},
+            )
+
+    def _enqueue_webhook(self, line: str) -> None:
+        if not self.webhook_url:
+            return
+        if self._webhook_queue is None:
+            self._webhook_queue = queue.Queue(maxsize=1000)
+            self._webhook_thread = threading.Thread(
+                target=self._webhook_loop, daemon=True
+            )
+            self._webhook_thread.start()
+        try:
+            self._webhook_queue.put_nowait(line)
+        except queue.Full:
+            inc(
+                "agent_silent_failures_total",
+                {"site": "audit_webhook_drop"},
+            )
+
+    def _webhook_loop(self) -> None:
+        while True:
+            line = self._webhook_queue.get()  # type: ignore[union-attr]
+            try:
+                self._deliver_webhook(line)
+            finally:
+                self._webhook_queue.task_done()  # type: ignore[union-attr]
+
+    def _deliver_webhook(self, line: str) -> None:
+        headers = {"Content-Type": "application/json"}
+        if self.webhook_token:
+            headers["Authorization"] = f"Bearer {self.webhook_token}"
+        request = urllib.request.Request(
+            self.webhook_url,
+            data=line.encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                response.read(1)
+        except Exception:  # noqa: BLE001 - SIEM 失败不阻断本地审计
+            inc(
+                "agent_silent_failures_total",
+                {"site": "audit_webhook"},
+            )
+
     def write(self, record: AuditRecord) -> None:
         if not self.enabled:
             return
@@ -288,7 +381,15 @@ class AuditLogger:
                 line = record.model_dump_json(exclude_none=True)
                 with target.open("a", encoding="utf-8") as handle:
                     handle.write(line + "\n")
+                    # 审计是事实源：崩溃/断电前至少保证这一条已到磁盘，
+                    # 不能只停留在 Python 的用户态缓冲里。
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            # SIEM 导出在文件锁外做；失败只计数，不影响本地审计。
+            self._emit_syslog(line)
+            self._enqueue_webhook(line)
         except OSError as exc:
+            inc("agent_audit_write_failures_total")
             raise AuditError(f"审计日志写入失败（{target or self.path}）：{exc}") from exc
 
 

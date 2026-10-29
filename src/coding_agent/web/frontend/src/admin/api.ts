@@ -6,7 +6,9 @@
 
 import type {
   AdminUser,
+  ApprovalRow,
   AuthEvent,
+  LoginResponse,
   Me,
   ProviderKeyRow,
   Quota,
@@ -101,17 +103,39 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   me: () => request<Me>('/api/me'),
   login: (username: string, password: string) =>
-    request<{ user: AdminUser; csrf_token: string }>('/api/auth/login', {
+    request<LoginResponse>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
+  mfaVerify: (mfaToken: string, code: string) =>
+    request<LoginResponse>('/api/auth/mfa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ mfa_token: mfaToken, code }),
+    }),
+  oidcStatus: () => request<{ enabled: boolean }>('/api/auth/oidc/status'),
+  oidcStart: (returnTo = '/') =>
+    request<{ authorization_url: string }>(
+      `/api/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`,
+    ),
   logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  pendingApprovals: () =>
+    request<{ enabled: boolean; approvals: ApprovalRow[] }>('/api/admin/approvals'),
+  decideApproval: (id: string, approved: boolean) =>
+    request<{ ok: boolean; approval: ApprovalRow }>(
+      `/api/admin/approvals/${encodeURIComponent(id)}/decide`,
+      { method: 'POST', body: JSON.stringify({ approved }) },
+    ),
+  resetUserMfa: (id: string) =>
+    request<{ ok: boolean }>(
+      `/api/admin/users/${encodeURIComponent(id)}/mfa-reset`,
+      { method: 'POST' },
+    ),
 
   listUsers: () => request<{ users: AdminUser[] }>('/api/admin/users'),
   createUser: (payload: {
     username: string;
     email: string;
-    role: 'admin' | 'member';
+    role: 'admin' | 'approver' | 'auditor' | 'member';
     password: string;
   }) =>
     request<{ user: AdminUser }>('/api/admin/users', {

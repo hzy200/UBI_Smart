@@ -36,6 +36,11 @@ from coding_agent.events import (
     WorkerStarted,
     WorkflowSelected,
 )
+from coding_agent.terminal_text import sanitize_terminal_text
+
+
+def _safe(value: object) -> str:
+    return escape(sanitize_terminal_text(value))
 
 
 class CliRenderer:
@@ -109,7 +114,7 @@ class CliRenderer:
         # 单步计划下标题只是重复用户问题，省略
         if event.total > 1:
             head = f"第 {event.index + 1}/{event.total} 步"
-            self.console.print(f"\n[cyan]{head}[/] {escape(event.text)}")
+            self.console.print(f"\n[cyan]{head}[/] {_safe(event.text)}")
         self.console.print("[bold green]助手 › [/]", end="")
 
     def _step_finished(self, event: StepFinished) -> None:
@@ -133,26 +138,26 @@ class CliRenderer:
     def _tool_started(self, event: ToolCallStarted) -> None:
         label = f"[{event.level}] " if event.level else ""
         self.console.print(
-            f"\n[dim]→ {escape(label)}{escape(event.name)}: "
-            f"{escape(event.summary)}[/]"
+            f"\n[dim]→ {escape(label)}{_safe(event.name)}: "
+            f"{_safe(event.summary)}[/]"
         )
 
     def _subagent_started(self, event: SubAgentStarted) -> None:
         self.console.print(
-            f"[cyan]◈ 探索子智能体开始[/] [dim]{escape(event.goal)}[/]"
+            f"[cyan]◈ 探索子智能体开始[/] [dim]{_safe(event.goal)}[/]"
         )
 
     def _subagent_finished(self, event: SubAgentFinished) -> None:
         style = "green" if event.status == "success" else "yellow"
         self.console.print(
-            f"[{style}]◈ 探索子智能体 {escape(event.status)}[/] "
-            f"[dim]{escape(event.summary)}[/]"
+            f"[{style}]◈ 探索子智能体 {_safe(event.status)}[/] "
+            f"[dim]{_safe(event.summary)}[/]"
         )
 
     def _workflow_selected(self, event: WorkflowSelected) -> None:
         self.console.print(
-            f"[cyan]◈ 工作流：{escape(event.workflow)}[/] "
-            f"[dim]{escape(event.reason)}[/]"
+            f"[cyan]◈ 工作流：{_safe(event.workflow)}[/] "
+            f"[dim]{_safe(event.reason)}[/]"
         )
 
     def _task_graph_created(self, event: TaskGraphCreated) -> None:
@@ -169,8 +174,8 @@ class CliRenderer:
 
     def _worker_started(self, event: WorkerStarted) -> None:
         self.console.print(
-            f"[dim]  → worker {escape(event.role)}/{escape(event.task_id)}: "
-            f"{escape(event.goal)}[/]"
+            f"[dim]  → worker {_safe(event.role)}/{_safe(event.task_id)}: "
+            f"{_safe(event.goal)}[/]"
         )
 
     def _worker_finished(self, event: WorkerFinished) -> None:
@@ -182,8 +187,8 @@ class CliRenderer:
             else "red"
         )
         self.console.print(
-            f"[{style}]  ← worker {escape(event.role)}/{escape(event.task_id)} "
-            f"{escape(event.status)}[/] [dim]{escape(event.summary)}[/]"
+            f"[{style}]  ← worker {_safe(event.role)}/{_safe(event.task_id)} "
+            f"{_safe(event.status)}[/] [dim]{_safe(event.summary)}[/]"
         )
 
     def _orchestration_finished(
@@ -191,13 +196,13 @@ class CliRenderer:
     ) -> None:
         self.console.print(
             f"[cyan]◈ 编排完成[/] [dim]成功 {event.completed}，"
-            f"失败/阻塞 {event.failed}：{escape(event.summary)}[/]"
+            f"失败/阻塞 {event.failed}：{_safe(event.summary)}[/]"
         )
 
     def _repair_started(self, event: RepairStarted) -> None:
         self.console.print(
             f"[yellow]↻ 第 {event.attempt}/{event.limit} 次修复[/] "
-            f"[dim]{escape(event.summary)}[/]"
+            f"[dim]{_safe(event.summary)}[/]"
         )
 
     def _tool_finished(self, event: ToolCallFinished) -> None:
@@ -230,7 +235,7 @@ class CliRenderer:
         stat = f"+{event.added} -{event.removed}"
         stamp = f" · {event.snapshot_id}" if event.snapshot_id else ""
         self.console.print(
-            f"[magenta]✎ {escape(event.path)}[/] [dim]{stat}{stamp}[/]"
+            f"[magenta]✎ {_safe(event.path)}[/] [dim]{stat}{stamp}[/]"
         )
 
     def _verification(self, event: Verification) -> None:
@@ -240,11 +245,11 @@ class CliRenderer:
             pass
         elif event.ok:
             self.console.print(
-                f"[green]验证通过[/] [dim]{escape(event.summary)}[/]"
+                f"[green]验证通过[/] [dim]{_safe(event.summary)}[/]"
             )
         else:
             self.console.print(
-                f"[red]验证失败[/] [dim]{escape(event.summary)}[/]"
+                f"[red]验证失败[/] [dim]{_safe(event.summary)}[/]"
             )
             for issue in event.issues[:5]:
                 self.console.print(f"  [red]·[/] {escape(issue)}")
@@ -254,21 +259,21 @@ class CliRenderer:
             pass
         elif event.blocked:
             self.console.print(
-                f"[red]代码审查未通过[/] [dim]{escape(event.summary)}[/]"
+                f"[red]代码审查未通过[/] [dim]{_safe(event.summary)}[/]"
             )
             for finding in event.findings[:5]:
                 self.console.print(f"  [red]·[/] {escape(finding)}")
         elif event.status == "warned":
             self.console.print(
-                f"[yellow]代码审查有告警[/] [dim]{escape(event.summary)}[/]"
+                f"[yellow]代码审查有告警[/] [dim]{_safe(event.summary)}[/]"
             )
         else:
             self.console.print(
-                f"[green]代码审查通过[/] [dim]{escape(event.summary)}[/]"
+                f"[green]代码审查通过[/] [dim]{_safe(event.summary)}[/]"
             )
 
     def _run_failed(self, event: RunFailed) -> None:
-        self.console.print(f"\n[red]运行失败：{escape(event.message)}[/]")
+        self.console.print(f"\n[red]运行失败：{_safe(event.message)}[/]")
 
     def _cost_report(self, event: CostReport) -> None:
         line = f"成本 {self.currency.format(event.cost_usd)}"
@@ -285,7 +290,7 @@ class CliRenderer:
         self.console.print(f"[dim]{escape(line)}[/]")
         if event.billing_error:
             self.console.print(
-                f"[yellow]账单对账失败：{escape(event.billing_error)}[/]"
+                f"[yellow]账单对账失败：{_safe(event.billing_error)}[/]"
             )
         for alert in event.alerts:
             self.console.print(f"[yellow]⚠ {escape(alert)}[/]")

@@ -29,6 +29,782 @@
     return 0;
   }
 
+  // src/i18n/zh-CN.ts
+  var zhCN = {
+    common: {
+      retry: "\u91CD\u8BD5",
+      close: "\u5173\u95ED",
+      unknown: "\u672A\u77E5",
+      newSession: "\u65B0\u4F1A\u8BDD"
+    },
+    header: {
+      toggleSidebar: "\u5207\u6362\u4FA7\u680F",
+      toggleSidebarHint: "\u5207\u6362\u4FA7\u680F\uFF08Ctrl+B\uFF09",
+      command: "\u641C\u7D22\u6216\u8FD0\u884C\u547D\u4EE4",
+      toggleInspector: "\u5207\u6362\u68C0\u67E5\u5668",
+      toggleInspectorHint: "\u5207\u6362\u68C0\u67E5\u5668\uFF08Ctrl+J\uFF09",
+      notifications: "\u901A\u77E5\u4E2D\u5FC3",
+      recovery: "\u6062\u590D\u4E2D\u5FC3",
+      shortcuts: "\u5FEB\u6377\u952E",
+      settings: "\u8BBE\u7F6E",
+      minimize: "\u6700\u5C0F\u5316",
+      maximize: "\u6700\u5927\u5316\u6216\u8FD8\u539F",
+      closeWindow: "\u5173\u95ED\u7A97\u53E3"
+    },
+    nav: {
+      sessions: "\u4F1A\u8BDD",
+      files: "\u6587\u4EF6\u6539\u52A8",
+      tree: "\u6587\u4EF6\u6811",
+      git: "Git",
+      tasks: "\u4EFB\u52A1",
+      memory: "\u8BB0\u5FC6",
+      audit: "\u5BA1\u8BA1",
+      problems: "\u95EE\u9898",
+      settings: "\u8BBE\u7F6E"
+    },
+    sidebar: {
+      mainNav: "\u4E3B\u5BFC\u822A",
+      newSession: "\u65B0\u4F1A\u8BDD",
+      collapse: "\u6536\u8D77\u4FA7\u680F",
+      project: "\u9879\u76EE",
+      chooseProject: "\u9009\u62E9\u9879\u76EE\u2026",
+      local: "+ \u672C\u673A",
+      localHint: "\u9009\u62E9\u4E00\u4E2A\u672C\u673A\u6587\u4EF6\u5939\u4F5C\u4E3A\u5DE5\u4F5C\u533A",
+      noProjects: "\u8FD8\u6CA1\u6709\u9879\u76EE\uFF1B\u5728\u8BBE\u7F6E\u91CC\u5BFC\u5165\u6587\u4EF6\u5939\u6216\u4E0A\u4F20\u5F52\u6863\u3002",
+      switchProjectNote: "\u5207\u6362\u9879\u76EE\u540E\uFF0C\u53D1\u9001\u65F6\u4F1A\u81EA\u52A8\u65B0\u5EFA\u4F1A\u8BDD\uFF08\u5DF2\u6709\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u533A\u4E0D\u53EF\u6539\u7ED1\uFF09\u3002",
+      boundLabel: "\u5F53\u524D\u4F1A\u8BDD\u7ED1\u5B9A\uFF1A",
+      immutable: "\uFF08\u4E0D\u53EF\u66F4\u6539\uFF09",
+      workspace: "\u5DE5\u4F5C\u533A",
+      workspacePlaceholder: "D:\\proj \u6216 wsl:/home/u/proj",
+      choose: "\u9009\u62E9\u2026",
+      hostWorkspace: "\u672C\u673A\u9879\u76EE\u7531\u5BA2\u6237\u7AEF\u9009\u62E9\u5E76\u767B\u8BB0",
+      projectWorkspace: "\u9009\u62E9\u9879\u76EE\u540E\u81EA\u52A8\u586B\u5165\u5DE5\u4F5C\u533A",
+      access: "\u6587\u4EF6\u6743\u9650",
+      readOnly: "\u53EA\u8BFB\uFF08\u4E0D\u53EF\u8FD0\u884C\uFF09",
+      writeAsk: "\u5BA1\u6279\u5199",
+      writeAuto: "\u81EA\u52A8\u5199",
+      model: "\u6A21\u578B",
+      defaultModel: "\u9ED8\u8BA4\u6A21\u578B",
+      applyModel: "\u5E94\u7528\u5230\u5F53\u524D\u4F1A\u8BDD",
+      createSession: "\u521B\u5EFA\u4F1A\u8BDD",
+      importSession: "\u5BFC\u5165\u4F1A\u8BDD",
+      exportJson: "\u5BFC\u51FA JSON",
+      imported: "\u5DF2\u5BFC\u5165 {count} \u6761\u6D88\u606F",
+      searchSessions: "\u641C\u7D22\u4F1A\u8BDD\u6216\u6807\u7B7E\u2026",
+      all: "\u5168\u90E8",
+      pinned: "\u7F6E\u9876",
+      archived: "\u5F52\u6863",
+      selected: "{count} \u6761\u5DF2\u9009"
+    },
+    composer: {
+      placeholder: "\u8F93\u5165\u4EFB\u52A1\uFF0CEnter \u53D1\u9001\uFF0CShift+Enter \u6362\u884C",
+      send: "\u53D1\u9001",
+      pause: "\u6682\u505C",
+      cancel: "\u53D6\u6D88",
+      resume: "\u7EE7\u7EED",
+      reconnect: "\u91CD\u8FDE\u4E8B\u4EF6\u6D41",
+      retry: "\u91CD\u8BD5\u4E0A\u4E00\u6761",
+      append: "\u8FFD\u52A0\u4EFB\u52A1",
+      replan: "\u91CD\u89C4\u5212",
+      upload: "\u4E0A\u4F20\u6587\u4EF6",
+      splitPlaceholder: "\u5728\u8BE5\u4F1A\u8BDD\u4E2D\u53D1\u9001\u4EFB\u52A1\uFF0CEnter \u53D1\u9001",
+      messageSearch: "\u641C\u7D22\u5BF9\u8BDD\u2026",
+      uploading: "\u4E0A\u4F20\u4E2D\u2026",
+      uploadProgress: "\u4E0A\u4F20\u4E2D {percent}%",
+      uploadCancelled: "\u4E0A\u4F20\u5DF2\u53D6\u6D88",
+      uploadFailed: "\u4E0A\u4F20\u5931\u8D25",
+      cancelUpload: "\u53D6\u6D88\u4E0A\u4F20",
+      retryUpload: "\u91CD\u8BD5\u4E0A\u4F20",
+      uploadedTo: "\u5DF2\u4E0A\u4F20\u5230\u5DE5\u4F5C\u533A\uFF1A",
+      uploadedCount: "\u5DF2\u4E0A\u4F20 {count} \u4E2A\u6587\u4EF6"
+    },
+    main: {
+      mainTabs: "\u4E3B\u533A\u6807\u7B7E",
+      chat: "\u5BF9\u8BDD",
+      searchPlaceholder: "\u641C\u7D22\u5BF9\u8BDD\u2026",
+      searchHint: "\u641C\u7D22\u5BF9\u8BDD\uFF08Ctrl+Shift+F\uFF09",
+      commandPanel: "\u547D\u4EE4\u9762\u677F",
+      emptyHint: "\u8F93\u5165\u4EFB\u52A1\u5F00\u59CB\u3002\u9ED8\u8BA4\u53EA\u8BFB\uFF1AAgent \u53EA\u80FD\u8BFB\u53D6\u6587\u4EF6\uFF0C\u4E0D\u80FD\u8FD0\u884C\u547D\u4EE4\u6216\u6D4B\u8BD5\u3002",
+      jumpLatest: "\u8DF3\u5230\u6700\u65B0 \u2193",
+      loadOlder: "\u52A0\u8F7D\u66F4\u65E9\u7684\u6D88\u606F",
+      loadingOlder: "\u52A0\u8F7D\u4E2D\u2026",
+      taskInput: "\u4EFB\u52A1\u8F93\u5165",
+      consentTitle: "\u672C\u673A\u6587\u4EF6\u8BBF\u95EE\u6388\u6743",
+      consentAction: "\u64CD\u4F5C",
+      consentReason: "\u539F\u56E0",
+      consentDeny: "\u62D2\u7EDD",
+      consentAllow: "\u5141\u8BB8\u672C\u6B21",
+      fileChanged: "\u6587\u4EF6\u5DF2\u53D8\u5316",
+      expandAll: "\u5C55\u5F00\u5168\u90E8",
+      copy: "\u590D\u5236",
+      openInEditor: "\u5728 VS Code \u6253\u5F00",
+      revealInExplorer: "\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A",
+      openedInEditor: "\u5DF2\u5728 VS Code \u6253\u5F00",
+      revealedInExplorer: "\u5DF2\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A",
+      editorOpenFailed: "\u6253\u5F00\u5931\u8D25\uFF1A{error}",
+      browserNoEditor: "\u6D4F\u89C8\u5668\u6A21\u5F0F\u4E0D\u652F\u6301\u6253\u5F00\u672C\u673A\u6587\u4EF6",
+      editorPathUnsupported: "\u4EC5\u652F\u6301 WSL \u6216\u672C\u673A\u5DE5\u4F5C\u533A\u4E2D\u7684\u6587\u4EF6",
+      revealUnsupported: "\u4EC5\u672C\u673A\u5DE5\u4F5C\u533A\u652F\u6301\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A"
+    },
+    split: {
+      close: "\u5173\u95ED\u5206\u5C4F",
+      refresh: "\u91CD\u8FDE/\u5237\u65B0",
+      openInMain: "\u5728\u4E3B\u533A\u6253\u5F00",
+      empty: "\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u6D88\u606F",
+      send: "\u53D1\u9001"
+    },
+    settings: {
+      title: "\u8BBE\u7F6E",
+      searchPlaceholder: "\u641C\u7D22\u8BBE\u7F6E\uFF0C\u4F8B\u5982\uFF1A\u4E3B\u9898\u3001\u6A21\u578B\u3001\u4E0A\u4F20\u2026",
+      appearance: "\u5916\u89C2",
+      models: "\u6A21\u578B",
+      workspace: "\u5DE5\u4F5C\u533A",
+      diagnostics: "\u8BCA\u65AD",
+      advanced: "\u9AD8\u7EA7",
+      theme: "\u4E3B\u9898",
+      themeDark: "\u6DF1\u8272",
+      themeLight: "\u6D45\u8272",
+      themeAuto: "\u8DDF\u968F\u7CFB\u7EDF",
+      language: "\u8BED\u8A00",
+      languageZh: "\u7B80\u4F53\u4E2D\u6587",
+      languageEn: "English",
+      fontFamily: "\u5B57\u4F53",
+      fontSystem: "\u7CFB\u7EDF\u65E0\u886C\u7EBF",
+      fontSerif: "\u886C\u7EBF",
+      fontMono: "\u7B49\u5BBD",
+      fontSize: "\u5B57\u53F7",
+      sizeSmall: "\u5C0F",
+      sizeNormal: "\u4E2D",
+      sizeLarge: "\u5927",
+      density: "\u5BC6\u5EA6",
+      densityCompact: "\u7D27\u51D1",
+      densityNormal: "\u6807\u51C6",
+      contrast: "\u5BF9\u6BD4\u5EA6",
+      contrastNormal: "\u6807\u51C6",
+      contrastHigh: "\u9AD8\u5BF9\u6BD4\u5EA6",
+      accent: "\u5F3A\u8C03\u8272",
+      accentBlue: "\u84DD\u8272",
+      accentViolet: "\u7D2B\u8272",
+      accentGreen: "\u7EFF\u8272",
+      accentAmber: "\u7425\u73C0",
+      accentRose: "\u73AB\u7EA2",
+      codeFontSize: "\u4EE3\u7801\u5B57\u53F7",
+      codeLineHeight: "\u4EE3\u7801\u884C\u9AD8",
+      lhCompact: "\u7D27\u51D1",
+      lhNormal: "\u6807\u51C6",
+      lhRelaxed: "\u5BBD\u677E",
+      resetLayout: "\u91CD\u7F6E\u4FA7\u680F/\u68C0\u67E5\u5668\u5BBD\u5EA6",
+      showReasoning: "\u663E\u793A\u6A21\u578B\u63A8\u7406\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF1B\u53EA\u5F71\u54CD\u754C\u9762\u5C55\u793A\uFF09",
+      providerProfiles: "Provider \u6863\u6848",
+      profilesDisabled: "\u591A\u7528\u6237\u6A21\u5F0F\u8BF7\u901A\u8FC7 AGENT_LLM_PROVIDERS \u914D\u7F6E\u3002",
+      profileName: "\u540D\u79F0\uFF0C\u5982 local",
+      profileBaseUrl: "https://api.example.com/v1",
+      profileModel: "\u6A21\u578B\u540D",
+      saveProfile: "\u4FDD\u5B58\u6863\u6848",
+      discoverModels: "\u53D1\u73B0\u6A21\u578B",
+      localPreset: "\u672C\u5730\u7AEF\u70B9\u9884\u8BBE",
+      edit: "\u7F16\u8F91",
+      delete: "\u5220\u9664",
+      modelKeys: "\u6A21\u578B\u5BC6\u94A5",
+      keyNote: "\u5BC6\u94A5\u53EA\u5199\u5165\u64CD\u4F5C\u7CFB\u7EDF\u5BC6\u94A5\u73AF\uFF0C\u4E0D\u4F1A\u56DE\u4F20\u6216\u5199\u5165 .env\u3002",
+      provider: "Provider",
+      apiKey: "\u7C98\u8D34 API Key",
+      saveKey: "\u4FDD\u5B58\u5BC6\u94A5",
+      testConnection: "\u6D4B\u8BD5\u8FDE\u63A5",
+      deleteKey: "\u5220\u9664\u5BC6\u94A5",
+      workspacePython: "\u5DE5\u4F5C\u533A\u4E0E Python",
+      pickFolder: "\u9009\u62E9\u6587\u4EF6\u5939",
+      reprobe: "\u91CD\u65B0\u63A2\u6D4B",
+      copyToWsl: "\u590D\u5236\u5230 WSL \u539F\u751F\u76EE\u5F55",
+      projectRegistry: "\u9879\u76EE\uFF08\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\uFF09",
+      importToWsl: "\u5BFC\u5165\u5230 WSL \u5DE5\u4F5C\u533A",
+      addHostWorkspace: "\u6DFB\u52A0\u672C\u673A\u5DE5\u4F5C\u533A",
+      refreshProjects: "\u5237\u65B0\u9879\u76EE",
+      cancelJob: "\u53D6\u6D88\u4EFB\u52A1",
+      archiveLabel: "\u4E0A\u4F20\u9879\u76EE\u5F52\u6863\uFF08zip / tar / tar.gz\uFF09\uFF1B\u53EF\u76F4\u63A5\u62D6\u62FD\u5230\u6B64\u5904",
+      archiveAria: "\u9879\u76EE\u5F52\u6863\u6587\u4EF6",
+      uploadProject: "\u4E0A\u4F20\u5E76\u521B\u5EFA\u9879\u76EE",
+      dropRelease: "\u677E\u5F00\u4EE5\u9009\u62E9\u8BE5\u5F52\u6863",
+      open: "\u6253\u5F00",
+      noProjects: "\u8FD8\u6CA1\u6709\u9879\u76EE",
+      revisions: "Revisions",
+      noRevisions: "\u8FD8\u6CA1\u6709 revision",
+      rollback: "\u56DE\u6EDA",
+      restoreArchive: "\u6062\u590D\u5F52\u6863",
+      pruneArchives: "\u6E05\u7406\u65E7\u5F52\u6863",
+      registryDisabled: "\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u672A\u542F\u7528\uFF1B\u4F7F\u7528\u4E0A\u9762\u7684\u5DE5\u4F5C\u533A\u8DEF\u5F84\u76F4\u63A5\u521B\u5EFA\u4F1A\u8BDD\u3002",
+      budgetNotify: "\u9884\u7B97\u4E0E\u901A\u77E5",
+      notifyHint: "\u5BA1\u6279 / \u5B8C\u6210 / \u5931\u8D25\u65F6\u53D1\u9001\u7CFB\u7EDF\u901A\u77E5",
+      diagnosticsUpdate: "\u8BCA\u65AD\u4E0E\u66F4\u65B0",
+      collectDiagnostics: "\u751F\u6210\u8BCA\u65AD\u5305",
+      openFolder: "\u6253\u5F00\u6240\u5728\u76EE\u5F55",
+      checkUpdate: "\u68C0\u67E5\u66F4\u65B0",
+      downloadUpdate: "\u4E0B\u8F7D\u66F4\u65B0",
+      account: "\u8D26\u6237",
+      logout: "\u9000\u51FA\u767B\u5F55",
+      sessions: "\u767B\u5F55\u4F1A\u8BDD",
+      loadSessions: "\u5237\u65B0\u4F1A\u8BDD",
+      revokeOthers: "\u767B\u51FA\u5176\u4ED6\u4F1A\u8BDD",
+      sessionCurrent: "\u5F53\u524D\u4F1A\u8BDD",
+      sessionsRevoked: "\u5DF2\u767B\u51FA {count} \u4E2A\u5176\u4ED6\u4F1A\u8BDD",
+      maintenance: "\u8FD0\u7EF4\u7EF4\u62A4",
+      releaseLease: "\u91CA\u653E\u5F53\u524D\u4F1A\u8BDD\u79DF\u7EA6",
+      purgeMaintenance: "\u6E05\u7406\u8FC7\u671F\u79DF\u7EA6/\u5E42\u7B49\u952E",
+      settingsSaved: "\u8BBE\u7F6E\u4F1A\u7ACB\u5373\u4FDD\u5B58\u5230\u672C\u673A\u3002",
+      errorReporting: "\u53D1\u9001\u524D\u7AEF\u9519\u8BEF\u62A5\u544A\uFF08\u4EC5\u9519\u8BEF\u6458\u8981\uFF0C\u4E0D\u542B\u5BF9\u8BDD\u5185\u5BB9\uFF09",
+      errorReportingOn: "\u5DF2\u5F00\u542F\u524D\u7AEF\u9519\u8BEF\u4E0A\u62A5",
+      errorReportingOff: "\u5DF2\u5173\u95ED\u524D\u7AEF\u9519\u8BEF\u4E0A\u62A5",
+      copyClientErrors: "\u590D\u5236\u6700\u8FD1\u9519\u8BEF",
+      authMode: "\u8BA4\u8BC1\u65B9\u5F0F\uFF1A{mode}",
+      matches: "\u627E\u5230 {count} \u4E2A\u5206\u7C7B",
+      noResults: "\u6CA1\u6709\u5339\u914D\u7684\u8BBE\u7F6E"
+    },
+    errors: {
+      codes: {
+        auth: {
+          forbidden: "\u9700\u8981\u66F4\u9AD8\u6743\u9650",
+          unauthorized: "\u8BF7\u5148\u767B\u5F55",
+          read_only: "\u5F53\u524D\u8D26\u53F7\u4E3A\u53EA\u8BFB\u89D2\u8272",
+          accounts_disabled: "\u8D26\u53F7\u529F\u80FD\u672A\u542F\u7528",
+          invalid_credentials: "\u7528\u6237\u540D\u6216\u5BC6\u7801\u9519\u8BEF",
+          login_locked: "\u767B\u5F55\u5931\u8D25\u6B21\u6570\u8FC7\u591A\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5",
+          mfa_unavailable: "\u591A\u56E0\u7D20\u8BA4\u8BC1\u672A\u542F\u7528",
+          mfa_invalid: "\u52A8\u6001\u7801\u4E0D\u6B63\u786E",
+          mfa_locked: "\u52A8\u6001\u7801\u5C1D\u8BD5\u6B21\u6570\u8FC7\u591A\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55",
+          mfa_challenge_invalid: "\u52A8\u6001\u7801\u6311\u6218\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55",
+          oidc_disabled: "OIDC \u767B\u5F55\u672A\u542F\u7528",
+          oidc_unavailable: "OIDC \u63D0\u4F9B\u65B9\u4E0D\u53EF\u7528",
+          password_invalid: "\u5BC6\u7801\u4E0D\u6B63\u786E",
+          rate_limited: "\u8BF7\u6C42\u8FC7\u4E8E\u9891\u7E41\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5",
+          reset_invalid: "\u91CD\u7F6E\u4EE4\u724C\u65E0\u6548\u6216\u5DF2\u8FC7\u671F"
+        },
+        approval: { self: "\u4E0D\u80FD\u6279\u51C6\u81EA\u5DF1\u53D1\u8D77\u7684\u5BA1\u6279" },
+        quota: { exceeded: "\u5DF2\u8D85\u8FC7\u4ECA\u65E5\u989D\u5EA6" },
+        request: {
+          invalid: "\u8BF7\u6C42\u53C2\u6570\u65E0\u6548",
+          in_progress: "\u540C\u4E00\u8BF7\u6C42\u6B63\u5728\u5904\u7406",
+          too_large: "\u8BF7\u6C42\u4F53\u8D85\u8FC7\u4E0A\u9650",
+          length_required: "\u8BF7\u6C42\u5FC5\u987B\u5E26 Content-Length"
+        },
+        run_in_progress: "\u8BE5\u4F1A\u8BDD\u6B63\u5728\u8FD0\u884C\uFF0C\u8BF7\u5148\u7B49\u5F85\u6216\u6062\u590D",
+        agent: { draining: "\u670D\u52A1\u6B63\u5728\u9000\u51FA\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5" },
+        upload: { archive_too_large: "\u4E0A\u4F20\u5F52\u6863\u8D85\u8FC7\u4E0A\u9650" },
+        version: { frontend_too_old: "\u524D\u7AEF\u7248\u672C\u8FC7\u65E7\uFF0C\u8BF7\u5237\u65B0\u9875\u9762" },
+        desktop: { unavailable: "\u684C\u9762\u80FD\u529B\u4E0D\u53EF\u7528" },
+        server: { unavailable: "\u670D\u52A1\u6682\u4E0D\u53EF\u7528\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5" }
+      }
+    },
+    auth: {
+      bearer: "Bearer Token\uFF08\u4EC5\u5185\u5B58\uFF09",
+      desktopToken: "\u684C\u9762\u4EE4\u724C\uFF08\u672C\u5730\u5B58\u50A8\uFF09",
+      bffCookie: "\u7EDF\u4E00\u767B\u5F55\uFF08BFF Cookie\uFF09",
+      localSession: "\u4F01\u4E1A\u8D26\u53F7\uFF08Session Cookie\uFF09",
+      forgotPassword: "\u5FD8\u8BB0\u5BC6\u7801",
+      resetIdentifier: "\u7528\u6237\u540D\u6216\u90AE\u7BB1",
+      resetRequest: "\u53D1\u9001\u91CD\u7F6E\u90AE\u4EF6",
+      resetToken: "\u90AE\u4EF6\u4E2D\u7684\u4EE4\u724C",
+      resetNewPassword: "\u65B0\u5BC6\u7801\uFF08\u81F3\u5C11 8 \u4F4D\uFF09",
+      resetConfirm: "\u91CD\u7F6E\u5BC6\u7801",
+      resetSent: "\u5982\u8D26\u53F7\u5B58\u5728\uFF0C\u91CD\u7F6E\u90AE\u4EF6\u5DF2\u53D1\u9001\u3002",
+      resetFailed: "\u91CD\u7F6E\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u4EE4\u724C\u6216\u7A0D\u540E\u518D\u8BD5\u3002",
+      resetWeakPassword: "\u65B0\u5BC6\u7801\u81F3\u5C11 8 \u4F4D\u3002",
+      resetOk: "\u5BC6\u7801\u5DF2\u91CD\u7F6E\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55\u3002"
+    },
+    commands: {
+      title: "\u547D\u4EE4\u9762\u677F",
+      placeholder: "\u8F93\u5165\u547D\u4EE4\u3001\u4F1A\u8BDD\u6216\u6587\u4EF6\uFF1B\u652F\u6301 > \u547D\u4EE4 / @ \u4F1A\u8BDD / # \u6587\u4EF6",
+      searchAria: "\u547D\u4EE4\u9762\u677F\u641C\u7D22",
+      listAria: "\u547D\u4EE4\u5217\u8868",
+      searching: "\u6B63\u5728\u641C\u7D22\u6587\u4EF6\u2026",
+      empty: "\u6CA1\u6709\u5339\u914D\u7684\u547D\u4EE4",
+      groups: {
+        commands: "\u547D\u4EE4",
+        session: "\u4F1A\u8BDD",
+        file: "\u6587\u4EF6",
+        fileContent: "\u6587\u4EF6\u5185\u5BB9",
+        filePath: "\u6587\u4EF6\u8DEF\u5F84",
+        recent: "\u6700\u8FD1\u4F7F\u7528"
+      },
+      "quick-open": { title: "\u5FEB\u901F\u6253\u5F00\u6587\u4EF6\u2026", hint: "\u6587\u4EF6" },
+      "new-session": { title: "\u65B0\u5EFA\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      settings: { title: "\u6253\u5F00\u8BBE\u7F6E", hint: "\u754C\u9762" },
+      recovery: { title: "\u6253\u5F00\u6062\u590D\u4E2D\u5FC3", hint: "\u754C\u9762" },
+      notifications: { title: "\u901A\u77E5\u4E2D\u5FC3", hint: "\u754C\u9762" },
+      shortcuts: { title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9" },
+      "search-conversation": { title: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD", hint: "\u5BFC\u822A" },
+      "split-session": { title: "\u5F53\u524D\u4F1A\u8BDD\u5206\u5C4F", hint: "\u89C6\u56FE" },
+      "jump-latest": { title: "\u8DF3\u5230\u6700\u65B0\u6D88\u606F", hint: "\u5BFC\u822A" },
+      "toggle-sidebar": { title: "\u5207\u6362\u4FA7\u680F", hint: "\u5E03\u5C40" },
+      "toggle-inspector": { title: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668", hint: "\u5E03\u5C40" },
+      "view-sessions": { title: "\u89C6\u56FE\uFF1A\u4F1A\u8BDD", hint: "\u5BFC\u822A" },
+      "view-files": { title: "\u89C6\u56FE\uFF1A\u6587\u4EF6\u6539\u52A8", hint: "\u5BFC\u822A" },
+      "view-tree": { title: "\u89C6\u56FE\uFF1A\u6587\u4EF6\u6811", hint: "\u5BFC\u822A" },
+      "view-git": { title: "\u89C6\u56FE\uFF1AGit", hint: "\u5BFC\u822A" },
+      "view-tasks": { title: "\u89C6\u56FE\uFF1A\u4EFB\u52A1", hint: "\u5BFC\u822A" },
+      "view-memory": { title: "\u89C6\u56FE\uFF1A\u8BB0\u5FC6", hint: "\u5BFC\u822A" },
+      "view-audit": { title: "\u89C6\u56FE\uFF1A\u5BA1\u8BA1", hint: "\u5BFC\u822A" },
+      "view-problems": { title: "\u89C6\u56FE\uFF1A\u95EE\u9898", hint: "\u5BFC\u822A" },
+      "tab-plan": { title: "\u68C0\u67E5\u5668\uFF1A\u8BA1\u5212", hint: "\u5BFC\u822A" },
+      "tab-tools": { title: "\u68C0\u67E5\u5668\uFF1A\u5DE5\u5177", hint: "\u5BFC\u822A" },
+      "tab-timeline": { title: "\u68C0\u67E5\u5668\uFF1A\u65F6\u95F4\u7EBF", hint: "\u5BFC\u822A" },
+      "close-editor": { title: "\u5173\u95ED\u5F53\u524D\u6807\u7B7E", hint: "\u6807\u7B7E" },
+      "close-other-editors": { title: "\u5173\u95ED\u5176\u4ED6\u6807\u7B7E", hint: "\u6807\u7B7E" },
+      "close-all-editors": { title: "\u5173\u95ED\u6240\u6709\u6587\u4EF6\u6807\u7B7E", hint: "\u6807\u7B7E" },
+      "refresh-files": { title: "\u5237\u65B0\u6587\u4EF6\u5FEB\u7167", hint: "\u6587\u4EF6" },
+      "refresh-tree": { title: "\u5237\u65B0\u6587\u4EF6\u6811", hint: "\u6587\u4EF6" },
+      "git-diff": { title: "\u67E5\u770B Git diff", hint: "Git" },
+      "theme-dark": { title: "\u4E3B\u9898\uFF1A\u6DF1\u8272", hint: "\u5916\u89C2" },
+      "theme-light": { title: "\u4E3B\u9898\uFF1A\u6D45\u8272", hint: "\u5916\u89C2" },
+      "theme-auto": { title: "\u4E3B\u9898\uFF1A\u8DDF\u968F\u7CFB\u7EDF", hint: "\u5916\u89C2" },
+      reasoning: { title: "\u663E\u793A/\u9690\u85CF\u6A21\u578B\u63A8\u7406", hint: "\u5916\u89C2" },
+      "reset-layout": { title: "\u91CD\u7F6E\u5E03\u5C40\u5BBD\u5EA6", hint: "\u5E03\u5C40" },
+      compact: { title: "\u538B\u7F29\u4E0A\u4E0B\u6587\u5E76\u5206\u53C9", hint: "Agent" },
+      pin: { title: "\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      unpin: { title: "\u53D6\u6D88\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      archive: { title: "\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      unarchive: { title: "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
+      tag: { title: "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E", hint: "\u4F1A\u8BDD" }
+    },
+    status: {
+      ready: "\u5C31\u7EEA",
+      running: "\u8FD0\u884C\u4E2D\u2026",
+      reconnecting: "\u91CD\u8FDE\u4E2D\u2026",
+      reconnectIn: "\u8FDE\u63A5\u4E2D\u65AD\uFF0C{seconds}s \u540E\u91CD\u8FDE\u2026",
+      disconnected: "\u8FDE\u63A5\u4E2D\u65AD",
+      waitingApproval: "\u7B49\u5F85\u5BA1\u6279",
+      paused: "\u5DF2\u6682\u505C",
+      failed: "\u5931\u8D25",
+      resuming: "\u6062\u590D\u4E2D\u2026",
+      streaming: "\u6D41\u5F0F\u8FDE\u63A5\u4E2D",
+      closed: "\u8FDE\u63A5\u5DF2\u5173\u95ED",
+      reconnectFailed: "\u91CD\u8FDE\u5931\u8D25\uFF1A{error}",
+      runFailed: "\u8FD0\u884C\u5931\u8D25\uFF1A{error}"
+    },
+    approval: {
+      title: "\u9700\u8981\u786E\u8BA4",
+      approve: "\u6279\u51C6\uFF08y\uFF09",
+      deny: "\u62D2\u7EDD\uFF08n\uFF09",
+      rejectAll: "\u5168\u90E8\u62D2\u7EDD",
+      remaining: "\u8FD8\u5269 {count} \u6761\u5F85\u786E\u8BA4"
+    },
+    notifications: {
+      title: "\u901A\u77E5",
+      markAllRead: "\u5168\u90E8\u5DF2\u8BFB",
+      clear: "\u6E05\u7A7A\u901A\u77E5",
+      empty: "\u8FD8\u6CA1\u6709\u901A\u77E5",
+      unread: "{count} \u6761\u672A\u8BFB",
+      runFinished: "CodingAgent \u8FD0\u884C\u5B8C\u6210",
+      runFailed: "CodingAgent \u8FD0\u884C\u5931\u8D25",
+      approval: "CodingAgent \u9700\u8981\u5BA1\u6279"
+    }
+  };
+
+  // src/i18n/en-US.ts
+  var enUS = {
+    common: {
+      retry: "Retry",
+      close: "Close",
+      unknown: "Unknown",
+      newSession: "New session"
+    },
+    header: {
+      toggleSidebar: "Toggle sidebar",
+      toggleSidebarHint: "Toggle sidebar (Ctrl+B)",
+      command: "Search or run a command",
+      toggleInspector: "Toggle inspector",
+      toggleInspectorHint: "Toggle inspector (Ctrl+J)",
+      notifications: "Notification center",
+      recovery: "Recovery center",
+      shortcuts: "Keyboard shortcuts",
+      settings: "Settings",
+      minimize: "Minimize",
+      maximize: "Maximize or restore",
+      closeWindow: "Close window"
+    },
+    nav: {
+      sessions: "Sessions",
+      files: "File changes",
+      tree: "File tree",
+      git: "Git",
+      tasks: "Tasks",
+      memory: "Memory",
+      audit: "Audit",
+      problems: "Problems",
+      settings: "Settings"
+    },
+    sidebar: {
+      mainNav: "Main navigation",
+      newSession: "New session",
+      collapse: "Collapse sidebar",
+      project: "Project",
+      chooseProject: "Choose a project\u2026",
+      local: "+ Local",
+      localHint: "Choose a local folder as the workspace",
+      noProjects: "No projects yet. Import a folder or upload an archive in Settings.",
+      switchProjectNote: "Sending after switching projects creates a new session; an existing session cannot be rebound.",
+      boundLabel: "Bound to: ",
+      immutable: " (cannot be changed)",
+      workspace: "Workspace",
+      workspacePlaceholder: "D:\\proj or wsl:/home/u/proj",
+      choose: "Choose\u2026",
+      hostWorkspace: "The desktop client selects and registers local projects",
+      projectWorkspace: "Filled automatically after choosing a project",
+      access: "File access",
+      readOnly: "Read-only (cannot run)",
+      writeAsk: "Write with approval",
+      writeAuto: "Write automatically",
+      model: "Model",
+      defaultModel: "Default model",
+      applyModel: "Apply to current session",
+      createSession: "Create session",
+      importSession: "Import session",
+      exportJson: "Export JSON",
+      imported: "Imported {count} message(s)",
+      searchSessions: "Search sessions or tags\u2026",
+      all: "All",
+      pinned: "Pinned",
+      archived: "Archived",
+      selected: "{count} selected"
+    },
+    composer: {
+      placeholder: "Enter a task. Enter to send, Shift+Enter for a new line",
+      send: "Send",
+      pause: "Pause",
+      cancel: "Cancel",
+      resume: "Resume",
+      reconnect: "Reconnect stream",
+      retry: "Retry last",
+      append: "Append task",
+      replan: "Replan",
+      upload: "Upload files",
+      splitPlaceholder: "Send a task in this session. Enter to send",
+      messageSearch: "Search conversation\u2026",
+      uploading: "Uploading\u2026",
+      uploadProgress: "Uploading {percent}%",
+      uploadCancelled: "Upload cancelled",
+      uploadFailed: "Upload failed",
+      cancelUpload: "Cancel upload",
+      retryUpload: "Retry upload",
+      uploadedTo: "Uploaded to workspace:",
+      uploadedCount: "Uploaded {count} file(s)"
+    },
+    main: {
+      mainTabs: "Main tabs",
+      chat: "Chat",
+      searchPlaceholder: "Search conversation\u2026",
+      searchHint: "Search conversation (Ctrl+Shift+F)",
+      commandPanel: "Command palette",
+      emptyHint: "Enter a task to start. Read-only by default: the agent can read files but cannot run commands or tests.",
+      jumpLatest: "Jump to latest \u2193",
+      loadOlder: "Load older messages",
+      loadingOlder: "Loading\u2026",
+      taskInput: "Task input",
+      consentTitle: "Local file access approval",
+      consentAction: "Action",
+      consentReason: "Reason",
+      consentDeny: "Deny",
+      consentAllow: "Allow once",
+      fileChanged: "File changed",
+      expandAll: "Expand all",
+      copy: "Copy",
+      openInEditor: "Open in VS Code",
+      revealInExplorer: "Reveal in file manager",
+      openedInEditor: "Opened in VS Code",
+      revealedInExplorer: "Revealed in file manager",
+      editorOpenFailed: "Open failed: {error}",
+      browserNoEditor: "Browser mode cannot open local files",
+      editorPathUnsupported: "Only WSL or native workspace files are supported",
+      revealUnsupported: "Reveal is only available for native workspaces"
+    },
+    split: {
+      close: "Close split pane",
+      refresh: "Reconnect / refresh",
+      openInMain: "Open in main pane",
+      empty: "This session has no messages yet",
+      send: "Send"
+    },
+    settings: {
+      title: "Settings",
+      searchPlaceholder: "Search settings, e.g. theme, model, upload\u2026",
+      appearance: "Appearance",
+      models: "Models",
+      workspace: "Workspace",
+      diagnostics: "Diagnostics",
+      advanced: "Advanced",
+      theme: "Theme",
+      themeDark: "Dark",
+      themeLight: "Light",
+      themeAuto: "Follow system",
+      language: "Language",
+      languageZh: "\u7B80\u4F53\u4E2D\u6587",
+      languageEn: "English",
+      fontFamily: "Font family",
+      fontSystem: "System sans-serif",
+      fontSerif: "Serif",
+      fontMono: "Monospace",
+      fontSize: "Font size",
+      sizeSmall: "Small",
+      sizeNormal: "Medium",
+      sizeLarge: "Large",
+      density: "Density",
+      densityCompact: "Compact",
+      densityNormal: "Normal",
+      contrast: "Contrast",
+      contrastNormal: "Normal",
+      contrastHigh: "High contrast",
+      accent: "Accent color",
+      accentBlue: "Blue",
+      accentViolet: "Violet",
+      accentGreen: "Green",
+      accentAmber: "Amber",
+      accentRose: "Rose",
+      codeFontSize: "Code font size",
+      codeLineHeight: "Code line height",
+      lhCompact: "Compact",
+      lhNormal: "Normal",
+      lhRelaxed: "Relaxed",
+      resetLayout: "Reset sidebar/inspector widths",
+      showReasoning: "Show model reasoning (off by default; display only)",
+      providerProfiles: "Provider profiles",
+      profilesDisabled: "In multi-user mode configure providers via AGENT_LLM_PROVIDERS.",
+      profileName: "Name, e.g. local",
+      profileBaseUrl: "https://api.example.com/v1",
+      profileModel: "Model name",
+      saveProfile: "Save profile",
+      discoverModels: "Discover models",
+      localPreset: "Local endpoint preset",
+      edit: "Edit",
+      delete: "Delete",
+      modelKeys: "Model keys",
+      keyNote: "Keys are written to the OS keyring, never returned or stored in .env.",
+      provider: "Provider",
+      apiKey: "Paste API key",
+      saveKey: "Save key",
+      testConnection: "Test connection",
+      deleteKey: "Delete key",
+      workspacePython: "Workspace & Python",
+      pickFolder: "Choose folder",
+      reprobe: "Probe again",
+      copyToWsl: "Copy to native WSL directory",
+      projectRegistry: "Projects (workspace registry)",
+      importToWsl: "Import into WSL workspace",
+      addHostWorkspace: "Add host workspace",
+      refreshProjects: "Refresh projects",
+      cancelJob: "Cancel job",
+      archiveLabel: "Upload project archive (zip / tar / tar.gz); drag and drop here",
+      archiveAria: "Project archive file",
+      uploadProject: "Upload and create project",
+      dropRelease: "Release to select this archive",
+      open: "Open",
+      noProjects: "No projects yet",
+      revisions: "Revisions",
+      noRevisions: "No revisions yet",
+      rollback: "Roll back",
+      restoreArchive: "Restore archive",
+      pruneArchives: "Prune old archives",
+      registryDisabled: "Workspace registry is disabled; create sessions with the workspace path above.",
+      budgetNotify: "Budget & notifications",
+      notifyHint: "Send a system notification on approval / completion / failure",
+      diagnosticsUpdate: "Diagnostics & updates",
+      collectDiagnostics: "Collect diagnostics",
+      openFolder: "Open containing folder",
+      checkUpdate: "Check for updates",
+      downloadUpdate: "Download update",
+      account: "Account",
+      logout: "Sign out",
+      sessions: "Login sessions",
+      loadSessions: "Refresh sessions",
+      revokeOthers: "Sign out other sessions",
+      sessionCurrent: "Current session",
+      sessionsRevoked: "Signed out {count} other sessions",
+      maintenance: "Maintenance",
+      releaseLease: "Release current session lease",
+      purgeMaintenance: "Purge expired leases/idempotency keys",
+      settingsSaved: "Settings are saved locally immediately.",
+      errorReporting: "Send frontend error reports (summary only, no conversation content)",
+      errorReportingOn: "Frontend error reporting enabled",
+      errorReportingOff: "Frontend error reporting disabled",
+      copyClientErrors: "Copy recent errors",
+      authMode: "Authentication: {mode}",
+      matches: "{count} matching sections",
+      noResults: "No matching settings"
+    },
+    errors: {
+      codes: {
+        auth: {
+          forbidden: "Higher permission required",
+          unauthorized: "Please sign in",
+          read_only: "This account is read-only",
+          accounts_disabled: "Accounts are disabled",
+          invalid_credentials: "Invalid username or password",
+          login_locked: "Too many failed logins; try again later",
+          mfa_unavailable: "MFA is not enabled",
+          mfa_invalid: "Invalid verification code",
+          mfa_locked: "Too many MFA attempts; sign in again",
+          mfa_challenge_invalid: "MFA challenge expired; sign in again",
+          oidc_disabled: "OIDC login is disabled",
+          oidc_unavailable: "OIDC provider unavailable",
+          password_invalid: "Password is incorrect",
+          rate_limited: "Too many requests; try again later",
+          reset_invalid: "Reset token is invalid or expired"
+        },
+        approval: { self: "You cannot approve your own request" },
+        quota: { exceeded: "Daily quota exceeded" },
+        request: {
+          invalid: "Invalid request",
+          in_progress: "The same request is already in progress",
+          too_large: "Request body is too large",
+          length_required: "Content-Length is required"
+        },
+        run_in_progress: "This session is still running; wait or resume it",
+        agent: { draining: "Service is shutting down; retry shortly" },
+        upload: { archive_too_large: "Upload archive is too large" },
+        version: { frontend_too_old: "Frontend is outdated; reload the page" },
+        desktop: { unavailable: "Desktop capability unavailable" },
+        server: { unavailable: "Service temporarily unavailable" }
+      }
+    },
+    auth: {
+      bearer: "Bearer token (memory only)",
+      desktopToken: "Desktop token (local storage)",
+      bffCookie: "Unified login (BFF cookie)",
+      localSession: "Enterprise account (session cookie)",
+      forgotPassword: "Forgot password",
+      resetIdentifier: "Username or email",
+      resetRequest: "Send reset email",
+      resetToken: "Token from email",
+      resetNewPassword: "New password (min 8 chars)",
+      resetConfirm: "Reset password",
+      resetSent: "If the account exists, a reset email has been sent.",
+      resetFailed: "Reset failed; check the token or try again later.",
+      resetWeakPassword: "New password must be at least 8 characters.",
+      resetOk: "Password reset; please sign in again."
+    },
+    commands: {
+      title: "Command palette",
+      placeholder: "Type a command, session or file; > command / @ session / # file",
+      searchAria: "Search command palette",
+      listAria: "Command list",
+      searching: "Searching files\u2026",
+      empty: "No matching commands",
+      groups: {
+        commands: "Commands",
+        session: "Session",
+        file: "File",
+        fileContent: "File content",
+        filePath: "File path",
+        recent: "Recently used"
+      },
+      "quick-open": { title: "Quick open file\u2026", hint: "File" },
+      "new-session": { title: "New session", hint: "Session" },
+      settings: { title: "Open settings", hint: "UI" },
+      recovery: { title: "Open recovery center", hint: "UI" },
+      notifications: { title: "Notification center", hint: "UI" },
+      shortcuts: { title: "Show keyboard shortcuts", hint: "Help" },
+      "search-conversation": { title: "Search current conversation", hint: "Navigation" },
+      "split-session": { title: "Split current session", hint: "View" },
+      "jump-latest": { title: "Jump to latest message", hint: "Navigation" },
+      "toggle-sidebar": { title: "Toggle sidebar", hint: "Layout" },
+      "toggle-inspector": { title: "Toggle right inspector", hint: "Layout" },
+      "view-sessions": { title: "View: Sessions", hint: "Navigation" },
+      "view-files": { title: "View: File changes", hint: "Navigation" },
+      "view-tree": { title: "View: File tree", hint: "Navigation" },
+      "view-git": { title: "View: Git", hint: "Navigation" },
+      "view-tasks": { title: "View: Tasks", hint: "Navigation" },
+      "view-memory": { title: "View: Memory", hint: "Navigation" },
+      "view-audit": { title: "View: Audit", hint: "Navigation" },
+      "view-problems": { title: "View: Problems", hint: "Navigation" },
+      "tab-plan": { title: "Inspector: Plan", hint: "Navigation" },
+      "tab-tools": { title: "Inspector: Tools", hint: "Navigation" },
+      "tab-timeline": { title: "Inspector: Timeline", hint: "Navigation" },
+      "close-editor": { title: "Close current tab", hint: "Tabs" },
+      "close-other-editors": { title: "Close other tabs", hint: "Tabs" },
+      "close-all-editors": { title: "Close all file tabs", hint: "Tabs" },
+      "refresh-files": { title: "Refresh file snapshots", hint: "File" },
+      "refresh-tree": { title: "Refresh file tree", hint: "File" },
+      "git-diff": { title: "Show Git diff", hint: "Git" },
+      "theme-dark": { title: "Theme: Dark", hint: "Appearance" },
+      "theme-light": { title: "Theme: Light", hint: "Appearance" },
+      "theme-auto": { title: "Theme: Follow system", hint: "Appearance" },
+      reasoning: { title: "Show/hide model reasoning", hint: "Appearance" },
+      "reset-layout": { title: "Reset layout widths", hint: "Layout" },
+      compact: { title: "Compact context and fork", hint: "Agent" },
+      pin: { title: "Pin current session", hint: "Session" },
+      unpin: { title: "Unpin current session", hint: "Session" },
+      archive: { title: "Archive current session", hint: "Session" },
+      unarchive: { title: "Unarchive current session", hint: "Session" },
+      tag: { title: "Edit current session tags", hint: "Session" }
+    },
+    status: {
+      ready: "Ready",
+      running: "Running\u2026",
+      reconnecting: "Reconnecting\u2026",
+      reconnectIn: "Disconnected; reconnecting in {seconds}s\u2026",
+      disconnected: "Disconnected",
+      waitingApproval: "Waiting for approval",
+      paused: "Paused",
+      failed: "Failed",
+      resuming: "Resuming\u2026",
+      streaming: "Streaming",
+      closed: "Connection closed",
+      reconnectFailed: "Reconnect failed: {error}",
+      runFailed: "Run failed: {error}"
+    },
+    approval: {
+      title: "Approval required",
+      approve: "Approve (y)",
+      deny: "Deny (n)",
+      rejectAll: "Reject all",
+      remaining: "{count} more pending"
+    },
+    notifications: {
+      title: "Notifications",
+      markAllRead: "Mark all as read",
+      clear: "Clear notifications",
+      empty: "No notifications yet",
+      unread: "{count} unread",
+      runFinished: "CodingAgent run finished",
+      runFailed: "CodingAgent run failed",
+      approval: "CodingAgent needs approval"
+    }
+  };
+
+  // src/i18n/index.ts
+  var DEFAULT_LOCALE = "zh-CN";
+  var MESSAGES = {
+    "zh-CN": zhCN,
+    "en-US": enUS
+  };
+  function normalizeLocale(value) {
+    return String(value || "") === "en-US" ? "en-US" : DEFAULT_LOCALE;
+  }
+  function detectLocale() {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem("codingagent.settings") || "{}"
+      );
+      if (saved && saved.locale) return normalizeLocale(saved.locale);
+    } catch (err) {
+    }
+    try {
+      return normalizeLocale(navigator.language);
+    } catch (err) {
+      return DEFAULT_LOCALE;
+    }
+  }
+  function lookup(messages, key) {
+    let node = messages;
+    for (const part of String(key || "").split(".")) {
+      if (!part || !node || typeof node !== "object") return "";
+      node = node[part];
+    }
+    return typeof node === "string" ? node : "";
+  }
+  function translate(locale, key, params = {}) {
+    const value = lookup(MESSAGES[locale], key) || lookup(MESSAGES[DEFAULT_LOCALE], key) || key;
+    return value.replace(/\{(\w+)\}/g, (match, name) => Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match);
+  }
+
   // src/runtime-config.ts
   var ConfigError = class extends Error {
     constructor(message) {
@@ -409,7 +1185,9 @@
   };
   var ProblemError = class extends Error {
     constructor(message, info) {
-      super(message);
+      const key = `errors.codes.${info.code}`;
+      const localized = translate(detectLocale(), key);
+      super(localized === key ? message : localized);
       this.name = "ProblemError";
       this.status = info.status;
       this.code = info.code;
@@ -803,668 +1581,6 @@
     }
   };
 
-  // src/i18n/zh-CN.ts
-  var zhCN = {
-    common: {
-      retry: "\u91CD\u8BD5",
-      close: "\u5173\u95ED",
-      unknown: "\u672A\u77E5",
-      newSession: "\u65B0\u4F1A\u8BDD"
-    },
-    header: {
-      toggleSidebar: "\u5207\u6362\u4FA7\u680F",
-      toggleSidebarHint: "\u5207\u6362\u4FA7\u680F\uFF08Ctrl+B\uFF09",
-      command: "\u641C\u7D22\u6216\u8FD0\u884C\u547D\u4EE4",
-      toggleInspector: "\u5207\u6362\u68C0\u67E5\u5668",
-      toggleInspectorHint: "\u5207\u6362\u68C0\u67E5\u5668\uFF08Ctrl+J\uFF09",
-      notifications: "\u901A\u77E5\u4E2D\u5FC3",
-      recovery: "\u6062\u590D\u4E2D\u5FC3",
-      shortcuts: "\u5FEB\u6377\u952E",
-      settings: "\u8BBE\u7F6E",
-      minimize: "\u6700\u5C0F\u5316",
-      maximize: "\u6700\u5927\u5316\u6216\u8FD8\u539F",
-      closeWindow: "\u5173\u95ED\u7A97\u53E3"
-    },
-    nav: {
-      sessions: "\u4F1A\u8BDD",
-      files: "\u6587\u4EF6\u6539\u52A8",
-      tree: "\u6587\u4EF6\u6811",
-      git: "Git",
-      tasks: "\u4EFB\u52A1",
-      memory: "\u8BB0\u5FC6",
-      audit: "\u5BA1\u8BA1",
-      problems: "\u95EE\u9898",
-      settings: "\u8BBE\u7F6E"
-    },
-    sidebar: {
-      mainNav: "\u4E3B\u5BFC\u822A",
-      newSession: "\u65B0\u4F1A\u8BDD",
-      collapse: "\u6536\u8D77\u4FA7\u680F",
-      project: "\u9879\u76EE",
-      chooseProject: "\u9009\u62E9\u9879\u76EE\u2026",
-      local: "+ \u672C\u673A",
-      localHint: "\u9009\u62E9\u4E00\u4E2A\u672C\u673A\u6587\u4EF6\u5939\u4F5C\u4E3A\u5DE5\u4F5C\u533A",
-      noProjects: "\u8FD8\u6CA1\u6709\u9879\u76EE\uFF1B\u5728\u8BBE\u7F6E\u91CC\u5BFC\u5165\u6587\u4EF6\u5939\u6216\u4E0A\u4F20\u5F52\u6863\u3002",
-      switchProjectNote: "\u5207\u6362\u9879\u76EE\u540E\uFF0C\u53D1\u9001\u65F6\u4F1A\u81EA\u52A8\u65B0\u5EFA\u4F1A\u8BDD\uFF08\u5DF2\u6709\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u533A\u4E0D\u53EF\u6539\u7ED1\uFF09\u3002",
-      boundLabel: "\u5F53\u524D\u4F1A\u8BDD\u7ED1\u5B9A\uFF1A",
-      immutable: "\uFF08\u4E0D\u53EF\u66F4\u6539\uFF09",
-      workspace: "\u5DE5\u4F5C\u533A",
-      workspacePlaceholder: "D:\\proj \u6216 wsl:/home/u/proj",
-      choose: "\u9009\u62E9\u2026",
-      hostWorkspace: "\u672C\u673A\u9879\u76EE\u7531\u5BA2\u6237\u7AEF\u9009\u62E9\u5E76\u767B\u8BB0",
-      projectWorkspace: "\u9009\u62E9\u9879\u76EE\u540E\u81EA\u52A8\u586B\u5165\u5DE5\u4F5C\u533A",
-      access: "\u6587\u4EF6\u6743\u9650",
-      readOnly: "\u53EA\u8BFB\uFF08\u4E0D\u53EF\u8FD0\u884C\uFF09",
-      writeAsk: "\u5BA1\u6279\u5199",
-      writeAuto: "\u81EA\u52A8\u5199",
-      model: "\u6A21\u578B",
-      defaultModel: "\u9ED8\u8BA4\u6A21\u578B",
-      applyModel: "\u5E94\u7528\u5230\u5F53\u524D\u4F1A\u8BDD",
-      createSession: "\u521B\u5EFA\u4F1A\u8BDD",
-      importSession: "\u5BFC\u5165\u4F1A\u8BDD",
-      exportJson: "\u5BFC\u51FA JSON",
-      imported: "\u5DF2\u5BFC\u5165 {count} \u6761\u6D88\u606F",
-      searchSessions: "\u641C\u7D22\u4F1A\u8BDD\u6216\u6807\u7B7E\u2026",
-      all: "\u5168\u90E8",
-      pinned: "\u7F6E\u9876",
-      archived: "\u5F52\u6863",
-      selected: "{count} \u6761\u5DF2\u9009"
-    },
-    composer: {
-      placeholder: "\u8F93\u5165\u4EFB\u52A1\uFF0CEnter \u53D1\u9001\uFF0CShift+Enter \u6362\u884C",
-      send: "\u53D1\u9001",
-      pause: "\u6682\u505C",
-      cancel: "\u53D6\u6D88",
-      resume: "\u7EE7\u7EED",
-      reconnect: "\u91CD\u8FDE\u4E8B\u4EF6\u6D41",
-      retry: "\u91CD\u8BD5\u4E0A\u4E00\u6761",
-      append: "\u8FFD\u52A0\u4EFB\u52A1",
-      replan: "\u91CD\u89C4\u5212",
-      upload: "\u4E0A\u4F20\u6587\u4EF6",
-      splitPlaceholder: "\u5728\u8BE5\u4F1A\u8BDD\u4E2D\u53D1\u9001\u4EFB\u52A1\uFF0CEnter \u53D1\u9001",
-      messageSearch: "\u641C\u7D22\u5BF9\u8BDD\u2026",
-      uploading: "\u4E0A\u4F20\u4E2D\u2026",
-      uploadProgress: "\u4E0A\u4F20\u4E2D {percent}%",
-      uploadCancelled: "\u4E0A\u4F20\u5DF2\u53D6\u6D88",
-      uploadFailed: "\u4E0A\u4F20\u5931\u8D25",
-      cancelUpload: "\u53D6\u6D88\u4E0A\u4F20",
-      retryUpload: "\u91CD\u8BD5\u4E0A\u4F20",
-      uploadedTo: "\u5DF2\u4E0A\u4F20\u5230\u5DE5\u4F5C\u533A\uFF1A",
-      uploadedCount: "\u5DF2\u4E0A\u4F20 {count} \u4E2A\u6587\u4EF6"
-    },
-    main: {
-      mainTabs: "\u4E3B\u533A\u6807\u7B7E",
-      chat: "\u5BF9\u8BDD",
-      searchPlaceholder: "\u641C\u7D22\u5BF9\u8BDD\u2026",
-      searchHint: "\u641C\u7D22\u5BF9\u8BDD\uFF08Ctrl+Shift+F\uFF09",
-      commandPanel: "\u547D\u4EE4\u9762\u677F",
-      emptyHint: "\u8F93\u5165\u4EFB\u52A1\u5F00\u59CB\u3002\u9ED8\u8BA4\u53EA\u8BFB\uFF1AAgent \u53EA\u80FD\u8BFB\u53D6\u6587\u4EF6\uFF0C\u4E0D\u80FD\u8FD0\u884C\u547D\u4EE4\u6216\u6D4B\u8BD5\u3002",
-      jumpLatest: "\u8DF3\u5230\u6700\u65B0 \u2193",
-      loadOlder: "\u52A0\u8F7D\u66F4\u65E9\u7684\u6D88\u606F",
-      loadingOlder: "\u52A0\u8F7D\u4E2D\u2026",
-      taskInput: "\u4EFB\u52A1\u8F93\u5165",
-      consentTitle: "\u672C\u673A\u6587\u4EF6\u8BBF\u95EE\u6388\u6743",
-      consentAction: "\u64CD\u4F5C",
-      consentReason: "\u539F\u56E0",
-      consentDeny: "\u62D2\u7EDD",
-      consentAllow: "\u5141\u8BB8\u672C\u6B21",
-      fileChanged: "\u6587\u4EF6\u5DF2\u53D8\u5316",
-      expandAll: "\u5C55\u5F00\u5168\u90E8",
-      copy: "\u590D\u5236",
-      openInEditor: "\u5728 VS Code \u6253\u5F00",
-      revealInExplorer: "\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A",
-      openedInEditor: "\u5DF2\u5728 VS Code \u6253\u5F00",
-      revealedInExplorer: "\u5DF2\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A",
-      editorOpenFailed: "\u6253\u5F00\u5931\u8D25\uFF1A{error}",
-      browserNoEditor: "\u6D4F\u89C8\u5668\u6A21\u5F0F\u4E0D\u652F\u6301\u6253\u5F00\u672C\u673A\u6587\u4EF6",
-      editorPathUnsupported: "\u4EC5\u652F\u6301 WSL \u6216\u672C\u673A\u5DE5\u4F5C\u533A\u4E2D\u7684\u6587\u4EF6",
-      revealUnsupported: "\u4EC5\u672C\u673A\u5DE5\u4F5C\u533A\u652F\u6301\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u4E2D\u663E\u793A"
-    },
-    split: {
-      close: "\u5173\u95ED\u5206\u5C4F",
-      refresh: "\u91CD\u8FDE/\u5237\u65B0",
-      openInMain: "\u5728\u4E3B\u533A\u6253\u5F00",
-      empty: "\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u6D88\u606F",
-      send: "\u53D1\u9001"
-    },
-    settings: {
-      title: "\u8BBE\u7F6E",
-      searchPlaceholder: "\u641C\u7D22\u8BBE\u7F6E\uFF0C\u4F8B\u5982\uFF1A\u4E3B\u9898\u3001\u6A21\u578B\u3001\u4E0A\u4F20\u2026",
-      appearance: "\u5916\u89C2",
-      models: "\u6A21\u578B",
-      workspace: "\u5DE5\u4F5C\u533A",
-      diagnostics: "\u8BCA\u65AD",
-      advanced: "\u9AD8\u7EA7",
-      theme: "\u4E3B\u9898",
-      themeDark: "\u6DF1\u8272",
-      themeLight: "\u6D45\u8272",
-      themeAuto: "\u8DDF\u968F\u7CFB\u7EDF",
-      language: "\u8BED\u8A00",
-      languageZh: "\u7B80\u4F53\u4E2D\u6587",
-      languageEn: "English",
-      fontFamily: "\u5B57\u4F53",
-      fontSystem: "\u7CFB\u7EDF\u65E0\u886C\u7EBF",
-      fontSerif: "\u886C\u7EBF",
-      fontMono: "\u7B49\u5BBD",
-      fontSize: "\u5B57\u53F7",
-      sizeSmall: "\u5C0F",
-      sizeNormal: "\u4E2D",
-      sizeLarge: "\u5927",
-      density: "\u5BC6\u5EA6",
-      densityCompact: "\u7D27\u51D1",
-      densityNormal: "\u6807\u51C6",
-      contrast: "\u5BF9\u6BD4\u5EA6",
-      contrastNormal: "\u6807\u51C6",
-      contrastHigh: "\u9AD8\u5BF9\u6BD4\u5EA6",
-      accent: "\u5F3A\u8C03\u8272",
-      accentBlue: "\u84DD\u8272",
-      accentViolet: "\u7D2B\u8272",
-      accentGreen: "\u7EFF\u8272",
-      accentAmber: "\u7425\u73C0",
-      accentRose: "\u73AB\u7EA2",
-      codeFontSize: "\u4EE3\u7801\u5B57\u53F7",
-      codeLineHeight: "\u4EE3\u7801\u884C\u9AD8",
-      lhCompact: "\u7D27\u51D1",
-      lhNormal: "\u6807\u51C6",
-      lhRelaxed: "\u5BBD\u677E",
-      resetLayout: "\u91CD\u7F6E\u4FA7\u680F/\u68C0\u67E5\u5668\u5BBD\u5EA6",
-      showReasoning: "\u663E\u793A\u6A21\u578B\u63A8\u7406\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF1B\u53EA\u5F71\u54CD\u754C\u9762\u5C55\u793A\uFF09",
-      providerProfiles: "Provider \u6863\u6848",
-      profilesDisabled: "\u591A\u7528\u6237\u6A21\u5F0F\u8BF7\u901A\u8FC7 AGENT_LLM_PROVIDERS \u914D\u7F6E\u3002",
-      profileName: "\u540D\u79F0\uFF0C\u5982 local",
-      profileBaseUrl: "https://api.example.com/v1",
-      profileModel: "\u6A21\u578B\u540D",
-      saveProfile: "\u4FDD\u5B58\u6863\u6848",
-      discoverModels: "\u53D1\u73B0\u6A21\u578B",
-      localPreset: "\u672C\u5730\u7AEF\u70B9\u9884\u8BBE",
-      edit: "\u7F16\u8F91",
-      delete: "\u5220\u9664",
-      modelKeys: "\u6A21\u578B\u5BC6\u94A5",
-      keyNote: "\u5BC6\u94A5\u53EA\u5199\u5165\u64CD\u4F5C\u7CFB\u7EDF\u5BC6\u94A5\u73AF\uFF0C\u4E0D\u4F1A\u56DE\u4F20\u6216\u5199\u5165 .env\u3002",
-      provider: "Provider",
-      apiKey: "\u7C98\u8D34 API Key",
-      saveKey: "\u4FDD\u5B58\u5BC6\u94A5",
-      testConnection: "\u6D4B\u8BD5\u8FDE\u63A5",
-      deleteKey: "\u5220\u9664\u5BC6\u94A5",
-      workspacePython: "\u5DE5\u4F5C\u533A\u4E0E Python",
-      pickFolder: "\u9009\u62E9\u6587\u4EF6\u5939",
-      reprobe: "\u91CD\u65B0\u63A2\u6D4B",
-      copyToWsl: "\u590D\u5236\u5230 WSL \u539F\u751F\u76EE\u5F55",
-      projectRegistry: "\u9879\u76EE\uFF08\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\uFF09",
-      importToWsl: "\u5BFC\u5165\u5230 WSL \u5DE5\u4F5C\u533A",
-      addHostWorkspace: "\u6DFB\u52A0\u672C\u673A\u5DE5\u4F5C\u533A",
-      refreshProjects: "\u5237\u65B0\u9879\u76EE",
-      cancelJob: "\u53D6\u6D88\u4EFB\u52A1",
-      archiveLabel: "\u4E0A\u4F20\u9879\u76EE\u5F52\u6863\uFF08zip / tar / tar.gz\uFF09\uFF1B\u53EF\u76F4\u63A5\u62D6\u62FD\u5230\u6B64\u5904",
-      archiveAria: "\u9879\u76EE\u5F52\u6863\u6587\u4EF6",
-      uploadProject: "\u4E0A\u4F20\u5E76\u521B\u5EFA\u9879\u76EE",
-      dropRelease: "\u677E\u5F00\u4EE5\u9009\u62E9\u8BE5\u5F52\u6863",
-      open: "\u6253\u5F00",
-      noProjects: "\u8FD8\u6CA1\u6709\u9879\u76EE",
-      revisions: "Revisions",
-      noRevisions: "\u8FD8\u6CA1\u6709 revision",
-      rollback: "\u56DE\u6EDA",
-      restoreArchive: "\u6062\u590D\u5F52\u6863",
-      pruneArchives: "\u6E05\u7406\u65E7\u5F52\u6863",
-      registryDisabled: "\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u672A\u542F\u7528\uFF1B\u4F7F\u7528\u4E0A\u9762\u7684\u5DE5\u4F5C\u533A\u8DEF\u5F84\u76F4\u63A5\u521B\u5EFA\u4F1A\u8BDD\u3002",
-      budgetNotify: "\u9884\u7B97\u4E0E\u901A\u77E5",
-      notifyHint: "\u5BA1\u6279 / \u5B8C\u6210 / \u5931\u8D25\u65F6\u53D1\u9001\u7CFB\u7EDF\u901A\u77E5",
-      diagnosticsUpdate: "\u8BCA\u65AD\u4E0E\u66F4\u65B0",
-      collectDiagnostics: "\u751F\u6210\u8BCA\u65AD\u5305",
-      openFolder: "\u6253\u5F00\u6240\u5728\u76EE\u5F55",
-      checkUpdate: "\u68C0\u67E5\u66F4\u65B0",
-      downloadUpdate: "\u4E0B\u8F7D\u66F4\u65B0",
-      account: "\u8D26\u6237",
-      logout: "\u9000\u51FA\u767B\u5F55",
-      maintenance: "\u8FD0\u7EF4\u7EF4\u62A4",
-      releaseLease: "\u91CA\u653E\u5F53\u524D\u4F1A\u8BDD\u79DF\u7EA6",
-      purgeMaintenance: "\u6E05\u7406\u8FC7\u671F\u79DF\u7EA6/\u5E42\u7B49\u952E",
-      settingsSaved: "\u8BBE\u7F6E\u4F1A\u7ACB\u5373\u4FDD\u5B58\u5230\u672C\u673A\u3002",
-      errorReporting: "\u53D1\u9001\u524D\u7AEF\u9519\u8BEF\u62A5\u544A\uFF08\u4EC5\u9519\u8BEF\u6458\u8981\uFF0C\u4E0D\u542B\u5BF9\u8BDD\u5185\u5BB9\uFF09",
-      errorReportingOn: "\u5DF2\u5F00\u542F\u524D\u7AEF\u9519\u8BEF\u4E0A\u62A5",
-      errorReportingOff: "\u5DF2\u5173\u95ED\u524D\u7AEF\u9519\u8BEF\u4E0A\u62A5",
-      copyClientErrors: "\u590D\u5236\u6700\u8FD1\u9519\u8BEF",
-      authMode: "\u8BA4\u8BC1\u65B9\u5F0F\uFF1A{mode}",
-      matches: "\u627E\u5230 {count} \u4E2A\u5206\u7C7B",
-      noResults: "\u6CA1\u6709\u5339\u914D\u7684\u8BBE\u7F6E"
-    },
-    auth: {
-      bearer: "Bearer Token\uFF08\u4EC5\u5185\u5B58\uFF09",
-      desktopToken: "\u684C\u9762\u4EE4\u724C\uFF08\u672C\u5730\u5B58\u50A8\uFF09",
-      bffCookie: "\u7EDF\u4E00\u767B\u5F55\uFF08BFF Cookie\uFF09",
-      localSession: "\u4F01\u4E1A\u8D26\u53F7\uFF08Session Cookie\uFF09"
-    },
-    commands: {
-      title: "\u547D\u4EE4\u9762\u677F",
-      placeholder: "\u8F93\u5165\u547D\u4EE4\u3001\u4F1A\u8BDD\u6216\u6587\u4EF6\uFF1B\u652F\u6301 > \u547D\u4EE4 / @ \u4F1A\u8BDD / # \u6587\u4EF6",
-      searchAria: "\u547D\u4EE4\u9762\u677F\u641C\u7D22",
-      listAria: "\u547D\u4EE4\u5217\u8868",
-      searching: "\u6B63\u5728\u641C\u7D22\u6587\u4EF6\u2026",
-      empty: "\u6CA1\u6709\u5339\u914D\u7684\u547D\u4EE4",
-      groups: {
-        commands: "\u547D\u4EE4",
-        session: "\u4F1A\u8BDD",
-        file: "\u6587\u4EF6",
-        fileContent: "\u6587\u4EF6\u5185\u5BB9",
-        filePath: "\u6587\u4EF6\u8DEF\u5F84",
-        recent: "\u6700\u8FD1\u4F7F\u7528"
-      },
-      "quick-open": { title: "\u5FEB\u901F\u6253\u5F00\u6587\u4EF6\u2026", hint: "\u6587\u4EF6" },
-      "new-session": { title: "\u65B0\u5EFA\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
-      settings: { title: "\u6253\u5F00\u8BBE\u7F6E", hint: "\u754C\u9762" },
-      recovery: { title: "\u6253\u5F00\u6062\u590D\u4E2D\u5FC3", hint: "\u754C\u9762" },
-      notifications: { title: "\u901A\u77E5\u4E2D\u5FC3", hint: "\u754C\u9762" },
-      shortcuts: { title: "\u67E5\u770B\u5FEB\u6377\u952E", hint: "\u5E2E\u52A9" },
-      "search-conversation": { title: "\u641C\u7D22\u5F53\u524D\u5BF9\u8BDD", hint: "\u5BFC\u822A" },
-      "split-session": { title: "\u5F53\u524D\u4F1A\u8BDD\u5206\u5C4F", hint: "\u89C6\u56FE" },
-      "jump-latest": { title: "\u8DF3\u5230\u6700\u65B0\u6D88\u606F", hint: "\u5BFC\u822A" },
-      "toggle-sidebar": { title: "\u5207\u6362\u4FA7\u680F", hint: "\u5E03\u5C40" },
-      "toggle-inspector": { title: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668", hint: "\u5E03\u5C40" },
-      "view-sessions": { title: "\u89C6\u56FE\uFF1A\u4F1A\u8BDD", hint: "\u5BFC\u822A" },
-      "view-files": { title: "\u89C6\u56FE\uFF1A\u6587\u4EF6\u6539\u52A8", hint: "\u5BFC\u822A" },
-      "view-tree": { title: "\u89C6\u56FE\uFF1A\u6587\u4EF6\u6811", hint: "\u5BFC\u822A" },
-      "view-git": { title: "\u89C6\u56FE\uFF1AGit", hint: "\u5BFC\u822A" },
-      "view-tasks": { title: "\u89C6\u56FE\uFF1A\u4EFB\u52A1", hint: "\u5BFC\u822A" },
-      "view-memory": { title: "\u89C6\u56FE\uFF1A\u8BB0\u5FC6", hint: "\u5BFC\u822A" },
-      "view-audit": { title: "\u89C6\u56FE\uFF1A\u5BA1\u8BA1", hint: "\u5BFC\u822A" },
-      "view-problems": { title: "\u89C6\u56FE\uFF1A\u95EE\u9898", hint: "\u5BFC\u822A" },
-      "tab-plan": { title: "\u68C0\u67E5\u5668\uFF1A\u8BA1\u5212", hint: "\u5BFC\u822A" },
-      "tab-tools": { title: "\u68C0\u67E5\u5668\uFF1A\u5DE5\u5177", hint: "\u5BFC\u822A" },
-      "tab-timeline": { title: "\u68C0\u67E5\u5668\uFF1A\u65F6\u95F4\u7EBF", hint: "\u5BFC\u822A" },
-      "close-editor": { title: "\u5173\u95ED\u5F53\u524D\u6807\u7B7E", hint: "\u6807\u7B7E" },
-      "close-other-editors": { title: "\u5173\u95ED\u5176\u4ED6\u6807\u7B7E", hint: "\u6807\u7B7E" },
-      "close-all-editors": { title: "\u5173\u95ED\u6240\u6709\u6587\u4EF6\u6807\u7B7E", hint: "\u6807\u7B7E" },
-      "refresh-files": { title: "\u5237\u65B0\u6587\u4EF6\u5FEB\u7167", hint: "\u6587\u4EF6" },
-      "refresh-tree": { title: "\u5237\u65B0\u6587\u4EF6\u6811", hint: "\u6587\u4EF6" },
-      "git-diff": { title: "\u67E5\u770B Git diff", hint: "Git" },
-      "theme-dark": { title: "\u4E3B\u9898\uFF1A\u6DF1\u8272", hint: "\u5916\u89C2" },
-      "theme-light": { title: "\u4E3B\u9898\uFF1A\u6D45\u8272", hint: "\u5916\u89C2" },
-      "theme-auto": { title: "\u4E3B\u9898\uFF1A\u8DDF\u968F\u7CFB\u7EDF", hint: "\u5916\u89C2" },
-      reasoning: { title: "\u663E\u793A/\u9690\u85CF\u6A21\u578B\u63A8\u7406", hint: "\u5916\u89C2" },
-      "reset-layout": { title: "\u91CD\u7F6E\u5E03\u5C40\u5BBD\u5EA6", hint: "\u5E03\u5C40" },
-      compact: { title: "\u538B\u7F29\u4E0A\u4E0B\u6587\u5E76\u5206\u53C9", hint: "Agent" },
-      pin: { title: "\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
-      unpin: { title: "\u53D6\u6D88\u7F6E\u9876\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
-      archive: { title: "\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
-      unarchive: { title: "\u53D6\u6D88\u5F52\u6863\u5F53\u524D\u4F1A\u8BDD", hint: "\u4F1A\u8BDD" },
-      tag: { title: "\u7F16\u8F91\u5F53\u524D\u4F1A\u8BDD\u6807\u7B7E", hint: "\u4F1A\u8BDD" }
-    },
-    status: {
-      ready: "\u5C31\u7EEA",
-      running: "\u8FD0\u884C\u4E2D\u2026",
-      reconnecting: "\u91CD\u8FDE\u4E2D\u2026",
-      reconnectIn: "\u8FDE\u63A5\u4E2D\u65AD\uFF0C{seconds}s \u540E\u91CD\u8FDE\u2026",
-      disconnected: "\u8FDE\u63A5\u4E2D\u65AD",
-      waitingApproval: "\u7B49\u5F85\u5BA1\u6279",
-      paused: "\u5DF2\u6682\u505C",
-      failed: "\u5931\u8D25",
-      resuming: "\u6062\u590D\u4E2D\u2026",
-      streaming: "\u6D41\u5F0F\u8FDE\u63A5\u4E2D",
-      closed: "\u8FDE\u63A5\u5DF2\u5173\u95ED",
-      reconnectFailed: "\u91CD\u8FDE\u5931\u8D25\uFF1A{error}",
-      runFailed: "\u8FD0\u884C\u5931\u8D25\uFF1A{error}"
-    },
-    approval: {
-      title: "\u9700\u8981\u786E\u8BA4",
-      approve: "\u6279\u51C6\uFF08y\uFF09",
-      deny: "\u62D2\u7EDD\uFF08n\uFF09",
-      rejectAll: "\u5168\u90E8\u62D2\u7EDD",
-      remaining: "\u8FD8\u5269 {count} \u6761\u5F85\u786E\u8BA4"
-    },
-    notifications: {
-      title: "\u901A\u77E5",
-      markAllRead: "\u5168\u90E8\u5DF2\u8BFB",
-      clear: "\u6E05\u7A7A\u901A\u77E5",
-      empty: "\u8FD8\u6CA1\u6709\u901A\u77E5",
-      unread: "{count} \u6761\u672A\u8BFB",
-      runFinished: "CodingAgent \u8FD0\u884C\u5B8C\u6210",
-      runFailed: "CodingAgent \u8FD0\u884C\u5931\u8D25",
-      approval: "CodingAgent \u9700\u8981\u5BA1\u6279"
-    }
-  };
-
-  // src/i18n/en-US.ts
-  var enUS = {
-    common: {
-      retry: "Retry",
-      close: "Close",
-      unknown: "Unknown",
-      newSession: "New session"
-    },
-    header: {
-      toggleSidebar: "Toggle sidebar",
-      toggleSidebarHint: "Toggle sidebar (Ctrl+B)",
-      command: "Search or run a command",
-      toggleInspector: "Toggle inspector",
-      toggleInspectorHint: "Toggle inspector (Ctrl+J)",
-      notifications: "Notification center",
-      recovery: "Recovery center",
-      shortcuts: "Keyboard shortcuts",
-      settings: "Settings",
-      minimize: "Minimize",
-      maximize: "Maximize or restore",
-      closeWindow: "Close window"
-    },
-    nav: {
-      sessions: "Sessions",
-      files: "File changes",
-      tree: "File tree",
-      git: "Git",
-      tasks: "Tasks",
-      memory: "Memory",
-      audit: "Audit",
-      problems: "Problems",
-      settings: "Settings"
-    },
-    sidebar: {
-      mainNav: "Main navigation",
-      newSession: "New session",
-      collapse: "Collapse sidebar",
-      project: "Project",
-      chooseProject: "Choose a project\u2026",
-      local: "+ Local",
-      localHint: "Choose a local folder as the workspace",
-      noProjects: "No projects yet. Import a folder or upload an archive in Settings.",
-      switchProjectNote: "Sending after switching projects creates a new session; an existing session cannot be rebound.",
-      boundLabel: "Bound to: ",
-      immutable: " (cannot be changed)",
-      workspace: "Workspace",
-      workspacePlaceholder: "D:\\proj or wsl:/home/u/proj",
-      choose: "Choose\u2026",
-      hostWorkspace: "The desktop client selects and registers local projects",
-      projectWorkspace: "Filled automatically after choosing a project",
-      access: "File access",
-      readOnly: "Read-only (cannot run)",
-      writeAsk: "Write with approval",
-      writeAuto: "Write automatically",
-      model: "Model",
-      defaultModel: "Default model",
-      applyModel: "Apply to current session",
-      createSession: "Create session",
-      importSession: "Import session",
-      exportJson: "Export JSON",
-      imported: "Imported {count} message(s)",
-      searchSessions: "Search sessions or tags\u2026",
-      all: "All",
-      pinned: "Pinned",
-      archived: "Archived",
-      selected: "{count} selected"
-    },
-    composer: {
-      placeholder: "Enter a task. Enter to send, Shift+Enter for a new line",
-      send: "Send",
-      pause: "Pause",
-      cancel: "Cancel",
-      resume: "Resume",
-      reconnect: "Reconnect stream",
-      retry: "Retry last",
-      append: "Append task",
-      replan: "Replan",
-      upload: "Upload files",
-      splitPlaceholder: "Send a task in this session. Enter to send",
-      messageSearch: "Search conversation\u2026",
-      uploading: "Uploading\u2026",
-      uploadProgress: "Uploading {percent}%",
-      uploadCancelled: "Upload cancelled",
-      uploadFailed: "Upload failed",
-      cancelUpload: "Cancel upload",
-      retryUpload: "Retry upload",
-      uploadedTo: "Uploaded to workspace:",
-      uploadedCount: "Uploaded {count} file(s)"
-    },
-    main: {
-      mainTabs: "Main tabs",
-      chat: "Chat",
-      searchPlaceholder: "Search conversation\u2026",
-      searchHint: "Search conversation (Ctrl+Shift+F)",
-      commandPanel: "Command palette",
-      emptyHint: "Enter a task to start. Read-only by default: the agent can read files but cannot run commands or tests.",
-      jumpLatest: "Jump to latest \u2193",
-      loadOlder: "Load older messages",
-      loadingOlder: "Loading\u2026",
-      taskInput: "Task input",
-      consentTitle: "Local file access approval",
-      consentAction: "Action",
-      consentReason: "Reason",
-      consentDeny: "Deny",
-      consentAllow: "Allow once",
-      fileChanged: "File changed",
-      expandAll: "Expand all",
-      copy: "Copy",
-      openInEditor: "Open in VS Code",
-      revealInExplorer: "Reveal in file manager",
-      openedInEditor: "Opened in VS Code",
-      revealedInExplorer: "Revealed in file manager",
-      editorOpenFailed: "Open failed: {error}",
-      browserNoEditor: "Browser mode cannot open local files",
-      editorPathUnsupported: "Only WSL or native workspace files are supported",
-      revealUnsupported: "Reveal is only available for native workspaces"
-    },
-    split: {
-      close: "Close split pane",
-      refresh: "Reconnect / refresh",
-      openInMain: "Open in main pane",
-      empty: "This session has no messages yet",
-      send: "Send"
-    },
-    settings: {
-      title: "Settings",
-      searchPlaceholder: "Search settings, e.g. theme, model, upload\u2026",
-      appearance: "Appearance",
-      models: "Models",
-      workspace: "Workspace",
-      diagnostics: "Diagnostics",
-      advanced: "Advanced",
-      theme: "Theme",
-      themeDark: "Dark",
-      themeLight: "Light",
-      themeAuto: "Follow system",
-      language: "Language",
-      languageZh: "\u7B80\u4F53\u4E2D\u6587",
-      languageEn: "English",
-      fontFamily: "Font family",
-      fontSystem: "System sans-serif",
-      fontSerif: "Serif",
-      fontMono: "Monospace",
-      fontSize: "Font size",
-      sizeSmall: "Small",
-      sizeNormal: "Medium",
-      sizeLarge: "Large",
-      density: "Density",
-      densityCompact: "Compact",
-      densityNormal: "Normal",
-      contrast: "Contrast",
-      contrastNormal: "Normal",
-      contrastHigh: "High contrast",
-      accent: "Accent color",
-      accentBlue: "Blue",
-      accentViolet: "Violet",
-      accentGreen: "Green",
-      accentAmber: "Amber",
-      accentRose: "Rose",
-      codeFontSize: "Code font size",
-      codeLineHeight: "Code line height",
-      lhCompact: "Compact",
-      lhNormal: "Normal",
-      lhRelaxed: "Relaxed",
-      resetLayout: "Reset sidebar/inspector widths",
-      showReasoning: "Show model reasoning (off by default; display only)",
-      providerProfiles: "Provider profiles",
-      profilesDisabled: "In multi-user mode configure providers via AGENT_LLM_PROVIDERS.",
-      profileName: "Name, e.g. local",
-      profileBaseUrl: "https://api.example.com/v1",
-      profileModel: "Model name",
-      saveProfile: "Save profile",
-      discoverModels: "Discover models",
-      localPreset: "Local endpoint preset",
-      edit: "Edit",
-      delete: "Delete",
-      modelKeys: "Model keys",
-      keyNote: "Keys are written to the OS keyring, never returned or stored in .env.",
-      provider: "Provider",
-      apiKey: "Paste API key",
-      saveKey: "Save key",
-      testConnection: "Test connection",
-      deleteKey: "Delete key",
-      workspacePython: "Workspace & Python",
-      pickFolder: "Choose folder",
-      reprobe: "Probe again",
-      copyToWsl: "Copy to native WSL directory",
-      projectRegistry: "Projects (workspace registry)",
-      importToWsl: "Import into WSL workspace",
-      addHostWorkspace: "Add host workspace",
-      refreshProjects: "Refresh projects",
-      cancelJob: "Cancel job",
-      archiveLabel: "Upload project archive (zip / tar / tar.gz); drag and drop here",
-      archiveAria: "Project archive file",
-      uploadProject: "Upload and create project",
-      dropRelease: "Release to select this archive",
-      open: "Open",
-      noProjects: "No projects yet",
-      revisions: "Revisions",
-      noRevisions: "No revisions yet",
-      rollback: "Roll back",
-      restoreArchive: "Restore archive",
-      pruneArchives: "Prune old archives",
-      registryDisabled: "Workspace registry is disabled; create sessions with the workspace path above.",
-      budgetNotify: "Budget & notifications",
-      notifyHint: "Send a system notification on approval / completion / failure",
-      diagnosticsUpdate: "Diagnostics & updates",
-      collectDiagnostics: "Collect diagnostics",
-      openFolder: "Open containing folder",
-      checkUpdate: "Check for updates",
-      downloadUpdate: "Download update",
-      account: "Account",
-      logout: "Sign out",
-      maintenance: "Maintenance",
-      releaseLease: "Release current session lease",
-      purgeMaintenance: "Purge expired leases/idempotency keys",
-      settingsSaved: "Settings are saved locally immediately.",
-      errorReporting: "Send frontend error reports (summary only, no conversation content)",
-      errorReportingOn: "Frontend error reporting enabled",
-      errorReportingOff: "Frontend error reporting disabled",
-      copyClientErrors: "Copy recent errors",
-      authMode: "Authentication: {mode}",
-      matches: "{count} matching sections",
-      noResults: "No matching settings"
-    },
-    auth: {
-      bearer: "Bearer token (memory only)",
-      desktopToken: "Desktop token (local storage)",
-      bffCookie: "Unified login (BFF cookie)",
-      localSession: "Enterprise account (session cookie)"
-    },
-    commands: {
-      title: "Command palette",
-      placeholder: "Type a command, session or file; > command / @ session / # file",
-      searchAria: "Search command palette",
-      listAria: "Command list",
-      searching: "Searching files\u2026",
-      empty: "No matching commands",
-      groups: {
-        commands: "Commands",
-        session: "Session",
-        file: "File",
-        fileContent: "File content",
-        filePath: "File path",
-        recent: "Recently used"
-      },
-      "quick-open": { title: "Quick open file\u2026", hint: "File" },
-      "new-session": { title: "New session", hint: "Session" },
-      settings: { title: "Open settings", hint: "UI" },
-      recovery: { title: "Open recovery center", hint: "UI" },
-      notifications: { title: "Notification center", hint: "UI" },
-      shortcuts: { title: "Show keyboard shortcuts", hint: "Help" },
-      "search-conversation": { title: "Search current conversation", hint: "Navigation" },
-      "split-session": { title: "Split current session", hint: "View" },
-      "jump-latest": { title: "Jump to latest message", hint: "Navigation" },
-      "toggle-sidebar": { title: "Toggle sidebar", hint: "Layout" },
-      "toggle-inspector": { title: "Toggle right inspector", hint: "Layout" },
-      "view-sessions": { title: "View: Sessions", hint: "Navigation" },
-      "view-files": { title: "View: File changes", hint: "Navigation" },
-      "view-tree": { title: "View: File tree", hint: "Navigation" },
-      "view-git": { title: "View: Git", hint: "Navigation" },
-      "view-tasks": { title: "View: Tasks", hint: "Navigation" },
-      "view-memory": { title: "View: Memory", hint: "Navigation" },
-      "view-audit": { title: "View: Audit", hint: "Navigation" },
-      "view-problems": { title: "View: Problems", hint: "Navigation" },
-      "tab-plan": { title: "Inspector: Plan", hint: "Navigation" },
-      "tab-tools": { title: "Inspector: Tools", hint: "Navigation" },
-      "tab-timeline": { title: "Inspector: Timeline", hint: "Navigation" },
-      "close-editor": { title: "Close current tab", hint: "Tabs" },
-      "close-other-editors": { title: "Close other tabs", hint: "Tabs" },
-      "close-all-editors": { title: "Close all file tabs", hint: "Tabs" },
-      "refresh-files": { title: "Refresh file snapshots", hint: "File" },
-      "refresh-tree": { title: "Refresh file tree", hint: "File" },
-      "git-diff": { title: "Show Git diff", hint: "Git" },
-      "theme-dark": { title: "Theme: Dark", hint: "Appearance" },
-      "theme-light": { title: "Theme: Light", hint: "Appearance" },
-      "theme-auto": { title: "Theme: Follow system", hint: "Appearance" },
-      reasoning: { title: "Show/hide model reasoning", hint: "Appearance" },
-      "reset-layout": { title: "Reset layout widths", hint: "Layout" },
-      compact: { title: "Compact context and fork", hint: "Agent" },
-      pin: { title: "Pin current session", hint: "Session" },
-      unpin: { title: "Unpin current session", hint: "Session" },
-      archive: { title: "Archive current session", hint: "Session" },
-      unarchive: { title: "Unarchive current session", hint: "Session" },
-      tag: { title: "Edit current session tags", hint: "Session" }
-    },
-    status: {
-      ready: "Ready",
-      running: "Running\u2026",
-      reconnecting: "Reconnecting\u2026",
-      reconnectIn: "Disconnected; reconnecting in {seconds}s\u2026",
-      disconnected: "Disconnected",
-      waitingApproval: "Waiting for approval",
-      paused: "Paused",
-      failed: "Failed",
-      resuming: "Resuming\u2026",
-      streaming: "Streaming",
-      closed: "Connection closed",
-      reconnectFailed: "Reconnect failed: {error}",
-      runFailed: "Run failed: {error}"
-    },
-    approval: {
-      title: "Approval required",
-      approve: "Approve (y)",
-      deny: "Deny (n)",
-      rejectAll: "Reject all",
-      remaining: "{count} more pending"
-    },
-    notifications: {
-      title: "Notifications",
-      markAllRead: "Mark all as read",
-      clear: "Clear notifications",
-      empty: "No notifications yet",
-      unread: "{count} unread",
-      runFinished: "CodingAgent run finished",
-      runFailed: "CodingAgent run failed",
-      approval: "CodingAgent needs approval"
-    }
-  };
-
-  // src/i18n/index.ts
-  var DEFAULT_LOCALE = "zh-CN";
-  var MESSAGES = {
-    "zh-CN": zhCN,
-    "en-US": enUS
-  };
-  function normalizeLocale(value) {
-    return String(value || "") === "en-US" ? "en-US" : DEFAULT_LOCALE;
-  }
-  function lookup(messages, key) {
-    let node = messages;
-    for (const part of String(key || "").split(".")) {
-      if (!part || !node || typeof node !== "object") return "";
-      node = node[part];
-    }
-    return typeof node === "string" ? node : "";
-  }
-  function translate(locale, key, params = {}) {
-    const value = lookup(MESSAGES[locale], key) || lookup(MESSAGES[DEFAULT_LOCALE], key) || key;
-    return value.replace(/\{(\w+)\}/g, (match, name) => Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match);
-  }
-
   // src/features/i18n.ts
   var i18nMixin = {
     locale: DEFAULT_LOCALE,
@@ -1775,8 +1891,82 @@
       this.versionError = "";
       this.versionErrorCode = "";
       this.loginError = message || "";
+      this.mfaRequired = false;
+      this.mfaToken = "";
+      this.mfaCode = "";
       if (this.authMode === "bff-cookie" && this.authLoginUrl) {
         this.startLogin();
+      }
+      void this.checkOidcAvailability();
+    },
+    async checkOidcAvailability() {
+      if (this.authMode !== "local-session") {
+        this.oidcAvailable = false;
+        return;
+      }
+      try {
+        const response = await fetch(apiUrl("/api/auth/oidc/status"), {
+          credentials: "include",
+          cache: "no-store"
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        this.oidcAvailable = Boolean(data.enabled);
+      } catch (err) {
+        this.oidcAvailable = false;
+      }
+    },
+    async startOidcLogin() {
+      try {
+        const response = await fetch(apiUrl("/api/auth/oidc/start"), {
+          credentials: "include",
+          cache: "no-store"
+        });
+        if (!response.ok) {
+          this.loginError = "SSO \u767B\u5F55\u4E0D\u53EF\u7528";
+          return;
+        }
+        const data = await response.json();
+        const target = String(data.authorization_url || "");
+        if (!target) {
+          this.loginError = "SSO \u767B\u5F55\u5730\u5740\u4E3A\u7A7A";
+          return;
+        }
+        location.assign(target);
+      } catch (err) {
+        this.loginError = `SSO \u767B\u5F55\u5931\u8D25\uFF1A${String(err)}`;
+      }
+    },
+    async verifyMfa() {
+      const code = String(this.mfaCode || "").trim();
+      if (!code) {
+        this.loginError = "\u8BF7\u8F93\u5165\u52A8\u6001\u7801\u6216\u6062\u590D\u7801";
+        return;
+      }
+      try {
+        const response = await fetch(apiUrl("/api/auth/mfa/verify"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mfa_token: this.mfaToken, code })
+        });
+        if (!response.ok) {
+          let message = "\u52A8\u6001\u7801\u4E0D\u6B63\u786E";
+          try {
+            const data = await response.json();
+            message = String(data.detail?.message || data.detail || message);
+          } catch (err) {
+          }
+          this.loginError = message;
+          return;
+        }
+        this.mfaRequired = false;
+        this.mfaToken = "";
+        this.mfaCode = "";
+        this.loginError = "";
+        await this.bootstrap();
+      } catch (err) {
+        this.loginError = `\u9A8C\u8BC1\u5931\u8D25\uFF1A${String(err)}`;
       }
     },
     handleAuthFailure() {
@@ -1825,11 +2015,19 @@
         if (!response.ok) {
           let message = "\u767B\u5F55\u5931\u8D25";
           try {
-            const data = await response.json();
-            message = String(data.detail?.message || data.detail || message);
+            const data2 = await response.json();
+            message = String(data2.detail?.message || data2.detail || message);
           } catch (err) {
           }
           this.loginError = message;
+          return;
+        }
+        const data = await response.json().catch(() => ({}));
+        if (data.mfa_required) {
+          this.mfaRequired = true;
+          this.mfaToken = String(data.mfa_token || "");
+          this.loginPassword = "";
+          this.loginError = "";
           return;
         }
         this.loginPassword = "";
@@ -1837,6 +2035,78 @@
         await this.bootstrap();
       } catch (err) {
         this.loginError = `\u767B\u5F55\u5931\u8D25\uFF1A${String(err)}`;
+      }
+    },
+    async loadSessions() {
+      if (this.authMode !== "local-session") return;
+      this.authSessionsLoading = true;
+      this.authSessionsError = "";
+      try {
+        const response = await authFetch("/api/auth/sessions");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        this.authSessions = Array.isArray(data.sessions) ? data.sessions : [];
+      } catch (err) {
+        this.authSessionsError = String(err);
+      } finally {
+        this.authSessionsLoading = false;
+      }
+    },
+    async revokeOtherSessions() {
+      try {
+        const response = await authFetch("/api/auth/sessions/revoke-others", {
+          method: "POST"
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        this.toastMessage(
+          this.t("settings.sessionsRevoked", {
+            count: Number(data.revoked || 0)
+          })
+        );
+        await this.loadSessions();
+      } catch (err) {
+        this.authSessionsError = String(err);
+      }
+    },
+    showPasswordReset() {
+      this.resetVisible = true;
+      this.resetMessage = "";
+    },
+    async requestPasswordReset() {
+      const identifier = String(this.resetIdentifier || "").trim();
+      if (!identifier) return;
+      try {
+        const response = await authFetch("/api/auth/password-reset/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier })
+        });
+        this.resetMessage = response.ok ? this.t("auth.resetSent") : this.t("auth.resetFailed");
+      } catch (err) {
+        this.resetMessage = this.t("auth.resetFailed");
+      }
+    },
+    async confirmPasswordReset() {
+      const token = String(this.resetToken || "").trim();
+      const newPassword = String(this.resetNewPassword || "");
+      if (!token || newPassword.length < 8) {
+        this.resetMessage = this.t("auth.resetWeakPassword");
+        return;
+      }
+      try {
+        const response = await authFetch("/api/auth/password-reset/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, new_password: newPassword })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        this.resetVisible = false;
+        this.resetToken = "";
+        this.resetNewPassword = "";
+        this.loginMessage = this.t("auth.resetOk");
+      } catch (err) {
+        this.resetMessage = this.t("auth.resetFailed");
       }
     },
     async logout() {
@@ -2660,8 +2930,14 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       return record.tool || record.detail || "";
     },
     get loginMessage() {
+      if (this.mfaRequired) {
+        return this.loginError || "\u8BF7\u8F93\u5165\u52A8\u6001\u7801\u6216\u6062\u590D\u7801\u3002";
+      }
       if (this.authMode === "bff-cookie") {
         return this.loginError || "\u4F1A\u8BDD\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55\u3002";
+      }
+      if (this.authMode === "local-session") {
+        return this.loginError || "\u8BF7\u4F7F\u7528\u4F01\u4E1A\u8D26\u53F7\u767B\u5F55\u3002";
       }
       return this.loginError || "\u8F93\u5165\u8BBF\u95EE token\uFF08\u684C\u9762\u7AEF\u4F1A\u81EA\u52A8\u586B\u5165\uFF09";
     },
@@ -2881,6 +3157,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       if (Number.isFinite(capabilitiesVersion) && capabilitiesVersion > 0) {
         this.capabilitiesVersion = capabilitiesVersion;
       }
+      this.oidcAvailable = Boolean(this.capabilities.oidc_enabled);
+      this.fourEyes = Boolean(this.capabilities.four_eyes);
+      this.fourEyesMinLevel = Number(
+        this.capabilities.four_eyes_min_level || 3
+      );
       const budget = Number(this.capabilities.run_cost_budget_usd || 0);
       const maxUpload = Number(this.capabilities.max_upload_bytes || 0);
       const projectUpload = Number(
@@ -5538,6 +5819,10 @@ ${detail || ""}`;
     },
     async decideFor(view, granted) {
       if (!view || !view.approval) return;
+      if (this.fourEyes && Number(view.approval.level_int || 0) >= this.fourEyesMinLevel) {
+        this.toastMessage("\u8BE5\u5BA1\u6279\u9700\u8981\u7BA1\u7406\u5458\u5728\u7BA1\u7406\u7AEF\u5904\u7406");
+        return;
+      }
       view.decisions[view.approval.request_id] = !!granted;
       view.approvals.shift();
       if (view.approvals.length) {
@@ -8643,7 +8928,13 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       return this.authMode === "bff-cookie";
     },
     get authLocalVisible() {
-      return this.authMode === "local-session";
+      return this.authMode === "local-session" && !this.mfaRequired;
+    },
+    get mfaVisible() {
+      return this.authMode === "local-session" && this.mfaRequired;
+    },
+    get authOidcVisible() {
+      return this.authMode === "local-session" && this.oidcAvailable && !this.mfaRequired;
     },
     get authModeText() {
       return this.t("settings.authMode", { mode: this.authModeLabel });
@@ -8883,6 +9174,14 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     get approvalLevelText() {
       return this.approval ? String(this.approval.level || "") : "";
+    },
+    get fourEyesApproval() {
+      return Boolean(
+        this.fourEyes && this.approval && Number(this.approval.level_int || 0) >= this.fourEyesMinLevel
+      );
+    },
+    get approvalActionsVisible() {
+      return !this.fourEyesApproval;
     },
     get approvalCommandText() {
       return this.approval ? String(this.approval.command || "") : "";
@@ -9417,6 +9716,20 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       loginError: "",
       loginUsername: "",
       loginPassword: "",
+      resetVisible: false,
+      resetIdentifier: "",
+      resetToken: "",
+      resetNewPassword: "",
+      resetMessage: "",
+      mfaRequired: false,
+      mfaToken: "",
+      mfaCode: "",
+      oidcAvailable: false,
+      authSessions: [],
+      authSessionsLoading: false,
+      authSessionsError: "",
+      fourEyes: false,
+      fourEyesMinLevel: 3,
       tokenInput: "",
       _authFailureAt: 0,
       healthText: "\u8FDE\u63A5\u4E2D\u2026",

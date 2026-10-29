@@ -19,8 +19,14 @@ export const view_modelMixin = {
   taskClass(task) { return `task-${task.status || 'pending'}`; },
   auditText(record) { return record.tool || record.detail || ''; },
   get loginMessage() {
+    if (this.mfaRequired) {
+      return this.loginError || '请输入动态码或恢复码。';
+    }
     if (this.authMode === 'bff-cookie') {
       return this.loginError || '会话已失效，请重新登录。';
+    }
+    if (this.authMode === 'local-session') {
+      return this.loginError || '请使用企业账号登录。';
     }
     return this.loginError || '输入访问 token（桌面端会自动填入）';
   },

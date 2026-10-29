@@ -713,3 +713,14 @@ def test_run_emits_cost_report_and_budget_alert(tmp_path) -> None:
     assert report.budget_usd == 1.0
     assert report.alerts
     assert "provider-a" in report.providers
+
+
+def test_workspace_lock_error_is_fail_closed(tmp_path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path)
+
+    def boom(*args, **kwargs):
+        raise OSError("audit directory is not writable")
+
+    monkeypatch.setattr("coding_agent.runtime.WorkspaceLock", boom)
+    assert runtime._acquire_workspace_lock() is False
+    assert "锁不可用" in runtime._workspace_lock_busy

@@ -308,7 +308,7 @@ START → route_entry
 ```
 conda activate agent → make check（ruff + 快反馈）→ make test-all（含真实 WSL）
 测试分三层：unit（假图驱动，无沙箱） / integration（真实 WSL，自动跳过） / tui·web（无头驱动）
-CI（ubuntu，无 WSL）: pip install -e ".[dev,ui,web]" → ruff → pytest -m "not wsl and not llm"
+CI（ubuntu，无 WSL）: pip install -e ".[dev,ui,web]" → ruff → pytest -m "not wsl and not wsl_env and not llm"
 ```
 
 - **本地三档**：`not wsl and not llm`（快，约 1 分钟）→ `wsl`（真实沙箱）→

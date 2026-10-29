@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ from fastapi.responses import Response, StreamingResponse
 from coding_agent.agent_protocol import AgentRunRequest
 from coding_agent.config import Settings
 from coding_agent.control.idempotency import IdempotencyInFlight
+from coding_agent.control.leases import LeaseHeartbeat
+from coding_agent.observability import inc_gauge, note_silent_failure
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
@@ -25,6 +28,19 @@ from coding_agent.web.transcripts import (
     save_transcript,
 )
 from coding_agent.web.validation import check_thread_id
+
+_LOG = logging.getLogger(__name__)
+
+
+def _swallow(site: str, exc: BaseException) -> None:
+    """best-effort 分支的统一出口：不再静默。
+
+    以前是 `except Exception: pass`：计费泄漏、审计漏写、租约残留都看不见。
+    现在每吞一次都计数（`agent_silent_failures_total{site}`）并记 warning——
+    吞掉异常本身可以是设计选择（不该让主流程失败），**不留下痕迹不行**。
+    """
+    note_silent_failure(site)
+    _LOG.warning("%s 的 best-effort 步骤失败，已吞掉：%s", site, exc)
 
 
 @dataclass(frozen=True)
@@ -68,6 +84,10 @@ class RunDeps:
     usd_to_cny: float = 7.2
     quota_owner: str = ""
     quota_ttl_s: int = 3600
+    # RFC-0004：四眼审批；None / 0 = 关闭。
+    approvals: Any | None = None
+    four_eyes_min_level: int = 0
+    record_approval: Callable[..., None] | None = None
 
 
 def _lease_key(user: AuthUser, public_thread: str) -> str:
@@ -180,8 +200,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 deps.control_store.settle_quota,
                 str(reservation.get("id") or ""),
             )
-        except Exception:  # noqa: BLE001 - 释放失败不应影响响应
-            pass
+        except Exception as exc:  # noqa: BLE001 - 释放失败不应影响响应
+            # 结算不回去 = 用户的额度被永久占用，这是账单级问题，不能静默。
+            _swallow("quota_settle", exc)
 
     def _finalize_stream(
         response: StreamingResponse,
@@ -192,17 +213,20 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
     ) -> StreamingResponse:
         """流结束后释放配额并拉取审计，保证本地运行也能计量。"""
         original = response.body_iterator
+        inc_gauge("agent_active_runs", 1)
 
         async def body() -> Any:
             try:
                 async for chunk in original:
                     yield chunk
             finally:
+                inc_gauge("agent_active_runs", -1)
                 if deps.audit_flush is not None and tenant is not None:
                     try:
                         await deps.audit_flush(user, tenant, config)
-                    except Exception:  # noqa: BLE001 - 计量失败不阻断响应
-                        pass
+                    except Exception as exc:  # noqa: BLE001 - 计量失败不阻断响应
+                        # 漏记用量 = 少计费；留痕才可能对账补记。
+                        _swallow("usage_flush", exc)
                 await _release_quota(user, reservation)
 
         response.body_iterator = body()
@@ -227,8 +251,8 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             active = None
             try:
                 active = deps.run_leases.active(key)
-            except Exception:  # noqa: BLE001 - 冲突详情失败不影响拒绝
-                pass
+            except Exception as exc:  # noqa: BLE001 - 冲突详情失败不影响拒绝
+                _swallow("lease_conflict_detail", exc)
             raise HTTPException(
                 status_code=409,
                 detail=lease_conflict_detail(
@@ -245,8 +269,9 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             deps.run_leases.release(
                 _lease_key(user, public_thread), lease_id
             )
-        except Exception:  # noqa: BLE001 - 释放失败交给 TTL
-            pass
+        except Exception as exc:  # noqa: BLE001 - 释放失败交给 TTL
+            # 租约残留会让会话在 TTL 内无法重跑，必须留痕。
+            _swallow("run_lease_release", exc)
 
     def _lease_callbacks(
         user: AuthUser,
@@ -270,8 +295,8 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                     lease_id,
                     ttl_s=deps.lease_ttl_s,
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001 - 续租失败交给 TTL
+                _swallow("run_lease_renew", exc)
 
         def terminal() -> None:
             _release_lease(user, public_thread, lease_id)
@@ -287,6 +312,115 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                     pass
 
         return progress, terminal
+
+    async def _start_heartbeat(
+        user: AuthUser, public_thread: str, lease_id: str
+    ) -> LeaseHeartbeat | None:
+        if not lease_id or deps.run_leases is None:
+            return None
+        heartbeat = LeaseHeartbeat(
+            deps.run_leases,
+            _lease_key(user, public_thread),
+            lease_id,
+            ttl_s=deps.lease_ttl_s,
+        )
+        await heartbeat.start()
+        return heartbeat
+
+    def _with_heartbeat(
+        heartbeat: LeaseHeartbeat | None,
+        terminal: Callable[[], None],
+    ) -> Callable[[], None]:
+        if heartbeat is None:
+            return terminal
+
+        def wrapped() -> None:
+            heartbeat.stop_now()
+            terminal()
+
+        return wrapped
+
+    async def _merge_approval_decisions(
+        user: AuthUser,
+        public_thread: str,
+        decisions: dict[str, bool],
+    ) -> dict[str, bool]:
+        if deps.approvals is None or deps.four_eyes_min_level <= 0:
+            return dict(decisions)
+        return await asyncio.to_thread(
+            deps.approvals.merge_decisions,
+            tenant=user.tenant,
+            thread_id=public_thread,
+            owner_decisions=dict(decisions),
+            min_level=int(deps.four_eyes_min_level),
+        )
+
+    async def _proxy_agent_stream(
+        user: AuthUser,
+        public_thread: str,
+        tenant: WebTenant,
+        config: Any,
+        reservation: dict[str, Any],
+        *,
+        acquire: Callable[[], str],
+        open_stream: Callable[[], Awaitable[Any]],
+    ) -> StreamingResponse:
+        """run/resume/resume_steering 共用：租约 + 心跳 + 代理 + 释放。"""
+        lease_id = ""
+        heartbeat: LeaseHeartbeat | None = None
+
+        async def _on_event(payload: dict[str, Any]) -> None:
+            if payload.get("type") != "approval_requested":
+                return
+            recorder = deps.record_approval
+            if recorder is None:
+                return
+            await asyncio.to_thread(
+                recorder, user, tenant, public_thread, payload
+            )
+
+        event_hook = (
+            _on_event
+            if deps.record_approval is not None
+            and deps.four_eyes_min_level > 0
+            else None
+        )
+        try:
+            lease_id = acquire()
+            heartbeat = await _start_heartbeat(
+                user, public_thread, lease_id
+            )
+            stream = await open_stream()
+        except Exception as exc:  # noqa: BLE001
+            if heartbeat is not None:
+                await heartbeat.stop()
+            if lease_id:
+                _release_lease(user, public_thread, lease_id)
+            await _release_quota(user, reservation)
+            if isinstance(exc, HTTPException):
+                raise
+            raise deps.agent_failure(exc) from exc
+        progress, terminal = _lease_callbacks(
+            user, public_thread, lease_id, tenant, config
+        )
+        terminal = _with_heartbeat(heartbeat, terminal)
+        try:
+            response = await deps.proxy_agent(
+                stream,
+                public_thread=public_thread,
+                on_progress=progress,
+                on_terminal=terminal,
+                on_event=event_hook,
+            )
+        except Exception:
+            if heartbeat is not None:
+                await heartbeat.stop()
+            await _release_quota(user, reservation)
+            raise
+        return _finalize_stream(
+            response, user, tenant, config, reservation
+        )
+
     @app.get("/api/approvals/{thread_id}")
     async def pending_approvals(
         thread_id: str,
@@ -369,12 +503,16 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             await asyncio.to_thread(deps.set_config, user, tenant, config)
             # 配额必须在远端启动运行之前扣：失败时不能留下已启动的孤儿 run。
             reservation = await _reserve_quota(user)
-            lease_id = ""
-            try:
-                lease_id = _acquire_lease(
+            return await _proxy_agent_stream(
+                user,
+                public_thread,
+                tenant,
+                config,
+                reservation,
+                acquire=lambda: _acquire_lease(
                     user, public_thread, idempotency_key
-                )
-                stream = await deps.agent_client.open_run(
+                ),
+                open_stream=lambda: deps.agent_client.open_run(
                     AgentRunRequest(
                         context=deps.agent_context(
                             user, tenant, config, include_keys=True
@@ -382,29 +520,7 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                         thread_id=public_thread,
                         prompt=request.prompt,
                     )
-                )
-            except Exception as exc:  # noqa: BLE001
-                if lease_id:
-                    _release_lease(user, public_thread, lease_id)
-                await _release_quota(user, reservation)
-                if isinstance(exc, HTTPException):
-                    raise
-                raise deps.agent_failure(exc) from exc
-            progress, terminal = _lease_callbacks(
-                user, public_thread, lease_id, tenant, config
-            )
-            try:
-                response = await deps.proxy_agent(
-                    stream,
-                    public_thread=public_thread,
-                    on_progress=progress,
-                    on_terminal=terminal,
-                )
-            except Exception:
-                await _release_quota(user, reservation)
-                raise
-            return _finalize_stream(
-                response, user, tenant, config, reservation
+                ),
             )
         key = (user.name, public_thread)
         with deps.registry_lock:
@@ -524,40 +640,25 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 deps.config_for, user, tenant, public_thread, create=False
             )
             reservation = await _reserve_quota(user)
-            lease_id = ""
-            try:
-                lease_id = _acquire_lease(
+            decisions = await _merge_approval_decisions(
+                user, public_thread, request.decisions
+            )
+            return await _proxy_agent_stream(
+                user,
+                public_thread,
+                tenant,
+                config,
+                reservation,
+                acquire=lambda: _acquire_lease(
                     user, public_thread, idempotency_key
-                )
-                stream = await deps.agent_client.open_resume(
+                ),
+                open_stream=lambda: deps.agent_client.open_resume(
                     deps.agent_context(
                         user, tenant, config, include_keys=True
                     ),
                     public_thread,
-                    request.decisions,
-                )
-            except Exception as exc:  # noqa: BLE001
-                if lease_id:
-                    _release_lease(user, public_thread, lease_id)
-                await _release_quota(user, reservation)
-                if isinstance(exc, HTTPException):
-                    raise
-                raise deps.agent_failure(exc) from exc
-            progress, terminal = _lease_callbacks(
-                user, public_thread, lease_id, tenant, config
-            )
-            try:
-                response = await deps.proxy_agent(
-                    stream,
-                    public_thread=public_thread,
-                    on_progress=progress,
-                    on_terminal=terminal,
-                )
-            except Exception:
-                await _release_quota(user, reservation)
-                raise
-            return _finalize_stream(
-                response, user, tenant, config, reservation
+                    decisions,
+                ),
             )
         key = (user.name, public_thread)
         existing = deps.get_entry(user.name, public_thread)
@@ -615,39 +716,21 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 deps.config_for, user, tenant, public_thread, create=False
             )
             reservation = await _reserve_quota(user)
-            lease_id = ""
-            try:
-                lease_id = _acquire_lease(
+            return await _proxy_agent_stream(
+                user,
+                public_thread,
+                tenant,
+                config,
+                reservation,
+                acquire=lambda: _acquire_lease(
                     user, public_thread, idempotency_key
-                )
-                stream = await deps.agent_client.open_resume_steering(
+                ),
+                open_stream=lambda: deps.agent_client.open_resume_steering(
                     deps.agent_context(
                         user, tenant, config, include_keys=True
                     ),
                     public_thread,
-                )
-            except Exception as exc:  # noqa: BLE001
-                if lease_id:
-                    _release_lease(user, public_thread, lease_id)
-                await _release_quota(user, reservation)
-                if isinstance(exc, HTTPException):
-                    raise
-                raise deps.agent_failure(exc) from exc
-            progress, terminal = _lease_callbacks(
-                user, public_thread, lease_id, tenant, config
-            )
-            try:
-                response = await deps.proxy_agent(
-                    stream,
-                    public_thread=public_thread,
-                    on_progress=progress,
-                    on_terminal=terminal,
-                )
-            except Exception:
-                await _release_quota(user, reservation)
-                raise
-            return _finalize_stream(
-                response, user, tenant, config, reservation
+                ),
             )
         key = (user.name, public_thread)
         deps.stream_guard(key)

@@ -395,6 +395,10 @@ class ProviderRouter:
             waits = [self._limiter.remaining(key) for key in self._keys]
             waits = [value for value in waits if value > 0]
             if not waits:
+                # 冷却可能在“选 provider”与“读剩余时间”之间刚好结束：
+                # 再走一轮，而不是把刚恢复的 provider 判死。
+                if _attempt == 0:
+                    continue
                 break
             delay = min(min(waits), self._max_wait_s)
             if delay <= 0:

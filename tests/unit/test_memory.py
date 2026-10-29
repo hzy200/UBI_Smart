@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -298,31 +299,65 @@ def test_memory_save_tool_appends_fact(memory_tools) -> None:
     assert "别动 legacy/" in fs.files["/work/.agent/memory.md"]
 
 
+class _LockFs(_FakeFs):
+    """带目录能力的假 fs：记录抢锁/清锁动作，不拼任何 shell。"""
+
+    def __init__(self, *, acquire_after: int = 1, mtime_age: float = 0.0) -> None:
+        super().__init__()
+        self.acquire_after = acquire_after
+        self.mtime_age = mtime_age
+        self.attempts = 0
+        self.made_dirs: list[str] = []
+        self.removed_dirs: list[str] = []
+
+    def mkdir(self, path: str) -> str:
+        self.made_dirs.append(path)
+        return path
+
+    def mkdir_exclusive(self, path: str) -> bool:
+        self.attempts += 1
+        return self.attempts >= self.acquire_after
+
+    def stat(self, path: str):
+        from coding_agent.sandbox.fs import FileStat
+
+        if not path.endswith("memory.lock.d"):
+            return FileStat(exists=False, is_file=False, size=0, real_path=path)
+        return FileStat(
+            exists=True,
+            is_file=False,
+            size=0,
+            real_path=path,
+            mtime=time.time() - self.mtime_age,
+        )
+
+    def rmdir(self, path: str) -> bool:
+        self.removed_dirs.append(path)
+        return True
+
+
 def test_stale_memory_lock_is_cleaned_up() -> None:
-    class _Sandbox:
-        def __init__(self) -> None:
-            self.commands: list[str] = []
-            self.attempts = 0
-
-        def run(self, command: str):
-            self.commands.append(command)
-            if "printf" in command:
-                self.attempts += 1
-                return SimpleNamespace(ok=self.attempts >= 3)
-            return SimpleNamespace(ok=True)
-
-    class _FsWithSandbox(_FakeFs):
-        def __init__(self) -> None:
-            super().__init__()
-            self._sandbox = _Sandbox()
-
-    fs = _FsWithSandbox()
+    """崩溃留下的锁目录超过阈值才清，且清完再抢、用完再释放。"""
+    fs = _LockFs(acquire_after=3, mtime_age=3600)
     memory = LongTermMemory(fs, "/work")  # type: ignore[arg-type]
     memory.add("用 pytest")
 
-    commands = fs._sandbox.commands  # noqa: SLF001
-    assert any("printf" in command for command in commands)
-    assert any("stat -c %Y" in command for command in commands)
+    assert fs.attempts == 3  # 前两次抢不到，清锁后第三次成功
+    # 两次失败各清一次过期锁，末尾释放再删一次 —— 三次都是同一个固定路径。
+    assert fs.removed_dirs == ["/work/.agent/memory.lock.d"] * 3
+    assert fs.made_dirs and fs.made_dirs[0] == "/work/.agent"
+
+
+def test_fresh_lock_is_not_stolen_and_write_still_proceeds() -> None:
+    """拿不到锁时降级写入，但**不能**去删别人正在用的锁。"""
+    fs = _LockFs(acquire_after=10_000, mtime_age=0)
+    memory = LongTermMemory(fs, "/work")  # type: ignore[arg-type]
+
+    with memory._write_lock(timeout_s=0.02):  # noqa: SLF001
+        pass
+
+    assert fs.removed_dirs == []  # 新锁不该被清
+    assert "/work/.agent/memory.md" not in fs.files  # 只是拿锁，没写内容
 
 
 def test_user_memory_writes_are_audited(tmp_path) -> None:

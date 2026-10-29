@@ -159,3 +159,80 @@ def test_orchestrator_has_no_unmarked_sandbox_execution() -> None:
     assert not offenders, (
         "发现绕过 host_run 的宿主执行：" + "；".join(offenders)
     )
+
+
+# ---------------- A4 之外的裸 sandbox.run ----------------
+
+_A4_PACKAGES = ("execution", "tools", "sandbox")
+
+# `sandbox.run` 直接透传命令：没有 `classify()` 分级、没有审批闸门、也常常
+# 不在工具边界的审计里。A4 之外每个还在这么干的位置都是一条"第二条执行路径"。
+#
+# 曾冻结 7 个模块（memory / instructions / tenancy / python_index /
+# agents.policy / cli.app / cli.platform），2026-10-29 全部迁到 A4 能力上：
+# 探活改成固定意图（`sandbox/probe.py`），其余改用 `SandboxFs`。
+# 基线现在必须是**空的** —— 新增任何一处都直接失败（见 TD-034）。
+_FROZEN_DIRECT_RUN_MODULES: set[str] = set()
+
+
+def _module_of(path: Path) -> str:
+    return ".".join(
+        ["coding_agent", *path.relative_to(SRC).with_suffix("").parts]
+    )
+
+
+def _sandbox_run_lines(path: Path) -> list[int]:
+    """找出 `<名字里带 sandbox 的对象>.run(...)` 的调用行。
+
+    按名字判断而不是按类型 —— 静态扫描拿不到类型。所以这条测试是"不许新增"
+    的棘轮，不是万能检测：真正堵住第二条执行路径要靠每次偿还后把它们从冻结
+    清单里删掉。
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr != "run":
+            continue
+        receiver = func.value
+        name = ""
+        if isinstance(receiver, ast.Name):
+            name = receiver.id
+        elif isinstance(receiver, ast.Attribute):
+            name = receiver.attr
+        if "sandbox" in name.lower():
+            lines.append(node.lineno)
+    return lines
+
+
+def _scan_direct_runs() -> dict[str, list[int]]:
+    found: dict[str, list[int]] = {}
+    for path in sorted(SRC.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        parts = path.relative_to(SRC).parts
+        if parts and parts[0] in _A4_PACKAGES:
+            continue
+        lines = _sandbox_run_lines(path)
+        if lines:
+            found[_module_of(path)] = lines
+    return found
+
+
+def test_sandbox_run_outside_a4_is_frozen() -> None:
+    found = _scan_direct_runs()
+    assert not set(found) - _FROZEN_DIRECT_RUN_MODULES, (
+        "A4 之外出现了新的裸 sandbox.run（绕过分级/审批/审计）："
+        + "；".join(
+            f"{name}:{lines}"
+            for name, lines in sorted(found.items())
+            if name not in _FROZEN_DIRECT_RUN_MODULES
+        )
+    )
+    assert not _FROZEN_DIRECT_RUN_MODULES - set(found), (
+        f"冻结清单里的模块已不再裸跑 sandbox.run："
+        f"{sorted(_FROZEN_DIRECT_RUN_MODULES - set(found))}。"
+        f"请从这里删掉 —— 基线不留已经还完的债。"
+    )

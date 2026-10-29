@@ -19,9 +19,16 @@ A2 的结构化业务数据统一写入 `AGENT_CONTROL_DB_URL`。企业部署使
 
 | 领域 | 表 | 说明 |
 |---|---|---|
-| 账号 | `control_users` | 用户名、邮箱、角色、scrypt 密码哈希、状态 |
+| 账号 | `control_users` | 用户名、邮箱、角色、访问上限、scrypt 密码哈希、状态 |
 | 登录会话 | `control_auth_sessions` | 只存 session token 的 sha256、CSRF secret、过期/吊销 |
-| 认证事件 | `control_auth_events` | 登录成功/失败/登出/限流；来源 IP 与 request id |
+| 认证事件 | `control_auth_events` | 登录成功/失败/登出/限流/MFA/OIDC；来源 IP 与 request id |
+| 身份绑定 | `control_user_identities` | `(tenant, issuer, subject)` 到本地用户的唯一映射 |
+| OIDC state | `control_oidc_states` | 一次性 state/nonce/PKCE verifier 与回跳路径；消费即删 |
+| MFA 密钥 | `control_user_mfa` | TOTP 密钥 AES-GCM 密文、恢复码哈希、上次使用时间步 |
+| MFA 挑战 | `control_mfa_challenges` | 登录第二步的 token 哈希、失败次数、过期时间 |
+| 四眼审批 | `control_approvals` | L3 审批命令、发起人、状态、管理员决定；按 `(tenant, thread, call)` 唯一 |
+| 工作区 ACL | `control_workspace_acl` | 只读共享授权：`(tenant, workspace_id, grantee)` 唯一；只存 read，不含执行权 |
+| 密码重置 | `control_password_resets` | 一次性 token 的 sha256、过期与使用时间；成功消费即失效 |
 | 会话目录 | `control_sessions` | 标题、workspace 绑定、模型/provider、未读/置顶/归档 |
 | 运行索引 | `control_runs` | 状态、起止、错误、token/成本副本 |
 | 审计索引 | `control_audit_index` | 审计哈希引用，不重写 A3 哈希链 |
@@ -80,9 +87,12 @@ python -m coding_agent.control.migrate
 ```
 
 迁移条目在 `src/coding_agent/control/migrations/versions/`，当前 head 为
-`0011_cny_reservations`。`0011` 对在线库是幂等的：新库已由
-`0010` 建出最终结构，旧 `0010` 库会补上人民币额度列、认证事件表、
-多实例预留表以及带 user 的用量游标；离线 `--sql` 只更新版本标记。
+`0015_password_reset`。`0015` 新增 `control_password_resets`（一次性重置
+token 哈希）；`0014` 只给 `control_users` 增加 `max_access_mode` 列；`0013`
+只新增 `control_workspace_acl` 表。三者对在线库幂等，降级都只回写版本号
+（授权/访问上限/重置 token 是策略事实，不删表/列）。`0012` 新增身份/OIDC/
+MFA/审批表；`0011` 补人民币额度列、认证事件表、多实例预留表以及带 user
+的用量游标；两者的离线 `--sql` 都只更新版本标记。
 
 约束：
 
@@ -164,6 +174,20 @@ python scripts/restore_control_db.py --source backups/control-20261028-020000.sq
 - 密码通过 `MYSQL_PWD` 传入，不出现在命令行；
 - 恢复默认先备份当前库；恢复后仍需启动 `--migrate` 对齐版本；
 - 备份不包含工作区文件、checkpoint 与 A3 审计原文。
+
+### 5.1 调度与目标（基线）
+
+- Linux：`packaging/systemd/coding-agent-backup.timer` 每天 03:30（随机延迟
+  15 分钟）执行 `CodingAgentControl --backup --backup-keep 14`；未配置
+  `AGENT_CONTROL_DB_URL` 时 service 由 `ExecCondition` 跳过。
+- Windows：用任务计划程序按同样口径调用
+  `python scripts/backup_control_db.py --keep 14`。
+- **RPO 基线 24 小时**（日备）；需要更低 RPO 时启用 MySQL binlog/PITR，
+  并在合同里单独承诺。
+- **RTO 基线 1 小时**：恢复备份 → `--migrate` → `/healthz` 与
+  `/readyz` 通过 → 抽查账号/会话/用量。实际 RTO 以企业环境演练为准。
+- 演练证据：`scripts/phase_f_drill.py`（SQLite）、`pytest -m mysql`
+  （MySQL 迁移/备份/恢复）、runbook `RB-017`。
 
 ## 6. 主密钥生命周期
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from coding_agent import agent_server
@@ -69,6 +70,43 @@ def test_sign_and_verify() -> None:
     assert verify_context(header, signature, "other") is False
     assert verify_context(header, "", KEY) is False
     assert verify_context(header, "", "") is True
+
+
+def test_required_mode_is_fail_closed() -> None:
+    """要求验签却没配 key：必须拒绝，不能退化成"只靠 Bearer token"。"""
+    header = AgentContext(workspace="/tmp/ws").to_header()
+    signature = sign_context(header, KEY)
+    assert verify_context(header, signature, KEY, required=True) is True
+    assert verify_context(header, signature, "other", required=True) is False
+    assert verify_context(header, "", "", required=True) is False
+    assert verify_context(header, signature, "", required=True) is False
+
+
+def test_app_refuses_to_start_when_required_key_is_missing(tmp_path) -> None:
+    with pytest.raises(ValueError):
+        agent_server.create_agent_app(
+            _settings(tmp_path, key=""),
+            token=TOKEN,
+            runtime_factory=_Runtime,
+            hmac_required=True,
+        )
+
+
+def test_required_mode_rejects_unsigned_context(tmp_path) -> None:
+    client = TestClient(
+        agent_server.create_agent_app(
+            _settings(tmp_path),
+            token=TOKEN,
+            runtime_factory=_Runtime,
+            hmac_required=True,
+        )
+    )
+    response = client.get(
+        "/v1/snapshots",
+        params={"thread_id": "t1"},
+        headers=_headers(signature=None),
+    )
+    assert response.status_code == 401
 
 
 def test_client_adds_signature_header() -> None:

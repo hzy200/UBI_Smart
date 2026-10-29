@@ -6,8 +6,9 @@
 <meta name="theme-color" content="#0f1115">
 <title>CodingAgent</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/static/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body x-data="agentApp" :class="bodyClasses">
@@ -51,6 +52,27 @@
            @keydown.enter.prevent="loginWithPassword">
     <button class="primary" @click="loginWithPassword"
             x-show="authLocalVisible">登录</button>
+    <button x-show="authLocalVisible" @click="showPasswordReset"
+            x-text="i18n.auth.forgotPassword"></button>
+    <div x-show="resetVisible">
+      <input type="text" x-model="resetIdentifier" autocomplete="username"
+             :placeholder="i18n.auth.resetIdentifier">
+      <button @click="requestPasswordReset" x-text="i18n.auth.resetRequest"></button>
+      <input type="text" x-model="resetToken" autocomplete="one-time-code"
+             :placeholder="i18n.auth.resetToken">
+      <input type="password" x-model="resetNewPassword" autocomplete="new-password"
+             :placeholder="i18n.auth.resetNewPassword">
+      <button class="primary" @click="confirmPasswordReset"
+              x-text="i18n.auth.resetConfirm"></button>
+      <p class="note" role="status" x-text="resetMessage"></p>
+    </div>
+    <button @click="startOidcLogin" x-show="authOidcVisible">使用 SSO 登录</button>
+    <div x-show="mfaVisible">
+      <input type="text" x-model="mfaCode" autocomplete="one-time-code"
+             placeholder="动态码或恢复码"
+             @keydown.enter.prevent="verifyMfa">
+      <button class="primary" @click="verifyMfa">验证并登录</button>
+    </div>
     <input type="password" x-model="tokenInput" autocomplete="off"
            placeholder="Bearer token" x-show="authTokenVisible">
     <button @click="saveToken" x-show="authTokenVisible">进入</button>

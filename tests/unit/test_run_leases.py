@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import Session
 
-from coding_agent.control.leases import LeaseHeld, RunLeaseStore
+from coding_agent.control.leases import LeaseHeartbeat, LeaseHeld, RunLeaseStore
 from coding_agent.control.schema import Base, RunLease
 from coding_agent.web.routes.runs import lease_conflict_detail
-from coding_agent.web.services import _terminal_marker
+from coding_agent.web.services import AgentGateway, _terminal_marker
 
 
 @pytest.fixture()
@@ -98,6 +100,59 @@ def test_lease_conflict_detail_points_to_stream() -> None:
     assert "idempotent" not in other
 
 
+def test_sqlite_control_store_enables_wal(tmp_path) -> None:
+    """没有 WAL / busy_timeout 时，多 worker 并发写会直接 `database is locked`。"""
+    from coding_agent.control.store import ControlStore
+
+    store = ControlStore(f"sqlite:///{tmp_path / 'control.db'}")
+    with store.engine.connect() as conn:
+        mode = str(
+            conn.exec_driver_sql("PRAGMA journal_mode").scalar()
+        ).lower()
+        timeout = int(
+            conn.exec_driver_sql("PRAGMA busy_timeout").scalar() or 0
+        )
+    assert mode == "wal"
+    assert timeout >= 1000
+
+
+def test_concurrent_acquire_grants_exactly_one_lease(tmp_path) -> None:
+    """SQLite 会**静默忽略**行锁：读-改-写不是原子的话多实例会同时拿到租约。"""
+    from coding_agent.control.store import ControlStore
+
+    store = ControlStore(f"sqlite:///{tmp_path / 'control.db'}")
+    leases = RunLeaseStore(store.engine)
+    granted: list[str] = []
+    rejected: list[LeaseHeld] = []
+    failures: list[BaseException] = []
+    barrier = threading.Barrier(4)
+
+    def _worker(index: int) -> None:
+        try:
+            barrier.wait(timeout=10)
+            granted.append(
+                leases.acquire("alice:t1", f"a2-{index}", ttl_s=60)
+            )
+        except LeaseHeld as exc:
+            rejected.append(exc)
+        except BaseException as exc:  # noqa: BLE001 - 线程里要收集意外失败
+            failures.append(exc)
+
+    threads = [
+        threading.Thread(target=_worker, args=(index,)) for index in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    # 只允许一种结局：一个人拿到、其余全部被拒。任何 OperationalError /
+    # IntegrityError 泄漏都说明并发路径还在裸奔。
+    assert failures == []
+    assert len(granted) == 1
+    assert len(rejected) == 3
+
+
 def test_terminal_marker_detection() -> None:
     assert _terminal_marker(b'data: {"type": "run_finished"}')
     assert _terminal_marker(b'data: {"type":"approval_requested"}')
@@ -105,3 +160,72 @@ def test_terminal_marker_detection() -> None:
         b'data: {"type": "steering_applied", "action": "pause"}'
     )
     assert not _terminal_marker(b'data: {"type": "assistant_token"}')
+
+
+class _CountingRenew:
+    def __init__(self, result: bool = True) -> None:
+        self.result = result
+        self.calls = 0
+
+    def renew(self, _key: str, _lease: str, *, ttl_s: int) -> bool:
+        self.calls += 1
+        return self.result
+
+
+def test_lease_heartbeat_renews_independently() -> None:
+    """长静默工具期间没有 SSE 事件，heartbeat 仍要续租。"""
+    fake = _CountingRenew()
+
+    async def scenario() -> tuple[int, int]:
+        heartbeat = LeaseHeartbeat(
+            fake, "alice:t1", "lease-1", ttl_s=3, interval_s=0.02
+        )
+        await heartbeat.start()
+        await asyncio.sleep(0.2)
+        await heartbeat.stop()
+        calls = fake.calls
+        await asyncio.sleep(0.05)
+        return calls, fake.calls
+
+    calls, after_stop = asyncio.run(scenario())
+    assert calls >= 2
+    assert after_stop == calls
+
+
+def test_lease_heartbeat_marks_lost() -> None:
+    fake = _CountingRenew(result=False)
+
+    async def scenario() -> bool:
+        heartbeat = LeaseHeartbeat(
+            fake, "alice:t1", "lease-1", ttl_s=3, interval_s=0.01
+        )
+        await heartbeat.start()
+        await asyncio.sleep(0.05)
+        await heartbeat.stop()
+        return heartbeat.lost
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_proxy_releases_on_stream_end_without_terminal_marker() -> None:
+    """客户端断开 / 上游异常时没有 terminal 标记，也必须触发 on_terminal。"""
+    fired: list[str] = []
+
+    class _Stream:
+        status_code = 200
+
+        async def aiter_bytes(self):  # noqa: ANN202
+            yield b'data: {"type": "assistant_token"}\n\n'
+
+    async def scenario() -> None:
+        gateway = object.__new__(AgentGateway)
+        response = await gateway.proxy(
+            _Stream(),
+            public_thread="t1",
+            on_terminal=lambda: fired.append("terminal"),
+        )
+        async for _chunk in response.body_iterator:
+            pass
+
+    asyncio.run(scenario())
+    assert fired == ["terminal"]

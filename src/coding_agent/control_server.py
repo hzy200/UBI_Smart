@@ -13,8 +13,18 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from coding_agent.config import get_settings
+
+
+def _internal_url_is_remote(settings: Any) -> bool:
+    """A3 是否在另一台机器上（A2→A3 跨机 = context 必须验签）。"""
+    url = str(settings.agent_internal_url or "").strip()
+    if not url:
+        return False
+    host = (urlsplit(url).hostname or "").strip().lower()
+    return bool(host) and host not in {"127.0.0.1", "::1", "localhost"}
 
 
 def _handshake(settings: Any) -> tuple[Any | None, dict[str, Any]]:
@@ -99,6 +109,60 @@ def _migrate_control_db(settings: Any) -> int:
     return 0
 
 
+def _require(ok: bool, message: str) -> None:
+    """启动期硬校验：不满足就退出（码 2），不做"先跑起来再说"的降级。"""
+    if ok:
+        return
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+
+def _validate_startup(
+    settings: Any,
+    args: argparse.Namespace,
+    auth: Any,
+    *,
+    loopback: bool,
+    token: str,
+) -> None:
+    """把所有"启动即拒绝"的判据收在一处，改动时只改这一个地方。
+
+    这些不是可恢复的配置错误：把界面暴露在非 loopback 而没认证、或让 A2→A3
+    链路裸奔，都属于"跑起来就是错"，所以统一 `SystemExit(2)`。
+    """
+    _require(not (args.desktop and not token), "--desktop 必须配合 --token-stdin")
+    _require(
+        not (args.desktop and args.multi_user),
+        "--desktop 与 --multi-user 不能同时使用",
+    )
+    _require(
+        not (args.multi_user and not auth.enabled),
+        "--multi-user 必须同时配置 Web 认证 token",
+    )
+    _require(
+        loopback or auth.enabled,
+        "非 loopback 绑定必须配置 AGENT_WEB_AUTH_TOKENS 或 "
+        "AGENT_WEB_AUTH_TOKENS_FILE",
+    )
+    # 账号登录走 Cookie；非 loopback 却没开 Secure 时，浏览器可能把会话
+    # Cookie 发到明文 HTTP 上。与其依赖部署人员记得配置，不如启动即拒绝。
+    _require(
+        loopback
+        or not bool(getattr(settings, "web_accounts_enabled", False))
+        or bool(getattr(settings, "web_cookie_secure", False)),
+        "非 loopback 绑定且启用账号 Cookie 登录时必须设置 "
+        "AGENT_WEB_COOKIE_SECURE=true",
+    )
+    # A2→A3 跨机时，链路上能改 X-Agent-Context 的不止本机：没有 HMAC 就等于
+    # 把 tenant / workspace / a2l_id 的决定权交给了中间人。
+    _require(
+        not _internal_url_is_remote(settings)
+        or bool(str(settings.agent_internal_hmac_key or "").strip()),
+        "AGENT_INTERNAL_URL 指向非 loopback 主机时必须配置 "
+        "AGENT_INTERNAL_HMAC_KEY",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="CodingAgent Control Plane")
     parser.add_argument("--host", default="127.0.0.1")
@@ -128,9 +192,62 @@ def main() -> int:
     parser.add_argument("--ssl-keyfile", default="")
     parser.add_argument("--ssl-certfile", default="")
     parser.add_argument("--log-level", default="warning")
+    parser.add_argument(
+        "--backup",
+        action="store_true",
+        help="只备份控制面数据库后退出（供 systemd timer 使用）",
+    )
+    parser.add_argument("--backup-out", default="")
+    parser.add_argument("--backup-keep", type=int, default=14)
     args = parser.parse_args()
 
     settings = get_settings()
+    from coding_agent.observability import configure_logging
+
+    configure_logging(
+        level=args.log_level,
+        fmt=str(getattr(settings, "log_format", "text") or "text"),
+    )
+    if args.backup:
+        url = str(settings.control_db_url or "").strip()
+        if not url:
+            print(
+                "未配置 AGENT_CONTROL_DB_URL，跳过备份",
+                file=sys.stderr,
+            )
+            return 2
+        from coding_agent.control.backup import backup
+
+        try:
+            result = backup(
+                url,
+                args.backup_out or None,
+                keep=max(0, int(args.backup_keep)),
+            )
+        except Exception as exc:  # noqa: BLE001 - CLI 要可读
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "path": result.path,
+                    "kind": result.kind,
+                    "bytes": result.bytes,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
     if args.migrate or args.migrate_only:
         code = _migrate_control_db(settings)
         if args.migrate_only:
@@ -143,28 +260,13 @@ def main() -> int:
     from coding_agent.web.auth import AuthConfig
 
     token = sys.stdin.readline().strip() if args.token_stdin else ""
-    if args.desktop and not token:
-        print("--desktop 必须配合 --token-stdin", file=sys.stderr)
-        raise SystemExit(2)
-    if args.desktop and args.multi_user:
-        print("--desktop 与 --multi-user 不能同时使用", file=sys.stderr)
-        raise SystemExit(2)
     auth = (
         AuthConfig(tokens={token: "local"}, allow_anonymous_local=False)
         if token
         else AuthConfig.from_settings(settings)
     )
     loopback = args.host in {"127.0.0.1", "::1", "localhost"}
-    if args.multi_user and not auth.enabled:
-        print("--multi-user 必须同时配置 Web 认证 token", file=sys.stderr)
-        raise SystemExit(2)
-    if not loopback and not auth.enabled:
-        print(
-            "非 loopback 绑定必须配置 AGENT_WEB_AUTH_TOKENS 或 "
-            "AGENT_WEB_AUTH_TOKENS_FILE",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
+    _validate_startup(settings, args, auth, loopback=loopback, token=token)
 
     agent_client, agent_status = _handshake(settings)
     app = create_app(
@@ -202,12 +304,16 @@ def main() -> int:
         ),
         flush=True,
     )
+    drain_timeout = int(getattr(settings, "drain_timeout_s", 60) or 0)
     config = uvicorn.Config(
         app,
         host=args.host,
         port=args.port,
         log_level=args.log_level,
         access_log=False,
+        # SIGTERM 后先停止接新连接，再给在途请求（含 SSE 收尾）留出
+        # 与 A3 相同的等待窗口；0 = 立即关闭。
+        timeout_graceful_shutdown=drain_timeout or None,
         ssl_keyfile=args.ssl_keyfile or None,
         ssl_certfile=args.ssl_certfile or None,
     )

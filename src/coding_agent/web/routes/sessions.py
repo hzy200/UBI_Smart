@@ -9,7 +9,12 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 
-from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
+from coding_agent.access import (
+    ACCESS_READ_ONLY,
+    ACCESS_WRITE_AUTO,
+    clamp_access_mode,
+    normalize_access_mode,
+)
 from coding_agent.memory.sessions import SessionIndex
 from coding_agent.tenancy import TenantError, WebTenant
 from coding_agent.web.auth import AuthUser
@@ -57,6 +62,8 @@ class SessionDeps:
     session_configs: dict[tuple[str, str], Any]
     deleted_sessions: set[tuple[str, str]]
     runtimes: Any
+    # 管理员为账号设置的访问上限；返回 read_only/write_ask/write_auto。
+    access_limit: Callable[[AuthUser], str] = lambda _user: ACCESS_WRITE_AUTO
 
 
 def _row(config: Any, tenant: WebTenant, deps: SessionDeps, **extra: Any) -> dict:
@@ -285,8 +292,9 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 raise HTTPException(
                     status_code=400, detail=str(exc)
                 ) from exc
-        access_mode = (
-            normalize_access_mode(request.access_mode) or ACCESS_READ_ONLY
+        access_mode = clamp_access_mode(
+            normalize_access_mode(request.access_mode) or ACCESS_READ_ONLY,
+            deps.access_limit(user),
         )
         if access_mode != ACCESS_READ_ONLY and not deps.allow_write:
             raise HTTPException(

@@ -135,6 +135,36 @@ def stage_args() -> str:
     return " ".join(shlex.quote(item) for item in STAGE_EXCLUDES)
 
 
+def prune_orphan_worktrees(sandbox: WslSandbox, root: str) -> None:
+    """清掉上次运行残留的 worktree 与 git 元数据。
+
+    正常路径由 `remove_worktree()` 在每个 worker 收尾时清理；但 SIGKILL /
+    宿主断电时它没有机会执行，`.agent/worktrees/` 与 `.git/worktrees`
+    里的注册项会一直留着，占空间也让 `git worktree list` 越来越脏。
+
+    **只能在确认没有 implement 在飞时调用**（例如编排启动点）：这里的
+    `rm -rf` 会把正在使用的 worktree 一起删掉。
+    """
+    parent = posixpath.join(root, ".agent", "worktrees")
+    try:
+        host_run(
+            sandbox,
+            "git worktree prune",
+            origin=HOST_ORIGIN,
+            kind="git_worktree",
+            cwd=root,
+        )
+        host_run(
+            sandbox,
+            f"rm -rf {shlex.quote(parent)}",
+            origin=HOST_ORIGIN,
+            kind="worktree_cleanup",
+            cwd=root,
+        )
+    except Exception:  # noqa: BLE001 - 清理是 best-effort，不该阻断运行
+        return
+
+
 def _git_ready(sandbox: WslSandbox, root: str) -> tuple[bool, str]:
     """一次 wsl.exe 完成 worktree 前置检查。
 

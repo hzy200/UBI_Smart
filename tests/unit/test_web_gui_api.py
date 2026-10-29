@@ -528,11 +528,20 @@ def test_provider_connection_probe(settings, runtime, monkeypatch) -> None:
         async def __aexit__(self, *args):
             return False
 
-        async def get(self, url, headers=None):
+        async def get(self, url, headers=None, extensions=None):
             seen["url"] = url
             seen["auth"] = (headers or {}).get("Authorization", "")
+            seen["host"] = (headers or {}).get("Host", "")
+            seen["sni"] = (extensions or {}).get("sni_hostname", "")
             return FakeResponse()
 
+    monkeypatch.setattr(
+        provider_routes,
+        "resolve_outbound_target",
+        lambda url, **_kwargs: SimpleNamespace(
+            url=url, host="api.deepseek.com", ip="203.0.113.10"
+        ),
+    )
     monkeypatch.setattr(provider_routes.httpx, "AsyncClient", FakeClient)
     client = TestClient(web.create_app(settings))
     response = client.post(
@@ -540,7 +549,10 @@ def test_provider_connection_probe(settings, runtime, monkeypatch) -> None:
     )
     assert response.status_code == 200
     assert response.json()["ok"] is True
+    assert seen["url"].startswith("https://203.0.113.10/")
     assert seen["url"].endswith("/models")
+    assert seen["host"] == "api.deepseek.com"
+    assert seen["sni"] == "api.deepseek.com"
     assert seen["auth"].startswith("Bearer ")
     assert seen["trust_env"] is False
 

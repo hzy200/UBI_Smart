@@ -33,7 +33,11 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 | 系统级 E2E（A2/A3/A4 全链路，需专用发行版与密钥） | `make system-e2e` |
 | 执行后端契约 | `pytest -m execution -q` |
 | MySQL 控制面契约（独立 test 库） | `AGENT_TEST_MYSQL_URL=... pytest -m mysql` |
-| 覆盖率（与 CI 同口径） | `pytest -m "not wsl and not llm" --cov --cov-report=term-missing` |
+| 覆盖率（与 CI 同口径） | `pytest -m "not wsl and not llm" --cov --cov-report=term-missing --cov-report=json:coverage.json` |
+| 承重模块覆盖率棘轮 | `python scripts/check_module_coverage.py --json coverage.json`（`--update` 只升不降） |
+| 生成指标快照 | `python scripts/snapshot_metrics.py --coverage coverage.json --collect --write` |
+| 安全 lint 存量预算（棘轮） | `python scripts/check_lint_budget.py`（修完后加 `--update` 下调） |
+| 沙箱层覆盖率门槛（需 WSL） | `python scripts/check_layer_coverage.py --json coverage.json` |
 | Phase D 故障演练 | `python scripts/phase_d_smoke.py` |
 | Phase F 迁移/回滚演练 | `python scripts/phase_f_drill.py` |
 | Phase G WSL 环境冒烟 | `python scripts/phase_g_smoke.py` |
@@ -62,6 +66,7 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 ```
 src/coding_agent/
   runtime.py        唯一编排入口：图 + 沙箱 + 策略 + 审计 → 领域事件
+  runtime_snapshots.py  AgentRuntime 的快照/回滚/差异 mixin（从 runtime.py 拆出）
   events.py         前端契约（领域事件）★ 改它要重生成契约
   agent_protocol.py A2↔A3 共享 DTO / 版本与能力协议
   event_transport.py 共享 SSE 事件传输（内存 / Redis）

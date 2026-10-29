@@ -377,10 +377,13 @@ START ─ route_entry ─┬─ direct → planner → act ...
   repo_profile 与编排结果，不复制父子图的 messages；
 - `orchestrator/subgraph.py`：独立子图组装；父图用 `subgraphs=True` 消费内层
   更新与 worker custom 事件；
-- `orchestrator/scheduler.py`：事件驱动 DAG（ready 堆 +
+- `orchestrator/scheduler.py`：只负责节点装配（`make_scheduler_node`）。
+  运行态在 `scheduler_run.py`：事件驱动 DAG（ready 堆 +
   `asyncio.wait(FIRST_COMPLETED)`），完成即解锁依赖、失败立即短路；
   `checkpoint_every` 到达边界时 drain 在飞任务再返回，交给
-  `steering_dispatch` 消费 pause/add/replan/cancel；
+  `steering_dispatch` 消费 pause/add/replan/cancel。任务图上的纯判断
+  （依赖是否满足、重试上下文、失败兜底结果）在 `scheduler_plan.py`，
+  与运行态解耦 —— 这也是 `scheduler ⇄ scheduler_run` 那条模块级环被拆掉的方式；
 - `orchestrator/merge.py`：implement 补丁串行合并（check → 解析路径 → 留快照 →
   apply），统一由 `merge.py` 实现；
 - `orchestrator/artifacts.py`：fan-in 完整结果落 `.agent/artifacts/`；

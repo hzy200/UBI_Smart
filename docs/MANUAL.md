@@ -197,7 +197,7 @@ agent run "看看当前工作区有哪些文件"
 | `AGENT_CHECKPOINT_KEEP` | `200` | 每会话保留 checkpoint 数 |
 | `AGENT_AUDIT_ENABLED` | `true` | 审计开关 |
 | `AGENT_AUDIT_DIR` | `<cwd>/.agent/audit` | 审计目录 |
-| `AGENT_AUDIT_MAX_MB` | `0` | 审计轮转大小；0 = 不轮转 |
+| `AGENT_AUDIT_MAX_MB` | `256` | 审计轮转大小；0 = 不轮转 |
 | `AGENT_STEERING_DIR` | `<cwd>/.agent/steering` | 跨进程 steering 队列 |
 | `AGENT_RATE_LIMIT_STATE_PATH` | `<cwd>/.agent/rate_limits.json` | 跨进程限流状态 |
 

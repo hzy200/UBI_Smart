@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from coding_agent.control.schema import IdempotencyKey
@@ -49,12 +50,40 @@ class IdempotencyStore:
         if not text:
             return None
         now = _now()
+        now_text = _fmt(now)
         expires = _fmt(now + timedelta(seconds=max(1, int(ttl_s))))
-        with Session(self.engine) as session, session.begin():
-            row = session.get(
-                IdempotencyKey, text, with_for_update=True
+        # 同 `control/leases.py`：`SELECT ... FOR UPDATE` 在 SQLite 上是空操作，
+        # 读-改-写不是原子的。抢占改成"条件 UPDATE"，判定与写入一条语句完成。
+        claim = (
+            update(IdempotencyKey)
+            .where(
+                IdempotencyKey.key == text,
+                IdempotencyKey.expires_at <= now_text,
             )
-            if row is not None and row.expires_at > _fmt(now):
+            .values(
+                scope=str(scope or ""),
+                status="running",
+                response="",
+                expires_at=expires,
+            )
+        )
+        try:
+            with Session(self.engine) as session, session.begin():
+                if session.execute(claim).rowcount:
+                    return None
+                row = session.get(IdempotencyKey, text)
+                if row is None:
+                    session.add(
+                        IdempotencyKey(
+                            key=text,
+                            scope=str(scope or ""),
+                            status="running",
+                            response="",
+                            expires_at=expires,
+                            created_at=now_text,
+                        )
+                    )
+                    return None
                 if row.status == "done":
                     try:
                         payload = json.loads(row.response or "{}")
@@ -64,23 +93,11 @@ class IdempotencyStore:
                 raise IdempotencyInFlight(
                     f"幂等键 {text} 已有请求在执行"
                 )
-            if row is None:
-                session.add(
-                    IdempotencyKey(
-                        key=text,
-                        scope=str(scope or ""),
-                        status="running",
-                        response="",
-                        expires_at=expires,
-                        created_at=_fmt(now),
-                    )
-                )
-            else:
-                row.scope = str(scope or "")
-                row.status = "running"
-                row.response = ""
-                row.expires_at = expires
-        return None
+        except IntegrityError as exc:
+            # 并发插入撞主键：fail closed —— 当作已有请求在执行。
+            raise IdempotencyInFlight(
+                f"幂等键 {text} 已有请求在执行"
+            ) from exc
 
     def finish(
         self, key: str, response: dict, *, ttl_s: int = 600

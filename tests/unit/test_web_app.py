@@ -839,3 +839,16 @@ def test_importing_the_module_does_not_build_an_app() -> None:
     import coding_agent.web.app as module
 
     assert not hasattr(module, "app"), "模块级不该有 app 对象（用 create_app 自己建）"
+
+
+def test_openapi_is_opt_in(settings) -> None:
+    app = web.create_app(settings)
+    assert app.openapi_url is None
+    assert TestClient(app).get("/openapi.json").status_code == 404
+
+    enabled = settings.model_copy(update={"web_openapi": True})
+    app = web.create_app(enabled)
+    assert app.openapi_url == "/openapi.json"
+    response = TestClient(app).get("/openapi.json")
+    assert response.status_code == 200
+    assert "paths" in response.json()

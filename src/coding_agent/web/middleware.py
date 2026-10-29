@@ -30,6 +30,7 @@ _LOG = logging.getLogger(__name__)
 
 # 发布包里的资源名形如 app.8821a0ed4a57.js；内容变则名字变，可以长缓存。
 _HASHED_ASSET = re.compile(r"\.[0-9a-f]{8,}\.(?:js|css|svg|woff2?)$")
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def cache_control_for_path(path: str) -> str:
@@ -110,6 +111,40 @@ class RequestIdMiddleware:
                     (time.monotonic() - started) * 1000,
                 )
             reset_request_id(token)
+
+
+class HttpMetricsMiddleware:
+    """按路由模板与状态类计数；不把原始路径/ID 当标签。"""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        status = 0
+
+        async def send_with_status(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = int(message["status"])
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_status)
+        finally:
+            from coding_agent.observability import inc
+
+            route = scope.get("route")
+            template = str(getattr(route, "path", "") or "unmatched")
+            state = f"{status // 100}xx" if status else "error"
+            inc(
+                "agent_http_requests_total",
+                {"route": template, "status": state},
+            )
 
 
 class ApiVersionRewriteMiddleware:
@@ -333,6 +368,60 @@ class BodySizeLimitMiddleware:
         await self.app(scope, receive, send)
 
 
+_AUTH_PATHS = ("/api/auth", "/api/v1/auth")
+
+
+class AuditorReadOnlyMiddleware:
+    """`auditor` 角色只读：非安全方法的 `/api/*` 一律 403。
+
+    这不是替代路由级鉴权，而是把“只读”从每个新路由都要记得检查，
+    变成默认拒绝；`/api/auth/*` 例外（退出登录/会话切换本身是写操作）。
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        method = str(scope.get("method") or "").upper()
+        path = str(scope.get("path") or "")
+        if (
+            method not in _UNSAFE_METHODS
+            or not path.startswith("/api/")
+            or any(
+                path == prefix or path.startswith(prefix + "/")
+                for prefix in _AUTH_PATHS
+            )
+        ):
+            await self.app(scope, receive, send)
+            return
+        from starlette.requests import Request
+
+        request = Request(scope)
+        auth = getattr(request.app.state, "auth", None)
+        if auth is None:
+            await self.app(scope, receive, send)
+            return
+        try:
+            user = auth.user_from_request(request)
+        except Exception:  # noqa: BLE001 - 未认证交给路由返回 401
+            await self.app(scope, receive, send)
+            return
+        if user.role != "auditor":
+            await self.app(scope, receive, send)
+            return
+        response = problem_response(
+            status_code=403,
+            code="auth.read_only",
+            detail="审计账号为只读角色，不能执行写操作",
+            instance=path,
+            request_id=request_id_from_scope(scope),
+        )
+        await response(scope, receive, send)
+
+
 class FixedWindowRateLimiter:
     """按 key 的 60 秒固定窗口限流（单进程、内存态）。"""
 
@@ -357,3 +446,45 @@ class FixedWindowRateLimiter:
         if not bucket:
             return 0
         return max(1, int(60.0 - (current - bucket[0])))
+
+
+class RedisFixedWindowRateLimiter:
+    """Redis 固定窗口；同一套语义，供多实例共享。
+
+    Redis 故障时 `allow` 返回 False（fail closed），避免限流悄悄失效。
+    """
+
+    def __init__(
+        self,
+        client: object,
+        *,
+        per_minute: int,
+        prefix: str = "coding-agent:rate",
+    ) -> None:
+        self.client = client
+        self.per_minute = max(1, int(per_minute or 1))
+        self.prefix = str(prefix or "coding-agent:rate")
+
+    def _key(self, key: str, now: float) -> str:
+        bucket = int(now // 60)
+        return f"{self.prefix}:{key}:{bucket}"
+
+    def allow(self, key: str, *, now: float | None = None) -> bool:
+        current = time.time() if now is None else now
+        redis_key = self._key(key, current)
+        try:
+            count = int(self.client.incr(redis_key))
+            if count == 1:
+                self.client.expire(redis_key, 61)
+        except Exception:  # noqa: BLE001 - 限流后端故障 fail closed
+            _LOG.warning("Redis 限流不可用，暂拒绝请求", exc_info=True)
+            return False
+        return count <= self.per_minute
+
+    def retry_after(self, key: str, *, now: float | None = None) -> int:
+        current = time.time() if now is None else now
+        try:
+            ttl = int(self.client.ttl(self._key(key, current)))
+        except Exception:  # noqa: BLE001
+            return 60
+        return max(1, ttl) if ttl and ttl > 0 else 60

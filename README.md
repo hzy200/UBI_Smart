@@ -22,15 +22,15 @@ orchestrator 子图，拆成 DAG 并发处理，最后把结构化结果交回�
 
 | 项 | 结果 |
 |---|---|
-| 快反馈 | `pytest -m "not wsl and not llm"` 选中 **2,045**（2,043 通过 / 2 skip），0 failed |
-| 覆盖率 | **82.68%**（CI 子集，`fail_under=76`；见 [COVERAGE.md](docs/COVERAGE.md)） |
+| 快反馈 | `pytest -m "not wsl and not wsl_env and not llm"` 选中 **3,002**（2026-10-29 实测；本机 1 条 skip，其余通过） |
+| 覆盖率 | 门槛 `fail_under=76`；实测值见 [COVERAGE.md](docs/COVERAGE.md)，用例数/覆盖率为生成快照 [METRICS.md](docs/METRICS.md) —— **不在这里手抄** |
 | 全量含 WSL | 本轮未重跑；WSL/执行面仍由 `-m wsl` / `-m execution` 平台门禁守着 |
 | lint | `ruff check src tests` 干净 |
 | 前端 | 用户端 + React 管理端构建通过，`tsc --noEmit` 通过，生成物无漂移 |
-| 企业版 | 账号/额度/用量/上游 Key 落 MySQL；`/admin` 独立 SPA；迁移 `0010` |
+| 企业版 | 账号/额度/用量/上游 Key 落 MySQL；`/admin` 独立 SPA；迁移 `0014` |
 | 说明 | 另有 3 个 `llm` 标记用例需要 `DEEPSEEK_API_KEY`，默认排除；不加 `-m` 时会真实调用模型 |
 
-> 上表是 **2026-10-24 本机实跑**的快照；最新结果见上方 CI badge。
+> 上表是 **2026-10-29 本机实跑**的快照；最新结果见上方 CI badge。
 > 数字会随代码变化，长期事实源是 CI 与 `docs/contracts/`，不是这张表。
 
 四个选题创新点均已落地并有测试守着：双工具架构、可审计的命令安全策略、
@@ -446,6 +446,9 @@ TUI 快捷键：`Ctrl+Q` 退出（运行中会确认） · `Ctrl+N` 新会话 ·
 | L3 危险 | `rm -rf`、`git push -f`、`curl \| sh`、`sudo` | 需用户确认（标注危险） |
 
 复合命令按 `&&` `||` `;` `|` 分段取最高级别；无法解析的一律降级为 L2。
+`command` 只放行 `-v/-V`（其余递归分类）；`git config/remote/branch/tag/stash`
+按参数区分读写，`-c/--config-env/--exec-path` 为 L3；`rm -r -f` 拆分写法、
+`find -exec/-delete`、`git push +ref`、`PATH=/LD_PRELOAD=` 前缀一律 L3。
 `cp` / `ln` / `mv` 刻意不自动放行：它们能绕过文件工具的精确替换、diff 与写前备份。
 
 ### 审批：决定与执行分离
@@ -635,9 +638,31 @@ Web 在 runtime 被 TTL 清理或进程重启后，会从 per-user checkpoint �
   MySQL；生产强制 `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=true`；
 - 用户端改用账号密码登录（HttpOnly Session Cookie + CSRF），静态 Bearer
   token 仍保留为过渡/内网方案；
+- **OIDC**（`AGENT_OIDC_ENABLED=true`）：Authorization Code + PKCE，
+  discovery/JWKS 验签 `iss/aud/exp/nonce`，按 `(issuer, subject)` 映射本地用户；
+  角色只接受 `AGENT_OIDC_ROLE_MAP` 的显式映射；
+- **TOTP MFA**（`AGENT_MFA_ENABLED=true`）：本地账号密码后再验动态码/恢复码；
+  密钥 AES-GCM 加密、恢复码只存哈希、同一时间步不可重放；OIDC 的 MFA 由 IdP 负责；
+- 登录失败按账号计数：15 分钟内 10 次失败后返回 429（成功登录清零）；
+  未知/禁用账号也执行 scrypt，避免时序枚举；
+- 会话管理：`GET /api/auth/sessions` 列出有效会话（不返回 token/哈希），
+  `POST /api/auth/sessions/revoke-others` 一键登出其他会话；
+- 自助密码重置：`/api/auth/password-reset/request|confirm`；token 只存哈希、
+  30 分钟有效、成功即吊销全部会话；邮件走 `AGENT_SMTP_*`，未配置时只生成
+  token；登录页提供“忘记密码”表单；
+- **四眼审批**（`AGENT_APPROVAL_FOUR_EYES=true`）：L3 审批落到管理员队列，
+  发起人的 `/api/resume` 不能自批；管理员在 `/admin` 的“审批”页决定；
 - 管理员访问 `/admin` 独立 React 控制台：注册用户、禁用/启用、重置密码、
-  分配上游模型 Key、设置每日 token/人民币成本额度、查看按用户/天用量与
-  登录安全事件；
+  重置 MFA、分配上游模型 Key、设置每日 token/人民币成本额度、查看按用户/天
+  用量、登录安全事件与待审批 L3；
+- **角色**：`owner` 所有权、`admin` 日常管理、`approver` 只处理四眼审批、
+  `auditor` 只读账号/用量/登录事件、`member` 普通开发者。`auditor` 的非 GET
+  `/api/*` 由中间件统一拒绝；前端按角色隐藏入口，但授权以后端为准；
+- **按用户访问上限**：管理员可把成员限制为 `read_only` / `write_ask` /
+  `write_auto`；新会话与已有会话在创建/运行前都会按上限钳制，不能靠请求体提权；
+- **工作区只读共享**：管理员可把工作区元数据与 revision 只读授权给同租户
+  成员（`PUT /api/admin/workspaces/{id}/acl`）。被授权者能列出/查看，不能修改
+  或把工作区绑进会话执行；非 owner 视图不返回 `root_path`/`root_handle`；
 - 上游 Key 用 AES-256-GCM 加密，主密钥来自 `AGENT_SECRET_MASTER_KEY`，页面
   只显示后四位；
 - CLI、TUI、Web 与管理端的成本显示统一按 `AGENT_COST_CURRENCY`（默认 CNY）
@@ -680,7 +705,7 @@ make check            # lint + 快反馈测试
 make test-all         # 全量（含真实 WSL）
 make cov              # 快反馈子集 + 覆盖率门槛
 
-pytest -m "not wsl and not llm"   # 单元 + TUI + Web + Desktop
+pytest -m "not wsl and not wsl_env and not llm"   # 单元 + TUI + Web + Desktop
 pytest -m "not llm"               # 全量（含真实 WSL）
 ruff check src tests
 
@@ -697,7 +722,7 @@ python tests/eval/langsmith_suite.py --run --kinds mechanism
 python tests/eval/langsmith_suite.py --run --smoke
 ```
 
-CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not llm" --cov`，
+CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not wsl_env and not llm" --cov`，
 覆盖率门槛 76。沙箱层由本地 `-m wsl` 用例守着，CI 会显式提示这个缺口。
 
 ### 性能基线
@@ -809,7 +834,7 @@ python scripts/phase_f_bench.py
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `AGENT_APPROVAL_MODE` | `ask` | `ask` / `approve`（自动放行 L2；L3 仍确认）/ `deny` |
+| `AGENT_APPROVAL_MODE` | `ask` | `ask` / `approve`（只自动放行已知 L2；未知命令为 L3，仍需确认）/ `deny` |
 | `AGENT_ALLOW_RULES` | 空 | 持久放行规则，如 `shell_exec:git status*,run_tests:*`；只覆盖 L2 ASK |
 | `AGENT_VERIFY_ENABLED` / `AGENT_VERIFY_COMMAND` | `true` / 空 | 自动验证；命令留空按清单识别 |
 | `AGENT_VERIFY_ONLY_FINAL` | `true` | 多步任务只在 verify 步/最后一步跑全量 |
@@ -832,14 +857,34 @@ python scripts/phase_f_bench.py
 | `AGENT_WEB_ACCOUNTS_ENABLED` | `false` | 启用企业账号密码登录与 `/admin` |
 | `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL` | `true` | 企业账号只允许 MySQL；SQLite 仅测试时关 |
 | `AGENT_WEB_ACCOUNT_TENANT` | `default` | 企业账号作用域 |
-| `AGENT_WEB_COOKIE_SECURE` | `false` | 跨源/HTTPS 部署必须开启；开启后 SameSite=None |
-| `AGENT_WEB_SESSION_TTL_S` | `43200` | 登录会话有效期 |
-| `AGENT_SECRET_MASTER_KEY` / `_FILE` | 空 | 上游 Key 的 AES-256-GCM 主密钥（32B） |
+| `AGENT_WEB_COOKIE_SECURE` | `false` | 跨源/HTTPS 部署必须开启；非 loopback + 账号登录未开启时拒绝启动 |
+| `AGENT_WEB_SESSION_TTL_S` | `43200` | 登录会话绝对有效期 |
+| `AGENT_WEB_SESSION_IDLE_TTL_S` | `0` | 空闲超时秒数；0 = 关闭，仍受绝对 TTL 限制 |
+| `AGENT_WEB_PUBLIC_URL` | 空 | 重置邮件里的站点根；空 = 邮件只带 token |
+| `AGENT_WEB_PASSWORD_RESET_TTL_S` | `1800` | 重置 token 有效期 |
+| `AGENT_SMTP_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_FROM` / `_STARTTLS` | 空 / `587` / … / `true` | 自助密码重置邮件投递；host 为空不发送 |
+| `AGENT_OIDC_ENABLED` | `false` | 启用 OIDC Authorization Code + PKCE；需企业账号 |
+| `AGENT_OIDC_ISSUER` / `_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URI` | 空 | OIDC 提供方与客户端；issuer 默认必须 HTTPS |
+| `AGENT_OIDC_ROLE_CLAIM` / `_ROLE_MAP` | `groups` / 空 | 只接受显式 JSON 映射，不直接把 claim 当角色 |
+| `AGENT_MFA_ENABLED` | `false` | 本地账号 TOTP；OIDC 登录的 MFA 交给 IdP |
+| `AGENT_MFA_MAX_ATTEMPTS` / `_WINDOW_STEPS` | `5` / `1` | 动态码失败上限与时间窗 |
+| `AGENT_APPROVAL_FOUR_EYES` | `false` | L3 审批必须由非发起人的 owner/admin 批准 |
+| `AGENT_APPROVAL_FOUR_EYES_MIN_LEVEL` / `_TTL_S` | `3` / `3600` | 四眼阈值与审批行存活时间 |
+| `AGENT_SECRET_MASTER_KEY` / `_FILE` | 空 | 上游 Key 与 TOTP 密钥的 AES-256-GCM 主密钥（32B） |
 | `AGENT_SECRET_MASTER_KEY_VERSION` | `1` | 主密钥代次；轮换脚本递增 |
-| `AGENT_WEB_QUOTA_RESERVE_TOKENS` | `0` | 运行前 token 预留；0 = 只做事后限额 |
+| `AGENT_WEB_QUOTA_RESERVE_TOKENS` | `20000` | 运行前 token 预留；0 = 只做事后限额 |
 | `AGENT_COST_CURRENCY` | `CNY` | 成本展示/额度货币；上游价格仍按 USD 记账 |
 | `AGENT_USD_TO_CNY` | `7.2` | 固定汇率；管理员额度按人民币配置 |
 | `AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN` | `10` | 每来源 IP 的登录尝试上限 |
+| `AGENT_RATE_LIMIT_BACKEND` | `memory` | `memory` / `redis`；redis 用于多实例共享限流 |
+| `AGENT_RATE_LIMIT_REDIS_URL` | 空 | redis 后端 URL；空 = 复用 `AGENT_EVENT_TRANSPORT_URL` |
+| `AGENT_METRICS_TOKEN` | 空 | A2 `/metrics` 抓取 token；空则复用普通 Web 认证 |
+| `AGENT_LOG_FORMAT` | `text` | `text` / `json`；JSON 含 request_id，不含提示词/密钥 |
+| `AGENT_WEB_OPENAPI` | `false` | 是否暴露 `/openapi.json` 与 `/docs` |
+| `AGENT_OTEL_ENDPOINT` | 空 | OTLP HTTP trace 端点；空 = 关闭，需安装 `.[otel]` |
+| `AGENT_OTEL_SERVICE_NAME` | `coding-agent` | trace 的 service.name |
+| `AGENT_OTEL_HEADERS` | 空 | collector headers，`k=v,k2=v2` |
+| `AGENT_DRAIN_TIMEOUT_S` | `60` | SIGTERM 后等待进行中运行的秒数；超时取消；A2 同值约束在途请求 |
 | `AGENT_QUOTA_RESERVATION_TTL_S` | `3600` | 配额预留守活时间，过期由其他实例清理 |
 | `AGENT_WEB_WORKSPACES_ROOT` | `$HOME/agent-ws/users`（WSL） | per-user 工作区根 |
 | `AGENT_WEB_DATA_ROOT` | `./.agent/web/users`（宿主） | per-user 审计/checkpoint/steering 根 |
@@ -895,7 +940,11 @@ python scripts/phase_f_bench.py
 |---|---|---|
 | `AGENT_CHECKPOINT_PATH` | 空 = `<cwd>/.agent/checkpoints.sqlite` | 填 `:memory:` 强制不落盘 |
 | `AGENT_CHECKPOINT_KEEP` | `200` | 每个会话/命名空间保留的 checkpoint 数；0 = 不轮转 |
-| `AGENT_AUDIT_ENABLED` / `AGENT_AUDIT_DIR` / `AGENT_AUDIT_MAX_MB` | `true` / `<cwd>/.agent/audit` / `0` | 审计日志；0 = 不轮转 |
+| `AGENT_AUDIT_ENABLED` / `AGENT_AUDIT_DIR` / `AGENT_AUDIT_MAX_MB` | `true` / `<cwd>/.agent/audit` / `256` | 审计日志；0 = 不轮转 |
+| `AGENT_AUDIT_SYSLOG_ADDRESS` | 空 | SIEM 导出地址 `host:port`（UDP syslog，JSON 行） |
+| `AGENT_AUDIT_WEBHOOK_URL` / `_TOKEN` | 空 | SIEM webhook，POST 每条审计 JSON；可选 Bearer token |
+| `AGENT_SNAPSHOT_MANIFEST_DIR` | `~/.codingagent/snapshots` | 工作区外的快照校验清单根 |
+| `AGENT_SNAPSHOT_KEEP_COUNT` / `_DAYS` | `200` / `30` | 每次运行开始清理旧快照；0 = 不按该维度清理 |
 | `AGENT_STEERING_DIR` | 空 = `<cwd>/.agent/steering` | 未消费 add/replan 与 pause 标记的跨进程持久化目录 |
 | `AGENT_RATE_LIMIT_STATE_PATH` | 空 = `<cwd>/.agent/rate_limits.json` | 跨进程 provider/全局冷却状态；`:memory:` 关闭文件共享 |
 
@@ -907,6 +956,7 @@ python scripts/phase_f_bench.py
 - 共享文件的多个 implement 默认仍要求 `write_scope` 不重叠；开启 `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` 后用 3-way 合并，真实冲突只回滚共享文件所在的连通分量；
 - steering 指令与 pause 标记默认落盘并绑定 `run_id`；新 run 只清理旧 run 残留（清理动作落审计），跨进程恢复可用 `agent resume`、TUI 或 Web；
 - 任务级 token 上限与 scheduler 全局 token 准入已接入；派发预留优先用显式 `max_tokens`，否则用同角色历史用量 EWMA ×1.2（下限 500 / 上限 16000），仍不是精确的 prompt token 计数；
+- `approval_mode=approve` 只自动放行**已识别的 L2**；未登记命令、未枚举包装器与 `python -c` 等一律 L3，仍需人工确认；不可信仓库/公网部署仍应保持 `ask` 或 `deny`；
 - 真实模型回归由 `.github/workflows/llm.yml` 每周定时跑 `-m llm`（需 `DEEPSEEK_API_KEY` secret）；能力评测（`tests/eval`）仍需带 WSL2 的 runner 或本地执行，并自行承担 API 费用。
 
 ## 文档
@@ -918,9 +968,11 @@ python scripts/phase_f_bench.py
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | 运行 / 开发 / 使用三套工作流、路由与状态生命周期 |
 | [docs/COMPLEXITY.md](docs/COMPLEXITY.md) | 复杂度度量、热点分布、耦合方向与降复杂度建议 |
 | [docs/COVERAGE.md](docs/COVERAGE.md) | 覆盖率口径、P3 模块目标与剩余缺口 |
+| [docs/METRICS.md](docs/METRICS.md) | 用例数/覆盖率/承重模块快照（生成，不手改） |
 | [docs/PHASE_F.md](docs/PHASE_F.md) | 安全验收矩阵、性能基线、迁移/回滚演练 |
 | [docs/PHASE_E.md](docs/PHASE_E.md) | 前端体验、SSE 治理与长会话手测清单 |
 | [docs/CI.md](docs/CI.md) | CI/Docs 流水线步骤与覆盖率门槛 |
+| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | A2/A3 指标、JSON 日志、Prometheus 告警基线 |
 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | 环境配置、依赖版本快照、复现与导出、常见问题 |
 | [docs/MANUAL.md](docs/MANUAL.md) | **配置指南与使用手册**：配置分组、常用配方、CLI/TUI/REPL/Web、企业版、审批、排障 |
 | [docs/DATABASE.md](docs/DATABASE.md) | MySQL 长期存储：建库、表目录、索引、保留、备份恢复与运维 |

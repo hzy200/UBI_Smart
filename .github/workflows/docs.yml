@@ -43,6 +43,11 @@ jobs:
         # STALE_DAYS / CONTEXT_BUDGETS / DOC_SOFT_LIMIT。
         run: python scripts/check_docs.py --strict
 
+      - name: 复杂度文档没有过期
+        # 本文曾出现"文档写 179 文件 / 43,789 行，实际 249 / 67,322"。
+        # 手抄的数字一定会腐烂，所以让脚本反查文档里的关键数字。
+        run: python scripts/measure_complexity.py --check docs/COMPLEXITY.md
+
       - name: 文档—代码漂移
         # 代码注释里的 docs/... 与文档里的 src/ tests/ scripts/ 路径必须存在。
         run: python scripts/check_drift.py

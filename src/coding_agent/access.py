@@ -32,3 +32,19 @@ def normalize_access_mode(value: str | None) -> str:
 def access_mode_from_allow_write(allow_write: bool) -> str:
     """旧 CLI/TUI 的 `--write` 语义：开启时等价于 write_auto。"""
     return ACCESS_WRITE_AUTO if allow_write else ""
+
+
+_ACCESS_RANK = {
+    ACCESS_READ_ONLY: 0,
+    ACCESS_WRITE_ASK: 1,
+    ACCESS_WRITE_AUTO: 2,
+}
+
+
+def clamp_access_mode(requested: str | None, limit: str | None) -> str:
+    """把请求的访问模式压到账号上限以内；未知值按最保守的只读处理。"""
+    current = normalize_access_mode(requested) or ACCESS_READ_ONLY
+    cap = normalize_access_mode(limit) or ACCESS_WRITE_AUTO
+    if _ACCESS_RANK[current] <= _ACCESS_RANK[cap]:
+        return current
+    return cap

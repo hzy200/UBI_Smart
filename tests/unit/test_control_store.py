@@ -241,3 +241,86 @@ def test_mysql_engine_uses_bounded_pool() -> None:
         assert store.engine.pool.size() == 5
     finally:
         store.close()
+
+
+def test_tag_helpers_are_defensive() -> None:
+    from coding_agent.control.store import _tags_from_text, _tags_to_text
+
+    assert _tags_from_text("not-json") == []
+    assert _tags_from_text('{"a": 1}') == []
+    assert _tags_from_text('["a", " ", "a", "b"]') == ["a", "a", "b"]
+    assert _tags_to_text("not-a-list") == "[]"
+
+
+def test_get_workspace_and_tombstones(tmp_path) -> None:
+    from sqlalchemy.orm import Session
+
+    from coding_agent.control.schema import Workspace
+
+    store = ControlStore(_url(tmp_path))
+    assert store.get_workspace("") is None
+    assert store.get_workspace("missing") is None
+
+    with Session(store.engine) as session, session.begin():
+        session.add(
+            Workspace(
+                workspace_id="w1",
+                tenant="alice",
+                owner="alice",
+                slug="demo",
+                display_name="Demo",
+                kind="sandbox",
+                status="active",
+            )
+        )
+    row = store.get_workspace("w1")
+    assert row["display_name"] == "Demo"
+    assert row["kind"] == "sandbox"
+
+    # 空 thread / 空 tombstone 直接跳过；未知 tombstone 仍要落一条。
+    store.save_sessions("alice", [{"thread_id": ""}], {""})
+    assert store.load_sessions("alice") == ([], set())
+    store.save_sessions("alice", [], {"ghost"})
+    rows, deleted = store.load_sessions("alice")
+    assert rows == []
+    assert deleted == {"ghost"}
+    store.close()
+
+
+def test_usage_record_skips_incomplete_records(tmp_path) -> None:
+    from sqlalchemy.orm import Session
+
+    store = ControlStore(_url(tmp_path))
+    with Session(store.engine) as session, session.begin():
+        assert store._apply_usage_record(
+            session, "default", "alice", {"kind": "tool_call"}
+        ) == 0
+        assert store._apply_usage_record(
+            session, "default", "alice", {"kind": "run_end"}
+        ) == 0
+        assert store._apply_usage_record(
+            session,
+            "default",
+            "alice",
+            {"kind": "run_end", "hash": "h1"},
+        ) == 0
+    store.close()
+
+
+def test_purge_usage_events(tmp_path) -> None:
+    from sqlalchemy.orm import Session
+
+    from coding_agent.control.schema import ControlUsageEvent
+
+    store = ControlStore(_url(tmp_path))
+    with Session(store.engine) as session, session.begin():
+        session.add(
+            ControlUsageEvent(
+                tenant="default",
+                record_hash="h1",
+                ts="2020-01-01T00:00:00+00:00",
+            )
+        )
+    assert store.purge_usage_events("2021-01-01") == 1
+    assert store.purge_usage_events("2021-01-01") == 0
+    store.close()

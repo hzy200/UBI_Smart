@@ -139,8 +139,10 @@ def test_shell_reads_of_secret_files_are_escalated() -> None:
 def test_environment_dump_and_secret_searches_require_confirmation() -> None:
     assert classify("printenv").level is CommandLevel.DANGER
     assert classify("env").level is CommandLevel.DANGER
-    assert classify("grep -rn password src/").level is CommandLevel.MUTATE
-    assert classify("rg -n api_key .").level is CommandLevel.MUTATE
+    # 疑似命中秘密文件的检索按 L3：`approve` 模式会自动放行 L2，自动放行等于
+    # 把凭据直接读进上下文。
+    assert classify("grep -rn password src/").level is CommandLevel.DANGER
+    assert classify("rg -n api_key .").level is CommandLevel.DANGER
     # 不含秘密词的普通检索仍然是 L0
     assert classify("grep -rn todo src/").level is CommandLevel.READ
 

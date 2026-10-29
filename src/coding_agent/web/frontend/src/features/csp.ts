@@ -261,7 +261,16 @@ export const cspMixin = {
     return this.authMode !== 'bff-cookie' && this.authMode !== 'local-session';
   },
   get authBffVisible() { return this.authMode === 'bff-cookie'; },
-  get authLocalVisible() { return this.authMode === 'local-session'; },
+  get authLocalVisible() {
+    return this.authMode === 'local-session' && !this.mfaRequired;
+  },
+  get mfaVisible() {
+    return this.authMode === 'local-session' && this.mfaRequired;
+  },
+  get authOidcVisible() {
+    return this.authMode === 'local-session'
+      && this.oidcAvailable && !this.mfaRequired;
+  },
   get authModeText() {
     return this.t('settings.authMode', { mode: this.authModeLabel });
   },
@@ -436,6 +445,16 @@ export const cspMixin = {
   get canExpandDiff() { return this.diffTruncated && !this.diffExpanded; },
   get approvalLevelText() {
     return this.approval ? String(this.approval.level || '') : '';
+  },
+  get fourEyesApproval() {
+    return Boolean(
+      this.fourEyes
+      && this.approval
+      && Number(this.approval.level_int || 0) >= this.fourEyesMinLevel,
+    );
+  },
+  get approvalActionsVisible() {
+    return !this.fourEyesApproval;
   },
   get approvalCommandText() {
     return this.approval ? String(this.approval.command || '') : '';

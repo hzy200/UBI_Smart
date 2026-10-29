@@ -15,7 +15,7 @@ convention:
   status_values: [implemented, partial, planned]
   how_to_run:
     all: 'pytest -m "not llm"'
-    fast: 'pytest -m "not wsl and not llm"'
+    fast: 'pytest -m "not wsl and not wsl_env and not llm"'
     one: 'pytest <file>::<test> -q'
   note: |
     永远带 -m。裸 pytest 会把 3 条 llm 标记用例也跑掉，真的调用模型、真的计费。

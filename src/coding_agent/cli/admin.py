@@ -1,4 +1,9 @@
-"""企业管理员 CLI：初始化首个账号。"""
+"""企业管理员 CLI：**只在冷启动时**创建第一个账号。
+
+CLI 不持有控制面 store 句柄：账号管理的正路是 A2 的 `/api/admin/users`。
+这里只调 `control.bootstrap.create_first_admin()`，它在"租户下已有账号"时
+直接拒绝，越权的表达力因此不存在（TD-032）。
+"""
 
 from __future__ import annotations
 
@@ -27,36 +32,22 @@ def register_admin_commands(app: typer.Typer, console) -> None:
         ),
         email: str = typer.Option("", "--email", help="可选邮箱"),
     ) -> None:
-        """在控制面数据库创建企业账号。"""
+        """冷启动创建**第一个**企业账号（日常管理走 A2 的 /api/admin/users）。"""
         from coding_agent.config import get_settings
-        from coding_agent.control.accounts import AccountError, UserStore
-        from coding_agent.control.store import ControlStore
+        from coding_agent.control.accounts import AccountError
+        from coding_agent.control.bootstrap import create_first_admin
 
-        settings = get_settings()
-        url = str(settings.control_db_url or "").strip()
-        if not url:
-            console.print(
-                "[red]未配置 AGENT_CONTROL_DB_URL；账号必须保存在控制面数据库。[/]"
-            )
-            raise typer.Exit(code=1)
-        store = ControlStore(
-            url, auto_create=bool(settings.control_db_auto_create)
-        )
         try:
-            row = UserStore(
-                store.engine, tenant=settings.web_account_tenant
-            ).create(
+            row = create_first_admin(
+                get_settings(),
                 username,
                 password,
                 email=email,
                 role=role,
-                tenant=settings.web_account_tenant,
             )
         except AccountError as exc:
             console.print(f"[red]{exc}[/]")
             raise typer.Exit(code=1) from exc
-        finally:
-            store.close()
         console.print(
             f"[green]已创建 {row['username']}（{row['role']}）[/]"
         )

@@ -46,10 +46,16 @@
       <div class="note" x-text="approvalReasonText"></div>
       <div class="note" x-text="approvalToolText"></div>
     </div>
-    <div class="approval-actions">
+    <div class="note" x-show="fourEyesApproval">
+      该操作需要另一名管理员在管理端批准；批准后点击“刷新并继续”。
+    </div>
+    <div class="approval-actions" x-show="approvalActionsVisible">
       <button class="primary" data-action="approval" data-allow="true" @click="onAction" x-text="i18n.approval.approve"></button>
       <button class="danger" data-action="approval" data-allow="false" @click="onAction" x-text="i18n.approval.deny"></button>
       <button @click="rejectAll" x-text="i18n.approval.rejectAll"></button>
+    </div>
+    <div class="approval-actions" x-show="fourEyesApproval">
+      <button class="primary" @click="resumeApprovals()">刷新并继续</button>
     </div>
     <div class="note" x-text="approvalPosition"></div>
   </div>
@@ -311,6 +317,25 @@
           <div class="panel-actions">
             <span class="note" x-text="authModeText"></span>
             <button class="danger" @click="logout" x-text="i18n.settings.logout"></button>
+          </div>
+
+          <div x-show="authLocalVisible">
+            <h4 x-text="i18n.settings.sessions"></h4>
+            <div class="panel-actions">
+              <button @click="loadSessions" :disabled="authSessionsLoading"
+                      x-text="i18n.settings.loadSessions"></button>
+              <button class="danger" @click="revokeOtherSessions"
+                      x-text="i18n.settings.revokeOthers"></button>
+            </div>
+            <p class="note" role="alert" x-show="authSessionsError" x-text="authSessionsError"></p>
+            <div aria-live="polite">
+              <template x-for="s in authSessions" :key="s.expires_at">
+                <div class="note">
+                  <span x-text="s.created_at"></span>
+                  <span x-show="s.current" x-text="i18n.settings.sessionCurrent"></span>
+                </div>
+              </template>
+            </div>
           </div>
 
           <h4 x-text="i18n.settings.maintenance"></h4>

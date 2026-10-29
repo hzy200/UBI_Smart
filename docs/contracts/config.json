@@ -9,15 +9,21 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 251,
+  "count": 300,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
     "AGENT_ALLOW_RULES",
+    "AGENT_APPROVAL_FOUR_EYES",
+    "AGENT_APPROVAL_FOUR_EYES_MIN_LEVEL",
     "AGENT_APPROVAL_MODE",
+    "AGENT_APPROVAL_TTL_S",
     "AGENT_AUDIT_DIR",
     "AGENT_AUDIT_ENABLED",
     "AGENT_AUDIT_MAX_MB",
+    "AGENT_AUDIT_SYSLOG_ADDRESS",
+    "AGENT_AUDIT_WEBHOOK_TOKEN",
+    "AGENT_AUDIT_WEBHOOK_URL",
     "AGENT_BILLING_ENABLED",
     "AGENT_BILLING_TIMEOUT_S",
     "AGENT_CHECKPOINT_KEEP",
@@ -52,6 +58,7 @@
     "AGENT_DELEGATE_MEDIUM_FILES",
     "AGENT_DELEGATE_MIN_FILES",
     "AGENT_DEPS_DETECT_TTL_S",
+    "AGENT_DRAIN_TIMEOUT_S",
     "AGENT_EVENT_TRANSPORT",
     "AGENT_EVENT_TRANSPORT_MAXLEN",
     "AGENT_EVENT_TRANSPORT_PREFIX",
@@ -102,6 +109,7 @@
     "AGENT_IDEMPOTENCY_TTL_S",
     "AGENT_INSTRUCTIONS_ENABLED",
     "AGENT_INTERNAL_HMAC_KEY",
+    "AGENT_INTERNAL_HMAC_REQUIRED",
     "AGENT_INTERNAL_TOKEN",
     "AGENT_INTERNAL_URL",
     "AGENT_LLM_AIMD_MAX",
@@ -112,6 +120,7 @@
     "AGENT_LLM_ROUTING_STRATEGY",
     "AGENT_LLM_TEMPERATURE",
     "AGENT_LLM_TIMEOUT",
+    "AGENT_LOG_FORMAT",
     "AGENT_LSP_COMMAND",
     "AGENT_LSP_DIAGNOSTICS_WAIT_S",
     "AGENT_LSP_TIMEOUT",
@@ -142,7 +151,28 @@
     "AGENT_MEMORY_TOP_K",
     "AGENT_MEMORY_VECTOR_ENABLED",
     "AGENT_MEMORY_VECTOR_TOP_N",
+    "AGENT_METRICS_TOKEN",
+    "AGENT_MFA_CHALLENGE_TTL_S",
+    "AGENT_MFA_ENABLED",
+    "AGENT_MFA_ISSUER",
+    "AGENT_MFA_MAX_ATTEMPTS",
+    "AGENT_MFA_WINDOW_STEPS",
     "AGENT_NUDGE_EMPTY_STEPS",
+    "AGENT_OIDC_ALLOW_INSECURE_HTTP",
+    "AGENT_OIDC_AUTO_CREATE_USERS",
+    "AGENT_OIDC_CLIENT_ID",
+    "AGENT_OIDC_CLIENT_SECRET",
+    "AGENT_OIDC_DEFAULT_ROLE",
+    "AGENT_OIDC_EMAIL_CLAIM",
+    "AGENT_OIDC_ENABLED",
+    "AGENT_OIDC_HTTP_TIMEOUT_S",
+    "AGENT_OIDC_ISSUER",
+    "AGENT_OIDC_REDIRECT_URI",
+    "AGENT_OIDC_ROLE_CLAIM",
+    "AGENT_OIDC_ROLE_MAP",
+    "AGENT_OIDC_SCOPES",
+    "AGENT_OIDC_STATE_TTL_S",
+    "AGENT_OIDC_USERNAME_CLAIM",
     "AGENT_ORCHESTRATOR_ADD_EXPLORE_TESTS",
     "AGENT_ORCHESTRATOR_ALLOW_OVERLAP",
     "AGENT_ORCHESTRATOR_CHECKPOINT_EVERY",
@@ -166,9 +196,16 @@
     "AGENT_ORCHESTRATOR_WRITE_ENABLED",
     "AGENT_ORCHESTRATOR_WRITE_PLAN_APPROVAL",
     "AGENT_ORCHESTRATOR_WRITE_SCOPE_ENFORCE",
+    "AGENT_OTEL_ENDPOINT",
+    "AGENT_OTEL_HEADERS",
+    "AGENT_OTEL_SERVICE_NAME",
     "AGENT_PERSISTENT_SHELL",
     "AGENT_PERSISTENT_SHELL_POOL",
+    "AGENT_PROVIDER_PROBE_ALLOWED_HOSTS",
+    "AGENT_PROVIDER_PROBE_ALLOW_PRIVATE_NETWORK",
     "AGENT_QUOTA_RESERVATION_TTL_S",
+    "AGENT_RATE_LIMIT_BACKEND",
+    "AGENT_RATE_LIMIT_REDIS_URL",
     "AGENT_RATE_LIMIT_STATE_PATH",
     "AGENT_READ_CACHE_MAX_BYTES",
     "AGENT_READ_DENY_GLOBS",
@@ -197,6 +234,14 @@
     "AGENT_SHELL_NETWORK",
     "AGENT_SHELL_SANDBOX",
     "AGENT_SHELL_TIMEOUT",
+    "AGENT_SMTP_FROM",
+    "AGENT_SMTP_HOST",
+    "AGENT_SMTP_PASSWORD",
+    "AGENT_SMTP_PORT",
+    "AGENT_SMTP_STARTTLS",
+    "AGENT_SMTP_USER",
+    "AGENT_SNAPSHOT_KEEP_COUNT",
+    "AGENT_SNAPSHOT_KEEP_DAYS",
     "AGENT_SNAPSHOT_MANIFEST_DIR",
     "AGENT_STEERING_DIR",
     "AGENT_SYMBOL_INDEX_TTL_S",
@@ -226,10 +271,14 @@
     "AGENT_WEB_MAX_UPLOAD_FILES",
     "AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES",
     "AGENT_WEB_MEMORY_ROOT",
+    "AGENT_WEB_OPENAPI",
+    "AGENT_WEB_PASSWORD_RESET_TTL_S",
+    "AGENT_WEB_PUBLIC_URL",
     "AGENT_WEB_QUOTA_RESERVE_TOKENS",
     "AGENT_WEB_RATE_LIMIT_PER_MIN",
     "AGENT_WEB_RUNTIME_TTL_S",
     "AGENT_WEB_SERVE_FRONTEND",
+    "AGENT_WEB_SESSION_IDLE_TTL_S",
     "AGENT_WEB_SESSION_TTL_S",
     "AGENT_WEB_STATIC_DIR",
     "AGENT_WEB_WORKSPACES_ROOT",
@@ -289,12 +338,36 @@
       "doc": "持久放行规则，逗号分隔的 `tool:glob`，例如 `shell_exec:git status*,run_tests:*`。只覆盖原本会 ASK 的 L2。"
     },
     {
+      "name": "approval_four_eyes",
+      "env": "AGENT_APPROVAL_FOUR_EYES",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "四眼审批：L3 默认；0 = 关闭（但仍可用独立开关关闭整个特性）。"
+    },
+    {
+      "name": "approval_four_eyes_min_level",
+      "env": "AGENT_APPROVAL_FOUR_EYES_MIN_LEVEL",
+      "type": "int",
+      "default": 3,
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "approval_mode",
       "env": "AGENT_APPROVAL_MODE",
       "type": "str",
       "default": "ask",
       "section": "通用",
       "doc": "ask（逐条询问）| approve（自动放行 L2；L3 仍需确认）| deny（一律拒绝）"
+    },
+    {
+      "name": "approval_ttl_s",
+      "env": "AGENT_APPROVAL_TTL_S",
+      "type": "int",
+      "default": 3600,
+      "section": "通用",
+      "doc": ""
     },
     {
       "name": "audit_dir",
@@ -316,9 +389,33 @@
       "name": "audit_max_mb",
       "env": "AGENT_AUDIT_MAX_MB",
       "type": "int",
-      "default": 0,
+      "default": 256,
       "section": "通用",
       "doc": "单个审计文件超过该大小（MB）就轮转；0 表示不轮转"
+    },
+    {
+      "name": "audit_syslog_address",
+      "env": "AGENT_AUDIT_SYSLOG_ADDRESS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "SIEM 导出：host:port（UDP syslog），每条审计 JSON 一行；空 = 不导出。"
+    },
+    {
+      "name": "audit_webhook_token",
+      "env": "AGENT_AUDIT_WEBHOOK_TOKEN",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "audit_webhook_url",
+      "env": "AGENT_AUDIT_WEBHOOK_URL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "SIEM webhook：POST 每行审计 JSON；空 = 不导出。"
     },
     {
       "name": "billing_enabled",
@@ -591,6 +688,14 @@
       "default": 30.0,
       "section": "通用",
       "doc": "包管理器探测缓存时间；安装后会主动失效。"
+    },
+    {
+      "name": "drain_timeout_s",
+      "env": "AGENT_DRAIN_TIMEOUT_S",
+      "type": "int",
+      "default": 60,
+      "section": "通用",
+      "doc": "SIGTERM 优雅退出：A3 停止接收新运行并等待进行中的运行自然结束； 超时后取消，A2 用同一数值约束 uvicorn 在途请求。0 = 不等待。"
     },
     {
       "name": "event_transport",
@@ -993,6 +1098,14 @@
       "doc": "空 = 只依赖内部 Bearer token（兼容旧部署）； 非空 = A2 对 X-Agent-Context 做 HMAC，A3 验签。"
     },
     {
+      "name": "agent_internal_hmac_required",
+      "env": "AGENT_INTERNAL_HMAC_REQUIRED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "是否**要求** A2 发来的 X-Agent-Context 带 HMAC 签名（非空 key）。 空 = 兼容未升级的部署，只靠内部 Bearer token；拆分部署应显式设 true。 A3 绑在非 loopback 地址时无论这里怎么配都强制要求（启动时校验）。"
+    },
+    {
       "name": "agent_internal_token",
       "env": "AGENT_INTERNAL_TOKEN",
       "type": "str",
@@ -1071,6 +1184,14 @@
       "default": 120,
       "section": "通用",
       "doc": ""
+    },
+    {
+      "name": "log_format",
+      "env": "AGENT_LOG_FORMAT",
+      "type": "str",
+      "default": "text",
+      "section": "通用",
+      "doc": "text | json；容器/日志采集建议 json。"
     },
     {
       "name": "lsp_command",
@@ -1313,12 +1434,180 @@
       "doc": ""
     },
     {
+      "name": "metrics_token",
+      "env": "AGENT_METRICS_TOKEN",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "A2 /metrics 的抓取 token；空 = 复用普通 Web 认证。"
+    },
+    {
+      "name": "mfa_challenge_ttl_s",
+      "env": "AGENT_MFA_CHALLENGE_TTL_S",
+      "type": "int",
+      "default": 300,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "mfa_enabled",
+      "env": "AGENT_MFA_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "mfa_issuer",
+      "env": "AGENT_MFA_ISSUER",
+      "type": "str",
+      "default": "CodingAgent",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "mfa_max_attempts",
+      "env": "AGENT_MFA_MAX_ATTEMPTS",
+      "type": "int",
+      "default": 5,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "mfa_window_steps",
+      "env": "AGENT_MFA_WINDOW_STEPS",
+      "type": "int",
+      "default": 1,
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "nudge_empty_steps",
       "env": "AGENT_NUDGE_EMPTY_STEPS",
       "type": "bool",
       "default": true,
       "section": "通用",
       "doc": "「一步没有任何改动」时是否给它一次重做的机会。  背景：`dirty=False` 时 verify 与 review 都会短路，控制流直接 advance —— 于是「这一步只读了文件」与「这一步做完了」在图上**无法区分**。实测过一整批 长程任务因此把计划\"读\"完就算完成：10 次运行里 5 次一次写都没尝试过。  默认开启，但**必须可关**：它会改变所有任务的行为，现有基线因此不再可比 （评测的 baseline 里记了这个开关）。"
+    },
+    {
+      "name": "oidc_allow_insecure_http",
+      "env": "AGENT_OIDC_ALLOW_INSECURE_HTTP",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "仅本地开发允许 http:// issuer；生产必须 HTTPS。"
+    },
+    {
+      "name": "oidc_auto_create_users",
+      "env": "AGENT_OIDC_AUTO_CREATE_USERS",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_client_id",
+      "env": "AGENT_OIDC_CLIENT_ID",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_client_secret",
+      "env": "AGENT_OIDC_CLIENT_SECRET",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_default_role",
+      "env": "AGENT_OIDC_DEFAULT_ROLE",
+      "type": "str",
+      "default": "member",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_email_claim",
+      "env": "AGENT_OIDC_EMAIL_CLAIM",
+      "type": "str",
+      "default": "email",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_enabled",
+      "env": "AGENT_OIDC_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "--- 企业身份（RFC-0004）---"
+    },
+    {
+      "name": "oidc_http_timeout_s",
+      "env": "AGENT_OIDC_HTTP_TIMEOUT_S",
+      "type": "float",
+      "default": 10.0,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_issuer",
+      "env": "AGENT_OIDC_ISSUER",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_redirect_uri",
+      "env": "AGENT_OIDC_REDIRECT_URI",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_role_claim",
+      "env": "AGENT_OIDC_ROLE_CLAIM",
+      "type": "str",
+      "default": "groups",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_role_map",
+      "env": "AGENT_OIDC_ROLE_MAP",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "JSON: {\"idp-group\": \"admin\", ...}；未命中用 default_role。"
+    },
+    {
+      "name": "oidc_scopes",
+      "env": "AGENT_OIDC_SCOPES",
+      "type": "str",
+      "default": "openid profile email",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_state_ttl_s",
+      "env": "AGENT_OIDC_STATE_TTL_S",
+      "type": "int",
+      "default": 600,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "oidc_username_claim",
+      "env": "AGENT_OIDC_USERNAME_CLAIM",
+      "type": "str",
+      "default": "preferred_username",
+      "section": "通用",
+      "doc": ""
     },
     {
       "name": "orchestrator_add_explore_tests",
@@ -1505,6 +1794,30 @@
       "doc": "写 worker 的 write_scope 在 I/O 前强制校验（三重防线之一）。"
     },
     {
+      "name": "otel_endpoint",
+      "env": "AGENT_OTEL_ENDPOINT",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "OTLP HTTP trace；空 = 关闭。需要 `pip install -e \".[otel]\"`。"
+    },
+    {
+      "name": "otel_headers",
+      "env": "AGENT_OTEL_HEADERS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "`k=v,k2=v2` 形式的 collector headers。"
+    },
+    {
+      "name": "otel_service_name",
+      "env": "AGENT_OTEL_SERVICE_NAME",
+      "type": "str",
+      "default": "coding-agent",
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "persistent_shell",
       "env": "AGENT_PERSISTENT_SHELL",
       "type": "bool",
@@ -1521,12 +1834,44 @@
       "doc": ""
     },
     {
+      "name": "provider_probe_allowed_hosts",
+      "env": "AGENT_PROVIDER_PROBE_ALLOWED_HOSTS",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "目标主机后缀白名单（逗号分隔，如 `deepseek.com,openai.com`）； 空 = 不额外限制，仍需过 IP 判定。企业部署建议填上，可以顺带收敛 DNS rebinding 的残余风险。"
+    },
+    {
+      "name": "provider_probe_allow_private_network",
+      "env": "AGENT_PROVIDER_PROBE_ALLOW_PRIVATE_NETWORK",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "---------- 服务端外连守卫（SSRF） ---------- provider 连通性探测会带上真实 API Key，目标必须过 security/netguard.py 的解析后 IP 判定。默认拒绝回环 / 内网 / 保留地址； 链路本地（169.254.169.254 等云元数据）**永远**拒绝，不受此开关影响。 本机或内网 OpenAI-compatible 端点显式打开它。"
+    },
+    {
       "name": "quota_reservation_ttl_s",
       "env": "AGENT_QUOTA_RESERVATION_TTL_S",
       "type": "int",
       "default": 3600,
       "section": "通用",
       "doc": "配额预留的存活时间；进程崩溃后由其他实例/下次启动清理。"
+    },
+    {
+      "name": "rate_limit_backend",
+      "env": "AGENT_RATE_LIMIT_BACKEND",
+      "type": "str",
+      "default": "memory",
+      "section": "通用",
+      "doc": "memory = 单进程内存；redis = 多实例共享固定窗口。"
+    },
+    {
+      "name": "rate_limit_redis_url",
+      "env": "AGENT_RATE_LIMIT_REDIS_URL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
     },
     {
       "name": "rate_limit_state_path",
@@ -1749,6 +2094,70 @@
       "env": "AGENT_SHELL_TIMEOUT",
       "type": "int",
       "default": 60,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "smtp_from",
+      "env": "AGENT_SMTP_FROM",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "smtp_host",
+      "env": "AGENT_SMTP_HOST",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "自助密码重置邮件（SMTP）；host 为空 = 不发送。"
+    },
+    {
+      "name": "smtp_password",
+      "env": "AGENT_SMTP_PASSWORD",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "smtp_port",
+      "env": "AGENT_SMTP_PORT",
+      "type": "int",
+      "default": 587,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "smtp_starttls",
+      "env": "AGENT_SMTP_STARTTLS",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "smtp_user",
+      "env": "AGENT_SMTP_USER",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "snapshot_keep_count",
+      "env": "AGENT_SNAPSHOT_KEEP_COUNT",
+      "type": "int",
+      "default": 200,
+      "section": "通用",
+      "doc": "快照保留：每次运行开始清理，保留最新 N 份且不超过 M 天。0 = 不按该维度清理。"
+    },
+    {
+      "name": "snapshot_keep_days",
+      "env": "AGENT_SNAPSHOT_KEEP_DAYS",
+      "type": "int",
+      "default": 30,
       "section": "通用",
       "doc": ""
     },
@@ -1985,12 +2394,36 @@
       "doc": "per-user WSL 侧记忆根目录；空 = 沙箱 $HOME/agent-memory。 记忆在沙箱内、仓库之外，避免不可信仓库预置记忆。"
     },
     {
+      "name": "web_openapi",
+      "env": "AGENT_WEB_OPENAPI",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "/openapi.json 与 /docs；默认关闭，避免把完整路由表暴露给公网。"
+    },
+    {
+      "name": "web_password_reset_ttl_s",
+      "env": "AGENT_WEB_PASSWORD_RESET_TTL_S",
+      "type": "int",
+      "default": 1800,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "web_public_url",
+      "env": "AGENT_WEB_PUBLIC_URL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "对外访问根，用于邮件里的重置链接；空 = 邮件只带 token。"
+    },
+    {
       "name": "web_quota_reserve_tokens",
       "env": "AGENT_WEB_QUOTA_RESERVE_TOKENS",
       "type": "int",
-      "default": 0,
+      "default": 20000,
       "section": "通用",
-      "doc": "运行前为 token 限额预留的量；0 = 只做事后限额。"
+      "doc": "运行前为 token 限额预留的量；0 = 只做事后限额。默认预留一段， 让并发/长 run 在真正超额前被硬上限拦住。"
     },
     {
       "name": "web_rate_limit_per_min",
@@ -2015,6 +2448,14 @@
       "default": true,
       "section": "通用",
       "doc": "是否由 A2 托管前端页面。独立静态站/CDN 部署时关闭，只保留 API； 桌面模式（desktop_mode）始终强制开启，否则没有页面可加载。"
+    },
+    {
+      "name": "web_session_idle_ttl_s",
+      "env": "AGENT_WEB_SESSION_IDLE_TTL_S",
+      "type": "int",
+      "default": 0,
+      "section": "通用",
+      "doc": "空闲超时：超过该时长没有请求则失效；仍受上面的绝对 TTL 限制。 0 = 关闭（只使用绝对 TTL）。"
     },
     {
       "name": "web_session_ttl_s",
@@ -2118,7 +2559,7 @@
       "type": "str",
       "default": "",
       "section": "通用",
-      "doc": "工作区根；空 = 沿用租户 workspaces_root（TenantManager）。 必须是 A3/A4 视角的绝对 POSIX 路径。"
+      "doc": "工作区根；空 = 沿用租户 workspaces_root（TenantManager）。 必须是 A3/A4 视角的绝对 POSIX 路径；host 工作区也可以写成 Windows 路径（`D:\\ws`），校验时两侧都会归一化成 POSIX 再比较。"
     },
     {
       "name": "workspace_scan_provider",

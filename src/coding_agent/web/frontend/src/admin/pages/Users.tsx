@@ -9,8 +9,23 @@ import { formatDate, initials } from '../lib/format';
 import { UserDetail } from './UserDetail';
 
 type StatusFilter = 'all' | 'active' | 'disabled';
+type Role = 'admin' | 'approver' | 'auditor' | 'member';
 
-export function Users({ notify }: { notify: Notify }) {
+const ROLE_LABELS: Record<string, string> = {
+  owner: '所有者',
+  admin: '管理员',
+  approver: '审批人',
+  auditor: '审计员',
+  member: '成员',
+};
+
+export function Users({
+  notify,
+  readOnly = false,
+}: {
+  notify: Notify;
+  readOnly?: boolean;
+}) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selected, setSelected] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,7 +38,7 @@ export function Users({ notify }: { notify: Notify }) {
   const [form, setForm] = useState({
     username: '',
     email: '',
-    role: 'member' as 'admin' | 'member',
+    role: 'member' as Role,
     password: '',
   });
 
@@ -108,9 +123,11 @@ export function Users({ notify }: { notify: Notify }) {
         <div>
           <p className="hint">注册企业成员，分配上游模型 Key 与每日 token / 成本额度。</p>
         </div>
-        <button className="btn primary" onClick={() => setCreateOpen(true)}>
-          <Icon name="plus" /> 新建用户
-        </button>
+        {!readOnly && (
+          <button className="btn primary" onClick={() => setCreateOpen(true)}>
+            <Icon name="plus" /> 新建用户
+          </button>
+        )}
       </div>
 
       <div className="toolbar card">
@@ -158,7 +175,7 @@ export function Users({ notify }: { notify: Notify }) {
           title={users.length === 0 ? '还没有用户' : '没有匹配的用户'}
           hint={users.length === 0 ? '创建第一个企业成员后即可分配额度。' : '调整搜索词或状态筛选。'}
           action={
-            users.length === 0 ? (
+            users.length === 0 && !readOnly ? (
               <button className="btn primary" onClick={() => setCreateOpen(true)}>
                 <Icon name="plus" /> 新建用户
               </button>
@@ -191,7 +208,7 @@ export function Users({ notify }: { notify: Notify }) {
                   </td>
                   <td>
                     <span className={`pill role-${user.role}`}>
-                      {user.role === 'owner' ? '所有者' : user.role === 'admin' ? '管理员' : '成员'}
+                      {ROLE_LABELS[user.role] || user.role}
                     </span>
                   </td>
                   <td>
@@ -202,10 +219,14 @@ export function Users({ notify }: { notify: Notify }) {
                   <td className="muted">{formatDate(user.last_login_at)}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="btn small" onClick={() => setSelected(user)}>管理</button>
-                      <button className="btn small ghost" onClick={() => setPendingStatus(user)}>
-                        {user.status === 'active' ? '禁用' : '启用'}
-                      </button>
+                      {!readOnly && (
+                        <>
+                          <button className="btn small" onClick={() => setSelected(user)}>管理</button>
+                          <button className="btn small ghost" onClick={() => setPendingStatus(user)}>
+                            {user.status === 'active' ? '禁用' : '启用'}
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -250,9 +271,11 @@ export function Users({ notify }: { notify: Notify }) {
                 角色
                 <select
                   value={form.role}
-                  onChange={(event) => setForm({ ...form, role: event.target.value as 'admin' | 'member' })}
+                  onChange={(event) => setForm({ ...form, role: event.target.value as Role })}
                 >
                   <option value="member">成员</option>
+                  <option value="approver">审批人</option>
+                  <option value="auditor">审计员</option>
                   <option value="admin">管理员</option>
                 </select>
               </label>

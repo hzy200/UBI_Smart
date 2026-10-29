@@ -116,9 +116,17 @@ Linux 用户空间（非 root）
 残余风险：宿主管理员、WSL/内核漏洞、恶意 WSL 发行版、绕开关键词的递归检索、
 以及审计链可被有主机权限者整体重写；以上与是否前后端分离无关。
 
+**服务端外连（provider 探测）**：探测请求会带上 provider 的真实 API Key，
+因此目标必须先过 `security/netguard.py`——解析后按 IP 判定，默认拒绝回环 /
+内网 / CGNAT / 保留段，链路本地（含 `169.254.169.254` 云元数据）任何开关下
+都拒绝；不跟随重定向。**DNS rebinding 已收敛**：探测把连接钉到校验通过的
+IP，Host/SNI 与证书仍按原域名。残余风险只剩目标主机二次转发与显式代理 ——
+收敛手段是 `AGENT_PROVIDER_PROBE_ALLOWED_HOSTS` 主机白名单。
+
 **验证入口**：[`tests/unit/test_tenancy.py`](../tests/unit/test_tenancy.py)、
 [`tests/unit/test_web_auth.py`](../tests/unit/test_web_auth.py)、
-[`tests/unit/test_web_app.py`](../tests/unit/test_web_app.py)。
+[`tests/unit/test_web_app.py`](../tests/unit/test_web_app.py)、
+[`tests/unit/test_netguard.py`](../tests/unit/test_netguard.py)。
 
 ### T4　客户端执行域（A2L，**新增**）
 
@@ -174,6 +182,7 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
 |---|---|---|---|
 | 命令分级 L0–L4（L4 规划）+ 复合取最高 | `sandbox/policy.py` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 危险模式拦截（`rm -rf`、`sh -c` 包装、管道执行等） | `policy.DANGER_PATTERNS` | T1（**已知模式的枚举**，非完备） | [`test_policy.py`](../tests/unit/test_policy.py) |
+| 命令执行器 / git 读写分型（`command`、`git config/remote/branch/tag/stash`、`rm -r -f`、`find -exec`、`PATH=` 前缀） | `policy._classify_*` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 未知命令/解析失败 fail-closed 为需确认 | `policy` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 只读命令**参数越界升级**（`~`、外部绝对路径、`..`、`$()`/变量） | `policy._escalate_auto_command` | T1（词法 best-effort） | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 引号感知（字面量不误判，`$()`/`sh -c` 照扫） | `policy._mask_quoted` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
@@ -181,20 +190,23 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
 | 路径双重校验（词法 + realpath，含悬空链接） | `pathguard` + `fs` | **接近 T2**（对文件工具路径是硬约束） | [`test_pathguard.py`](../tests/unit/test_pathguard.py)、[`test_fs_guard.py`](../tests/unit/test_fs_guard.py)、[`test_file_tools.py`](../tests/integration/test_file_tools.py) |
 | 工作区根路径由 A2 生成 + 白名单校验 | `control/workspaces.py` + `paths.py` | T1（A2 层；符号链接由 A4 的 realpath 补齐） | [`test_workspace_paths.py`](../tests/unit/test_workspace_paths.py)、[`test_workspace_registry.py`](../tests/unit/test_workspace_registry.py) |
 | 审批在节点、执行在 `tools` 唯一咽喉 | `graph/nodes/{approve,tools}.py` | **接近 T2**（前端绕不过） | [`test_approve.py`](../tests/unit/test_approve.py)、[`test_nodes.py`](../tests/unit/test_nodes.py) |
+| OIDC state/nonce/PKCE + ID token 验签 | `control/oidc.py` | T1（依赖 HTTPS/JWKS） | [`test_oidc.py`](../tests/unit/test_oidc.py) |
+| TOTP 密钥加密、恢复码哈希、时间步防重放 | `control/mfa.py` | T1（本地账号第二因子） | [`test_mfa.py`](../tests/unit/test_mfa.py) |
+| 四眼审批：L3 只认非发起人的管理员决定 | `control/approvals.py`、A2 resume 合并 | T1（防单人自批，不防合谋） | [`test_approvals.py`](../tests/unit/test_approvals.py)、[`test_admin_api.py`](../tests/unit/test_admin_api.py) |
 | 资源上限（CPU/文件/进程，沙箱内 `ulimit`+`timeout`） | `sandbox/limits.py` | T1 | [`test_limits.py`](../tests/unit/test_limits.py)、[`test_sandbox_timeout_cleanup.py`](../tests/unit/test_sandbox_timeout_cleanup.py) |
 | 审计（宿主侧、追加写、失败显式报出） | `audit/` | **接近 T2**（沙箱改不到） | [`test_audit.py`](../tests/unit/test_audit.py)、[`test_audit_chain.py`](../tests/unit/test_audit_chain.py) |
 | 可选内核级隔离 `AGENT_SHELL_SANDBOX=bwrap` | `sandbox/wsl_exec.py` | **T2 的一层**（opt-in，默认 off） | [`test_bwrap_args.py`](../tests/unit/test_bwrap_args.py)、[`test_bwrap.py`](../tests/integration/test_bwrap.py) |
 | 前端只消费事件；GUI HTML 经 DOMPurify/CSP | `tui/` `web/` `desktop/` | 接近 T2（降低 XSS 面、无旁路执行） | [`test_web_app.py`](../tests/unit/test_web_app.py)、[`test_web_auth.py`](../tests/unit/test_web_auth.py)、[`test_cli_render.py`](../tests/unit/test_cli_render.py) |
 | 编排写 worker：独立 worktree + `write_scope` + 合并前快照 | `orchestrator/implement.py`、`nodes.py` | T1（仍是 `--write` 预授权下的受控写路径） | [`test_write_scope.py`](../tests/unit/test_write_scope.py)、[`test_atomic_merge.py`](../tests/unit/test_atomic_merge.py)、[`test_implement_worker.py`](../tests/integration/test_implement_worker.py) |
 | worker 提议任务只能只读，host 复核角色/去重/依赖/总量 | `orchestrator/graph.py::validate_proposals` | T1（不允许 worker 自由扩大写范围） | [`test_orchestrator.py`](../tests/unit/test_orchestrator.py) |
-| A2L 只外连、设备证书、本地否决权 | `host_broker/server.py`、`host_broker/consent.py` | **T4 的第一层**（服务端不能静默下发指令） | Phase 1 planned：`test_host_broker_channel.py` |
-| A2L 绑定客户端生命周期、最小权限、单实例、托盘暂停/离线 | `host_broker/lifecycle.py`、`desktop/supervisor.py` | T4（降低长期暴露与误操作） | Phase 1 planned：`test_host_broker_lifecycle.py` |
-| grant 为（路径前缀 × 动词）+ TTL/撤销 | `host_broker/policy.py` | T1（授权语义；lowpriv+ACL 才接近 T2） | Phase 1 planned：`test_host_policy.py` |
-| ZX 由 lowpriv + ACL 强制（AppContainer 仅受限只读） | `host_broker/policy.py`、Windows ACL | **T4 的硬边界**；`user-t1` 仅 T1 | Phase 1 planned：`test_host_paths.py` |
-| 根目录只接受本地固定 NTFS；敏感根逐次确认 | `host_broker/paths.py`、`host_broker/policy.py` | T4（缩小暴露面） | Phase 1 planned：`test_host_workspace_store.py`、`test_host_policy.py` |
-| 本地 `op_journal` + unknown 语义 | `host_broker/op_journal.py` | T1/T4（防止恢复时盲目重放） | Phase 1 planned：`test_host_op_journal.py` |
-| host 路径 handle 级 canonicalization（junction/UNC/ADS） | `host_broker/paths.py` | 接近 T2（对 typed ops 是硬约束） | Phase 1 planned：`test_host_paths.py` |
-| 工具链只上报能力摘要，不暴露绝对路径 | `host_broker/toolchain.py` | T1/T4（减少模型拼路径） | Phase 1 planned：`test_host_toolchain_registry.py` |
+| A2L 只外连、设备证书、本地否决权 | `host_broker/server.py`、`host_broker/consent.py` | **T4 的第一层**（服务端不能静默下发指令） | [`test_host_broker_channel.py`](../tests/unit/test_host_broker_channel.py) |
+| A2L 绑定客户端生命周期、最小权限、单实例、托盘暂停/离线 | `host_broker/lifecycle.py`、`desktop/supervisor.py` | T4（降低长期暴露与误操作） | [`test_host_broker_lifecycle.py`](../tests/unit/test_host_broker_lifecycle.py) |
+| grant 为（路径前缀 × 动词）+ TTL/撤销 | `host_broker/policy.py` | T1（授权语义；lowpriv+ACL 才接近 T2） | [`test_host_policy.py`](../tests/unit/test_host_policy.py) |
+| ZX 由 lowpriv + ACL 强制；AppContainer 提供受控 exec（仍非 T2） | `host_broker/policy.py`、Windows ACL | **T4 的硬边界**；`user-t1` 仅 T1 | [`test_host_paths.py`](../tests/unit/test_host_paths.py)、[`test_host_broker_exec.py`](../tests/unit/test_host_broker_exec.py) |
+| 根目录只接受本地固定 NTFS；敏感根逐次确认 | `host_broker/paths.py`、`host_broker/policy.py` | T4（缩小暴露面） | [`test_host_workspace_registrar.py`](../tests/unit/test_host_workspace_registrar.py)、[`test_host_policy.py`](../tests/unit/test_host_policy.py) |
+| 本地 `op_journal` + unknown 语义 | `host_broker/op_journal.py` | T1/T4（防止恢复时盲目重放） | [`test_host_op_journal.py`](../tests/unit/test_host_op_journal.py) |
+| host 路径 handle 级 canonicalization（junction/UNC/ADS） | `host_broker/paths.py` | 接近 T2（对 typed ops 是硬约束） | [`test_host_paths.py`](../tests/unit/test_host_paths.py) |
+| 工具链只上报能力摘要，不暴露绝对路径 | `host_broker/toolchain.py` | T1/T4（减少模型拼路径） | [`test_host_toolchain_registry.py`](../tests/unit/test_host_toolchain_registry.py) |
 
 ## 5. 从 T1 升到 T2 需要的前置条件
 
@@ -287,6 +299,11 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
 - **访问模式**：只读会话在策略层拒绝 shell/tests/git/deps/LSP，并关闭自动
   verify 与编排 implement；`symbol_search` 强制 AST；写模式必须由服务端
   `--write` 显式开启，持久化配置不能反向提权。
+- **终端输出**：CLI/TUI 把模型与工具输出写入终端前统一清洗控制序列；
+  只保留 SGR 颜色，OSC（含剪贴板/标题）、DCS/APC、光标与清屏序列及 C0
+  控制字符全部删除，防止工具输出操纵终端。
+- **审计落盘**：每条审计记录写入后 `flush + fsync`，避免崩溃时只剩用户态
+  缓冲；审计仍不是 WORM，远端/SIEM 导出见技术债。
 - **上传**：单文件/数量/工作区跨会话累计限额、basename 清洗、SandboxFs 路径双重校验、写审计；
   写入 `.agent/uploads`，不自动执行/解压，不授予模型源码写权限。
 - **密钥**：单机 GUI 注入的 key 只进 OS 密钥环；企业模式由管理员写入
@@ -295,6 +312,35 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
   不回退 keyring。任何路径都不回传明文、不写 `.env`、不写日志；
   连通性测试显式 `trust_env=False`，不走环境代理；
   `base_url` 始终由管理员配置。
+- **命令执行器（新增）**：`command` 只放行 `-v/-V`，其余形式递归分类；
+  `git config/remote/branch/tag/stash` 按参数区分读写形式；`git -c/--config-env/
+  --exec-path`、`rm -r -f` 与 `--recursive --force` 拆分写法、`find -exec/-delete`、
+  `PATH=/LD_PRELOAD=` 前缀一律 L3。`split_segments` 不再把 `\;` 当命令分隔符。
+- **残余风险**：`approval_mode=approve` 只自动放行**已识别的 L2**；未登记命令、
+  未枚举包装器与 `python -c` 等属于 L3，不会再被自动放行。不可信仓库/公网
+  部署仍应保持 `ask` 或 `deny`；L3 永远需要人工确认。
+- **密码重置（新增）**：一次性 token 只存 sha256、默认 30 分钟有效，成功
+  即失效并吊销该用户全部会话；未知账号/无邮箱/投递失败统一返回 200，
+  不泄露账号存在性；邮件通过 SMTP，未配置时只生成 token。
+- **会话管理（新增）**：会话只存 token 的 sha256；`GET /api/auth/sessions`
+  只返回创建/过期时间与“当前会话”标记，不返回 token/哈希；
+  `revoke-others` 可吊销同账号的其他会话，用于改密/丢失设备后的收口。
+- **企业身份（新增）**：OIDC 只接受 Authorization Code + PKCE，state/nonce/
+  verifier 一次性落库；ID token 校验 `iss/aud/exp/iat/nonce` 与 JWKS 签名，
+  拒绝 `alg=none`/未知 kid；issuer 默认必须 HTTPS。MFA 只用于本地密码账号，
+  TOTP 密钥 AES-GCM 加密、恢复码只存哈希、同一时间步不可重放；挑战最多
+  失败 5 次。OIDC 的 MFA 由 IdP 负责。
+- **四眼审批（新增）**：L3 审批落 `control_approvals`；发起人的 resume 对
+  L3 的决定被忽略，只有非发起人的 owner/admin 通过管理员队列写入的
+  approved/denied 才会合并给 A3。未知 call_id 在四眼开启时 fail closed。
+- **RBAC（新增）**：`approver` 只能读审批队列并做决定；`auditor` 只能读
+  账号/用量/Provider/登录事件，非 GET `/api/*` 由 `AuditorReadOnlyMiddleware`
+  统一 403（`/api/auth/*` 除外）。前端隐藏入口只是体验，授权仍由后端依赖与
+  中间件强制。
+- **身份残余风险**：未做 SAML/SCIM/WebAuthn/front-channel logout；OIDC 依赖
+  IdP 可用性与 HTTPS；四眼只防单人自批，不防管理员与发起人合谋；管理员
+  审批队列是轮询，不是推送。审计角色能看到账号与用量元数据，因此仍应限制
+  在需要合规观察的人员。
 - **达标**：T2 场景仍应禁用 `approve` 模式（L2 仍会被自动放行）；只读 GUI
   不应被当成“可以运行测试”的沙箱。
 
@@ -312,6 +358,11 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
   任何一步失败都不会留下半成品工作区。
 - **现状（新增）**：企业 `clamav` 不可用时 fail-closed；桌面 `none` 必须在 UI
   明示“未扫描”。
+- **现状（新增，P1-3）**：工作区 ACL 只授予 `read`：被授权者能列出/查看
+  元数据与 revision，不能 `PATCH/DELETE/import/upload/rollback/restore/prune`，
+  也不能在创建会话时绑定该工作区（`_bind_workspace` 仍要求 owner）。
+  非 owner 视图不返回 `root_path`/`root_handle`，避免宿主路径扩散。
+  授权按账号租户隔离，管理端不能跨租户授权。
 - **缺口**：归档盘保存完整源码，当前依赖磁盘权限与运维备份；尚未做归档加密
   与异地复制。无内部 Git remote，代码没有第二份远端。A3 导入/上传任务状态
   在进程内存，重启后未完成任务丢失。
@@ -358,6 +409,37 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
 - **已知不可解决**：提示注入仍可诱导用户同意；构建脚本/安装器仍是供应链风险；
   拥有宿主管理员权限的人仍可绕过 A2L；客户端运行期间 A2L 持续在线，扩大攻击窗口。这些必须在 UI
   与答辩材料中直说，不能把 `user-t1` 包装成 T2。
+
+#### 5.12.1 红队矩阵（服务端失陷方向）
+
+攻击者假设：**A2 控制面已被攻破**，能在已建立的 mTLS 通道里投递任意帧。
+逐条列出"它能做什么 → 谁挡 → 哪个用例守着"：
+
+| # | 攻击动作 | 防线 | 验证 |
+|---|---|---|---|
+| R1 | 投递 id 不匹配的 response，覆盖在途请求的结果 | 客户端 future 按**帧 id** 匹配，未知 id 丢弃 | [`test_host_broker_redteam.py::test_forged_response_cannot_hijack_an_in_flight_request`](../tests/unit/test_host_broker_redteam.py) |
+| R2 | 掐断链路，让 A2L 以为命令还在跑 | 断线即 `_fail_pending`，界面立刻失败 | [`::test_client_fails_closed_when_link_drops`](../tests/unit/test_host_broker_redteam.py) |
+| R3 | 跳过握手直接下发请求 | 未握手本地拒绝，不发往服务端 | [`::test_handshake_is_required_before_any_request`](../tests/unit/test_host_broker_redteam.py) |
+| R4 | 重放 hello nonce | nonce 一次性 + 指纹绑定 | [`test_host_broker_channel.py::test_hello_nonce_replay_is_rejected`](../tests/unit/test_host_broker_channel.py) |
+| R5 | 用自报身份冒充 A2L | mTLS 指纹绑定，身份不符 fail-closed | [`test_host_broker_channel.py::test_identity_mismatch_fails_closed`](../tests/unit/test_host_broker_channel.py)、[`test_host_broker_tls.py`](../tests/unit/test_host_broker_tls.py) |
+| R6 | 主动推 `grant.granted` 当作授权 | 授权只由本地 grant 决定（服务端请求 ≠ 授权），客户端不持有授权缓存 | [`test_host_policy.py::test_zx_wins_over_grant`](../tests/unit/test_host_policy.py)、[`test_host_broker_channel.py::test_grant_request_uses_local_consent`](../tests/unit/test_host_broker_channel.py) |
+| R7 | 让 grant 越过 workspace / scope | scope × verbs × TTL，且 ZX 优先于 grant | [`test_host_policy.py::test_scope_and_verb_are_enforced`](../tests/unit/test_host_policy.py) |
+| R8 | 重放已执行的非幂等 op | `op_journal` + one-shot + `OP_UNCERTAIN` | [`test_host_broker_channel.py::test_non_idempotent_op_is_never_replayed`](../tests/unit/test_host_broker_channel.py) |
+| R9 | 用超大帧打爆客户端 | 编解码两侧 1 MiB 上限 | [`test_host_broker_protocol.py`](../tests/unit/test_host_broker_protocol.py) |
+| R10 | 篡改/过期策略文件放宽权限 | 策略验签 + 过期 + a2l 绑定 | [`test_host_policy_doc.py`](../tests/unit/test_host_policy_doc.py) |
+
+**缺口（红队矩阵里没有用例的部分）**：
+
+- **G1 设备吊销后断开在途连接** —— 实现存在（`acceptor._watch_devices` →
+  `_drop_client`），但**没有测试**；它依赖真实 TCP/TLS 与台账热重载时序，
+  要在 Windows 真机补。
+- **G2 PCR quote / 远程启动证明** —— 需 TPM 2.0 与证明服务，未实现。
+- **G3 CSR / 自动签发** —— 未实现，当前证书手工放置。
+- **G4 控制面 MySQL 设备表** —— 未实现，设备台账是本地 JSON。
+- **G5 服务端诱导用户点同意** —— 技术不可消除（人在环），只能靠 UI 与最小权限。
+
+结论口径：R1–R10 有本机可跑的用例；G1 有实现待验证；G2–G4 是未实现的能力；
+G5 是设计上的残余风险。**不要**因为有了这张表就宣称"T4 已闭环"。
 
 ### 5.13 前后端分离、浏览器凭证与桌面桥（设计冻结）
 

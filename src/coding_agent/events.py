@@ -394,6 +394,8 @@ class ApprovalRequested(Event):
     tool: str = ""
     command: str = ""
     level: str = ""
+    # 数值等级（0–3）；四眼审批用它判断阈值，旧前端可忽略。
+    level_int: int = 0
     reason: str = ""
 
 

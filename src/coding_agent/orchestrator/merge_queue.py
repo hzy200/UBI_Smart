@@ -11,13 +11,17 @@ from collections.abc import Callable
 from typing import Any
 
 from coding_agent.orchestrator.merge import merge_implement_patches_atomic
+from coding_agent.orchestrator.merge_journal import MergeJournal
 
 Finalize = Callable[[dict[str, Any]], None]
 
 
 class MergeQueue:
-    def __init__(self) -> None:
+    def __init__(self, journal: MergeJournal | None = None) -> None:
         self._pending: list[dict[str, Any]] = []
+        # 落盘影子：合并开始前登记、收尾后清空。崩溃时它就是"合到哪了"的
+        # 唯一证据（内存里的 results/status 一起没了）。
+        self._journal = journal
 
     @property
     def pending(self) -> list[dict[str, Any]]:
@@ -37,6 +41,9 @@ class MergeQueue:
             record["merged"] = False
             record["merge_error"] = reason
             finalize(record)
+        # 这里**不**动登记：`open_batch` 只在 flush 前写，丢弃路径根本没登记过；
+        # 而登记里若留着上次崩溃的残留，那正是下次启动要报出来的证据，清掉它
+        # 等于抹掉现场。
         self._pending.clear()
 
     def has_active_implement(
@@ -76,12 +83,23 @@ class MergeQueue:
                 finalize(record)
             return False
 
-        outcomes = await merge_implement_patches_atomic(
-            sandbox,
-            root,
-            batch,
-            allow_overlap=allow_overlap,
-        )
+        # 登记必须在 apply 之前：崩溃发生在合并中途时，主工作区里可能已经
+        # 有半个补丁，而没有登记就无从知道要回滚什么。
+        if self._journal is not None:
+            self._journal.open_batch(batch)
+        try:
+            outcomes = await merge_implement_patches_atomic(
+                sandbox,
+                root,
+                batch,
+                allow_overlap=allow_overlap,
+            )
+        finally:
+            # 走到这里说明合并已收尾（成功/失败都算），无论有没有崩。
+            # 崩溃发生在 apply 之间的话登记就留着，下次启动会报出来。
+            if self._journal is not None:
+                self._journal.close()
+
         merged_any = False
         for record in batch:
             task_id = str(record.get("task_id", ""))

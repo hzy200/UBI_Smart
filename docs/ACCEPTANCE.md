@@ -40,6 +40,13 @@ note: |
 | diff 生成 | `diffing.py`；CLI/TUI 着色渲染 | `agent diff` |
 | 命令分级审批 | `sandbox/policy.py` + `graph/nodes/approve.py` + `interrupt()` | 场景 2 演示 |
 | 审计日志 | `audit/`；由 runtime 写，任何前端绕不过 | `agent audit` |
+| 企业身份（OIDC/TOTP） | `control/oidc.py`、`control/mfa.py`、`web/routes/auth.py` | `test_oidc.py`、`test_mfa.py` |
+| 四眼审批 | `control/approvals.py`、`web/routes/admin.py`、admin 审批页 | `test_approvals.py`、`test_admin_api.py` |
+| RBAC（approver/auditor） | `control/accounts.py`、`web/dependencies.py`、`AuditorReadOnlyMiddleware` | `test_admin_api.py` |
+| 工作区只读 ACL | `control/workspaces.py`、`web/routes/admin.py`、迁移 `0013` | `test_workspace_acl.py`、`test_control_migrations.py` |
+| SIGTERM 优雅 drain | `agent_server.py`、`control_server.py`、`AGENT_DRAIN_TIMEOUT_S` | `test_agent_server_drain.py` |
+| 可观测性 | `observability.py`、A2/A3 `/metrics`、`docs/OBSERVABILITY.md` | `test_observability.py` |
+| 备份调度 | `packaging/systemd/coding-agent-backup.*`、`CodingAgentControl --backup` | `test_control_migrations.py`、`pytest -m mysql` |
 | checkpoint 回滚 | checkpoint 负责**会话状态**恢复；快照负责**文件内容**回滚 | `test_checkpointer.py` + `agent undo` |
 | 会话分叉/回退 | `AgentRuntime.fork/rewind`；历史不删除，回退即新建分支 | `agent fork` / `agent rewind`；`test_runtime_checkpoints.py` |
 | 上下文治理 | 字符 + 估算 token 双预算、400 降档重试、确定性摘要、`ContextTrimmed` 指标 | `tests/eval/context_memory_bench.py` |
@@ -129,12 +136,12 @@ python scripts/demo.py --list
 python scripts/demo.py --only 1
 ```
 
-当前状态（2026-10-24，P3 覆盖率闭环；WSL 全量未在本轮重跑）：
+当前状态（2026-10-29；WSL 全量未在本轮重跑）：
 
 | 项 | 结果 |
 |---|---|
-| 快反馈 | `pytest -m "not wsl and not llm"` 选中 **2,045**（2,043 通过 / 2 skip）；MySQL 集成用例在无 `AGENT_TEST_MYSQL_URL` 时 skip |
-| 覆盖率 | **82.68%**（CI 子集，门槛 76）；P3 模块目标见 [COVERAGE.md](COVERAGE.md) |
+| 快反馈 | `pytest -m "not wsl and not wsl_env and not llm"` 选中 **3,002**（1 skip，其余通过）；MySQL 集成用例在无 `AGENT_TEST_MYSQL_URL` 时 skip |
+| 覆盖率 | **83.34%**（CI 子集，门槛 76）；P3 模块目标见 [COVERAGE.md](COVERAGE.md) |
 | lint | 干净（`ruff check src tests`） |
 | 全量含 WSL | 本轮未重跑；旧 1561 passed / 87.5% 不再作为当前结论 |
 | 能力评测 | 常规短任务套件已饱和：`default` 29/29 ×2、`hard` 14/14 ×2、`real` 5/5 ×2、`real_advanced` 14/14 ×2、`blind` 5/5 ×3、LangSmith 158/158（均为历史实测，未在本轮重跑）。唯一未饱和档是 `long`：历史 2/5（当时 5 个任务，现 6 个，spread 20pp）。详见 [tests/eval/README](../tests/eval/README.md) |
@@ -146,7 +153,7 @@ python scripts/demo.py --only 1
 | 上下文画像 | 已接入 baseline/LangSmith：repo_map、worker 摘要、裁剪报告；采样见 [CONTEXT_PROFILE.md](CONTEXT_PROFILE.md) |
 | P2 运维 | 审计修复工具与 token 软护栏已落地；上下文/worker 组合 A/B 已完成但**未采纳**（token −6%，spec 通过率 2/2→0/2）；本机控制面已切换到 `coding_agent_app`（仅 DML）；root 密码待人工轮换 |
 | System E2E（本地） | **通过（2026-10-25）**：导入/更新/回滚/归档恢复/上传/HMAC/真实审批/快照；`make system-e2e`，不进 CI |
-| CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型检查/单测（`npm ci` + `npm test`）→ `pytest -m "not wsl and not llm"` → `pytest -m execution` → Phase D/F 演练 |
+| CI | `.github/workflows/ci.yml`：`pip install -e ".[dev,ui,web,db]"` → ruff → 前端构建/类型检查/单测（`npm ci` + `npm test`）→ `pytest -m "not wsl and not wsl_env and not llm"` → `pytest -m execution` → Phase D/F 演练 |
 
 > **口径提醒**：单次运行的通过率**说明不了任何事**。同一份代码曾跑出 52% 与 83%
 > （`spread` 31 个百分点、11/29 任务翻转）—— 上一版把这读作「已落进 30–70% 区间、
@@ -161,12 +168,13 @@ python scripts/demo.py --only 1
 > **口径提醒**：全量一律写 `pytest -m "not llm"`。裸 `pytest` 会把那 3 条 `llm` 用例一起跑、
 > 真的调用模型 —— 本机 `.env` 配了 key 就计费，而它们本意是"需要时手动跑"。
 >
-> **CI 与本地不是一回事**：CI 是 Linux runner、没有 WSL2，只跑快反馈那 2,045 个用例
-> （其中 2 个用例 skip），覆盖率 82.68%。沙箱层与能力层的覆盖仍依赖
+> **CI 与本地不是一回事**：Linux `backend` job 没有 WSL2，只跑快反馈那 3,002 个用例
+> （其中 1 个用例 skip），覆盖率 83.34%；`windows` job 覆盖 Windows 专属路径，
+> `mysql` job 覆盖真实 MySQL 契约。沙箱层与能力层的覆盖仍依赖
 > `-m wsl`，本轮未重跑；CI 会以 `::warning::` 显式提示这个缺口。
 > 缺陷与待办集中在 [tech-debt.yaml](tech-debt.yaml)。
 >
-> 上面每个数字都来自 2026-10-24 的实测；改动后请重跑核对，别手抄。
+> 上面每个数字都来自 2026-10-29 的实测；改动后请重跑核对，别手抄。
 
 ## 4. 已知限制
 

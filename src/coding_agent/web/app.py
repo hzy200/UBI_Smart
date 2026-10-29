@@ -33,7 +33,12 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from coding_agent.access import ACCESS_READ_ONLY, normalize_access_mode
+from coding_agent.access import (
+    ACCESS_READ_ONLY,
+    ACCESS_WRITE_AUTO,
+    clamp_access_mode,
+    normalize_access_mode,
+)
 from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import Settings, apply_security_profile, get_settings
 from coding_agent.events import (
@@ -48,6 +53,7 @@ from coding_agent.sse_stream import (
     with_heartbeat,
 )
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
+from coding_agent.tracing import TracingMiddleware
 from coding_agent.web.auth import AuthConfig, AuthUser
 from coding_agent.web.cors import StrictCORSMiddleware, parse_allowed_origins
 from coding_agent.web.errors import (
@@ -58,9 +64,12 @@ from coding_agent.web.errors import (
 from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
 from coding_agent.web.middleware import (
     ApiVersionRewriteMiddleware,
+    AuditorReadOnlyMiddleware,
     BodySizeLimitMiddleware,
     FixedWindowRateLimiter,
     FrontendVersionMiddleware,
+    HttpMetricsMiddleware,
+    RedisFixedWindowRateLimiter,
     RequestIdMiddleware,
     SecurityHeadersMiddleware,
 )
@@ -226,6 +235,81 @@ def _event_is_terminal(payload: str) -> bool:
     return kind == "steering_applied" and data.get("action") == "pause"
 
 
+@dataclass(frozen=True)
+class _IdentityStores:
+    oidc_client: Any = None
+    oidc_states: Any = None
+    mfa_store: Any = None
+    mfa_challenges: Any = None
+    approval_store: Any = None
+
+
+def _build_identity_stores(
+    settings: Settings,
+    control_store: Any,
+    account_store: Any,
+    session_store: Any,
+) -> _IdentityStores:
+    """构造 RFC-0004 的身份/审批后端；前置条件不满足时显式失败。"""
+    oidc_client = None
+    oidc_states = None
+    mfa_store = None
+    mfa_challenges = None
+    approval_store = None
+    if settings.oidc_enabled:
+        if (
+            control_store is None
+            or account_store is None
+            or session_store is None
+        ):
+            raise RuntimeError(
+                "AGENT_OIDC_ENABLED=true 需要企业账号与控制面数据库"
+            )
+        from coding_agent.control.oidc import (
+            OidcClient,
+            OidcSettings,
+            OidcStateStore,
+        )
+
+        try:
+            oidc_client = OidcClient(OidcSettings.from_settings(settings))
+        except Exception as exc:  # noqa: BLE001 - 配置错误要显式失败
+            raise RuntimeError(f"OIDC 配置无效：{exc}") from exc
+        oidc_states = OidcStateStore(control_store.engine)
+    if settings.mfa_enabled:
+        if control_store is None or account_store is None:
+            raise RuntimeError(
+                "AGENT_MFA_ENABLED=true 需要企业账号与控制面数据库"
+            )
+        from coding_agent.control.mfa import (
+            MfaChallengeStore,
+            MfaStore,
+        )
+
+        try:
+            mfa_store = MfaStore.from_settings(
+                control_store.engine, settings
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"MFA 配置无效：{exc}") from exc
+        mfa_challenges = MfaChallengeStore(control_store.engine)
+    if settings.approval_four_eyes:
+        if control_store is None or account_store is None:
+            raise RuntimeError(
+                "AGENT_APPROVAL_FOUR_EYES=true 需要企业账号与控制面数据库"
+            )
+        from coding_agent.control.approvals import ApprovalStore
+
+        approval_store = ApprovalStore(control_store.engine)
+    return _IdentityStores(
+        oidc_client=oidc_client,
+        oidc_states=oidc_states,
+        mfa_store=mfa_store,
+        mfa_challenges=mfa_challenges,
+        approval_store=approval_store,
+    )
+
+
 def create_app(
     settings: Settings | None = None,
     auth: AuthConfig | None = None,
@@ -257,7 +341,13 @@ def create_app(
         settings, desktop_mode
     )
     auth = auth or AuthConfig.from_settings(settings)
-    app = FastAPI(title="CodingAgent", docs_url=None, redoc_url=None)
+    openapi_enabled = bool(getattr(settings, "web_openapi", False))
+    app = FastAPI(
+        title="CodingAgent",
+        docs_url="/docs" if openapi_enabled else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if openapi_enabled else None,
+    )
 
     def _request_id(request: Request) -> str:
         return str(getattr(request.state, "request_id", "") or "")
@@ -390,6 +480,7 @@ def create_app(
     account_store = None
     session_store = None
     auth_events = None
+    password_resets = None
     credential_store = None
     if control_store is not None and settings.web_accounts_enabled:
         from coding_agent.control.credentials import CredentialStore
@@ -400,6 +491,7 @@ def create_app(
     if control_store is not None and settings.web_accounts_enabled:
         from coding_agent.control.accounts import (
             AuthEventStore,
+            PasswordResetStore,
             SessionStore,
             UserStore,
         )
@@ -408,10 +500,16 @@ def create_app(
             control_store.engine, tenant=settings.web_account_tenant
         )
         session_store = SessionStore(
-            control_store.engine, ttl_s=settings.web_session_ttl_s
+            control_store.engine,
+            ttl_s=settings.web_session_ttl_s,
+            idle_ttl_s=settings.web_session_idle_ttl_s,
         )
         auth_events = AuthEventStore(
             control_store.engine, tenant=settings.web_account_tenant
+        )
+        password_resets = PasswordResetStore(
+            control_store.engine,
+            ttl_s=settings.web_password_reset_ttl_s,
         )
         auth.bind_accounts(account_store, session_store)
         if settings.control_db_auto_create:
@@ -426,6 +524,40 @@ def create_app(
         )
     app.state.account_store = account_store
     app.state.session_store = session_store
+
+    # RFC-0004：OIDC / MFA / 四眼审批。默认关闭；开启时前置条件不满足
+    # 直接失败，避免“配置了却静默不生效”。
+    identity = _build_identity_stores(
+        settings, control_store, account_store, session_store
+    )
+    oidc_client = identity.oidc_client
+    oidc_states = identity.oidc_states
+    mfa_store = identity.mfa_store
+    mfa_challenges = identity.mfa_challenges
+    approval_store = identity.approval_store
+    app.state.oidc_client = oidc_client
+    app.state.mfa_store = mfa_store
+    app.state.approval_store = approval_store
+
+    def _record_approval(
+        user: AuthUser,
+        _tenant: Any,
+        public_thread: str,
+        event: dict[str, Any],
+    ) -> None:
+        if approval_store is None:
+            return
+        approval_store.record_pending(
+            tenant=user.tenant,
+            thread_id=public_thread,
+            call_id=str(event.get("request_id") or ""),
+            tool=str(event.get("tool") or ""),
+            command=str(event.get("command") or ""),
+            level=str(event.get("level") or ""),
+            level_int=int(event.get("level_int") or 0),
+            requested_by=user.name,
+            ttl_s=int(settings.approval_ttl_s or 3600),
+        )
 
     # M4：运行租约与幂等键只在控制面数据库可用时装配。
     run_leases = None
@@ -536,7 +668,35 @@ def create_app(
     sessions_loaded: set[str] = set()
     registry_lock = threading.Lock()
     session_file_lock = threading.Lock()
-    limiter = FixedWindowRateLimiter(per_minute=settings.web_rate_limit_per_min)
+    def _make_limiter(per_minute: int, prefix: str):
+        if str(settings.rate_limit_backend or "memory").lower() != "redis":
+            return FixedWindowRateLimiter(per_minute=per_minute)
+        url = str(
+            settings.rate_limit_redis_url
+            or settings.event_transport_url
+            or ""
+        ).strip()
+        if not url:
+            raise ValueError(
+                "AGENT_RATE_LIMIT_BACKEND=redis 需要 "
+                "AGENT_RATE_LIMIT_REDIS_URL（或 AGENT_EVENT_TRANSPORT_URL）"
+            )
+        import redis
+
+        client = redis.Redis.from_url(url, decode_responses=True)
+        try:
+            client.ping()
+        except Exception as exc:  # noqa: BLE001 - 启动即失败比限流失效好
+            raise RuntimeError(
+                f"Redis 限流后端不可用：{type(exc).__name__}: {exc}"
+            ) from exc
+        return RedisFixedWindowRateLimiter(
+            client, per_minute=per_minute, prefix=prefix
+        )
+
+    limiter = _make_limiter(
+        settings.web_rate_limit_per_min, "coding-agent:rate"
+    )
     catalog = SessionCatalog(
         tenants=tenants,
         tenant=lambda user: _tenant(user),
@@ -576,8 +736,8 @@ def create_app(
             headers={"Retry-After": str(retry)},
         )
 
-    login_limiter = FixedWindowRateLimiter(
-        per_minute=settings.web_login_rate_limit_per_min
+    login_limiter = _make_limiter(
+        settings.web_login_rate_limit_per_min, "coding-agent:login-rate"
     )
 
     def _login_rate_limit(ip: str) -> None:
@@ -604,6 +764,41 @@ def create_app(
                 if stream_entry.done and now - stream_entry.updated > stream_ttl:
                     streams.pop(key, None)
         await runtimes.sweep(now=now)
+
+    def _access_limit(user: AuthUser) -> str:
+        if account_store is None:
+            return ACCESS_WRITE_AUTO
+        row = (
+            account_store.get(user.user_id)
+            if user.user_id
+            else account_store.get_by_username(user.name)
+        )
+        return str(
+            (row or {}).get("max_access_mode") or ACCESS_WRITE_AUTO
+        )
+
+    def _config_for(
+        user: AuthUser,
+        tenant: WebTenant,
+        public_thread: str,
+        *,
+        create: bool = True,
+    ) -> SessionConfig | None:
+        config = catalog.config_for(
+            user, tenant, public_thread, create=create
+        )
+        if config is None:
+            return None
+        limit = _access_limit(user)
+        # 空串是旧语义（由 allow_write + approval_mode 决定），不要改写；
+        # 上限为 write_auto 时也没有需要钳制的东西。
+        if not config.access_mode or limit == ACCESS_WRITE_AUTO:
+            return config
+        mode = clamp_access_mode(config.access_mode, limit)
+        if mode != config.access_mode:
+            # 只钳制本次读取；管理员提高上限后，原会话仍可恢复自己的模式。
+            config = replace(config, access_mode=mode)
+        return config
 
     def _effective_access(config: SessionConfig | None) -> str | None:
         return runtimes.effective_access(config)
@@ -864,7 +1059,7 @@ def create_app(
         tenant = _tenant(user)
         # 进程重启后首次恢复可能触发控制面读取；不要在事件循环线程里做 DB I/O。
         config = await asyncio.to_thread(
-            catalog.config_for, user, tenant, public_thread
+            _config_for, user, tenant, public_thread
         )
         runtime = _new_runtime(tenant, config)
         with registry_lock:
@@ -952,6 +1147,14 @@ def create_app(
             ],
             max_age=600,
         )
+    from coding_agent.observability import configure_tracing
+
+    otel_tracer = configure_tracing(settings)
+    if otel_tracer is not None:
+        app.add_middleware(TracingMiddleware, tracer=otel_tracer)
+    # 放在 HttpMetrics 内层：只读拒绝也要计入指标。
+    app.add_middleware(AuditorReadOnlyMiddleware)
+    app.add_middleware(HttpMetricsMiddleware)
     # 最后添加 = 最外层：保证 CORS/BodySize/Security 提前返回的错误也带 request id。
     app.add_middleware(RequestIdMiddleware)
     app.state.auth = auth
@@ -1105,7 +1308,7 @@ def create_app(
         # create=False 只读内存：会话目录首次 load 已由路由层用 to_thread
         # 完成。不要再在这里触发同步控制面 DB 调用。
         tenant = _tenant(user)
-        config = catalog.config_for(user, tenant, public_thread, create=False)
+        config = _config_for(user, tenant, public_thread, create=False)
         if config is None:
             workspace = catalog.audit_workspace(user, tenant, public_thread)
             if workspace:
@@ -1124,7 +1327,7 @@ def create_app(
             tenant=_tenant,
             tenant_store=providers.tenant_store,
             provider_rows=providers.rows,
-            config_for=catalog.config_for,
+            config_for=_config_for,
             capabilities=_capabilities,
             default_access=default_access,
             desktop_mode=desktop_mode,
@@ -1146,6 +1349,17 @@ def create_app(
             login_rate_limit=_login_rate_limit,
             auth_events=auth_events,
             currency=currency,
+            oidc_client=oidc_client,
+            oidc_states=oidc_states,
+            oidc_enabled=bool(settings.oidc_enabled),
+            mfa_store=mfa_store,
+            mfa_challenges=mfa_challenges,
+            mfa_enabled=bool(settings.mfa_enabled),
+            mfa_issuer=str(settings.mfa_issuer or "CodingAgent"),
+            mfa_window_steps=int(settings.mfa_window_steps or 1),
+            mfa_max_attempts=int(settings.mfa_max_attempts or 5),
+            mfa_challenge_ttl_s=int(settings.mfa_challenge_ttl_s or 300),
+            password_resets=password_resets,
         ),
     )
 
@@ -1160,6 +1374,9 @@ def create_app(
             user_store=providers.user_store,
             auth_events=auth_events,
             currency=currency,
+            approvals=approval_store,
+            mfa=mfa_store,
+            workspace_store=workspace_store,
         ),
     )
 
@@ -1273,7 +1490,7 @@ def create_app(
             tenant=_tenant,
             sweep_expired=_sweep_expired,
             load_configs=catalog.load,
-            config_for=catalog.config_for,
+            config_for=_config_for,
             set_config=catalog.set_config,
             persist_configs=catalog.persist,
             effective_access=_effective_access,
@@ -1300,6 +1517,7 @@ def create_app(
             session_configs=session_configs,
             deleted_sessions=deleted_sessions,
             runtimes=runtimes,
+            access_limit=_access_limit,
         ),
     )
 
@@ -1312,7 +1530,7 @@ def create_app(
                 name, ws
             ),
             reject_deleted=catalog.reject_deleted,
-            config_for=catalog.config_for,
+            config_for=_config_for,
             agent_json=gateway.json,
             agent_failure=gateway.failure,
             agent_client=agent_client,
@@ -1328,7 +1546,7 @@ def create_app(
             settings=settings,
             tenant=_tenant,
             rate_limit=_rate_limit,
-            config_for=catalog.config_for,
+            config_for=_config_for,
             set_config=catalog.set_config,
             reject_active=_reject_if_active,
             reject_deleted=catalog.reject_deleted,
@@ -1347,7 +1565,7 @@ def create_app(
             tenant=_tenant,
             sweep_expired=_sweep_expired,
             load_configs=catalog.load,
-            config_for=catalog.config_for,
+            config_for=_config_for,
             deleted_sessions=deleted_sessions,
             agent_client=agent_client,
             agent_json=gateway.json,
@@ -1386,7 +1604,7 @@ def create_app(
             rate_limit=_rate_limit,
             sweep_expired=_sweep_expired,
             tenant=_tenant,
-            config_for=catalog.config_for,
+            config_for=_config_for,
             set_config=catalog.set_config,
             reject_deleted=catalog.reject_deleted,
             agent_client=agent_client,
@@ -1413,6 +1631,15 @@ def create_app(
             usd_to_cny=float(settings.usd_to_cny or 1),
             quota_owner=app_instance_id,
             quota_ttl_s=int(settings.quota_reservation_ttl_s or 3600),
+            approvals=approval_store,
+            four_eyes_min_level=(
+                int(settings.approval_four_eyes_min_level or 0)
+                if settings.approval_four_eyes
+                else 0
+            ),
+            record_approval=(
+                _record_approval if approval_store is not None else None
+            ),
         ),
     )
 

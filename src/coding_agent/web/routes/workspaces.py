@@ -161,6 +161,20 @@ def _owned(
     return row
 
 
+def _readable(
+    deps: WorkspaceRegistryDeps, user: AuthUser, workspace_id: str
+) -> dict[str, Any]:
+    """只读可见：所有者、本租户管理员/审计，或持有 read 授权的成员。"""
+    store = _require_store(deps)
+    row = store.get_visible(
+        user.tenant, user.name, user.role, workspace_id
+    )
+    if row is None:
+        # 与 _owned 一样不区分“不存在”和“无权”，避免枚举。
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    return row
+
+
 def _import_roots(settings: Settings) -> tuple[str, ...]:
     found: list[str] = []
     for item in str(settings.workspace_mount_roots or "").split(","):
@@ -293,12 +307,14 @@ def register_workspace_registry_routes(
     ) -> dict:
         deps.rate_limit(user)
         store = _require_store(deps)
-        rows = store.list(
+        rows = store.list_visible(
+            user.tenant,
             user.name,
-            owner=user.name,
+            user.role,
             include_deleted=include_deleted,
         )
-        if not include_deleted:
+        if not include_deleted and user.role != "auditor":
+            # 审计只读：GET 不应该替它补建默认工作区（隐式写）。
             default_row = _ensure_default_host_workspace(deps, user, rows)
             if default_row is not None:
                 rows.insert(0, default_row)
@@ -418,7 +434,7 @@ def register_workspace_registry_routes(
     @app.get("/api/workspaces/{workspace_id}")
     async def get_workspace(workspace_id: str, user: UserDep) -> dict:
         deps.rate_limit(user)
-        return _owned(deps, user, workspace_id)
+        return _readable(deps, user, workspace_id)
 
     @app.patch("/api/workspaces/{workspace_id}")
     async def update_workspace(
@@ -793,7 +809,7 @@ def register_workspace_registry_routes(
     ) -> dict:
         deps.rate_limit(user)
         store = _require_store(deps)
-        _owned(deps, user, workspace_id)
+        _readable(deps, user, workspace_id)
         return {
             "revisions": store.list_revisions(
                 workspace_id, limit=max(1, min(int(limit), 200))

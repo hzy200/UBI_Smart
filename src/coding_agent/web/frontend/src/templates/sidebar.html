@@ -95,14 +95,14 @@
             <button class="secondary" x-show="desktopAvailable" @click="pickWorkspace" x-text="i18n.sidebar.choose"></button>
           </div>
         </div>
-        <label x-text="i18n.sidebar.access"></label>
-        <select x-model="accessMode" :disabled="accessDisabled">
+        <label for="access-mode" x-text="i18n.sidebar.access"></label>
+        <select id="access-mode" x-model="accessMode" :disabled="accessDisabled">
           <option value="read_only" x-text="i18n.sidebar.readOnly"></option>
           <option value="write_ask" x-show="capabilities.server_write_enabled" x-text="i18n.sidebar.writeAsk"></option>
           <option value="write_auto" x-show="capabilities.server_write_enabled" x-text="i18n.sidebar.writeAuto"></option>
         </select>
-        <label x-text="i18n.sidebar.model"></label>
-        <select x-model="model" @change="syncModel">
+        <label for="model-select" x-text="i18n.sidebar.model"></label>
+        <select id="model-select" x-model="model" @change="syncModel">
           <option value="" x-text="i18n.sidebar.defaultModel"></option>
           <template x-for="p in providers" :key="p._key">
             <option :value="p.model" x-text="p._label"></option>

@@ -16,7 +16,6 @@ import importlib.metadata as metadata
 import ipaddress
 import json
 import os
-import shlex
 import sys
 import uuid
 from collections.abc import Callable
@@ -39,7 +38,11 @@ from coding_agent.audit import (
 )
 from coding_agent.audit.logger import now_iso
 from coding_agent.cli.admin import register_admin_commands
-from coding_agent.cli.platform import SandboxProbe, resolve_workspace
+from coding_agent.cli.platform import (
+    SandboxProbe,
+    SandboxProbeError,
+    resolve_workspace,
+)
 from coding_agent.cli.renderer import CliRenderer
 from coding_agent.config import (
     PRODUCTION_PROFILES,
@@ -56,6 +59,7 @@ from coding_agent.memory.sessions import SessionIndex, format_table_rows
 from coding_agent.messages import text_of
 from coding_agent.runtime import AgentRuntime, submit_steering_command
 from coding_agent.steering import SteeringCommand
+from coding_agent.terminal_text import sanitize_terminal_text
 from coding_agent.workspace_lock import WorkspaceLock
 
 
@@ -121,7 +125,13 @@ _DISTRIBUTIONS = (
 
 def _emit(text: str) -> None:
     # markup=False 很关键：模型输出里的 [..] 会被 rich 当成标记吞掉
-    console.print(text, end="", markup=False, highlight=False, soft_wrap=True)
+    console.print(
+        sanitize_terminal_text(text),
+        end="",
+        markup=False,
+        highlight=False,
+        soft_wrap=True,
+    )
 
 
 def _render_plan(steps: list[str], step_idx: int) -> None:
@@ -381,17 +391,27 @@ def doctor() -> None:
             )
         )
 
-        probe = sandbox.run(
-            "echo agent-sandbox-ok && uname -r", cwd=workspace
-        )
-        results.append(_report("沙箱执行探针", probe.ok, probe.stdout.strip().replace("\n", " | ")))
-
-        user = sandbox.run("whoami", cwd=workspace).stdout.strip()
+        try:
+            ident = sandbox.identity()
+            results.append(
+                _report(
+                    "沙箱执行探针",
+                    True,
+                    f"{ident.user or '未知用户'} @ {ident.kernel or '未知内核'}",
+                )
+            )
+        except SandboxProbeError as exc:
+            ident = None
+            results.append(_report("沙箱执行探针", False, str(exc)))
+        user = ident.user if ident is not None else ""
         results.append(
             _report("沙箱运行用户", user not in {"", "root"}, f"{user or '未知'}（不应为 root）")
         )
 
-        backend = sandbox.run("command -v rg", cwd=workspace).ok
+        try:
+            backend = bool(sandbox.which("rg"))
+        except SandboxProbeError:
+            backend = False
         results.append(
             _report(
                 "检索后端",
@@ -400,11 +420,7 @@ def doctor() -> None:
             )
         )
 
-        exists = sandbox.run(
-            f"test -d {shlex.quote(workspace)} && echo yes",
-            cwd=workspace,
-        )
-        found = "yes" in exists.stdout
+        found = sandbox.dir_exists(workspace)
         results.append(
             _report(
                 f"工作区 {workspace}",
@@ -443,19 +459,22 @@ def sandbox_init() -> None:
         console.print(f"[red]WSL 发行版 {settings.wsl_distro} 不可用[/]")
         raise typer.Exit(code=1)
 
-    user = sandbox.run("whoami").stdout.strip()
+    try:
+        user = sandbox.identity().user
+    except SandboxProbeError as exc:
+        console.print(f"[red]无法探活沙箱[/]\n{escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
     if user in {"", "root"}:
         console.print("[red]沙箱当前以 root 运行，隔离形同虚设。请改用普通用户。[/]")
         raise typer.Exit(code=1)
 
     workspace = resolve_workspace(settings, sandbox)
-    quoted = shlex.quote(workspace)
-    result = sandbox.run(f"mkdir -p {quoted} && realpath {quoted}")
-    if not result.ok:
-        console.print(f"[red]创建工作区失败[/]\n{escape(result.render(2000))}")
-        raise typer.Exit(code=1)
+    try:
+        resolved = sandbox.ensure_dir(workspace)
+    except SandboxProbeError as exc:
+        console.print(f"[red]创建工作区失败[/]\n{escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
 
-    resolved = result.stdout.strip().splitlines()[-1]
     console.print(f"[green]工作区就绪[/] {escape(resolved)}（用户 {escape(user)}）")
     if not settings.wsl_workspace:
         console.print("[dim]当前按 $HOME 自动推导。如需固定，请写入 .env：[/]")

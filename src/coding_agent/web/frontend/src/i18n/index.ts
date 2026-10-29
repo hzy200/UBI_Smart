@@ -14,6 +14,20 @@ export function normalizeLocale(value: unknown): Locale {
   return String(value || '') === 'en-US' ? 'en-US' : DEFAULT_LOCALE;
 }
 
+export function detectLocale(): Locale {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem('codingagent.settings') || '{}',
+    );
+    if (saved && saved.locale) return normalizeLocale(saved.locale);
+  } catch (err) { /* ignore */ }
+  try {
+    return normalizeLocale(navigator.language);
+  } catch (err) {
+    return DEFAULT_LOCALE;
+  }
+}
+
 export function lookup(messages: Messages, key: string): string {
   let node: any = messages;
   for (const part of String(key || '').split('.')) {

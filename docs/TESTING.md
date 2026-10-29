@@ -19,9 +19,9 @@ review_cadence: 测试分层、标记或 CI 口径变动时
 | 类型 | 回答的问题 | 入口 | 外部依赖 | 典型耗时 |
 |---|---|---|---|---|
 | 冒烟 | 主链路还能不能启动 | `pytest -m smoke` | 无 WSL / 无 Key | 秒级 |
-| 单元 | 单个函数/分支是否符合契约 | `pytest tests/unit -m "not wsl and not llm"` | 无 | 十秒级 |
+| 单元 | 单个函数/分支是否符合契约 | `pytest tests/unit -m "not wsl and not wsl_env and not llm"` | 无 | 十秒级 |
 | 增量 | 本次改动可能弄坏哪些既有行为 | `python scripts/select_tests.py --exec` | 无 | 按命中范围 |
-| 集成 | 模块拼起来是否还能工作 | `pytest tests/integration -m "not wsl and not llm"` | 部分需要 WSL | 分钟级 |
+| 集成 | 模块拼起来是否还能工作 | `pytest tests/integration -m "not wsl and not wsl_env and not llm"` | 部分需要 WSL | 分钟级 |
 | 回归 | 承重不变量和历史事故是否被重新破坏 | `pytest -m regression` | 无 | 十秒级 |
 | 智能体 E2E | 智能体本身能否真的把任务做完（direct + 编排） | `pytest -m agent_e2e` | 真实 WSL + API Key | 分钟级 |
 | 全量 | 所有非 LLM 用例 | `pytest -m "not llm"` | 真实 WSL | 数分钟 |
@@ -77,7 +77,7 @@ python scripts/select_tests.py --base HEAD --exec
 ```
 
 选择器保守回退：改动涉及 `pyproject.toml`、测试基础设施、文档或依赖图无法解析时，
-直接回退到快反馈全量（`-m "not wsl and not llm"`）。宁可比必要范围大，也不漏测。
+直接回退到快反馈全量（`-m "not wsl and not wsl_env and not llm"`）。宁可比必要范围大，也不漏测。
 增量结果**不能替代**提交前的 `make check` 与 CI 全量。
 
 ## 4. 回归测试
@@ -195,7 +195,7 @@ conftest 单独放行 `agent_e2e` 的真实沙箱调用。
 CI 与本地使用同一口径：
 
 ```bash
-pytest -m "not wsl and not llm" --cov --cov-report=term-missing
+pytest -m "not wsl and not wsl_env and not llm" --cov --cov-report=term-missing
 ```
 
 门槛与模块缺口见 [覆盖率基线](COVERAGE.md)。覆盖率是**可见性工具**，不是唯一目标：

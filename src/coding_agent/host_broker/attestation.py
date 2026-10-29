@@ -11,14 +11,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import subprocess
-import sys
 import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_LOG = logging.getLogger(__name__)
 
 ATTESTATION_OFF = "off"
 ATTESTATION_AUTO = "auto"
@@ -315,10 +317,7 @@ def build_device_identity(
     except AttestationUnavailable as exc:
         if mode == "tpm":
             raise
-        print(
-            f"TPM 不可用，回退软件设备密钥：{exc}",
-            file=sys.stderr,
-        )
+        _LOG.warning("TPM 不可用，回退软件设备密钥：%s", exc)
     return SoftwareKeyIdentity(key_path)
 
 

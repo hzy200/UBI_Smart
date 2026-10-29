@@ -56,9 +56,11 @@ fi
 
 if [ "$UNINSTALL" -eq 1 ]; then
   systemctl disable --now coding-agent-control.service \
-    coding-agent-agent.service 2>/dev/null || true
+    coding-agent-agent.service coding-agent-backup.timer 2>/dev/null || true
   rm -f /etc/systemd/system/coding-agent-control.service \
-    /etc/systemd/system/coding-agent-agent.service
+    /etc/systemd/system/coding-agent-agent.service \
+    /etc/systemd/system/coding-agent-backup.service \
+    /etc/systemd/system/coding-agent-backup.timer
   systemctl daemon-reload
   rm -rf "$INSTALL_ROOT"
   echo "已移除程序与 systemd 单元。"
@@ -167,8 +169,15 @@ install_units() {
     /etc/systemd/system/coding-agent-agent.service
   install -m 0644 "$ROOT/packaging/systemd/coding-agent-control.service" \
     /etc/systemd/system/coding-agent-control.service
+  install -m 0644 "$ROOT/packaging/systemd/coding-agent-backup.service" \
+    /etc/systemd/system/coding-agent-backup.service
+  install -m 0644 "$ROOT/packaging/systemd/coding-agent-backup.timer" \
+    /etc/systemd/system/coding-agent-backup.timer
   systemctl daemon-reload
   systemctl enable coding-agent-agent.service coding-agent-control.service
+  # 备份 timer 默认启用；未配置 AGENT_CONTROL_DB_URL 时 service 会因
+  # ExecCondition 直接跳过，不会每天失败。
+  systemctl enable --now coding-agent-backup.timer
 }
 
 wait_health() {

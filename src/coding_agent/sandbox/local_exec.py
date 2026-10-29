@@ -66,6 +66,8 @@ class LocalLinuxSandbox:
         self._bind_lock = threading.Lock()
         self._extra_binds: set[str] = set()
         self._stats_lock = threading.Lock()
+        self._active_lock = threading.Lock()
+        self._active_procs: set[subprocess.Popen] = set()
         self._command_count = 0
         self._bwrap_ok: bool | None = None
         self._home = os.path.expanduser("~")
@@ -204,15 +206,21 @@ class LocalLinuxSandbox:
             except OSError as exc:
                 raise LocalExecError(f"无法启动本地 bash：{exc}") from exc
             timed_out = False
+            with self._active_lock:
+                self._active_procs.add(proc)
             try:
-                stdout_b, stderr_b = proc.communicate(
-                    script.encode("utf-8"),
-                    timeout=(wall or 60) + OUTER_TIMEOUT_GRACE,
-                )
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                proc.kill()
-                stdout_b, stderr_b = proc.communicate()
+                try:
+                    stdout_b, stderr_b = proc.communicate(
+                        script.encode("utf-8"),
+                        timeout=(wall or 60) + OUTER_TIMEOUT_GRACE,
+                    )
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    proc.kill()
+                    stdout_b, stderr_b = proc.communicate()
+            finally:
+                with self._active_lock:
+                    self._active_procs.discard(proc)
         duration_ms = int((time.perf_counter() - started) * 1000)
         stdout = _truncate(stdout_b.decode("utf-8", "replace"), limit)
         stderr = _truncate(stderr_b.decode("utf-8", "replace"), limit)
@@ -224,3 +232,17 @@ class LocalLinuxSandbox:
             duration_ms=duration_ms,
             timed_out=timed_out,
         )
+
+    def cancel_active(self) -> int:
+        """终止当前在飞的本机 bash 进程（best-effort）。"""
+        killed = 0
+        with self._active_lock:
+            procs = list(self._active_procs)
+            self._active_procs.clear()
+        for proc in procs:
+            try:
+                proc.kill()
+                killed += 1
+            except OSError:
+                continue
+        return killed

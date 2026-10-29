@@ -1,0 +1,67 @@
+# CodingAgent A2/A3 告警基线（Prometheus rule file）。
+#
+# 抓取：
+#   - A2: GET /metrics（Bearer $AGENT_METRICS_TOKEN；未配置时用普通 Web 认证）
+#   - A3: GET /metrics（Bearer $AGENT_INTERNAL_TOKEN，仅 loopback/内网）
+# 指标名与标签定义见 src/coding_agent/observability.py；不要在这里加高基数标签。
+
+groups:
+  - name: coding-agent
+    rules:
+      - alert: CodingAgentAuditWriteFailures
+        expr: increase(agent_audit_write_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "审计写入失败（承重不变量）"
+          description: "审计是哈希链与计费的事实源；任何写入失败都必须先止血。"
+
+      - alert: CodingAgentHttp5xx
+        expr: |
+          sum(rate(agent_http_requests_total{status="5xx"}[5m]))
+          /
+          clamp_min(sum(rate(agent_http_requests_total[5m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A2 5xx 比例超过 5%"
+          description: "检查 A2 日志（request_id）与控制面数据库/ A3 可用性。"
+
+      - alert: CodingAgentApprovalsPending
+        expr: sum(agent_approvals_pending) > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "四眼审批积压超过 10 条"
+          description: "管理员队列可能无人值守；L3 运行会一直挂起。"
+
+      - alert: CodingAgentSilentFailures
+        expr: increase(agent_silent_failures_total[10m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "best-effort 分支静默失败偏高"
+          description: "按 site 标签定位：配额结算、审计回写、租约续期等。"
+
+      - alert: CodingAgentActiveRunsStuck
+        expr: agent_active_runs > 20
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "在飞运行数持续偏高"
+          description: "检查 SSE 连接、worker 槽位与沙箱/LLM 限流；确认没有泄漏的流。"
+
+      - alert: CodingAgentSseConnectionsHigh
+        expr: agent_sse_connections > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSE 连接数超过 100"
+          description: "单进程事件缓冲与连接数有上限；考虑多实例或外部网关。"

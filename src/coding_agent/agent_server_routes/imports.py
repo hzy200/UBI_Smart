@@ -78,6 +78,8 @@ class _Cancelled(Exception):
 
 
 _TERMINAL = {"active", "failed", "cancelled"}
+# 导入/上传是后台任务；没有上限会在异常挂起时永久占着状态。
+_JOB_TIMEOUT_S = 3600.0
 
 
 def _now_iso() -> str:
@@ -348,6 +350,73 @@ def _public(job: dict[str, Any]) -> dict[str, Any]:
         for key, value in job.items()
         if not key.startswith("_") and key not in hidden
     }
+
+
+def _fail_unfinished(deps: ImportDeps, job: dict[str, Any], message: str) -> None:
+    """后台任务异常退出且 runner 没来得及写终态时兜底。
+
+    staging/workdir 故意保留：`_load_jobs` 会在下次启动时按字段清理，
+    提前清空反而会留下没人认领的目录。
+    """
+    with deps.lock:
+        if job.get("status") in _TERMINAL:
+            return
+        job.update(
+            status="failed",
+            progress=None,
+            progress_phase="failed",
+            error=message,
+        )
+        job["updated_at"] = _now_iso()
+        _persist_job(deps, job)
+
+
+def _spawn_job(
+    deps: ImportDeps,
+    job: dict[str, Any],
+    coro: Awaitable[None],
+    *,
+    timeout_s: float = _JOB_TIMEOUT_S,
+) -> asyncio.Task:
+    """启动后台任务，持有强引用并保证超时/异常都有终态。
+
+    `asyncio` 只保留任务的弱引用；不把 task 放回 job 里，任务可能被 GC，
+    前端会永远看到 queued/running。
+    """
+
+    async def _guard() -> None:
+        try:
+            await asyncio.wait_for(coro, timeout=timeout_s)
+        except TimeoutError:
+            # 通知仍在跑的协作式步骤尽快退出；真正落盘清理交给重启时的
+            # `_load_jobs`（staging 在 WSL 内，宿主无法直接删）。
+            job["_cancel"].set()
+            _update(
+                deps,
+                job,
+                status="failed",
+                progress=None,
+                progress_phase="failed",
+                error=f"任务超时（>{int(timeout_s)}s）",
+            )
+            raise
+
+    task = asyncio.create_task(_guard())
+    job["_task"] = task
+
+    def _done(finished: asyncio.Task) -> None:
+        job.pop("_task", None)
+        if finished.cancelled():
+            _fail_unfinished(deps, job, "任务被取消")
+            return
+        exc = finished.exception()
+        if exc is not None:
+            _fail_unfinished(
+                deps, job, f"{type(exc).__name__}: {exc}"
+            )
+
+    task.add_done_callback(_done)
+    return task
 
 
 def _cleanup(deps: ImportDeps, execution: Any, staging: str) -> None:
@@ -927,7 +996,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
             }
             deps.jobs[job_id] = job
             _persist_job(deps, job)
-        asyncio.create_task(_run_import(deps, context, job, body))
+        _spawn_job(deps, job, _run_import(deps, context, job, body))
         return _public(job)
 
     @app.get("/v1/workspaces/import/{job_id}")
@@ -1051,7 +1120,9 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                 detail=f"无法保存上传归档：{type(exc).__name__}: {exc}",
             ) from exc
 
-        asyncio.create_task(
+        _spawn_job(
+            deps,
+            job,
             _run_upload(
                 deps,
                 context,
@@ -1062,7 +1133,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                 quota_bytes=quota_bytes,
                 max_files=max_files,
                 max_bytes=max_bytes,
-            )
+            ),
         )
         return _public(job)
 

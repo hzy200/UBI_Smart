@@ -59,9 +59,14 @@ def test_versions_are_independently_releasable() -> None:
     current = parse_semver(frontend)
     assert minimum is not None and current is not None
     assert current >= minimum
-    # 前端内部版本一致；后端只要求自身与 pyproject 一致。
+    # 前端内部版本一致；后端由 hatch 从 __version__ 动态读取，只有一处。
     assert package["version"] == frontend
-    assert __version__ == pyproject["project"]["version"]
+    assert "version" not in pyproject["project"]
+    assert pyproject["project"]["dynamic"] == ["version"]
+    assert pyproject["tool"]["hatch"]["version"]["path"] == (
+        "src/coding_agent/__init__.py"
+    )
+    assert __version__
     assert isinstance(CAPABILITIES_VERSION, int)
     assert CAPABILITIES_VERSION >= 1
 

@@ -16,18 +16,27 @@ from coding_agent.sandbox.wsl_exec import ExecResult
 
 
 class _Sandbox:
-    def __init__(self, stdout: str = "38 9", *, ok: bool = True, raises: bool = False):
-        self.stdout = stdout
+    """`SandboxFs.count_files` 的假实现：回显根目录，并按组返回计数。"""
+
+    def __init__(self, counts=None, *, ok: bool = True, raises: bool = False):
+        self.counts = {"total": 38, "tests": 9} if counts is None else counts
         self.ok = ok
         self.raises = raises
+        self.commands: list[str] = []
 
     def run(self, command: str, *, cwd: str | None = None) -> ExecResult:
+        self.commands.append(command)
         if self.raises:
             raise AssertionError("sandbox unavailable")
+        stdout = ""
+        if self.ok and command.strip().startswith("realpath -m -- "):
+            stdout = command.strip().split("-- ", 1)[1].strip("'\"") + "\n"
+        elif self.ok:
+            stdout = "".join(f"{key}={value}\n" for key, value in self.counts.items())
         return ExecResult(
             command=command,
             exit_code=0 if self.ok else 1,
-            stdout=self.stdout,
+            stdout=stdout,
             stderr="",
             duration_ms=1,
         )
@@ -40,14 +49,27 @@ def _settings(**overrides) -> Settings:
 
 
 def test_profile_parses_file_and_test_counts() -> None:
-    profile = profile_workspace(_Sandbox("38 12"), "/ws")  # type: ignore[arg-type]
+    profile = profile_workspace(
+        _Sandbox({"total": 38, "tests": 12}), "/ws"  # type: ignore[arg-type]
+    )
     assert profile == RepoProfile(file_count=38, test_file_count=12)
+
+
+def test_profile_uses_one_traversal_call() -> None:
+    """解析根 + 一次统计：不能退化成"每个 glob 一次 wsl.exe"。"""
+    sandbox = _Sandbox({"total": 38, "tests": 12})
+    profile_workspace(sandbox, "/ws")  # type: ignore[arg-type]
+    assert len(sandbox.commands) == 2  # 1 次解析根 + 1 次统计
+    assert "tests" in sandbox.commands[-1]  # 两组计数在同一段脚本里
 
 
 def test_profile_is_unknown_on_probe_failure() -> None:
     assert profile_workspace(_Sandbox(raises=True), "/ws") == RepoProfile()  # type: ignore[arg-type]
     assert profile_workspace(_Sandbox(ok=False), "/ws") == RepoProfile()  # type: ignore[arg-type]
-    assert profile_workspace(_Sandbox("nonsense"), "/ws") == RepoProfile()  # type: ignore[arg-type]
+    assert (
+        profile_workspace(_Sandbox({"total": "nonsense"}), "/ws")  # type: ignore[arg-type]
+        == RepoProfile()
+    )
 
 
 def test_small_repo_disables_delegation() -> None:

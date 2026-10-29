@@ -24,13 +24,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from coding_agent.control.schema import (
     ControlSession,
+    ControlUser,
+    ControlWorkspaceAcl,
     Workspace,
     WorkspaceRevision,
 )
@@ -337,6 +339,30 @@ def _revision_row(revision: WorkspaceRevision) -> dict[str, Any]:
     }
 
 
+def _acl_row(row: ControlWorkspaceAcl) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "tenant": row.tenant,
+        "workspace_id": row.workspace_id,
+        "grantee": row.grantee,
+        "permission": row.permission,
+        "granted_by": row.granted_by,
+        "created_at": row.created_at,
+    }
+
+
+def _acl_view(row: dict[str, Any], acl_role: str) -> dict[str, Any]:
+    """给读取结果补可见角色，并对非所有者/管理员去掉真实路径。"""
+    item = dict(row)
+    item["acl_role"] = acl_role
+    if acl_role not in {"owner", "admin"}:
+        # 被授权者只读元数据：不暴露 root_path/root_handle，避免把
+        # 宿主绝对路径和 A2L handle 扩散给同租户其他成员。
+        item.pop("root_path", None)
+        item.pop("root_handle", None)
+    return item
+
+
 def _legacy_owner(thread_id: str) -> str:
     """多用户内部 thread 形如 `user:thread`；单用户回退到 local。"""
     text = str(thread_id or "")
@@ -481,6 +507,189 @@ class WorkspaceStore:
         )
         with Session(self.engine) as session:
             return [_row(item) for item in session.scalars(statement).all()]
+
+    # ---------- 只读共享（ACL） ----------
+
+    def acl_grant(
+        self,
+        tenant: str,
+        workspace_id: str,
+        grantee: str,
+        *,
+        granted_by: str = "",
+    ) -> dict[str, Any]:
+        """授予只读可见性；重复授予幂等返回原记录。
+
+        `tenant` 是**被授权人的账号租户**（不是工作区的 tenant 键，后者
+        是 owner 用户名）。执行绑定仍只认 workspace.owner。
+        """
+        scope = str(tenant or "")
+        name = _segment(grantee, "grantee")
+        with Session(self.engine) as session, session.begin():
+            workspace = session.get(Workspace, str(workspace_id))
+            if workspace is None:
+                raise WorkspaceNotFound(
+                    f"工作区不存在：{workspace_id}"
+                )
+            existing = session.scalar(
+                select(ControlWorkspaceAcl).where(
+                    ControlWorkspaceAcl.tenant == scope,
+                    ControlWorkspaceAcl.workspace_id
+                    == str(workspace_id),
+                    ControlWorkspaceAcl.grantee == name,
+                )
+            )
+            if existing is not None:
+                return _acl_row(existing)
+            row = ControlWorkspaceAcl(
+                id=_new_id(),
+                tenant=scope,
+                workspace_id=str(workspace_id),
+                grantee=name,
+                permission="read",
+                granted_by=str(granted_by or ""),
+                created_at=_now(),
+            )
+            session.add(row)
+            session.flush()
+            return _acl_row(row)
+
+    def acl_revoke(
+        self, tenant: str, workspace_id: str, grantee: str
+    ) -> bool:
+        with Session(self.engine) as session, session.begin():
+            result = session.execute(
+                delete(ControlWorkspaceAcl).where(
+                    ControlWorkspaceAcl.tenant == str(tenant or ""),
+                    ControlWorkspaceAcl.workspace_id
+                    == str(workspace_id),
+                    ControlWorkspaceAcl.grantee == str(grantee or ""),
+                )
+            )
+            return bool(result.rowcount)
+
+    def acl_list(
+        self, tenant: str, workspace_id: str
+    ) -> list[dict[str, Any]]:
+        statement = (
+            select(ControlWorkspaceAcl)
+            .where(
+                ControlWorkspaceAcl.tenant == str(tenant or ""),
+                ControlWorkspaceAcl.workspace_id == str(workspace_id),
+            )
+            .order_by(ControlWorkspaceAcl.created_at)
+        )
+        with Session(self.engine) as session:
+            return [
+                _acl_row(item)
+                for item in session.scalars(statement).all()
+            ]
+
+    def acl_granted(
+        self, tenant: str, workspace_id: str, grantee: str
+    ) -> bool:
+        with Session(self.engine) as session:
+            return (
+                session.scalar(
+                    select(ControlWorkspaceAcl.id).where(
+                        ControlWorkspaceAcl.tenant == str(tenant or ""),
+                        ControlWorkspaceAcl.workspace_id
+                        == str(workspace_id),
+                        ControlWorkspaceAcl.grantee == str(grantee or ""),
+                        ControlWorkspaceAcl.permission == "read",
+                    )
+                )
+                is not None
+            )
+
+    def _owner_in_tenant(self, owner: str, tenant: str) -> bool:
+        with Session(self.engine) as session:
+            return (
+                session.scalar(
+                    select(ControlUser.id).where(
+                        ControlUser.tenant == str(tenant or ""),
+                        ControlUser.username == str(owner or ""),
+                    )
+                )
+                is not None
+            )
+
+    def list_visible(
+        self,
+        tenant: str,
+        user: str,
+        role: str,
+        *,
+        include_deleted: bool = False,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """按角色返回可见工作区：owner/admin/auditor 看本租户全部，
+        成员只看自己的 + 被只读授权的工作区。
+
+        工作区的 `tenant` 键是 owner 用户名，账号租户在 `control_users`；
+        所以管理员视图用用户名子查询，而不是直接比较 Workspace.tenant。
+        """
+        scope = str(tenant or "default")
+        who = str(user or "")
+        if role in {"owner", "admin", "auditor"}:
+            names = select(ControlUser.username).where(
+                ControlUser.tenant == scope
+            )
+            condition = or_(
+                Workspace.tenant == who,
+                Workspace.owner.in_(names),
+            )
+        else:
+            grants = select(ControlWorkspaceAcl.workspace_id).where(
+                ControlWorkspaceAcl.tenant == scope,
+                ControlWorkspaceAcl.grantee == who,
+                ControlWorkspaceAcl.permission == "read",
+            )
+            condition = or_(
+                Workspace.tenant == who,
+                Workspace.workspace_id.in_(grants),
+            )
+        statement = select(Workspace).where(condition)
+        if not include_deleted:
+            statement = statement.where(Workspace.status != "deleted")
+        statement = statement.order_by(Workspace.updated_at.desc()).limit(
+            max(1, int(limit))
+        )
+        with Session(self.engine) as session:
+            rows = [_row(item) for item in session.scalars(statement).all()]
+        visible: list[dict[str, Any]] = []
+        for item in rows:
+            if item["tenant"] == who or item["owner"] == who:
+                acl_role = "owner"
+            elif role == "admin":
+                acl_role = "admin"
+            elif role == "auditor":
+                acl_role = "auditor"
+            else:
+                acl_role = "read"
+            visible.append(_acl_view(item, acl_role))
+        return visible
+
+    def get_visible(
+        self, tenant: str, user: str, role: str, workspace_id: str
+    ) -> dict[str, Any] | None:
+        """单个工作区的可见视图；不可见与不存在都返回 None。"""
+        row = self.get(workspace_id)
+        if row is None:
+            return None
+        who = str(user or "")
+        scope = str(tenant or "default")
+        if row["tenant"] == who or row["owner"] == who:
+            return _acl_view(row, "owner")
+        if role in {"owner", "admin", "auditor"} and self._owner_in_tenant(
+            row["owner"], scope
+        ):
+            return _acl_view(
+                row, "admin" if role != "auditor" else "auditor"
+            )
+        if self.acl_granted(scope, workspace_id, who):
+            return _acl_view(row, "read")
+        return None
 
     def set_status(self, workspace_id: str, target: str) -> dict[str, Any]:
         now = _now()

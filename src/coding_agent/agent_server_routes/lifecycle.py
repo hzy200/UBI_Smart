@@ -38,11 +38,14 @@ class LifecycleDeps:
     transport: Any
     # 历史读取不依赖工作区是否在注册表根内；旧会话仍可回看。
     history_context: Callable[[Request], AgentContext] | None = None
+    # 优雅退出时拒绝新运行；读接口（status/stream/history）仍放行。
+    drain_guard: Callable[[], None] = lambda: None
 
 
 def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.post("/v1/runs")
     async def run(body: RunBody, request: Request) -> StreamingResponse:
+        deps.drain_guard()
         context = deps.context(request)
         thread_id = body.thread_id
         deps.stream_guard(context, thread_id)
@@ -100,6 +103,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
     async def resume(
         thread_id: str, body: ResumeBody, request: Request
     ) -> StreamingResponse:
+        deps.drain_guard()
         context = deps.context(request)
         deps.stream_guard(context, thread_id)
         runtime = deps.runtime_for(context, thread_id)
@@ -117,6 +121,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
     async def resume_steering(
         thread_id: str, request: Request
     ) -> StreamingResponse:
+        deps.drain_guard()
         context = deps.context(request)
         deps.stream_guard(context, thread_id)
         runtime = deps.runtime_for(context, thread_id)

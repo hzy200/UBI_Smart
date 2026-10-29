@@ -8,7 +8,7 @@ A2L 不监听；它连到 A3 的 loopback 端口后，本端用同一个 socket 
 from __future__ import annotations
 
 import asyncio
-import sys
+import logging
 import threading
 from typing import Any
 
@@ -23,6 +23,8 @@ from coding_agent.host_broker.transport import (
     connect_tcp,
     start_tcp_server,
 )
+
+_LOG = logging.getLogger(__name__)
 
 
 class AcceptedHostCaller:
@@ -184,10 +186,8 @@ class HostBrokerAcceptor:
                 )
                 if decision.allowed:
                     continue
-                print(
-                    f"A2L 设备已失效，断开 {broker_id}：{decision.reason}",
-                    file=sys.stderr,
-                    flush=True,
+                _LOG.warning(
+                    "A2L 设备已失效，断开 %s：%s", broker_id, decision.reason
                 )
                 await self._drop_client(broker_id, client)
 
@@ -220,11 +220,7 @@ class HostBrokerAcceptor:
             hello = await client.connect()
             reason = self._authorize_device(client, hello)
             if reason:
-                print(
-                    f"A2L 设备未通过校验：{reason}",
-                    file=sys.stderr,
-                    flush=True,
-                )
+                _LOG.warning("A2L 设备未通过校验：%s", reason)
                 return
             broker_id = str(
                 (hello.meta or {}).get("broker_id") or client.client_id
@@ -233,11 +229,7 @@ class HostBrokerAcceptor:
             fingerprint = transport.peer_cert_fingerprint() or str(
                 meta.get("device_fingerprint") or ""
             )
-            print(
-                f"A2L connected: {broker_id}",
-                file=sys.stderr,
-                flush=True,
-            )
+            _LOG.info("A2L connected: %s", broker_id)
             old = self._clients.get(broker_id)
             self._clients[broker_id] = client
             self._client_ids[broker_id] = (

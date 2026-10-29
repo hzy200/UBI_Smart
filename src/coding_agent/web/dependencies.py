@@ -31,3 +31,35 @@ def current_admin(user: UserDep) -> AuthUser:
 
 
 AdminDep = Annotated[AuthUser, Depends(current_admin)]
+
+
+def current_approver(user: UserDep) -> AuthUser:
+    """四眼审批人：owner/admin 可兼，approver 只负责审批队列。"""
+    if user.role not in {"owner", "admin", "approver"}:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "auth.forbidden",
+                "message": "需要审批权限",
+            },
+        )
+    return user
+
+
+ApproverDep = Annotated[AuthUser, Depends(current_approver)]
+
+
+def current_auditor(user: UserDep) -> AuthUser:
+    """审计只读角色：可看账号/用量/事件，不能写（写由中间件兜底）。"""
+    if user.role not in {"owner", "admin", "auditor"}:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "auth.forbidden",
+                "message": "需要审计权限",
+            },
+        )
+    return user
+
+
+AuditorDep = Annotated[AuthUser, Depends(current_auditor)]

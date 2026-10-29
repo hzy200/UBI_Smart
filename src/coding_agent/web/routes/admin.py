@@ -8,29 +8,42 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from coding_agent.config import Settings
 from coding_agent.control.accounts import AccountError
+from coding_agent.control.approvals import SelfApprovalError
 from coding_agent.costs import CurrencyConfig
+from coding_agent.observability import inc
 from coding_agent.secrets_store import SecretStoreUnavailable
 from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import AdminDep
+from coding_agent.web.dependencies import AdminDep, ApproverDep, AuditorDep
 
 
 class CreateUserRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=8, max_length=200)
     email: str = Field(default="", max_length=255)
-    role: str = Field(default="member", pattern="^(admin|member)$")
+    # owner 只能由现有 owner 通过 update 产生，避免新建即抢所有权。
+    role: str = Field(
+        default="member", pattern="^(admin|approver|auditor|member)$"
+    )
+    max_access_mode: str = Field(
+        default="write_auto", pattern="^(read_only|write_ask|write_auto)$"
+    )
 
 
 class UpdateUserRequest(BaseModel):
     status: str | None = Field(default=None, pattern="^(active|disabled)$")
-    role: str | None = Field(default=None, pattern="^(owner|admin|member)$")
+    role: str | None = Field(
+        default=None, pattern="^(owner|admin|approver|auditor|member)$"
+    )
+    max_access_mode: str | None = Field(
+        default=None, pattern="^(read_only|write_ask|write_auto)$"
+    )
     email: str | None = Field(default=None, max_length=255)
 
 
@@ -48,6 +61,17 @@ class ProviderKeyRequest(BaseModel):
     api_key: str = Field(min_length=1, max_length=500)
 
 
+class ApprovalDecisionRequest(BaseModel):
+    approved: bool
+    reason: str = Field(default="", max_length=500)
+
+
+class WorkspaceAclRequest(BaseModel):
+    grantee: str = Field(min_length=1, max_length=128)
+    # 目前只支持只读共享；写入/执行必须由 workspace.owner 自己做。
+    permission: Literal["read"] = "read"
+
+
 @dataclass(frozen=True)
 class AdminDeps:
     settings: Settings
@@ -58,6 +82,11 @@ class AdminDeps:
     user_store: Callable[[AuthUser], Any]
     auth_events: Any | None = None
     currency: CurrencyConfig = CurrencyConfig()
+    # RFC-0004：四眼审批队列与管理员 MFA 重置；None = 未启用。
+    approvals: Any | None = None
+    mfa: Any | None = None
+    # RFC-0001 工作区注册表；None = 未启用，ACL 端点返回 503。
+    workspace_store: Any | None = None
 
 
 def _usage_view(row: dict[str, Any], currency: CurrencyConfig) -> dict[str, Any]:
@@ -104,7 +133,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         return row
 
     @app.get("/api/admin/users")
-    async def list_users(admin: AdminDep) -> dict:
+    async def list_users(admin: AuditorDep) -> dict:
         return {"users": _accounts().list(deps.settings.web_account_tenant)}
 
     @app.post("/api/admin/users")
@@ -115,6 +144,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
                 payload.password,
                 email=payload.email,
                 role=payload.role,
+                max_access_mode=payload.max_access_mode,
                 tenant=deps.settings.web_account_tenant,
             )
         except AccountError as exc:
@@ -141,6 +171,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
                 status=payload.status,
                 role=payload.role,
                 email=payload.email,
+                max_access_mode=payload.max_access_mode,
             )
         except AccountError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -162,7 +193,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         return {"ok": True}
 
     @app.get("/api/admin/users/{user_id}/quotas")
-    async def get_quota(user_id: str, admin: AdminDep) -> dict:
+    async def get_quota(user_id: str, admin: AuditorDep) -> dict:
         row = _account(user_id)
         if deps.control_store is None:
             raise HTTPException(status_code=503, detail="控制面数据库不可用")
@@ -195,7 +226,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         return {"quota": quota}
 
     @app.get("/api/admin/users/{user_id}/providers")
-    async def user_providers(user_id: str, admin: AdminDep) -> dict:
+    async def user_providers(user_id: str, admin: AuditorDep) -> dict:
         row = _account(user_id)
         target = AuthUser(
             name=row["username"],
@@ -273,7 +304,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         return {"ok": True}
 
     @app.get("/api/admin/providers")
-    async def deployment_providers(admin: AdminDep) -> dict:
+    async def deployment_providers(admin: AuditorDep) -> dict:
         rows = deps.provider_rows(deps.settings, _EmptyStore())
         return {
             "providers": [
@@ -290,7 +321,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
 
     @app.get("/api/admin/auth-events")
     async def auth_events(
-        admin: AdminDep,
+        admin: AuditorDep,
         user: str = "",
         limit: int = Query(50, ge=1, le=200),
     ) -> dict:
@@ -306,7 +337,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
 
     @app.get("/api/admin/usage")
     async def usage(
-        admin: AdminDep,
+        admin: AuditorDep,
         from_day: str = Query(alias="from"),
         to_day: str = Query(alias="to"),
         user: str = "",
@@ -337,3 +368,138 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         report["currency"] = deps.currency.code
         report["usd_to_cny"] = float(deps.currency.usd_to_cny)
         return report
+
+    def _workspace_store():
+        if deps.workspace_store is None:
+            raise HTTPException(
+                status_code=503,
+                detail="工作区注册表未启用或控制面数据库不可用",
+            )
+        return deps.workspace_store
+
+    def _workspace_in_tenant(workspace_id: str, admin: AuthUser) -> dict:
+        row = _workspace_store().get(workspace_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="工作区不存在")
+        owner = _accounts().get_by_username(row["owner"])
+        if owner is None or owner.get("tenant") != admin.tenant:
+            # 不跨账号租户管理别人的工作区。
+            raise HTTPException(status_code=404, detail="工作区不存在")
+        return row
+
+    @app.get("/api/admin/workspaces/{workspace_id}/acl")
+    async def list_workspace_acl(
+        workspace_id: str, admin: AdminDep
+    ) -> dict:
+        _workspace_in_tenant(workspace_id, admin)
+        return {
+            "workspace_id": workspace_id,
+            "grants": _workspace_store().acl_list(
+                admin.tenant, workspace_id
+            ),
+        }
+
+    @app.put("/api/admin/workspaces/{workspace_id}/acl")
+    async def grant_workspace_acl(
+        workspace_id: str,
+        payload: WorkspaceAclRequest,
+        admin: AdminDep,
+    ) -> dict:
+        _workspace_in_tenant(workspace_id, admin)
+        grantee = payload.grantee.strip()
+        target = _accounts().get_by_username(grantee)
+        if target is None or target.get("tenant") != admin.tenant:
+            raise HTTPException(status_code=404, detail="被授权用户不存在")
+        grant = _workspace_store().acl_grant(
+            admin.tenant,
+            workspace_id,
+            grantee,
+            granted_by=admin.name,
+        )
+        return {"ok": True, "grant": grant}
+
+    @app.delete("/api/admin/workspaces/{workspace_id}/acl/{grantee}")
+    async def revoke_workspace_acl(
+        workspace_id: str, grantee: str, admin: AdminDep
+    ) -> dict:
+        _workspace_in_tenant(workspace_id, admin)
+        removed = _workspace_store().acl_revoke(
+            admin.tenant, workspace_id, grantee
+        )
+        return {"ok": True, "removed": bool(removed)}
+
+    @app.post("/api/admin/users/{user_id}/mfa-reset")
+    async def reset_user_mfa(user_id: str, admin: AdminDep) -> dict:
+        if deps.mfa is None:
+            raise HTTPException(
+                status_code=503, detail="MFA 后端未启用"
+            )
+        row = deps.accounts.get(user_id) if deps.accounts else None
+        if row is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        deps.mfa.reset(user_id)
+        if deps.sessions is not None:
+            deps.sessions.revoke_user(user_id)
+        if deps.auth_events is not None:
+            try:
+                deps.auth_events.record(
+                    row.get("username", ""), "mfa_reset"
+                )
+            except Exception:  # noqa: BLE001 - 审计失败不阻断重置
+                pass
+        return {"ok": True}
+
+    @app.get("/api/admin/approvals")
+    async def pending_approvals(
+        admin: ApproverDep,
+        limit: int = Query(200, ge=1, le=1000),
+    ) -> dict:
+        if deps.approvals is None:
+            return {"approvals": [], "enabled": False}
+        return {
+            "enabled": True,
+            "approvals": deps.approvals.pending(
+                admin.tenant, limit=limit
+            ),
+        }
+
+    @app.post("/api/admin/approvals/{approval_id}/decide")
+    async def decide_approval(
+        approval_id: str,
+        payload: ApprovalDecisionRequest,
+        admin: ApproverDep,
+    ) -> dict:
+        if deps.approvals is None:
+            raise HTTPException(
+                status_code=503, detail="四眼审批未启用"
+            )
+        try:
+            row = deps.approvals.decide(
+                tenant=admin.tenant,
+                approval_id=approval_id,
+                approver=admin.name,
+                approved=payload.approved,
+            )
+        except SelfApprovalError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "approval.self",
+                    "message": str(exc),
+                },
+            ) from exc
+        if row is None:
+            raise HTTPException(status_code=404, detail="审批不存在")
+        inc(
+            "agent_approvals_total",
+            {"decision": "approved" if payload.approved else "denied"},
+        )
+        if deps.auth_events is not None:
+            try:
+                deps.auth_events.record(
+                    admin.name,
+                    "approval_decided",
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return {"ok": True, "approval": row}

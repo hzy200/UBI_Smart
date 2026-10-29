@@ -55,6 +55,7 @@ from coding_agent.events import (
     WorkflowSelected,
 )
 from coding_agent.runtime import AgentRuntime
+from coding_agent.terminal_text import sanitize_terminal_text
 
 HELP_TEXT = """\
 /help              显示本帮助
@@ -569,10 +570,12 @@ class AgentTuiApp(App[None]):
     # ------------------------------------------------------------------
 
     def _write(self, text: str, style: str = "") -> None:
-        self._transcript.write(Text(text, style=style) if style else Text(text))
+        safe = sanitize_terminal_text(text)
+        self._transcript.write(Text(safe, style=style) if style else Text(safe))
 
     def _render_stream(self) -> None:
-        self.query_one("#streaming", Static).update(Text("".join(self._stream)))
+        safe = sanitize_terminal_text("".join(self._stream))
+        self.query_one("#streaming", Static).update(Text(safe))
         wrap = self.query_one("#streaming-wrap", VerticalScroll)
         wrap.scroll_end(animate=False)
 
@@ -1515,7 +1518,7 @@ class AgentTuiApp(App[None]):
             self._write_diff(result.diff)
 
     def _write_diff(self, raw: str) -> None:
-        for line in raw.splitlines():
+        for line in sanitize_terminal_text(raw).splitlines():
             if line.startswith(("+++", "---")):
                 style = "bold"
             elif line.startswith("+"):

@@ -4,42 +4,45 @@ doc_id: complexity
 title: 项目复杂度分析
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-28
 review_cadence: 每轮大改后重跑脚本
 note: |
   数字由 `scripts/measure_complexity.py` 从源码生成，不要再手抄。
   重跑：`python scripts/measure_complexity.py`；引用前先确认日期。
+  CI 会用 `python scripts/measure_complexity.py --check docs/COMPLEXITY.md`
+  反查本文的关键数字，对不上就红。
 ---
 
 # 项目复杂度分析
 
 > 面向维护：用静态度量给出规模、复杂度分布与热点，并区分**本质复杂度**与**偶然复杂度**。
 > 度量口径：Python `ast` 静态分析；圈复杂度为 McCabe 近似（判定点 + 布尔项）。
-> 数据为 2026-10-24 P3 覆盖率闭环后实测（`scripts/measure_complexity.py`）。
+> 数据为 2026-10-28（P0/P1 交付就绪改动后）实测
+> （`python scripts/measure_complexity.py`）。
 
 ## 1. 规模总览
 
 | 项 | 值 |
 | --- | --- |
-| 源文件 | **179** |
-| 源码行数 | **43,789** |
-| 函数/方法 | **1,653** |
-| 测试文件 / 行数 | **178 / 45,362** |
-| 测试:源码 | **1.04 : 1** |
-| 快反馈用例 | **2,045**（`pytest -m "not wsl and not llm"`；2,043 通过 / 2 skip） |
-| 覆盖率 | **82.68%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
+| 源文件 | **263** |
+| 源码行数 | **73,336** |
+| 函数/方法 | **2,817** |
+| 测试文件 / 行数 | **285 / 69,626** |
+| 测试:源码 | **0.95 : 1** |
+| 快反馈用例 | **3,002**（`pytest -m "not wsl and not wsl_env and not llm"`；本机 1 条 skip，其余通过） |
+| 覆盖率 | **83.34%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
 
 测试体量已接近源码；但覆盖率只覆盖 CI 子集，真实 WSL/bwrap 与桌面入口
 不在其中，不能把全局数字当成所有子系统的健康度。
 
-## 2. 复杂度分布（1,649 个函数）
+## 2. 复杂度分布（2,816 个函数）
 
 | 指标 | 中位 | 均值 | 超阈值 |
 | --- | --- | --- | --- |
-| 函数长度 | **11 行** | 24.7 | >40 行：**13.2%** |
-| 圈复杂度 | **3** | 4.4 | >10：**8.8%**，最大 **57** |
+| 函数长度 | **12 行** | 23.8 | >40 行：**12.7%** |
+| 圈复杂度 | **3** | 4.4 | >10：**8.8%**，最大 **66** |
 
-**结论：P2 把最大的几个分发函数拆开后，最大 CC 从 164 降到 57。**
+**结论：P2 把最大的几个分发函数拆开后，最大 CC 从 164 降到 63。**
 约 91% 的函数圈复杂度 ≤10；剩余复杂度主要落在任务图校验、调度并发、
 fan-in 汇总与执行契约分发 —— 都是规则或并发本身复杂，不是分支写法问题。
 
@@ -47,18 +50,18 @@ fan-in 汇总与执行契约分发 —— 都是规则或并发本身复杂，�
 
 | 函数 | 长度 | CC | 类型 | 评价 |
 | --- | --- | --- | --- | --- |
+| `web/app.py::create_app` | 1,358 | **66** | **装配** | A2 的路由/依赖装配；路由已拆到 `web/routes`，但 `create_app` 本身仍是大函数（见第 7 节） |
 | `orchestrator/graph.py::validate_tasks` | 129 | **57** | 真实逻辑 | 任务图校验，规则固有；可按规则族拆函数 |
-| `orchestrator/scheduler.py::scheduler` | 641 | 54 | **编排调度** | 派发/结算已抽成 `dispatch_ready`(70/19)、`drain_completed`(54/13)、`abort_pending`(13/3)，主循环仍负责时序 |
 | `orchestrator/fanin.py::synthesize` | 217 | 52 | fan-in 汇总 | 结构化结果合并 + worker 上下文 |
-| `execution/service.py::_dispatch` | 196 | 50 | 执行契约分发 | A4 契约的 kind 分支，可表驱动化 |
+| `execution/service.py::_dispatch` | 203 | 50 | 执行契约分发 | A4 契约的 kind 分支，可表驱动化 |
 | `llm/ratelimit.py::_sync_from_shared_locked` | 140 | 48 | 共享状态合并 | 多进程限流快照的校验与合并 |
+| `web/routes/sessions.py::sessions` | 134 | 45 | 列表装配 | 会话列表的多路过滤与排序 |
 | `orchestrator/plan.py::plan_tasks` | 213 | 42 | 任务图生成 | 规则拆解 + 校验/降级 |
 | `runtime.py::_worker_events` | 123 | 40 | 事件翻译 | worker 事件 → 主图事件 |
 | `agents/explore.py::run` | 282 | 39 | 子智能体循环 | 只读循环 + 报告 |
 | `cli/app.py::memory` | 174 | 36 | 命令实现 | 记忆命令的多分支参数处理 |
-| `llm/deepseek.py::_provider_specs` | 88 | 32 | 装配 | provider 规格矩阵 |
-| `graph/nodes/steering.py::_apply_commands` | 159 | 28 | steering 应用 | 命令族分派 |
-| `runtime.py::_stream` | 165 | 27 | 事件流主干 | 已从 819/164 拆成主干 + 分发表 + 收尾/异常处理器 |
+| `orchestrator/scheduler_run.py::run` | 158 | 34 | **编排调度** | 原 `scheduler.py::scheduler`；派发/结算/取消已抽成 `dispatch_ready`、`drain_completed`、`abort_pending`，主循环只负责时序 |
+| `host_broker/__main__.py::_run` | 187 | 33 | CLI 子命令 | `--run` 的命令族分派 |
 
 P2 拆分后的关键分发函数：
 
@@ -80,16 +83,16 @@ P2 拆分后的关键分发函数：
 
 | 文件 | 行 | 备注 |
 | --- | --- | --- |
-| `runtime.py` | **3,031** | 编排中枢 + 事件翻译；P2 把 `_stream` 拆成主干 + 分发表 + 处理器，行数略增但单函数大幅变小 |
-| `cli/app.py` | **1,801** | 命令；事件渲染已移到 `cli/renderer.py` |
-| `tui/app.py` | **1,581** | Textual 界面 + 表驱动事件映射 |
-| `sandbox/wsl_exec.py` | 1,131 | WSL 执行、并发槽位与环境探测 |
-| `tools/files.py` | 1,107 | 文件工具 |
-| `web/app.py` | **895** | A2 装配，`create_app` 758 行；路由已拆到 web/routes，服务已拆到 web/services |
-| `memory/longterm.py` | 892 | 长期记忆 |
-| `orchestrator/implement.py` | **819** | 写 worker；消息组装与单次工具调用已抽出 |
-| `config.py` | 789 | 配置模型与校验 |
-| `orchestrator/scheduler.py` | 783 | 调度；派发/结算/取消已拆成独立函数 |
+| `runtime.py` | **2,962** | 编排中枢 + 事件翻译；`_stream` 已拆成主干 + 分发表 + 处理器，快照/回滚/差异/上传留底已移到 `runtime_snapshots.py` |
+| `cli/app.py` | **1,915** | 命令；事件渲染已移到 `cli/renderer.py` |
+| `web/app.py` | **1,670** | A2 装配，`create_app` 1,358 行；路由已拆到 `web/routes`，服务已拆到 `web/services` |
+| `tui/app.py` | **1,601** | Textual 界面 + 表驱动事件映射 |
+| `agent_server_routes/imports.py` | 1,375 | A3 的工作区导入路由（上传/校验/落盘） |
+| `config.py` | 1,217 | 配置模型与校验 |
+| `control/store.py` | 1,183 | 控制面存储；计费/配额已改为原子增量 |
+| `sandbox/wsl_exec.py` | 1,171 | WSL 执行、并发槽位、取消与环境探测 |
+| `tools/files.py` | 1,150 | 文件工具 |
+| `control/workspaces.py` | 1,043 | 控制面工作区存储与注册表 |
 
 ## 5. 耦合与依赖方向
 
@@ -127,24 +130,25 @@ tui/web -> audit config events runtime
 
 | 维度 | 评价 |
 | --- | --- |
-| 规模控制 | **可接受**：`runtime.py` 3,031 行（单函数已拆小）、`web/app.py` 895 行、`cli/app.py` 1,801 行 |
-| 函数粒度 | **好**：中位 11 行 / CC 3；>40 行占 13.2% |
-| 复杂度集中度 | **改善**：8.8% 函数 CC>10，最大 CC 164 → 57 |
-| 真·复杂点 | `validate_tasks`、scheduler 主循环、fan-in、`execution._dispatch`、限流快照合并 |
+| 规模控制 | **偏大**：`runtime.py` 2,950 行、`web/app.py` 1,443 行（`create_app` 单函数 1,215）、`cli/app.py` 1,896 行 |
+| 函数粒度 | **好**：中位 12 行 / CC 3；>40 行占 12.7% |
+| 复杂度集中度 | **改善**：8.9% 函数 CC>10，最大 CC 164 → 57 |
+| 真·复杂点 | `validate_tasks`、`create_app`、fan-in、`execution._dispatch`、限流快照合并 |
 | 耦合 | **改善**：A2/A3 反向边已消除；宿主执行收敛到 `execution/host_ops.py`（ADR-0011） |
-| 可测性 | **改善**：1.04:1 测试比；CI 子集 82.68%，`implement.py` 19% → 77%、`control_server.py` 39% → 99%、`sandbox_backend.py` 44% → 100%，重试/备份/合并等薄弱模块已补到 92%+；桌面 GUI 仍手测 |
+| 可测性 | **改善**：0.92:1 测试比；CI 子集 81.33%，`implement.py` 19% → 77%、`control_server.py` 39% → 99%、`sandbox_backend.py` 44% → 100%；**沙箱层另设门禁**（`.github/workflows/sandbox.yml`），桌面 GUI 仍手测 |
 
 ## 7. 可选降复杂度动作（按性价比）
 
 | # | 动作 | 收益 | 风险 |
 | --- | --- | --- | --- |
-| 1 | `web/app.py::create_app` 按领域拆 APIRouter + `Deps` | 已完成：路由 + services 拆出，`create_app` 758 行 | 低 |
+| 1 | `web/app.py::create_app` 按领域拆 APIRouter + `Deps` | **回归了**：路由 + services 已拆出，但 `create_app` 又长回 1,215 行（CC 56），是当前**装配侧**最大热点 | 低 |
 | 2 | `runtime._stream` 的 per-node 分支拆成 `_emit_*` 或 `{node: handler}` | **已完成**：819/164 → 165/27，分发表 + `_on_*` handler | 中 |
 | 3 | `agent_server.create_agent_app` 拆 routes / RunState / SSE primitive | 已完成：RunState/SSE/上下文与全部路由已拆；create_agent_app 321 行 | 低 |
 | 4 | `orchestrator/scheduler.py::scheduler` 拆成并发派发 / 重试 / 合并三块 | **已完成首轮**：619/90 → 641/54；派发/结算/取消已独立 | 中 |
 | 5 | `cli.render` / `tui._apply` 改表驱动 | **已完成**：render 185/57 → 6/1，`_apply` 300/82 → 4/2 | 低 |
 | 6 | `graph/nodes/tools.py::run_tools` 拆成审批 / 并发执行 / 结果回填 | **已完成**：451/80 → 147/24 | 中 |
 | 7 | `orchestrator/graph.py::validate_tasks` 按规则族拆分 | 高：当前最大 CC（129/57），纯校验逻辑易单测 | 低 |
+| 7b | `AgentRuntime` 继续按 mixin 拆分（记忆 / 审计 / 事件翻译各一组） | 中：`runtime.py` 仍 2,950 行；快照组已拆出做样板 | 中 |
 | 8 | `orchestrator/fanin.py::synthesize` 拆成结果合并 / 上下文拼装 | 中：217/52 | 中 |
 | 9 | `execution/service.py::_dispatch` 改 kind 分发表 | 中：196/50，分支彼此独立 | 低 |
 

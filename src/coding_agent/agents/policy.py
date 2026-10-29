@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from coding_agent.config import Settings
+from coding_agent.sandbox.fs import SandboxFs
 from coding_agent.sandbox.wsl_exec import WslSandbox
 
 
@@ -42,34 +43,33 @@ class DelegationPolicy:
     reason: str
 
 
-# 一条命令同时数「全部文件」与「测试文件」。排除的目录与检索工具的口径一致。
-_PROFILE_SCRIPT = r"""\
-total=$(find . -type f \
-  -not -path './.git/*' -not -path './.agent/*' \
-  -not -path '*/__pycache__/*' -not -path '*/node_modules/*' \
-  -not -path '*/.venv/*' 2>/dev/null | wc -l)
-tests=$(find . -type f \( -name 'test_*.py' -o -name '*_test.py' \) \
-  -not -path './.git/*' -not -path './.agent/*' \
-  -not -path '*/__pycache__/*' 2>/dev/null | wc -l)
-echo "$total $tests"
-"""
+# 排除目录与检索工具的口径一致；空元组表示"全部文件"。
+_PROFILE_GROUPS: dict[str, tuple[str, ...]] = {
+    "total": (),
+    "tests": ("test_*.py", "*_test.py"),
+}
+_PROFILE_EXCLUDES = (".git", ".agent", "__pycache__", "node_modules", ".venv")
 
 
 def profile_workspace(sandbox: WslSandbox, root: str) -> RepoProfile:
-    """一次沙箱调用拿到文件数；失败时返回未知画像。"""
+    """一次沙箱调用拿到文件数；失败时返回未知画像。
+
+    计数交给 `SandboxFs.count_files`：画像只需要量级，没必要为此在 agents
+    层握着一条"跑任意脚本"的通道（TD-034）。
+    """
     try:
-        result = sandbox.run(_PROFILE_SCRIPT, cwd=root)
-    except Exception:  # noqa: BLE001 - 画像失败不能拖垮 run()
+        counts = SandboxFs(sandbox, root).count_files(
+            _PROFILE_GROUPS, exclude_dirs=_PROFILE_EXCLUDES
+        )
+    except Exception:  # noqa: BLE001 - 画像失败不能拖垮 run()，一律按未知处理
+        # 这里刻意兜住所有异常：沙箱不可用时 `SandboxFs` 可能抛 OSError、
+        # 解析失败抛 SandboxFsError，而对一次"成本估算"来说，任何失败都等价于
+        # "规模未知" —— 上层会保留最大委派预算，让真正的错误在别处暴露。
         return RepoProfile()
-    if not result.ok:
-        return RepoProfile()
-    parts = result.stdout.split()
-    if len(parts) < 2:
-        return RepoProfile()
-    try:
-        return RepoProfile(file_count=int(parts[0]), test_file_count=int(parts[1]))
-    except ValueError:
-        return RepoProfile()
+    return RepoProfile(
+        file_count=int(counts.get("total", 0)),
+        test_file_count=int(counts.get("tests", 0)),
+    )
 
 
 def delegation_policy(profile: RepoProfile, settings: Settings) -> DelegationPolicy:

@@ -10,7 +10,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-29
 review_cadence: 命令或故障场景变动时
 
 preflight:
@@ -113,7 +113,7 @@ scenarios:
     cause: addopts 默认带 -n auto，缺 pytest-xdist 会直接报错
     steps:
       - pip install -e ".[dev]"
-      - 'pytest -m "not wsl and not llm"'    # 约 1 分钟，跳过真实沙箱与真实模型
+      - 'pytest -m "not wsl and not wsl_env and not llm"'    # 约 1 分钟，跳过真实沙箱与真实模型
     verify: 用例通过
     last_drilled: none
     note: 集成测试开销几乎全在 wsl.exe 进程启动上，所以默认并行
@@ -174,7 +174,7 @@ scenarios:
     steps:
       - 新一轮会自动收到「可能有未验证改动」的恢复提示（run_status 留在 checkpoint 里）
       - agent diff                               # 看实际改了什么
-      - 'pytest -m "not wsl and not llm"'        # 自己确认一遍
+      - 'pytest -m "not wsl and not wsl_env and not llm"'        # 自己确认一遍
     verify: 测试通过
     last_drilled: none
     note: 崩溃后只有 started 没有 finished 的副作用工具**不会自动重放**，而是明确告知"结果未知"
@@ -211,10 +211,12 @@ scenarios:
       - 检查 MySQL 服务与连接串（mysqladmin ping / 账号权限）
       - 修复后重启控制面（systemctl restart coding-agent-control，或重开桌面）
     verify: /healthz 返回 db_state=ok，新建会话不再 503
-    last_drilled: none
+    last_drilled: 2026-10-29
     note: |
       降级期间已有会话的 run/SSE 不受影响；会话列表回退到本地文件，
       新建/重命名/删除/切模型被拒绝，数据库恢复需重启控制面。
+      2026-10-29 演练：`python scripts/phase_d_smoke.py --timeout 60`
+      7/7 通过，覆盖 DB 降级（POST 503 / GET 200）。
 
   - id: RB-017
     symptom: 需要迁移或恢复控制面数据库
@@ -224,8 +226,26 @@ scenarios:
       - 'alembic -c src/coding_agent/control/alembic.ini upgrade head'
       - 'python scripts/restore_control_db.py --source D:/backups/control-xxxx.sql'
     verify: 备份输出 ok=true；迁移后 /healthz db_state=ok；恢复后会话标题一致
-    last_drilled: none
-    note: 备份只包含 A2 业务库，不含 checkpoint、工作区文件或 API Key
+    last_drilled: 2026-10-29
+    note: |
+      备份只包含 A2 业务库，不含 checkpoint、工作区文件或 API Key。
+      2026-10-29 演练：`python scripts/phase_f_drill.py` 在 SQLite 上完成
+      upgrade → 备份 → downgrade → 再 upgrade → 恢复，revision 停在 0014；
+      `pytest -m mysql` 与跨版本迁移用例继续覆盖 MySQL/历史版本。
+
+  - id: RB-018
+    symptom: /healthz 显示 agent_state=unavailable 或 incompatible，运行请求 503
+    signal: 'agent_state unavailable / incompatible；/v1/meta 超时或版本不一致'
+    cause: A3 未启动、崩溃，或 A2/A3 的 API 版本不兼容
+    steps:
+      - 'curl -s http://127.0.0.1:8790/v1/meta -H "Authorization: Bearer $AGENT_INTERNAL_TOKEN"'
+      - 检查 A3 进程与 AGENT_INTERNAL_URL
+      - 版本不一致时升级/回滚到同一 API 版本后重启
+    verify: /healthz agent_state=ok，/readyz 返回 ready
+    last_drilled: 2026-10-29
+    note: |
+      2026-10-29 演练：`scripts/phase_d_smoke.py` 覆盖 A3 崩溃→恢复
+      （unavailable → ok）、版本不匹配（incompatible）与 A2 重启后会话保留。
 
 escalation:
   - 涉及 sandbox/ 或审批语义的异常 → 对照 docs/THREAT_MODEL.md 第 4 节，

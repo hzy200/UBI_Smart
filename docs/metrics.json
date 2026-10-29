@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "tests": 3058,
+  "coverage": {
+    "statements": 33417,
+    "missing": 5518,
+    "percent": 83.49,
+    "modules": {
+      "agent_server_routes/imports.py": 88.13,
+      "control/accounts.py": 87.25,
+      "control/approvals.py": 97.8,
+      "control/credentials.py": 95.83,
+      "control/mfa.py": 92.78,
+      "control/oidc.py": 99.18,
+      "control/store.py": 90.49,
+      "execution/service.py": 92.01,
+      "graph/nodes/approve.py": 100.0,
+      "host_broker/consent.py": 96.89,
+      "sandbox/fs.py": 57.88,
+      "sandbox/pathguard.py": 100.0,
+      "sandbox/policy.py": 92.01,
+      "sandbox/snapshots.py": 76.79,
+      "tools/code_intel.py": 98.86,
+      "tools/files.py": 59.96,
+      "tools/git.py": 96.0,
+      "web/routes/admin.py": 90.31,
+      "web/routes/auth.py": 100.0,
+      "web/routes/runs.py": 86.49
+    }
+  },
+  "target": 85.0,
+  "modules": {
+    "agent_server_routes/imports.py": {
+      "actual": 88.13,
+      "floor": 87.1
+    },
+    "control/accounts.py": {
+      "actual": 87.25,
+      "floor": 87.1
+    },
+    "control/approvals.py": {
+      "actual": 97.8,
+      "floor": 96.8
+    },
+    "control/credentials.py": {
+      "actual": 95.83,
+      "floor": 94.8
+    },
+    "control/mfa.py": {
+      "actual": 92.78,
+      "floor": 91.8
+    },
+    "control/oidc.py": {
+      "actual": 99.18,
+      "floor": 98.2
+    },
+    "control/store.py": {
+      "actual": 90.49,
+      "floor": 86.9
+    },
+    "execution/service.py": {
+      "actual": 92.01,
+      "floor": 91.0
+    },
+    "graph/nodes/approve.py": {
+      "actual": 100.0,
+      "floor": 99.0
+    },
+    "host_broker/consent.py": {
+      "actual": 96.89,
+      "floor": 95.9
+    },
+    "sandbox/fs.py": {
+      "actual": 57.88,
+      "floor": 44.1
+    },
+    "sandbox/pathguard.py": {
+      "actual": 100.0,
+      "floor": 99.0
+    },
+    "sandbox/policy.py": {
+      "actual": 92.01,
+      "floor": 91.0
+    },
+    "sandbox/snapshots.py": {
+      "actual": 76.79,
+      "floor": 75.8
+    },
+    "tools/code_intel.py": {
+      "actual": 98.86,
+      "floor": 97.9
+    },
+    "tools/files.py": {
+      "actual": 59.96,
+      "floor": 58.4
+    },
+    "tools/git.py": {
+      "actual": 96.0,
+      "floor": 95.8
+    },
+    "web/routes/admin.py": {
+      "actual": 90.31,
+      "floor": 89.3
+    },
+    "web/routes/auth.py": {
+      "actual": 100.0,
+      "floor": 99.0
+    },
+    "web/routes/runs.py": {
+      "actual": 86.49,
+      "floor": 85.5
+    }
+  },
+  "wsl_gated": [
+    "sandbox/fs.py",
+    "sandbox/snapshots.py",
+    "tools/files.py"
+  ]
+}

@@ -30,7 +30,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from coding_agent import AGENT_API_VERSION, __version__
 from coding_agent.agent_context import AgentRuntimeFactory
@@ -74,7 +74,11 @@ from coding_agent.host_broker.transport import (
     ServerTlsConfig,
     certificate_fingerprint,
 )
-from coding_agent.paths import PathGuardError, ensure_inside
+from coding_agent.paths import (
+    PathGuardError,
+    ensure_inside,
+    looks_like_windows_path,
+)
 from coding_agent.runtime import AgentRuntime
 from coding_agent.sse_stream import sse_headers
 
@@ -82,16 +86,74 @@ _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
 _STREAM_BUFFER_MAX_EVENTS = 5_000
 
 
+def ensure_host_workspace(path: str) -> None:
+    """host 工作区的 A3 侧词法兜底（不访问文件系统）。
+
+    host 工作区的绝对路径只登记在 A2L，A2 只下发 `workspace_id +
+    root_handle`，A3 拿不到它背后真实的盘符目录——所以 A3 这里做的是
+    **兜底而非主防线**：挡住 UNC/设备路径（会落到别的机器或内核对象）
+    与相对路径，真正的越界防御在 A2L 的 `root_handle` + `resolve_child`。
+
+    空字符串表示“还没选目录”（`/v1/host-workspaces/register`），直接放行。
+    """
+    text = str(path or "").strip()
+    if not text:
+        return
+    if "\x00" in text:
+        raise PathGuardError("workspace 含空字节")
+    # `\\host\share`、`\\.\PhysicalDrive0`、`\\?\C:\` 都要拦；
+    # POSIX 下 `//` 前缀同样是网络/实现定义语义。
+    if text.startswith(("\\\\", "//")):
+        raise PathGuardError(f"不允许 UNC/设备路径：{text}")
+    if not os.path.isabs(text) and not looks_like_windows_path(text):
+        raise PathGuardError(f"workspace 必须是绝对路径：{text}")
+
+
+def validate_host_context(
+    context: AgentContext, *, require_handle: bool
+) -> None:
+    """host 工作区上下文校验：handle 必填 + 路径兜底。"""
+    if not context.a2l_id:
+        raise HTTPException(status_code=400, detail="host 工作区需要 a2l_id")
+    if require_handle and (
+        not context.workspace_id or not context.root_handle
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="host 工作区需要 workspace_id/root_handle",
+        )
+    try:
+        ensure_host_workspace(context.workspace)
+    except PathGuardError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"host workspace 路径不合法：{exc}",
+        ) from exc
+
+
 def create_agent_app(
     settings: Settings | None = None,
     *,
     token: str = "",
     runtime_factory: Any = AgentRuntime,
+    hmac_required: bool | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     expected = str(token or os.environ.get("AGENT_INTERNAL_TOKEN", "")).strip()
     if not expected:
         raise ValueError("AGENT_INTERNAL_TOKEN 未配置，拒绝启动无鉴权的 Agent Server")
+    # `hmac_required` 由入口（main）按绑定地址推导；直接构造 app 时回退配置。
+    context_hmac_required = (
+        bool(settings.agent_internal_hmac_required)
+        if hmac_required is None
+        else bool(hmac_required)
+    )
+    if context_hmac_required and not str(
+        settings.agent_internal_hmac_key or ""
+    ).strip():
+        raise ValueError(
+            "已要求 X-Agent-Context 验签，但 AGENT_INTERNAL_HMAC_KEY 为空"
+        )
 
     transport = build_event_transport(settings)
     tls = None
@@ -143,6 +205,9 @@ def create_agent_app(
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI):
+        # 信号处理器在独立线程里调用 handle_exit，必须拿到跑在事件循环里的
+        # loop 才能把 drain 协程排进去。
+        _app.state.loop = asyncio.get_running_loop()
         if acceptor is not None:
             acceptor.start()
         try:
@@ -157,10 +222,60 @@ def create_agent_app(
         redoc_url=None,
         lifespan=_lifespan,
     )
+    from coding_agent.observability import configure_tracing
+    from coding_agent.tracing import TracingMiddleware
+
+    otel_tracer = configure_tracing(settings)
+    if otel_tracer is not None:
+        app.add_middleware(TracingMiddleware, tracer=otel_tracer)
+
     app.state.transport = transport
     app.state.host_broker_acceptor = acceptor
+    # 收到第一次 SIGTERM 后置真：不再接新运行，/readyz 报未就绪。
+    app.state.draining = False
     runs: dict[tuple[str, str], AgentRuntime] = {}
     states: dict[tuple[str, str], RunState] = {}
+    # 供运维/测试观察 drain 进度；只读引用，路由仍走闭包。
+    app.state.runs = runs
+    app.state.states = states
+
+    def _drain_guard() -> None:
+        if app.state.draining:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "agent.draining",
+                    "message": "Agent Server 正在优雅退出，暂不接受新运行",
+                },
+            )
+
+    async def _drain(timeout_s: float) -> dict[str, Any]:
+        """停止接单并等待进行中的运行；超时仍存活的任务取消。"""
+        app.state.draining = True
+        deadline = time.monotonic() + max(0.0, float(timeout_s))
+        while time.monotonic() < deadline:
+            if not any(not state.done for state in states.values()):
+                break
+            await asyncio.sleep(0.1)
+        pending = [state for state in states.values() if not state.done]
+        tasks = [
+            state.task
+            for state in pending
+            if getattr(state, "task", None) is not None
+            and not state.task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            # 取消是最后手段：等 finally 落盘 checkpoint 并关闭 runtime。
+            await asyncio.gather(*tasks, return_exceptions=True)
+        return {
+            "pending": len(pending),
+            "cancelled": len(tasks),
+            "completed": len(states) - len(pending),
+        }
+
+    app.state.drain = _drain
 
     def _require_token(request: Request) -> None:
         header = request.headers.get("authorization", "")
@@ -180,7 +295,10 @@ def create_agent_app(
         raw = request.headers.get("x-agent-context", "")
         signature = request.headers.get("x-agent-signature", "")
         if not verify_context(
-            raw, signature, settings.agent_internal_hmac_key
+            raw,
+            signature,
+            settings.agent_internal_hmac_key,
+            required=context_hmac_required,
         ):
             raise HTTPException(
                 status_code=401, detail="Agent context 签名无效"
@@ -192,27 +310,15 @@ def create_agent_app(
                 status_code=400, detail=f"Agent context 无效：{exc}"
             ) from exc
         if context.workspace_kind == "host":
-            if not context.a2l_id:
-                raise HTTPException(
-                    status_code=400, detail="host 工作区需要 a2l_id"
-                )
-            if require_host_handle and (
-                not context.workspace_id or not context.root_handle
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail="host 工作区需要 workspace_id/root_handle",
-                )
+            validate_host_context(
+                context, require_handle=require_host_handle
+            )
         else:
             if not context.workspace.startswith("/"):
                 raise HTTPException(
                     status_code=400, detail="workspace 必须是绝对路径"
                 )
-        if (
-            require_workspace_root
-            and settings.workspace_registry
-            and context.workspace_kind != "host"
-        ):
+        if require_workspace_root and settings.workspace_registry:
             allowed = str(settings.workspace_root or "").strip()
             if not allowed:
                 raise HTTPException(
@@ -223,6 +329,10 @@ def create_agent_app(
                     ),
                 )
             try:
+                # host 工作区的 workspace 是 Windows 路径；`ensure_inside`
+                # 两侧都会归一化成 POSIX，所以根写成 `D:\ws` 或 `/mnt/d/ws`
+                # 都能对上。之前 host 直接跳过这一步，等于注册表开着却
+                # 不校验——现在同类请求走同一条判定。
                 ensure_inside(context.workspace, allowed)
             except PathGuardError as exc:
                 raise HTTPException(
@@ -423,13 +533,70 @@ def create_agent_app(
 
     @app.get("/healthz")
     async def healthz() -> dict:
-        """公开存活探针；只暴露版本，不返回配置或工作区。"""
+        """公开存活探针；只暴露版本，不返回配置或工作区。
+
+        **存活 ≠ 就绪**：这个端点只说明进程在。依赖（执行后端、checkpoint）
+        挂没挂看 `/readyz` —— 否则编排/反代会把"进程活着但沙箱已死"的实例
+        继续放进流量。
+        """
         return {
             "status": "ok",
             "service": "agent-server",
             "version": __version__,
             "api_version": AGENT_API_VERSION,
         }
+
+    _probe_sandbox: dict[str, Any] = {"instance": None, "built": False}
+
+    def _sandbox_ready() -> tuple[bool, str]:
+        """执行后端是否可用；结果按沙箱自带的 TTL 缓存，不会每次探测都起进程。"""
+        if not _probe_sandbox["built"]:
+            _probe_sandbox["built"] = True
+            try:
+                from coding_agent.sandbox.backend import build_sandbox
+
+                _probe_sandbox["instance"] = build_sandbox(settings)
+            except Exception as exc:  # noqa: BLE001 - 构建失败即未就绪
+                _probe_sandbox["error"] = f"{type(exc).__name__}: {exc}"
+                return False, "build_failed"
+        sandbox = _probe_sandbox["instance"]
+        if sandbox is None:
+            return False, "build_failed"
+        try:
+            return bool(sandbox.health()), "ok" if sandbox.health() else "unhealthy"
+        except Exception as exc:  # noqa: BLE001 - 探测异常即未就绪
+            _probe_sandbox["error"] = f"{type(exc).__name__}: {exc}"
+            return False, "probe_error"
+
+    @app.get("/readyz")
+    async def readyz(request: Request) -> Any:
+        """就绪探针：依赖不健康就返回 503，让编排把实例摘出流量。"""
+        _require_token(request)
+        checkpoint_persistent = str(
+            settings.checkpoint_path or ""
+        ).strip() != ":memory:"
+        sandbox_ok, sandbox_state = await asyncio.to_thread(_sandbox_ready)
+        checks = {
+            "sandbox": sandbox_state,
+            "checkpoint": "persistent" if checkpoint_persistent else "in_memory",
+            "draining": "true" if app.state.draining else "false",
+        }
+        # draining 时即使依赖健康也不再判定就绪：让编排把流量摘走后再退出。
+        ready = sandbox_ok and not app.state.draining
+        payload = {"status": "ready" if ready else "not_ready", "checks": checks}
+        if not ready:
+            return JSONResponse(status_code=503, content=payload)
+        return payload
+
+    @app.get("/metrics")
+    async def metrics(request: Request) -> PlainTextResponse:
+        """Prometheus 文本导出；需要内部 token（指标含运行与失败计数）。"""
+        _require_token(request)
+        from coding_agent.observability import render
+
+        return PlainTextResponse(
+            render(), media_type="text/plain; version=0.0.4; charset=utf-8"
+        )
 
     @app.get("/v1/meta")
     async def meta(request: Request) -> dict:
@@ -465,7 +632,13 @@ def create_agent_app(
 
     @app.post("/v1/host-workspaces/register")
     async def register_host_workspace(request: Request) -> dict[str, Any]:
-        context = _context(request, require_host_handle=False)
+        # 注册请求还没有目录：workspace 为空，路径校验发生在后续真正带
+        # workspace 的请求上（那里同样会走 ensure_inside）。
+        context = _context(
+            request,
+            require_host_handle=False,
+            require_workspace_root=False,
+        )
         acceptor = app.state.host_broker_acceptor
         if acceptor is None:
             raise HTTPException(status_code=503, detail="A2L 未启用")
@@ -497,6 +670,7 @@ def create_agent_app(
                 request, require_workspace_root=False
             ),
             require_token=_require_token,
+            drain_guard=_drain_guard,
             key=_key,
             event_key=_event_key,
             runtime_for=_runtime_for,
@@ -566,7 +740,30 @@ def main() -> None:
     if not token.strip():
         print("必须设置 AGENT_INTERNAL_TOKEN 或传 --token", file=sys.stderr)
         raise SystemExit(2)
-    app = create_agent_app(get_settings(), token=token)
+    settings = get_settings()
+    from coding_agent.observability import configure_logging
+
+    configure_logging(
+        level=args.log_level,
+        fmt=str(getattr(settings, "log_format", "text") or "text"),
+    )
+    loopback = args.host in {"127.0.0.1", "::1", "localhost"}
+    # 非 loopback = A3 会被别的机器直接访问：只靠 Bearer token 不够 —— 拿到
+    # token 的人可以伪造 X-Agent-Context 里的 tenant / workspace / a2l_id。
+    # 这种情况必须有 HMAC 验签，否则拒绝启动。
+    hmac_required = bool(settings.agent_internal_hmac_required) or not loopback
+    if hmac_required and not str(
+        settings.agent_internal_hmac_key or ""
+    ).strip():
+        print(
+            "非 loopback 绑定（或 AGENT_INTERNAL_HMAC_REQUIRED=true）必须配置 "
+            "AGENT_INTERNAL_HMAC_KEY：否则内部 token 持有者可伪造 Agent context",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    app = create_agent_app(
+        settings, token=token, hmac_required=hmac_required
+    )
     print(
         json.dumps(
             {
@@ -578,15 +775,55 @@ def main() -> None:
         ),
         flush=True,
     )
+    drain_timeout = int(getattr(settings, "drain_timeout_s", 60) or 0)
     config = uvicorn.Config(
         app,
         host=args.host,
         port=args.port,
         log_level=args.log_level,
         access_log=False,
+        # 先由下面的 handle_exit 等运行自然结束；耗尽后再给 uvicorn
+        # 一点时间把在途 HTTP 响应收尾。
+        timeout_graceful_shutdown=drain_timeout or None,
     )
     server = uvicorn.Server(config)
-    app.state.shutdown = lambda: setattr(server, "should_exit", True)
+    original_handle_exit = server.handle_exit
+
+    def _request_drain() -> None:
+        """第一次退出请求：停止接单，等待运行结束；由信号与 /v1/shutdown 共用。"""
+        if app.state.draining:
+            return
+        app.state.draining = True
+        loop = getattr(app.state, "loop", None)
+        if loop is None:
+            # 尚未进入事件循环（例如启动失败）：退回直接退出。
+            server.should_exit = True
+            return
+
+        async def _finish() -> None:
+            result = await app.state.drain(drain_timeout)
+            print(
+                json.dumps(
+                    {"event": "agent_server_drained", **result},
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            server.should_exit = True
+
+        # 信号处理器可能在非 loop 线程触发；统一回到事件循环里建任务。
+        loop.call_soon_threadsafe(lambda: loop.create_task(_finish()))
+
+    def handle_exit(sig: Any, frame: Any) -> None:
+        if app.state.draining:
+            # 第二次信号：不再等待，交给 uvicorn 原有逻辑强制退出。
+            original_handle_exit(sig, frame)
+            return
+        _request_drain()
+
+    server.handle_exit = handle_exit
+    # Desktop supervisor 调用的 /v1/shutdown 也走同一条 drain 路径。
+    app.state.shutdown = _request_drain
     server.run()
 
 

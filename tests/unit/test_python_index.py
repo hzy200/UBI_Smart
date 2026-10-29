@@ -114,19 +114,44 @@ class _FakeSandbox:
         self, command: str, *, cwd: str | None = None, timeout: int | None = None
     ) -> ExecResult:
         self.commands.append(command)
+        stdout = ""
+        if command.strip().startswith("realpath -m -- "):
+            # SandboxFs 构造时解析根目录。
+            stdout = command.strip().split("-- ", 1)[1].strip("'\"") + "\n"
+        elif "AGENT_INDEX_JSON:" in command:
+            stdout = "AGENT_INDEX_JSON:" + json.dumps(self.payload) + "\n"
         return ExecResult(
             command=command,
             exit_code=0,
-            stdout="AGENT_INDEX_JSON:" + json.dumps(self.payload) + "\n",
+            stdout=stdout,
             stderr="",
             duration_ms=0,
         )
 
 
-def test_collect_sources_uses_one_sandbox_call() -> None:
+def test_collect_sources_uses_one_traversal_call() -> None:
+    """解析根 + 一次遍历：不能退化成"每个文件一次 wsl.exe"。"""
     sandbox = _FakeSandbox({"app/a.py": "x = 1\n"})
 
     sources = collect_python_sources(sandbox, "/ws")  # type: ignore[arg-type]
 
     assert sources == {"app/a.py": "x = 1\n"}
-    assert len(sandbox.commands) == 1
+    assert len(sandbox.commands) == 2
+    assert "os.walk" in sandbox.commands[-1]
+
+
+def test_collect_sources_falls_back_to_empty_on_failure() -> None:
+    """索引失败必须回退成空索引，不能把主流程带崩。"""
+
+    class _Broken(_FakeSandbox):
+        def run(self, command, *, cwd=None, timeout=None):  # noqa: ANN001
+            self.commands.append(command)
+            return ExecResult(
+                command=command,
+                exit_code=1,
+                stdout="",
+                stderr="python3: not found",
+                duration_ms=0,
+            )
+
+    assert collect_python_sources(_Broken({}), "/ws") == {}  # type: ignore[arg-type]

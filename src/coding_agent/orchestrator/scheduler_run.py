@@ -23,13 +23,14 @@ from coding_agent.config import Settings
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
 from coding_agent.orchestrator.contracts import WorkerResult
 from coding_agent.orchestrator.graph import mark_blocked, validate_proposals
+from coding_agent.orchestrator.merge_journal import MergeJournal
 from coding_agent.orchestrator.merge_queue import MergeQueue
-from coding_agent.orchestrator.scheduler import (
-    _deps_met,
-    _fallback_result,
-    _retry_context,
-    _task_depth,
-    _wire_implement_dependents,
+from coding_agent.orchestrator.scheduler_plan import (
+    deps_met,
+    fallback_result,
+    retry_context,
+    task_depth,
+    wire_implement_dependents,
 )
 from coding_agent.orchestrator.scheduling import (
     RateLimitState,
@@ -106,7 +107,7 @@ class SchedulerRun:
                 time.monotonic() + seconds if seconds > 0 else 0.0
             )
 
-        _wire_implement_dependents(self.tasks)
+        wire_implement_dependents(self.tasks)
         self.by_id = {str(task["id"]): task for task in self.tasks}
 
         for task in self.tasks:
@@ -145,7 +146,8 @@ class SchedulerRun:
         self.budget = TokenBudget(
             settings.orchestrator_total_tokens, self.results
         )
-        self.merge_queue = MergeQueue()
+        self.merge_journal = MergeJournal(sandbox, root)
+        self.merge_queue = MergeQueue(self.merge_journal)
         self.token_budget_exhausted = False
         self.ready: list[tuple[int, int, str]] = []
         self.ready_at: dict[str, float] = {}
@@ -200,7 +202,7 @@ class SchedulerRun:
         )
         self.extension_errors.extend(errors)
         for task in new_tasks:
-            task["depth"] = _task_depth(
+            task["depth"] = task_depth(
                 self.tasks, str(task["id"])
             )
             self.tasks.append(task)
@@ -218,7 +220,7 @@ class SchedulerRun:
                 continue
             if task_id in self.in_flight or task_id in self.queued:
                 continue
-            if not _deps_met(task, self.status):
+            if not deps_met(task, self.status):
                 continue
             now = time.monotonic()
             self.ready_at.setdefault(task_id, now)
@@ -392,7 +394,7 @@ class SchedulerRun:
             self.status[task_id] = "pending"
             task = self.by_id.get(task_id)
             if task is not None:
-                task["retry_context"] = _retry_context(record)
+                task["retry_context"] = retry_context(record)
         else:
             self.status[task_id] = str(
                 record.get("status", "failed")
@@ -537,7 +539,7 @@ class SchedulerRun:
             try:
                 result = future.result()
             except asyncio.CancelledError:
-                result = _fallback_result(
+                result = fallback_result(
                     self.by_id,
                     task_id,
                     "cancelled",
@@ -545,7 +547,7 @@ class SchedulerRun:
                     timed_out=True,
                 )
             except Exception as exc:  # noqa: BLE001
-                result = _fallback_result(
+                result = fallback_result(
                     self.by_id,
                     task_id,
                     "failed",
@@ -589,6 +591,20 @@ class SchedulerRun:
     async def run(self) -> dict[str, Any]:
         if not self.tasks:
             return self._no_tasks_result()
+        # 上次运行被 kill 时 worktree 清理没机会执行；此刻还没有 implement
+        # 在飞（`prune_orphan_worktrees` 会 rm -rf 整个目录），可以安全清残留。
+        if (
+            self.settings.orchestrator_write_enabled
+            and self.sandbox is not None
+            and self.root
+        ):
+            from coding_agent.orchestrator.implement import (
+                prune_orphan_worktrees,
+            )
+
+            await asyncio.to_thread(
+                prune_orphan_worktrees, self.sandbox, self.root
+            )
         if self.state.get("steering_cancelled"):
             for task in self.tasks:
                 if (

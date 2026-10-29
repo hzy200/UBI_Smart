@@ -39,7 +39,12 @@ class _FakeSandbox:
         self.files = files
 
     def run(self, script: str, **_: Any) -> _Result:
-        del script
+        if script.startswith("rm -rf -- "):
+            target = script[len("rm -rf -- "):].strip().strip("'")
+            for path in list(self.files):
+                if path == target or path.startswith(target + "/"):
+                    self.files.pop(path, None)
+            return _Result("")
         names = sorted(
             path[len(BACKUP_PREFIX) :]
             for path in self.files
@@ -255,3 +260,33 @@ def test_rolling_back_a_creation_twice_is_a_no_op() -> None:
     assert result.ok is True
     assert "无需回滚" in result.message
     assert result.undo_snapshot_id is None
+
+
+def test_prune_keeps_newest_and_respects_age(tmp_path) -> None:
+    newest = "20261028T000000000000000-aaaaaa"
+    middle = "20261027T000000000000000-bbbbbb"
+    oldest = "20200101T000000000000000-cccccc"
+    files = {
+        f"{BACKUP_PREFIX}{newest}/a.py": "1",
+        f"{BACKUP_PREFIX}{middle}/a.py": "2",
+        f"{BACKUP_PREFIX}{oldest}/a.py": "3",
+        # 非本模块生成的目录名不能被 rm。
+        f"{BACKUP_PREFIX}not-a-snapshot/a.py": "4",
+    }
+    store, _ = _store(files, manifest_root=tmp_path / "manifest")
+    for sid in (newest, middle, oldest):
+        manifest = store._manifest_path(sid)
+        assert manifest is not None
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}", encoding="utf-8")
+
+    removed = store.prune(keep=1, max_age_days=30)
+    assert set(removed) == {middle, oldest}
+    assert store._manifest_path(newest).exists()
+    assert not store._manifest_path(middle).exists()
+
+    # keep 足够大时，只按天数删除。
+    removed = store.prune(keep=10, max_age_days=30)
+    assert removed == []
+    removed = store.prune(keep=0, max_age_days=30)
+    assert set(removed) == {newest}

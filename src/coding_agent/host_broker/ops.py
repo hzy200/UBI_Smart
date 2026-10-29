@@ -611,10 +611,8 @@ class HostReadOnlyOps:
             frame, str(upload["relative"]), "write"
         )
         expected = upload.get("expected")
-        try:
-            self._check_expected(path, expected)
-        except BrokerOpError:
-            raise
+        # `BrokerOpError` 原样上抛；包一层 try 只会让栈更厚。
+        self._check_expected(path, expected)
         data = bytes(upload["data"])
         snapshot_id = self._save_snapshot(root, path)
         try:
@@ -682,17 +680,14 @@ class HostReadOnlyOps:
                     )
                 uploads.append(upload)
         checked: list[tuple[str, str, bytes, str]] = []
-        try:
-            for upload in uploads:
-                root, path = self._resolve_path(
-                    frame, str(upload["relative"]), "write"
-                )
-                self._check_expected(path, upload.get("expected"))
-                checked.append(
-                    (root, path, bytes(upload["data"]), upload["relative"])
-                )
-        except BrokerOpError:
-            raise
+        for upload in uploads:
+            root, path = self._resolve_path(
+                frame, str(upload["relative"]), "write"
+            )
+            self._check_expected(path, upload.get("expected"))
+            checked.append(
+                (root, path, bytes(upload["data"]), upload["relative"])
+            )
         snapshots: list[tuple[str, str]] = []
         written: list[tuple[str, str, bytes]] = []
         try:

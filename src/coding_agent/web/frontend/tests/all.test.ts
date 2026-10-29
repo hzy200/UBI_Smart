@@ -1,5 +1,6 @@
 import './diff.test';
 import './drafts.test';
+import './error-boundary.test';
 import './error-report.test';
 import './file-icons.test';
 import './focus.test';

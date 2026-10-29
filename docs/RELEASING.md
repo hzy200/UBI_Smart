@@ -57,8 +57,8 @@ CI 的 `frontend` job 生成并校验该目录，上传为 `frontend-release` ar
 前后端**独立升版**：
 
 - 前端：`frontend/src/version.ts` 与 `package.json` 必须一致；
-- 后端：`coding_agent.__version__` 与 `pyproject.toml` 必须一致；
-- 不再要求前后端版本号相等；
+- 后端：`pyproject.toml` 从 `coding_agent.__version__` 动态读取，只有一处；
+- 不再要求前后端版本号相等；`scripts/check_version.py` 在 CI/Makefile 校验上述两组；
 - 前端版本必须 `>= MIN_FRONTEND_VERSION`；
 - API 版本由 `web/version.py` 的 `WEB_API_VERSION` 决定，当前 `v1`；
 - `MIN_API_VERSION`（当前 `v0`）表示仍在兼容窗口内的最旧 API 版本。

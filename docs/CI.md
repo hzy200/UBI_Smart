@@ -4,7 +4,7 @@ doc_id: ci
 title: 流水线（pipeline as code）
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-28
 review_cadence: 工作流文件变动时
 ---
 
@@ -23,7 +23,7 @@ review_cadence: 工作流文件变动时
 | 步骤 | 命令 |
 |---|---|
 | 前端构建/类型 | `python scripts/build_frontend.py` + `tsc --noEmit` + `git diff --exit-code` 用户端与管理端产物 |
-| 前端单测 / E2E | `npm test` + `npx playwright test`（含 `/admin` smoke） |
+| 前端单测 / E2E | `npm test` + `npx playwright test`（含 `/admin` smoke 与 axe WCAG A/AA 扫描） |
 | 生成独立产物 | `python scripts/build_frontend_release.py --skip-build` |
 | 校验产物 | `python scripts/check_frontend_release.py --dir dist/frontend/<version>` |
 | 上传 artifact | `frontend-release`（含 manifest.json / SHA256SUMS） |
@@ -34,12 +34,35 @@ review_cadence: 工作流文件变动时
 |---|---|
 | 安装 | `pip install -e ".[dev,ui,web,db]"` |
 | lint | `ruff check src tests` |
-| 测试 + 覆盖率 | `pytest -m "not wsl and not llm" --cov --cov-report=term-missing` |
+| 类型基线 | `mypy`（`pyproject.toml` 的 `[tool.mypy]`：security/access/terminal_text strict） |
+| 性能冒烟 | `python scripts/perf_smoke.py`（策略/终端/限流热路径，宽松阈值） |
+| SSE 并发冒烟 | `python scripts/sse_load_smoke.py`（20 路 × 200 token，假 runtime） |
+| 测试 + 覆盖率 | `pytest -m "not wsl and not wsl_env and not llm" --cov --cov-report=term-missing --cov-report=json:coverage.json` |
+| 承重模块覆盖率棘轮 | `python scripts/check_module_coverage.py --json coverage.json` |
+| 指标快照漂移 | `python scripts/snapshot_metrics.py --coverage coverage.json --collect --check` |
 | 执行契约 | `pytest -m execution -q` |
 | MySQL DDL 离线校验 | `pytest tests/unit/test_mysql_ddl.py` |
 | Phase D 故障演练 | `python scripts/phase_d_smoke.py --timeout 60` |
 | Phase F 迁移/回滚 | `python scripts/phase_f_drill.py` |
 | 显式化沙箱缺口 | `::warning::` 提示 wsl 用例未执行 |
+
+**承重模块覆盖率**由 `scripts/coverage_budget.json` 定义，每个模块独立下限；
+数字只许上升（`--update` 只抬高，故意下调需要 `--force`）。`docs/METRICS.md`
+与 `docs/metrics.json` 由 `scripts/snapshot_metrics.py` 从 `coverage.json` +
+`pytest --collect-only` 生成；CI 用 `--check` 校验测试数精确一致、覆盖率在
+平台容差内（总 2pp / 模块 3pp），过期就红，不再手抄数字。低于 85% 目标的
+模块会打印告警；夜间/发版可加 `--strict-target`。
+
+`backend-py311` job：`ubuntu-latest` + Python 3.11（`requires-python` 的下限），
+跑同一套快反馈。主 `backend` 用 3.12 产出覆盖率；这条 job 防止最低版本腐烂。
+
+`windows` job：`windows-latest` + Python 3.12，跑
+`pytest -m "not wsl and not wsl_env and not llm"`。它覆盖 Linux 上会被 skip 的 Windows
+路径（路径守卫、A2L host broker、desktop 启动链），不替代真实 WSL。
+
+`mysql` job：`mysql:8.0` service container + `AGENT_TEST_MYSQL_URL`，跑
+`pytest -m mysql`。覆盖迁移、账号/scrypt、会话、AES-GCM 密钥、配额预留/
+结算、用量累计与备份恢复；测试库名必须包含 `test`，用例会清空该库。
 
 必须装齐 `ui` / `web` extras：TUI（textual）与 Web（fastapi）测试需要它们，
 缺一个会导致 collection error 而非 skip。这两条都曾导致过 CI 失败。
@@ -51,7 +74,7 @@ review_cadence: 工作流文件变动时
 前端发版、兼容矩阵与回滚步骤见 [RELEASING.md](RELEASING.md)。
 
 **覆盖率门槛 `fail_under=76`** 按 CI 实际执行的子集定，不是贴着实测值
-（2026-10-24 CI 子集实测 **82.68%**，2,045 个用例；Linux/Windows 会有小幅漂移）。
+（2026-10-29 CI 子集实测 **83.34%**，3,002 个用例；Linux/Windows 会有小幅漂移）。
 子系统缺口见 [COVERAGE.md](COVERAGE.md)。原理见 `pyproject.toml` 的注释。
 
 五类测试（冒烟/单元/增量/集成/回归）的口径与放置规则见
@@ -60,14 +83,64 @@ review_cadence: 工作流文件变动时
 
 ### 已知缺口
 
-真实 MySQL 的账号/加密 Key/配额/用量/备份恢复契约用
-`AGENT_TEST_MYSQL_URL=... pytest -m mysql` 执行；CI 默认不带 MySQL 实例，
-但 `test_mysql_ddl.py` 会离线编译全部迁移，拦截方言问题。运维见
-[DATABASE.md](DATABASE.md)。
+真实 MySQL 契约已由 `mysql` job 覆盖；本地等价命令是
+`AGENT_TEST_MYSQL_URL=... pytest -m mysql`。迁移方言仍由
+`test_mysql_ddl.py` 离线编译兜底。运维见 [DATABASE.md](DATABASE.md)。
 
-CI 是 Linux runner、没有 WSL2，所以 `wsl` 标记的用例**一行都没跑**。
-沙箱层与能力层的覆盖全靠本地 `-m wsl`。CI 会用 `::warning::` 显式标注这一点——
-**"CI 全绿"绝不等于"沙箱层可用"**。
+Linux `backend` job 没有 WSL2，所以 `wsl` 标记的用例仍然**一行都没跑**；
+`windows` job 只覆盖不依赖 WSL 的 Windows 路径。真正的沙箱门禁见下一节，
+**"CI 全绿"仍不等于"沙箱层可用"**。
+
+## Sandbox（`.github/workflows/sandbox.yml`）
+
+触发：push 到 `main` / **pull_request** / 每天 UTC 04:00 / 手动
+`workflow_dispatch`。跑在 **self-hosted Windows + WSL2** runner 上
+（`runs-on: [self-hosted, Windows, X64]`）。注册 runner 后，必须把
+`Sandbox / wsl` 设为分支保护的 required check；否则它只是“有跑但不拦合并”。
+
+| 步骤 | 命令 |
+|---|---|
+| 预检 WSL/发行版 | `python scripts/check_sandbox_gate.py --local` |
+| 沙箱层全量 | `pytest -m "not llm" --cov --cov-report=json:coverage.json` |
+| 沙箱层覆盖率门槛 | `python scripts/check_layer_coverage.py --json coverage.json` |
+| 上传报告 | `sandbox-coverage`（`coverage.json`） |
+
+注册 runner 后用下面的命令核验分支保护是否真的把沙箱层设为 required：
+
+```bash
+GITHUB_TOKEN=... python scripts/check_sandbox_gate.py \
+  --repo <owner>/<name> --branch main
+```
+
+它只读 GitHub API；未配置时返回非零并提示需要 `Sandbox / wsl`。分支保护
+本身必须在仓库设置里由管理员开启，代码无法替代。
+
+为什么单独一条流水线：执行真实命令的那一层（路径守卫、写前快照、命令分级、
+文件写工具）**只能在有 WSL2 的机器上跑**；把它塞进 `ci.yml` 会让 Linux job
+要么跳过、要么红灯。而全局 `fail_under=76` 会被其它模块的高覆盖稀释 ——
+所以 `check_layer_coverage.py` 对这几个模块**另设下限**，只在真的执行过它们
+的机器上判定。
+
+前置条件：必须先注册一个带 WSL2 与项目发行版的 self-hosted runner；
+没注册时这个 job 会一直排队（`ci.yml` 不受影响，仍是绿灯）。
+这不是流水线的 bug，是"沙箱层无人看管"这一事实的可见化。
+
+本地等价：`pytest -m "not llm" --cov --cov-report=json:coverage.json` +
+`python scripts/check_layer_coverage.py --json coverage.json`。
+
+## Security（`.github/workflows/security.yml`）
+
+| Job | 内容 |
+|---|---|
+| `python-deps` | 干净环境装依赖后 `pip-audit --strict`，报告上传为 artifact |
+| `npm-deps` | 前端 `npm audit --audit-level=high` |
+| `sbom` | `cyclonedx-py environment` 生成 Python 依赖 SBOM，保留 90 天 |
+| `secrets-full` | gitleaks 全量历史扫描（`fetch-depth: 0`） |
+
+**为什么不在 `ci.yml` 里**：依赖 CVE 是随时间变化的 —— 今天全绿的 PR，明天有
+新 CVE 发布就会变红。把这种门禁挂在 PR 上会让"别人的 PR 红了"和"我的改动
+有问题"混为一谈。确定性、可归因的门禁（`ruff` 含 `S`、lint 预算、本次改动的
+密钥扫描）才留在 `ci.yml`。
 
 ## Docs（`.github/workflows/docs.yml`）
 
@@ -106,9 +179,15 @@ CI 是 Linux runner、没有 WSL2，所以 `wsl` 标记的用例**一行都没�
 ## 本地等价命令
 
 ```bash
-make check                        # ruff + 快反馈
+make check                        # ruff + mypy + 版本一致性 + 快反馈
 make smoke                        # 冒烟（秒级，无外部依赖）
+make perf                         # 热路径性能冒烟
+make load                         # SSE 并发冒烟
 make regression                   # 承重不变量回归集
+make cov                          # 覆盖率 + 承重模块棘轮
+make metrics                      # 由 coverage.json 重生成 docs/METRICS.md
+python scripts/check_module_coverage.py --json coverage.json
+python scripts/snapshot_metrics.py --coverage coverage.json --collect --write
 python scripts/select_tests.py --worktree   # 增量：只跑受影响的测试
 pytest -m "not llm"               # 全量（含真实 WSL）
 python scripts/gen_contracts.py   # 重生成契约

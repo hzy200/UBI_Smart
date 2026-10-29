@@ -1,0 +1,95 @@
+name: Security
+
+# 依赖漏洞扫描与全量密钥扫描。
+#
+# **为什么不在 ci.yml 里**：依赖 CVE 是**随时间变化**的 —— 今天全绿的 PR，
+# 明天有新 CVE 发布就会变红。把这种门禁挂在 PR 上，会让"别人的 PR 红了"和
+# "我的改动有问题"混为一谈。所以它单独一条流水线：定时跑全量、PR 上也能手动
+# 触发，结论归结论，不阻塞功能合入。
+#
+# 确定性、可归因的门禁（ruff S、lint 预算、本次改动的密钥扫描）留在 ci.yml。
+on:
+  pull_request:
+  schedule:
+    # 每天 UTC 05:00（北京时间 13:00）
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  python-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装（与 CI 同口径）与审计工具
+        run: |
+          pip install -e ".[dev,ui,web,db]"
+          pip install pip-audit
+      - name: 依赖漏洞审计
+        # 审计的是**本项目依赖闭包**（干净环境安装的结果），不是 runner 镜像
+        # 里预装的无关包 —— 后者会淹没真正需要修的东西。
+        run: pip-audit --strict --progress-spinner off
+      - name: 导出审计报告
+        if: always()
+        run: pip-audit --format json --output pip-audit.json --progress-spinner off || true
+      - name: 上传审计报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+          retention-days: 30
+
+  npm-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/coding_agent/web/frontend/package-lock.json
+      - name: 安装前端依赖
+        working-directory: src/coding_agent/web/frontend
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: npm ci
+      - name: 前端依赖漏洞审计
+        # 只卡 critical/high：audit 的中低危噪声太大，靠 Dependabot 跟进。
+        working-directory: src/coding_agent/web/frontend
+        run: npm audit --audit-level=high
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装依赖与 CycloneDX
+        run: |
+          pip install -e ".[dev,ui,web,db]"
+          pip install cyclonedx-bom
+      - name: 生成 Python 依赖 SBOM
+        run: cyclonedx-py environment -o sbom.json
+      - name: 上传 SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-python
+          path: sbom.json
+          retention-days: 90
+
+  secrets-full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 定时跑全量历史必须拉全，否则 gitleaks 只看到最新一次提交。
+          fetch-depth: 0
+      - name: 全量密钥扫描
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"

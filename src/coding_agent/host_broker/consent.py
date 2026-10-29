@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-import sys
+import logging
 import threading
 import time
 import urllib.request
@@ -17,6 +17,8 @@ from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from coding_agent.host_broker.protocol import Frame
+
+_LOG = logging.getLogger(__name__)
 
 # Tk 不是线程安全的：多个授权请求并发时串行弹窗，避免抢同一个解释器。
 _TK_LOCK = threading.Lock()
@@ -326,9 +328,8 @@ class RemoteConsent:
                     json.loads(response.read()).get("id") or ""
                 )
         except Exception as exc:  # noqa: BLE001 - fail closed
-            print(
-                f"A2L 授权桥不可用：{type(exc).__name__}: {exc}",
-                file=sys.stderr,
+            _LOG.warning(
+                "A2L 授权桥不可用：%s: %s", type(exc).__name__, exc
             )
             return False
         if not consent_id:

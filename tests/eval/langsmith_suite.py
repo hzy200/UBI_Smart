@@ -345,8 +345,10 @@ def _mechanism_shell_policy() -> dict[str, Any]:
             "read_allowed": classify("ls").level == CommandLevel.READ,
             "rm_danger": classify("rm -rf /").level
             == CommandLevel.DANGER,
+            # 工作区外/秘密文件的**读取**必须落在 L3：L2 在 `approve` 模式下
+            # 会被自动放行，停在 L2 等于 `cat .env` 无人确认就执行。
             "outside_path_escalated": classify("cat /etc/shadow").level
-            == CommandLevel.MUTATE,
+            == CommandLevel.DANGER,
         }
     )
 

@@ -12,6 +12,7 @@
 | `secrets.py` | `redact_secrets` / `secret_kinds` | 审计落盘、错误详情与工具结果回灌前的密钥脱敏 |
 | `read_policy.py` | `protected_read_reason` / `is_protected_read_path` / `might_reference_secret` | 拒绝把密钥读进模型上下文 |
 | `write_policy.py` | `protected_write_reason` | 即使有 `write_scope`，也拒绝直接写密钥、`.env`、`.git` 内部 |
+| `netguard.py` | `check_outbound_url` | 服务端外连（provider 探测）的 SSRF 守卫：解析后按 IP 判定 |
 
 ## 禁区
 
@@ -22,9 +23,12 @@
   不要为了脱敏破坏 `file_edit` 的精确替换语义。
 - `.env.example` / `.env.sample` 必须放行：它们本来就是给人看的模板。
 - 新增 secret pattern 必须同时有正向与负向用例，避免把正常代码误报。
+- `netguard.py` 的**默认拒绝**只能收紧：链路本地（云元数据）永远拒绝，
+  不受 `AGENT_PROVIDER_PROBE_ALLOW_PRIVATE_NETWORK` 影响；新增"看起来无害"
+  的放行网段会直接放大 SSRF 面。
 
 ## 依赖与测试
 
 - 只依赖 `config` 与标准库；不要 import `sandbox` / `tools` / `graph`。
-- 回归：`pytest -m "not llm" tests/unit/test_secrets.py tests/unit/test_read_protection.py tests/unit/test_write_policy.py`
+- 回归：`pytest -m "not llm" tests/unit/test_secrets.py tests/unit/test_read_protection.py tests/unit/test_write_policy.py tests/unit/test_netguard.py`
 - 安全边界与残余风险见 `docs/THREAT_MODEL.md`；改这里之前先对照威胁模型。

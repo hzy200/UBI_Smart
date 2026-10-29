@@ -29,10 +29,19 @@ def sign_context(header: str, key: str) -> str:
     ).hexdigest()
 
 
-def verify_context(header: str, signature: str, key: str) -> bool:
-    """key 为空时保持旧行为；非空时必须签名匹配。"""
+def verify_context(
+    header: str, signature: str, key: str, *, required: bool = False
+) -> bool:
+    """校验 A2 传来的 `X-Agent-Context`。
+
+    `key` 为空意味着没启用 HMAC。`required=False` 时保持旧行为（只依赖内部
+    Bearer token，兼容未升级的部署）；`required=True` 时**空 key 一律拒绝** ——
+    否则任何拿到内部 token 的人都能伪造 tenant / workspace / a2l_id。
+
+    拆分部署与非 loopback 绑定必须传 `required=True`。
+    """
     if not key:
-        return True
+        return not required
     if not signature:
         return False
     return hmac.compare_digest(

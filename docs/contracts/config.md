@@ -9,7 +9,7 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **251** 个配置项。
+共 **300** 个配置项。
 
 ## 通用
 
@@ -18,10 +18,16 @@
 | `AGENT_AGENT_DATA_ROOT` | `agent_data_root` | `str` | `""` | Agent Server 的租户数据根；空 = 审计目录旁的 agent/。 |
 | `AGENT_ALLOW_GIT_CLONE` | `allow_git_clone` | `bool` | `false` | 本期不实现 git clone；保留开关，未来接入内部 Git 服务时打开。 |
 | `AGENT_ALLOW_RULES` | `allow_rules` | `str` | `""` | 持久放行规则，逗号分隔的 `tool:glob`，例如 `shell_exec:git status*,run_tests:*`。只覆盖原本会 ASK 的 L2。 |
+| `AGENT_APPROVAL_FOUR_EYES` | `approval_four_eyes` | `bool` | `false` | 四眼审批：L3 默认；0 = 关闭（但仍可用独立开关关闭整个特性）。 |
+| `AGENT_APPROVAL_FOUR_EYES_MIN_LEVEL` | `approval_four_eyes_min_level` | `int` | `3` |  |
 | `AGENT_APPROVAL_MODE` | `approval_mode` | `str` | `"ask"` | ask（逐条询问）\| approve（自动放行 L2；L3 仍需确认）\| deny（一律拒绝） |
+| `AGENT_APPROVAL_TTL_S` | `approval_ttl_s` | `int` | `3600` |  |
 | `AGENT_AUDIT_DIR` | `audit_dir` | `str` | `""` | 留空表示自动用 <当前目录>/.agent/audit |
 | `AGENT_AUDIT_ENABLED` | `audit_enabled` | `bool` | `true` |  |
-| `AGENT_AUDIT_MAX_MB` | `audit_max_mb` | `int` | `0` | 单个审计文件超过该大小（MB）就轮转；0 表示不轮转 |
+| `AGENT_AUDIT_MAX_MB` | `audit_max_mb` | `int` | `256` | 单个审计文件超过该大小（MB）就轮转；0 表示不轮转 |
+| `AGENT_AUDIT_SYSLOG_ADDRESS` | `audit_syslog_address` | `str` | `""` | SIEM 导出：host:port（UDP syslog），每条审计 JSON 一行；空 = 不导出。 |
+| `AGENT_AUDIT_WEBHOOK_TOKEN` | `audit_webhook_token` | `str` | `""` |  |
+| `AGENT_AUDIT_WEBHOOK_URL` | `audit_webhook_url` | `str` | `""` | SIEM webhook：POST 每行审计 JSON；空 = 不导出。 |
 | `AGENT_BILLING_ENABLED` | `billing_enabled` | `bool` | `false` | 是否在 run 结束时拉取 provider 账单做对账；默认关闭避免额外网络请求。 |
 | `AGENT_BILLING_TIMEOUT_S` | `billing_timeout_s` | `float` | `10.0` |  |
 | `AGENT_CHECKPOINT_KEEP` | `checkpoint_keep` | `int` | `200` | 每个 thread/命名空间保留的 checkpoint 数；0 = 不轮转。 每轮工具调用都会落一个 checkpoint，长期使用需要上限。 |
@@ -56,6 +62,7 @@
 | `AGENT_DELEGATE_MEDIUM_FILES` | `delegate_medium_files` | `int` | `100` |  |
 | `AGENT_DELEGATE_MIN_FILES` | `delegate_min_files` | `int` | `30` | ---- 成本感知的委派预算（按仓库文件数分级）---- 小于 min_files：不委派，直接读；[min, medium)：medium_calls； [medium, large)：large_calls；>= large：max_delegate_calls。 |
 | `AGENT_DEPS_DETECT_TTL_S` | `deps_detect_ttl_s` | `float` | `30.0` | 包管理器探测缓存时间；安装后会主动失效。 |
+| `AGENT_DRAIN_TIMEOUT_S` | `drain_timeout_s` | `int` | `60` | SIGTERM 优雅退出：A3 停止接收新运行并等待进行中的运行自然结束； 超时后取消，A2 用同一数值约束 uvicorn 在途请求。0 = 不等待。 |
 | `AGENT_EVENT_TRANSPORT` | `event_transport` | `str` | `"memory"` | ---------- 共享事件传输（Phase B3） ---------- memory = 单实例内存；redis = Redis Streams（多实例 SSE 重放）。 |
 | `AGENT_EVENT_TRANSPORT_MAXLEN` | `event_transport_maxlen` | `int` | `10000` |  |
 | `AGENT_EVENT_TRANSPORT_PREFIX` | `event_transport_prefix` | `str` | `"coding-agent:events"` |  |
@@ -106,6 +113,7 @@
 | `AGENT_IDEMPOTENCY_TTL_S` | `idempotency_ttl_s` | `int` | `600` | 幂等键保留时间。 |
 | `AGENT_INSTRUCTIONS_ENABLED` | `instructions_enabled` | `bool` | `true` | 是否发现并注入仓库内的 AGENTS.md / CLAUDE.md（分层项目指令）。 |
 | `AGENT_INTERNAL_HMAC_KEY` | `agent_internal_hmac_key` | `str` | `""` | 空 = 只依赖内部 Bearer token（兼容旧部署）； 非空 = A2 对 X-Agent-Context 做 HMAC，A3 验签。 |
+| `AGENT_INTERNAL_HMAC_REQUIRED` | `agent_internal_hmac_required` | `bool` | `false` | 是否**要求** A2 发来的 X-Agent-Context 带 HMAC 签名（非空 key）。 空 = 兼容未升级的部署，只靠内部 Bearer token；拆分部署应显式设 true。 A3 绑在非 loopback 地址时无论这里怎么配都强制要求（启动时校验）。 |
 | `AGENT_INTERNAL_TOKEN` | `agent_internal_token` | `str` | `""` |  |
 | `AGENT_INTERNAL_URL` | `agent_internal_url` | `str` | `""` | ---------- A2 → A3 内部连接（Phase B4） ---------- 空 = A2 与 Agent 同进程（默认，兼容旧部署）。 |
 | `AGENT_LLM_AIMD_MAX` | `llm_aimd_max` | `int` | `8` |  |
@@ -116,6 +124,7 @@
 | `AGENT_LLM_ROUTING_STRATEGY` | `llm_routing_strategy` | `str` | `"cost"` | cost（按 provider 单价排序）\| priority（按配置顺序） |
 | `AGENT_LLM_TEMPERATURE` | `llm_temperature` | `float` | `0.0` |  |
 | `AGENT_LLM_TIMEOUT` | `llm_timeout` | `int` | `120` |  |
+| `AGENT_LOG_FORMAT` | `log_format` | `str` | `"text"` | text \| json；容器/日志采集建议 json。 |
 | `AGENT_LSP_COMMAND` | `lsp_command` | `str` | `""` | 可选 language server 命令；空 = 不启用（symbol_search 仍用 AST）。 |
 | `AGENT_LSP_DIAGNOSTICS_WAIT_S` | `lsp_diagnostics_wait_s` | `float` | `2.0` | pull 诊断不可用时，等待 publishDiagnostics 的最长时间。 |
 | `AGENT_LSP_TIMEOUT` | `lsp_timeout` | `float` | `10.0` |  |
@@ -146,7 +155,28 @@
 | `AGENT_MEMORY_TOP_K` | `memory_top_k` | `int` | `8` | 每次运行注入系统提示的长期记忆条数（按与请求的相关度取前 K 条）。 0 表示不限制，整份注入 —— 记忆上限 50 条，但每条都会进入每一轮 system prompt。 |
 | `AGENT_MEMORY_VECTOR_ENABLED` | `memory_vector_enabled` | `bool` | `false` | 可选向量检索：默认关闭，开启后仍以 BM25 为回退。 |
 | `AGENT_MEMORY_VECTOR_TOP_N` | `memory_vector_top_n` | `int` | `20` |  |
+| `AGENT_METRICS_TOKEN` | `metrics_token` | `str` | `""` | A2 /metrics 的抓取 token；空 = 复用普通 Web 认证。 |
+| `AGENT_MFA_CHALLENGE_TTL_S` | `mfa_challenge_ttl_s` | `int` | `300` |  |
+| `AGENT_MFA_ENABLED` | `mfa_enabled` | `bool` | `false` |  |
+| `AGENT_MFA_ISSUER` | `mfa_issuer` | `str` | `"CodingAgent"` |  |
+| `AGENT_MFA_MAX_ATTEMPTS` | `mfa_max_attempts` | `int` | `5` |  |
+| `AGENT_MFA_WINDOW_STEPS` | `mfa_window_steps` | `int` | `1` |  |
 | `AGENT_NUDGE_EMPTY_STEPS` | `nudge_empty_steps` | `bool` | `true` | 「一步没有任何改动」时是否给它一次重做的机会。  背景：`dirty=False` 时 verify 与 review 都会短路，控制流直接 advance —— 于是「这一步只读了文件」与「这一步做完了」在图上**无法区分**。实测过一整批 长程任务因此把计划"读"完就算完成：10 次运行里 5 次一次写都没尝试过。  默认开启，但**必须可关**：它会改变所有任务的行为，现有基线因此不再可比 （评测的 baseline 里记了这个开关）。 |
+| `AGENT_OIDC_ALLOW_INSECURE_HTTP` | `oidc_allow_insecure_http` | `bool` | `false` | 仅本地开发允许 http:// issuer；生产必须 HTTPS。 |
+| `AGENT_OIDC_AUTO_CREATE_USERS` | `oidc_auto_create_users` | `bool` | `true` |  |
+| `AGENT_OIDC_CLIENT_ID` | `oidc_client_id` | `str` | `""` |  |
+| `AGENT_OIDC_CLIENT_SECRET` | `oidc_client_secret` | `str` | `""` |  |
+| `AGENT_OIDC_DEFAULT_ROLE` | `oidc_default_role` | `str` | `"member"` |  |
+| `AGENT_OIDC_EMAIL_CLAIM` | `oidc_email_claim` | `str` | `"email"` |  |
+| `AGENT_OIDC_ENABLED` | `oidc_enabled` | `bool` | `false` | --- 企业身份（RFC-0004）--- |
+| `AGENT_OIDC_HTTP_TIMEOUT_S` | `oidc_http_timeout_s` | `float` | `10.0` |  |
+| `AGENT_OIDC_ISSUER` | `oidc_issuer` | `str` | `""` |  |
+| `AGENT_OIDC_REDIRECT_URI` | `oidc_redirect_uri` | `str` | `""` |  |
+| `AGENT_OIDC_ROLE_CLAIM` | `oidc_role_claim` | `str` | `"groups"` |  |
+| `AGENT_OIDC_ROLE_MAP` | `oidc_role_map` | `str` | `""` | JSON: {"idp-group": "admin", ...}；未命中用 default_role。 |
+| `AGENT_OIDC_SCOPES` | `oidc_scopes` | `str` | `"openid profile email"` |  |
+| `AGENT_OIDC_STATE_TTL_S` | `oidc_state_ttl_s` | `int` | `600` |  |
+| `AGENT_OIDC_USERNAME_CLAIM` | `oidc_username_claim` | `str` | `"preferred_username"` |  |
 | `AGENT_ORCHESTRATOR_ADD_EXPLORE_TESTS` | `orchestrator_add_explore_tests` | `bool` | `false` | 只读模式下模型只给一个任务时，是否强行补一个「找测试」explore 任务。 默认关闭：这会增加一次 worker 成本，只有演示并发/确实需要测试画像时才值得。 |
 | `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` | `orchestrator_allow_overlap` | `bool` | `false` | 允许多个 implement 修改同一文件；合并时用 git apply --3way。 有真实冲突时只回滚本分量，不会把冲突标记落进主工作区。 |
 | `AGENT_ORCHESTRATOR_CHECKPOINT_EVERY` | `orchestrator_checkpoint_every` | `int` | `4` | scheduler 每完成多少个任务返回一次父图，形成 checkpoint/干预边界。 |
@@ -170,9 +200,16 @@
 | `AGENT_ORCHESTRATOR_WRITE_ENABLED` | `orchestrator_write_enabled` | `bool` | `false` | ---- Phase 3C：并发写 worker（默认关闭）---- 打开后，orchestrator 才可能生成 implement 任务；还要求 --write、工作区是 git 仓库且干净。worker 在独立 git worktree 中修改，完成后由宿主合并补丁。 |
 | `AGENT_ORCHESTRATOR_WRITE_PLAN_APPROVAL` | `orchestrator_write_plan_approval` | `bool` | `false` | 派发 implement 前一次性展示 write_scope 并等待确认（并发区不弹审批）。 |
 | `AGENT_ORCHESTRATOR_WRITE_SCOPE_ENFORCE` | `orchestrator_write_scope_enforce` | `bool` | `true` | 写 worker 的 write_scope 在 I/O 前强制校验（三重防线之一）。 |
+| `AGENT_OTEL_ENDPOINT` | `otel_endpoint` | `str` | `""` | OTLP HTTP trace；空 = 关闭。需要 `pip install -e ".[otel]"`。 |
+| `AGENT_OTEL_HEADERS` | `otel_headers` | `str` | `""` | `k=v,k2=v2` 形式的 collector headers。 |
+| `AGENT_OTEL_SERVICE_NAME` | `otel_service_name` | `str` | `"coding-agent"` |  |
 | `AGENT_PERSISTENT_SHELL` | `persistent_shell` | `bool` | `true` | 常驻 WSL bash 会话池。默认开启：实测读/检索从 ~170ms 降到 ~20ms。 会话异常时会自动退回逐命令 wsl.exe，因此可安全地作为默认值。 |
 | `AGENT_PERSISTENT_SHELL_POOL` | `persistent_shell_pool` | `int` | `4` |  |
+| `AGENT_PROVIDER_PROBE_ALLOWED_HOSTS` | `provider_probe_allowed_hosts` | `str` | `""` | 目标主机后缀白名单（逗号分隔，如 `deepseek.com,openai.com`）； 空 = 不额外限制，仍需过 IP 判定。企业部署建议填上，可以顺带收敛 DNS rebinding 的残余风险。 |
+| `AGENT_PROVIDER_PROBE_ALLOW_PRIVATE_NETWORK` | `provider_probe_allow_private_network` | `bool` | `false` | ---------- 服务端外连守卫（SSRF） ---------- provider 连通性探测会带上真实 API Key，目标必须过 security/netguard.py 的解析后 IP 判定。默认拒绝回环 / 内网 / 保留地址； 链路本地（169.254.169.254 等云元数据）**永远**拒绝，不受此开关影响。 本机或内网 OpenAI-compatible 端点显式打开它。 |
 | `AGENT_QUOTA_RESERVATION_TTL_S` | `quota_reservation_ttl_s` | `int` | `3600` | 配额预留的存活时间；进程崩溃后由其他实例/下次启动清理。 |
+| `AGENT_RATE_LIMIT_BACKEND` | `rate_limit_backend` | `str` | `"memory"` | memory = 单进程内存；redis = 多实例共享固定窗口。 |
+| `AGENT_RATE_LIMIT_REDIS_URL` | `rate_limit_redis_url` | `str` | `""` |  |
 | `AGENT_RATE_LIMIT_STATE_PATH` | `rate_limit_state_path` | `str` | `""` | 跨进程限流状态文件；留空 = <当前目录>/.agent/rate_limits.json；:memory: 关闭 |
 | `AGENT_READ_CACHE_MAX_BYTES` | `read_cache_max_bytes` | `int` | `"64 * 1024 * 1024"` | run 级文件内容缓存的字节上限（LRU）。0 = 关闭缓存。 |
 | `AGENT_READ_DENY_GLOBS` | `read_deny_globs` | `str` | `"DEFAULT_READ_DENY_GLOBS"` | 秘密文件读保护 glob（逗号分隔）；.env.example 等模板自动放行。 |
@@ -201,6 +238,14 @@
 | `AGENT_SHELL_NETWORK` | `shell_network` | `bool` | `true` | 仅 bwrap 模式生效：false 时加 --unshare-net，命令完全无网络。 off 模式没有内核级隔离，词法策略无法禁止 curl/wget 出网。 |
 | `AGENT_SHELL_SANDBOX` | `shell_sandbox` | `str` | `"off"` | shell 隔离后端：off（默认，仅工作区 cwd 约束）\| bwrap（挂载命名空间隔离） bwrap 模式下若沙箱内不可用，会**拒绝执行**（fail closed），不静默降级 |
 | `AGENT_SHELL_TIMEOUT` | `shell_timeout` | `int` | `60` |  |
+| `AGENT_SMTP_FROM` | `smtp_from` | `str` | `""` |  |
+| `AGENT_SMTP_HOST` | `smtp_host` | `str` | `""` | 自助密码重置邮件（SMTP）；host 为空 = 不发送。 |
+| `AGENT_SMTP_PASSWORD` | `smtp_password` | `str` | `""` |  |
+| `AGENT_SMTP_PORT` | `smtp_port` | `int` | `587` |  |
+| `AGENT_SMTP_STARTTLS` | `smtp_starttls` | `bool` | `true` |  |
+| `AGENT_SMTP_USER` | `smtp_user` | `str` | `""` |  |
+| `AGENT_SNAPSHOT_KEEP_COUNT` | `snapshot_keep_count` | `int` | `200` | 快照保留：每次运行开始清理，保留最新 N 份且不超过 M 天。0 = 不按该维度清理。 |
+| `AGENT_SNAPSHOT_KEEP_DAYS` | `snapshot_keep_days` | `int` | `30` |  |
 | `AGENT_SNAPSHOT_MANIFEST_DIR` | `snapshot_manifest_dir` | `str` | `""` | 快照校验清单根目录；留空 = 用户主目录下的 .codingagent/snapshots。 放在工作区外，shell 级篡改快照内容也能在恢复时被发现。 |
 | `AGENT_STEERING_DIR` | `steering_dir` | `str` | `""` | 未消费 steering 指令的持久化目录；留空 = <当前目录>/.agent/steering |
 | `AGENT_SYMBOL_INDEX_TTL_S` | `symbol_index_ttl_s` | `float` | `10.0` | AST 符号索引缓存时间；写操作不会主动失效，过期后自动重建。 |
@@ -230,10 +275,14 @@
 | `AGENT_WEB_MAX_UPLOAD_FILES` | `web_max_upload_files` | `int` | `20` | 单次请求最多上传几个文件。 |
 | `AGENT_WEB_MAX_UPLOAD_TOTAL_BYTES` | `web_max_upload_total_bytes` | `int` | `209715200` | 每个会话累计上传上限，防止反复上传占满工作区。 |
 | `AGENT_WEB_MEMORY_ROOT` | `web_memory_root` | `str` | `""` | per-user WSL 侧记忆根目录；空 = 沙箱 $HOME/agent-memory。 记忆在沙箱内、仓库之外，避免不可信仓库预置记忆。 |
-| `AGENT_WEB_QUOTA_RESERVE_TOKENS` | `web_quota_reserve_tokens` | `int` | `0` | 运行前为 token 限额预留的量；0 = 只做事后限额。 |
+| `AGENT_WEB_OPENAPI` | `web_openapi` | `bool` | `false` | /openapi.json 与 /docs；默认关闭，避免把完整路由表暴露给公网。 |
+| `AGENT_WEB_PASSWORD_RESET_TTL_S` | `web_password_reset_ttl_s` | `int` | `1800` |  |
+| `AGENT_WEB_PUBLIC_URL` | `web_public_url` | `str` | `""` | 对外访问根，用于邮件里的重置链接；空 = 邮件只带 token。 |
+| `AGENT_WEB_QUOTA_RESERVE_TOKENS` | `web_quota_reserve_tokens` | `int` | `20000` | 运行前为 token 限额预留的量；0 = 只做事后限额。默认预留一段， 让并发/长 run 在真正超额前被硬上限拦住。 |
 | `AGENT_WEB_RATE_LIMIT_PER_MIN` | `web_rate_limit_per_min` | `int` | `60` |  |
 | `AGENT_WEB_RUNTIME_TTL_S` | `web_runtime_ttl_s` | `int` | `1800` | 挂起 runtime 的空闲保留时间；超时后释放，resume 时从 checkpoint 重建。 |
 | `AGENT_WEB_SERVE_FRONTEND` | `web_serve_frontend` | `bool` | `true` | 是否由 A2 托管前端页面。独立静态站/CDN 部署时关闭，只保留 API； 桌面模式（desktop_mode）始终强制开启，否则没有页面可加载。 |
+| `AGENT_WEB_SESSION_IDLE_TTL_S` | `web_session_idle_ttl_s` | `int` | `0` | 空闲超时：超过该时长没有请求则失效；仍受上面的绝对 TTL 限制。 0 = 关闭（只使用绝对 TTL）。 |
 | `AGENT_WEB_SESSION_TTL_S` | `web_session_ttl_s` | `int` | `"12 * 3600"` |  |
 | `AGENT_WEB_STATIC_DIR` | `web_static_dir` | `str` | `""` | /static 挂载目录；空 = 与 web_frontend_dir 相同。 发布包通常为 <frontend_dir>/static，包内则两者同目录。 |
 | `AGENT_WEB_WORKSPACES_ROOT` | `web_workspaces_root` | `str` | `""` | per-user 工作区根目录；空 = 沙箱 $HOME/agent-ws/users。 |
@@ -246,7 +295,7 @@
 | `AGENT_WORKSPACE_MOUNT_ROOTS` | `workspace_mount_roots` | `str` | `""` | 允许的 /mnt 挂载根，逗号分隔；空 = 禁止任何挂载工作区。 |
 | `AGENT_WORKSPACE_REGISTRY` | `workspace_registry` | `bool` | `false` | ---------- 工作区注册表（RFC-0001，默认关闭） ---------- false = 继续使用 control_sessions.workspace 裸路径，行为与旧部署一致。 |
 | `AGENT_WORKSPACE_REVISIONS_KEEP` | `workspace_revisions_keep` | `int` | `10` | 每个工作区保留的 revision 数；超出后清理最旧的非 pinned 归档。 |
-| `AGENT_WORKSPACE_ROOT` | `workspace_root` | `str` | `""` | 工作区根；空 = 沿用租户 workspaces_root（TenantManager）。 必须是 A3/A4 视角的绝对 POSIX 路径。 |
+| `AGENT_WORKSPACE_ROOT` | `workspace_root` | `str` | `""` | 工作区根；空 = 沿用租户 workspaces_root（TenantManager）。 必须是 A3/A4 视角的绝对 POSIX 路径；host 工作区也可以写成 Windows 路径（`D:\ws`），校验时两侧都会归一化成 POSIX 再比较。 |
 | `AGENT_WORKSPACE_SCAN_PROVIDER` | `workspace_scan_provider` | `str` | `"none"` | none \| clamav；企业部署应在 M3 设为 clamav 并配合 fail-closed。 |
 | `AGENT_WORKSPACE_SCAN_TIMEOUT_S` | `workspace_scan_timeout_s` | `int` | `300` | ClamAV 单次扫描超时。 |
 | `AGENT_WORKSPACE_UPLOAD_MAX_BYTES` | `workspace_upload_max_bytes` | `int` | `209715200` | 项目归档上传上限（单包、需 Content-Length）；默认 200 MiB。 |

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from coding_agent.config import Settings
-from coding_agent.sandbox.fs import FileStat, SandboxFs
+from coding_agent.sandbox.fs import FileStat, SandboxFs, SandboxFsError
 from coding_agent.sandbox.wsl_exec import ExecResult
 from coding_agent.tools.artifacts import unpack
 from coding_agent.tools.files import build_file_tools
@@ -60,6 +60,42 @@ def test_file_read_rejects_a_symlink_to_a_secret(monkeypatch) -> None:
 
     assert artifact is not None
     assert artifact["rejected"] is True
+
+
+def test_file_read_refuses_when_the_real_path_is_unknown(monkeypatch) -> None:
+    """stat 拿不到 realpath 时必须拒绝，而不是"当成没链接继续读"。
+
+    realpath 是链接绕过保护的**唯一**依据；沙箱探活超时、脚本被掐断、输出
+    无法解析都表现为 stat 抛错，后果与"绕过保护"一样：未经 realpath 校验的
+    内容直接进模型上下文。所以这里 fail-closed，同时计一次静默失败。
+    """
+    settings = Settings(_env_file=None, wsl_workspace="/ws")
+    monkeypatch.setattr(
+        SandboxFs,
+        "stat",
+        lambda self, path: (_ for _ in ()).throw(
+            SandboxFsError("无法读取文件状态：wsl.exe 超时")
+        ),
+    )
+    monkeypatch.setattr(
+        SandboxFs,
+        "read_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("stat 失败后不应再读文件")
+        ),
+    )
+    tools = build_file_tools(
+        settings, _NoExecSandbox(), allow_write=False  # type: ignore[arg-type]
+    )
+    read = next(tool for tool in tools if tool.name == "file_read")
+
+    text, artifact = unpack(
+        read.invoke({"path": "safe.txt", "reason": "看链接"})
+    )
+
+    assert artifact is not None
+    assert artifact["rejected"] is True
+    assert "无法解析文件的真实路径" in text
 
 
 class _SearchSandbox:

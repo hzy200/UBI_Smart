@@ -840,7 +840,9 @@ def test_audit_write_failure_surfaces_as_run_failed(tmp_path) -> None:
     """审计有缺口是这个项目不能接受的失败模式：宁可显式失败也不静默丢记录。"""
     blocker = tmp_path / "blocked"
     blocker.write_text("我是个文件，不是目录", encoding="utf-8")
-    settings = Settings(_env_file=None)
+    # 这条用例只验证审计失败；工作区锁的 fail-closed 在
+    # test_runtime_orchestrator 里单独覆盖。
+    settings = Settings(_env_file=None, workspace_lock_enabled=False)
     runtime = AgentRuntime(
         settings, workspace="/mnt/d/proj", audit=AuditLogger(blocker / "audit")
     )

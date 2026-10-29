@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from coding_agent.config import Settings
 from coding_agent.diffing import count_changes, unified_diff
 from coding_agent.execution.file_access import FileAccess, SandboxFileAccess
+from coding_agent.observability import note_silent_failure
 from coding_agent.sandbox.fs import SandboxFs, SandboxFsError, SandboxFsTooLarge
 from coding_agent.sandbox.pathguard import SandboxPathError
 from coding_agent.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
@@ -324,8 +325,15 @@ def build_file_tools(
         # 读保护必须看 realpath，否则链接会绕过保护。
         try:
             info = access.stat(target)
-        except (SandboxFsError, SandboxPathError):
-            info = None
+        except (SandboxFsError, SandboxPathError) as exc:
+            # realpath 是这道保护**唯一**的依据。拿不到它时必须拒绝，而不是
+            # 把 info 置 None 后继续读 —— 沙箱探活超时、脚本被掐断、输出无法
+            # 解析都会走到这里，而它们的后果与「链接绕过」完全一致：未做
+            # realpath 校验的内容直接进模型上下文。这里 fail-closed。
+            note_silent_failure("file_read_stat")
+            return _reject(
+                path, "read", f"无法解析文件的真实路径，已拒绝读取：{exc}"
+            )
         real_path = (
             str(info.get("real_path") or "")
             if isinstance(info, dict)

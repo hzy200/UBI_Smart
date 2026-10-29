@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import shlex
 import time
-from collections.abc import MutableMapping
+from collections.abc import Iterable, Mapping, MutableMapping
 from dataclasses import dataclass
 
 from coding_agent.sandbox.pathguard import (
@@ -27,6 +28,9 @@ from coding_agent.sandbox.pathguard import (
     is_within,
 )
 from coding_agent.sandbox.wsl_exec import WslSandbox
+
+# `collect_sources` 的返回标记：脚本最后一行是 `标记 + json`。
+SOURCES_MARKER = "AGENT_INDEX_JSON:"
 
 
 class SandboxFsError(RuntimeError):
@@ -49,6 +53,9 @@ class FileStat:
     is_file: bool
     size: int
     real_path: str
+    # 修改时间（epoch 秒，整数精度即可）。目录也有 mtime，用来判定锁是否过期：
+    # 早先这条信息只能靠 `stat -c %Y` 拼脚本，等于把 shell 又开了一个口子。
+    mtime: float = 0.0
 
 
 def _quote(path: str) -> str:
@@ -140,15 +147,18 @@ class SandboxFs:
 p={_quote(path)}
 if [ -e "$p" ] || [ -L "$p" ]; then
   size=$(stat -c %s -- "$p" 2>/dev/null || echo 0)
+  mtime=$(stat -c %Y -- "$p" 2>/dev/null || echo 0)
   if [ -e "$p" ]; then echo "EXISTS=1"; else echo "EXISTS=0"; fi
   if [ -f "$p" ]; then echo "FILE=1"; else echo "FILE=0"; fi
   echo "SIZE=$size"
+  echo "MTIME=$mtime"
   echo "REAL=$(realpath -m -- "$p")"
 else
   size=0
   echo "EXISTS=0"
   echo "FILE=0"
   echo "SIZE=0"
+  echo "MTIME=0"
   echo "REAL=$(realpath -m -- "$(dirname -- "$p")")/$(basename -- "$p")"
 fi
 """
@@ -167,6 +177,7 @@ fi
             is_file=data.get("FILE") == "1",
             size=int(data.get("SIZE") or 0),
             real_path=data.get("REAL", ""),
+            mtime=float(data.get("MTIME") or 0),
         )
         raw = data.get("DATA")
         if raw is None:
@@ -626,7 +637,76 @@ echo "REAL=$real_p"
             raise SandboxFsError(f"创建目录失败：{result.render(500)}")
         if self._cache is not None:
             self._cache.clear()
-        return result.stdout.strip().splitlines()[-1].removeprefix("REAL=")
+        lines = result.stdout.strip().splitlines()
+        if not lines:
+            # 脚本末尾一定会 `echo REAL=…`；没有输出说明沙箱回话被截断，
+            # 不能拿空串冒充路径（旧实现会在这里抛 IndexError）。
+            raise SandboxFsError(f"创建目录后未返回真实路径：{lexical}")
+        return lines[-1].removeprefix("REAL=")
+
+    def mkdir_exclusive(self, path: str) -> bool:
+        """原子创建目录：已存在返回 False（不带 `-p`）。
+
+        存在性判断就是"抢锁"的全部语义 —— `mkdir -p` 在目录已存在时也成功，
+        用它拿锁等于谁都能拿到，互斥形同虚设。父目录要先由调用方用 `mkdir()`
+        建好；父目录不存在时返回 False（当作没抢到）。
+        """
+        lexical = ensure_inside(path, self.root, cwd=self.root)
+        script = f"""\
+p={_quote(lexical)}
+root={_quote(self.real_root)}
+parent=$(dirname -- "$p")
+real_parent=$(realpath -m -- "$parent")
+case "$real_parent" in
+  "$root"|"$root"/*) ;;
+  *) echo "ESCAPED=$real_parent" >&2; exit 9 ;;
+esac
+if mkdir -- "$p" 2>/dev/null; then echo "CREATED=1"; else echo "CREATED=0"; fi
+"""
+        result = self._sandbox.run(script)
+        if not result.ok:
+            if "ESCAPED=" in (result.stderr or ""):
+                raise SandboxPathError(
+                    f"路径经符号链接逃出工作区，已拒绝创建目录：{lexical}"
+                )
+            raise SandboxFsError(f"创建目录失败：{result.render(500)}")
+        return _parse_kv(result.stdout).get("CREATED") == "1"
+
+    def rmdir(self, path: str) -> bool:
+        """删除**空**目录；非目录或非空一律报错，绝不递归。
+
+        只服务"撤销自己刚建的目录"（例如记忆写锁）。递归删除是 `rm -rf` 的
+        语义，不应该出现在文件 API 里 —— 调用方要是想清空一棵树，应该用
+        `list_dir` 自己走完再逐个 `remove`，让每一步都可见。
+        """
+        lexical = ensure_inside(path, self.root, cwd=self.root)
+        script = f"""\
+p={_quote(lexical)}
+root={_quote(self.real_root)}
+if [ -e "$p" ] || [ -L "$p" ]; then
+  real_p=$(realpath -m -- "$p")
+  case "$real_p" in
+    "$root"|"$root"/*) ;;
+    *) echo "ESCAPED=$real_p" >&2; exit 9 ;;
+  esac
+  if [ ! -d "$p" ] || [ -L "$p" ]; then echo "NOTDIR=$real_p" >&2; exit 10; fi
+  rmdir -- "$p" 2>/dev/null || exit 12
+fi
+"""
+        result = self._sandbox.run(script)
+        if not result.ok:
+            if "ESCAPED=" in (result.stderr or ""):
+                raise SandboxPathError(
+                    f"路径经符号链接逃出工作区，已拒绝删除目录：{lexical}"
+                )
+            if "NOTDIR=" in (result.stderr or ""):
+                raise SandboxFsError(f"不是目录，拒绝删除：{lexical}")
+            raise SandboxFsError(
+                f"删除目录失败（可能非空）：{result.render(500)}"
+            )
+        if self._cache is not None:
+            self._cache.clear()
+        return True
 
     def list_dir(
         self, path: str, *, max_depth: int = 1, limit: int = 200
@@ -666,6 +746,202 @@ find "$real_p" -mindepth 1 -maxdepth {depth} -printf '%y\\t%P\\n' 2>/dev/null \\
                 continue
             entries.append((kind, rel))
         return entries
+
+
+    def find_files(
+        self,
+        names: Iterable[str],
+        *,
+        max_depth: int = 4,
+        exclude_dirs: Iterable[str] = (),
+        limit: int = 200,
+    ) -> list[str]:
+        """按**文件名**递归查找，返回相对 `root` 的路径（不跟随符号链接）。
+
+        只服务"按名字找固定文件"（仓库指令文件就是典型）：调用方给的是文件名
+        清单而不是任意 `find` 表达式，所以这里不会退化成通用命令通道。
+        名字里带分隔符的条目直接忽略 —— 它只能用来限定 basename。
+        """
+        safe_names = [
+            str(name)
+            for name in names
+            if name and "/" not in str(name) and "\\" not in str(name)
+        ]
+        if not safe_names:
+            return []
+        depth = max(1, int(max_depth))
+        cap = max(1, int(limit))
+        name_expr = " -o ".join(f"-name {_quote(n)}" for n in safe_names)
+        excludes = " ".join(
+            f'-not -path "$real_root/{d}/*"'
+            for d in (str(item) for item in exclude_dirs)
+            if d and "/" not in d and "\\" not in d
+        )
+        script = f"""\
+root={_quote(self.real_root)}
+if [ ! -d "$root" ]; then echo "MISSING=1" >&2; exit 12; fi
+real_root=$(realpath -m -- "$root")
+find "$real_root" -maxdepth {depth} -type f \\( {name_expr} \\) {excludes} \\
+  -printf '%P\\n' 2>/dev/null | LC_ALL=C sort | head -n {cap}
+"""
+        result = self._sandbox.run(script)
+        if not result.ok:
+            if "MISSING=" in (result.stderr or ""):
+                raise SandboxFsError(f"目录不存在：{self.real_root}")
+            raise SandboxFsError(f"查找文件失败：{result.render(500)}")
+        return [line for line in result.stdout.splitlines() if line]
+
+
+    def collect_sources(
+        self,
+        suffixes: Iterable[str],
+        *,
+        exclude_dirs: Iterable[str] = (),
+        max_files: int = 2_000,
+        max_file_bytes: int = 1_000_000,
+        max_total_bytes: int = 32_000_000,
+    ) -> dict[str, str]:
+        """一次调用收集匹配后缀的文本源码，返回 `{相对路径: 内容}`。
+
+        只服务"读回来做静态分析"（Python AST 索引、repo map）：调用方给的是
+        后缀清单和三个上限，脚本由 A4 生成。**刻意不支持传任意脚本** —— 那等于
+        在 `fs` 里开一个通用执行入口，正是 TD-034 要关掉的东西。
+
+        为什么必须一次调用：逐文件 read_text 每个文件都要起一个 `wsl.exe`
+        （0.2–0.3s），两千个文件就是十分钟。`max_total_bytes` 是硬上限，内容会
+        整体经 stdout 回到宿主内存，只按单文件限制仍可能物化出数百 MB。
+        """
+        safe_suffixes = [
+            text
+            for text in (str(item) for item in suffixes)
+            if text.startswith(".") and text[1:].isalnum()
+        ]
+        if not safe_suffixes:
+            return {}
+        ignored = [
+            text
+            for text in (str(item) for item in exclude_dirs)
+            if text and "/" not in text and "\\" not in text
+        ]
+        script = f"""\
+python3 - <<'__AGENT_SOURCES__'
+import json, os
+suffixes = {json.dumps(safe_suffixes)}
+ignored = set({json.dumps(sorted(ignored))})
+out = {{}}
+count = 0
+total = 0
+for base, dirs, files in os.walk('.'):
+    dirs[:] = [d for d in dirs if d not in ignored]
+    for name in files:
+        if not name.endswith(tuple(suffixes)):
+            continue
+        path = os.path.relpath(os.path.join(base, name), '.')
+        path = path.replace(os.sep, '/')
+        try:
+            size = os.path.getsize(path)
+            if size > {int(max_file_bytes)}:
+                continue
+            if total + size > {int(max_total_bytes)}:
+                break
+            with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+                out[path] = fh.read()
+        except OSError:
+            continue
+        total += size
+        count += 1
+        if count >= {int(max_files)}:
+            break
+    if count >= {int(max_files)} or total >= {int(max_total_bytes)}:
+        break
+print('{SOURCES_MARKER}' + json.dumps(out))
+__AGENT_SOURCES__
+"""
+        result = self._sandbox.run(script, cwd=self.real_root)
+        if not result.ok:
+            raise SandboxFsError(f"收集源码失败：{result.render(500)}")
+        for line in reversed(result.stdout.splitlines()):
+            if not line.startswith(SOURCES_MARKER):
+                continue
+            try:
+                payload = json.loads(line[len(SOURCES_MARKER) :])
+            except json.JSONDecodeError as exc:
+                raise SandboxFsError(f"源码收集结果无法解析：{exc}") from exc
+            if not isinstance(payload, dict):
+                raise SandboxFsError("源码收集结果不是对象")
+            return {
+                str(key): str(value)
+                for key, value in payload.items()
+                if isinstance(value, str)
+            }
+        raise SandboxFsError("源码收集没有返回结果")
+
+
+    def count_files(
+        self,
+        groups: Mapping[str, Iterable[str]],
+        *,
+        exclude_dirs: Iterable[str] = (),
+        limit: int = 50_000,
+    ) -> dict[str, int]:
+        """按文件名 glob 分组统计文件数，**一次调用**拿回全部结果。
+
+        `groups` 形如 `{"total": (), "tests": ("test_*.py", "*_test.py")}`：
+        空元组表示"全部文件"。键名会拼进脚本的 `echo`，所以只接受字母数字
+        下划线；模式只接受 basename（带分隔符的条目忽略），命令仍由 A4 生成。
+
+        `limit` 是**每组**的扫描上限：估算量级不需要遍历完一个几十万文件的
+        仓库，`head` 提前截断就够了（结果是 min(实际, limit)）。
+        """
+        safe_groups: dict[str, list[str]] = {}
+        for key, patterns in groups.items():
+            name = str(key)
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+                continue
+            safe_groups[name] = [
+                text
+                for text in (str(item) for item in patterns)
+                if text and "/" not in text and "\\" not in text
+            ]
+        if not safe_groups:
+            return {}
+        cap = max(1, int(limit))
+        excludes = " ".join(
+            f'-not -path "$real_root/{d}/*"'
+            for d in (str(item) for item in exclude_dirs)
+            if d and "/" not in d and "\\" not in d
+        )
+        lines = [
+            f"root={_quote(self.real_root)}",
+            'real_root=$(realpath -m -- "$root")',
+            'if [ ! -d "$real_root" ]; then echo "MISSING=1" >&2; exit 12; fi',
+        ]
+        for name, patterns in safe_groups.items():
+            selector = ""
+            if patterns:
+                expr = " -o ".join(f"-name {_quote(item)}" for item in patterns)
+                selector = f"\\( {expr} \\)"
+            lines.append(
+                f'c_{name}=$(find "$real_root" -type f {selector} {excludes} '
+                f"-print 2>/dev/null | head -n {cap} | wc -l)"
+            )
+            lines.append(f'echo "{name}=$c_{name}"')
+        result = self._sandbox.run("\n".join(lines) + "\n")
+        if not result.ok:
+            if "MISSING=" in (result.stderr or ""):
+                raise SandboxFsError(f"目录不存在：{self.real_root}")
+            raise SandboxFsError(f"统计文件数失败：{result.render(500)}")
+        data = _parse_kv(result.stdout)
+        counts: dict[str, int] = {}
+        for name in safe_groups:
+            raw = data.get(name, "0").strip()
+            try:
+                counts[name] = int(raw)
+            except ValueError as exc:
+                raise SandboxFsError(
+                    f"统计结果不是数字：{name}={raw!r}"
+                ) from exc
+        return counts
 
 
 def _wrap(payload: str, width: int = 76) -> str:

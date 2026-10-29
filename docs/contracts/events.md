@@ -25,6 +25,7 @@
 | `tool` | `str` | `""` |  |
 | `command` | `str` | `""` |  |
 | `level` | `str` | `""` |  |
+| `level_int` | `int` | `0` | 数值等级（0–3）；四眼审批用它判断阈值，旧前端可忽略。 |
 | `reason` | `str` | `""` |  |
 
 ## `assistant_token`

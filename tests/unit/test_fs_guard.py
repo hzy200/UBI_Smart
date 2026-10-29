@@ -53,6 +53,104 @@ class _ScriptedSandbox:
         )
 
 
+class _OutputSandbox:
+    """按固定输出回应任意脚本，用来钉住脚本契约。"""
+
+    def __init__(
+        self, stdout: str = "", *, exit_code: int = 0, stderr: str = ""
+    ) -> None:
+        self.stdout = stdout
+        self.exit_code = exit_code
+        self.stderr = stderr
+        self.scripts: list[str] = []
+
+    def run(self, script: str, *, cwd: str | None = None, timeout: int | None = None):
+        self.scripts.append(script)
+        return ExecResult(
+            command=script,
+            exit_code=self.exit_code,
+            stdout=self.stdout,
+            stderr=self.stderr,
+            duration_ms=1,
+        )
+
+
+def _fs_with(sandbox: _OutputSandbox) -> SandboxFs:
+    fs = SandboxFs(sandbox, "/ws")  # type: ignore[arg-type]
+    fs._real_root = "/ws"
+    return fs
+
+
+# ---------------- 目录能力：find_files / mkdir_exclusive / rmdir ----------------
+
+
+def test_find_files_only_accepts_basenames() -> None:
+    """调用方只能限定文件名，不能借它拼出任意 find 表达式。"""
+    sandbox = _OutputSandbox("AGENTS.md\nsrc/AGENTS.md\n")
+    found = _fs_with(sandbox).find_files(
+        ["AGENTS.md", "../evil", "sub/CLAUDE.md"],
+        max_depth=4,
+        exclude_dirs=[".git", "node_modules"],
+    )
+
+    assert found == ["AGENTS.md", "src/AGENTS.md"]
+    script = sandbox.scripts[0]
+    assert "-name AGENTS.md" in script
+    assert "../evil" not in script
+    assert "sub/CLAUDE.md" not in script
+    assert '-not -path "$real_root/.git/*"' in script
+    assert "-maxdepth 4" in script
+
+
+def test_find_files_reports_missing_root() -> None:
+    sandbox = _OutputSandbox(exit_code=12, stderr="MISSING=1")
+    with pytest.raises(SandboxFsError):
+        _fs_with(sandbox).find_files(["AGENTS.md"])
+
+
+def test_mkdir_exclusive_returns_false_when_dir_exists() -> None:
+    """抢锁语义：已存在必须报 False，而不是像 `mkdir -p` 那样成功。"""
+    sandbox = _OutputSandbox("CREATED=0\n")
+    assert _fs_with(sandbox).mkdir_exclusive("/ws/.agent/lock.d") is False
+
+
+def test_mkdir_exclusive_reports_created() -> None:
+    sandbox = _OutputSandbox("CREATED=1\n")
+    assert _fs_with(sandbox).mkdir_exclusive("/ws/.agent/lock.d") is True
+
+
+def test_mkdir_exclusive_rejects_escaped_parent() -> None:
+    sandbox = _OutputSandbox(exit_code=9, stderr="ESCAPED=/etc")
+    with pytest.raises(SandboxPathError):
+        _fs_with(sandbox).mkdir_exclusive("/ws/link/x")
+
+
+def test_rmdir_refuses_non_directory() -> None:
+    sandbox = _OutputSandbox(exit_code=10, stderr="NOTDIR=/ws/a.txt")
+    with pytest.raises(SandboxFsError):
+        _fs_with(sandbox).rmdir("/ws/a.txt")
+
+
+def test_rmdir_never_recurses() -> None:
+    """脚本里只能是 `rmdir`，出现 `rm -r` 就等于把递归删除塞进了文件 API。"""
+    sandbox = _OutputSandbox()
+    assert _fs_with(sandbox).rmdir("/ws/.agent/lock.d") is True
+    script = sandbox.scripts[0]
+    assert "rmdir -- " in script
+    assert "rm -" not in script
+
+
+def test_stat_carries_mtime() -> None:
+    """锁过期判断要用 mtime，别再为它多跑一趟 `stat -c %Y`。"""
+    sandbox = _OutputSandbox(
+        "EXISTS=1\nFILE=0\nSIZE=0\nMTIME=1700000000\nREAL=/ws/.agent/lock.d\n"
+    )
+    fs = _fs_with(sandbox)
+    info = fs.stat("/ws/.agent/lock.d")
+    assert info.mtime == 1700000000.0
+    assert "stat -c %Y" in sandbox.scripts[0]
+
+
 def test_write_uses_a_temp_file_and_atomic_replace() -> None:
     sandbox = _ScriptedSandbox(failures=0)
     fs = SandboxFs(sandbox, "/ws")  # type: ignore[arg-type]

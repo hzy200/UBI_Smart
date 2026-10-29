@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import posixpath
+import logging
 import time
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -38,9 +37,7 @@ from coding_agent.agents.policy import (
 from coding_agent.audit import AuditLogger, AuditRecord
 from coding_agent.audit import models as audit_models
 from coding_agent.audit.logger import (
-    audit_files_by_day,
     now_iso,
-    read_records_many,
     sanitize_args,
     truncate,
 )
@@ -51,7 +48,6 @@ from coding_agent.config import (
     apply_security_profile,
     get_settings,
 )
-from coding_agent.diffing import unified_diff
 from coding_agent.events import (
     ApprovalRequested,
     AssistantToken,
@@ -108,6 +104,9 @@ from coding_agent.messages import (
     text_of,
     unanswered_tool_calls,
 )
+from coding_agent.observability import note_silent_failure
+from coding_agent.orchestrator.merge_journal import MergeJournal
+from coding_agent.runtime_snapshots import SnapshotMixin
 from coding_agent.sandbox.backend import build_sandbox
 from coding_agent.sandbox.fs import SandboxFs
 from coding_agent.sandbox.pathguard import normalize_root
@@ -120,8 +119,6 @@ from coding_agent.sandbox.policy import (
 )
 from coding_agent.sandbox.snapshots import (
     ACTION_RESTORE,
-    RestoreResult,
-    SnapshotEntry,
     SnapshotStore,
 )
 from coding_agent.sandbox.wsl_exec import resolve_workspace
@@ -140,6 +137,19 @@ from coding_agent.tools.delegate import DELEGATE_EXPLORE
 from coding_agent.tools.shell import SHELL_TOOL_NAME
 from coding_agent.workspace.model import normalize_workspace_kind
 from coding_agent.workspace_lock import WorkspaceLock
+
+_LOG = logging.getLogger("coding_agent.runtime")
+
+
+def _swallow_audit(site: str, exc: BaseException) -> None:
+    """best-effort 审计/清理分支的统一出口：吞掉可以，不留痕不行。
+
+    审计是承重不变量（哈希链 + "日志有 end 无 begin"就算验收缺陷）。写入失败
+    时继续跑是对的（不该让主流程为审计陪葬），但必须计数并告警——否则
+    "审计链断了"只在人工翻日志时才会被发现。
+    """
+    note_silent_failure(site)
+    _LOG.warning("%s 的 best-effort 步骤失败，已吞掉：%s", site, exc)
 
 # 只有这几个 action 才真正改动了文件，read 与空回滚不发 FileChanged
 MUTATING_FILE_ACTIONS = frozenset(
@@ -271,6 +281,9 @@ def submit_steering_command(
         settings.resolved_audit_dir,
         enabled=settings.audit_enabled,
         max_bytes=settings.audit_max_mb * 1024 * 1024,
+        syslog_address=settings.audit_syslog_address,
+        webhook_url=settings.audit_webhook_url,
+        webhook_token=settings.audit_webhook_token,
     )
     detail = (
         command.action
@@ -331,7 +344,12 @@ class _CostSummary:
     billing_providers: dict[str, dict[str, float]]
 
 
-class AgentRuntime:
+class AgentRuntime(SnapshotMixin):
+    """四层架构的编排中枢。
+
+    `SnapshotMixin` 提供快照/回滚/差异/上传留底那一组方法；拆出去是为了让
+    这个文件不再因为"加一个快照命令"就继续变长，见 `runtime_snapshots.py`。
+    """
     """跑一轮任务，产出事件流。"""
 
     def __init__(
@@ -435,6 +453,7 @@ class AgentRuntime:
         # thread_id -> 已 resume 次数（fresh run 归零），用于封顶挂起-恢复循环
         self._resume_counts: dict[str, int] = {}
         self._workspace_lock: WorkspaceLock | None = None
+        self._workspace_lock_error = ""
         # 同一 runtime 的 run/resume 不能并发驱动同一张图。
         self._stream_active = False
 
@@ -449,6 +468,9 @@ class AgentRuntime:
             self.settings.resolved_audit_dir,
             enabled=self.settings.audit_enabled,
             max_bytes=self.settings.audit_max_mb * 1024 * 1024,
+            syslog_address=self.settings.audit_syslog_address,
+            webhook_url=self.settings.audit_webhook_url,
+            webhook_token=self.settings.audit_webhook_token,
         )
 
     @property
@@ -521,20 +543,6 @@ class AgentRuntime:
             "persistent": self.persistent,
             "orchestrator": self.settings.orchestrator_enabled,
         }
-
-    @property
-    def snapshots(self) -> SnapshotStore:
-        """文件快照存储，供 `/undo` `/diff` 使用。"""
-        if self.workspace_kind == "host" and self.host_snapshots is not None:
-            return self.host_snapshots
-        if self._snapshots is None:
-            self._snapshots = SnapshotStore(
-                self._sandbox,
-                self._sandbox_fs(),
-                self.workspace,
-                manifest_root=self.settings.resolved_snapshot_manifest_dir,
-            )
-        return self._snapshots
 
     def _memory_root(self) -> str:
         return resolve_memory_root(
@@ -759,8 +767,7 @@ class AgentRuntime:
         except Exception:  # noqa: BLE001 - 读取失败不阻断运行
             return {}
 
-    @staticmethod
-    def _recovery_notice(prior: dict[str, Any]) -> str:
+    def _recovery_notice(self, prior: dict[str, Any]) -> str:
         """上一轮是否中断，以及工作区可能残留什么。
 
         不自动回滚、也不自动重跑：只把事实交给模型和用户。自动回滚会在用户
@@ -768,6 +775,13 @@ class AgentRuntime:
         """
         if str(prior.get("run_status") or "") != "running":
             return ""
+        # 只在"上一轮确实没收尾"时去读合并登记：读一次要起一次沙箱进程，
+        # 不能挂在每次 run 的启动路径上。
+        journal_notice = ""
+        try:
+            journal_notice = MergeJournal(self._sandbox, self.workspace).notice()
+        except Exception:  # noqa: BLE001 - 登记读不出来不该挡住运行
+            journal_notice = ""
         verification = prior.get("last_verification") or {}
         status = str(verification.get("status") or "未验证")
         paths = [
@@ -783,6 +797,8 @@ class AgentRuntime:
             notice += " 上次运行修改过的文件：" + "、".join(paths[:10])
             if len(paths) > 10:
                 notice += f" 等 {len(paths)} 个"
+        if journal_notice:
+            notice += f" {journal_notice}"
         return notice
 
     async def checkpoints(
@@ -1101,8 +1117,8 @@ class AgentRuntime:
                     source="runtime",
                 )
             )
-        except Exception:  # noqa: BLE001, S110 - 提交时已审计，清理审计不阻断收尾
-            pass
+        except Exception as exc:  # noqa: BLE001 - 提交时已审计，清理审计不阻断收尾
+            _swallow_audit("audit_discarded_steering", exc)
 
     @property
     def effective_settings(self) -> Settings:
@@ -1169,13 +1185,17 @@ class AgentRuntime:
         try:
             lock = WorkspaceLock(self.audit.directory, self.workspace)
             acquired = lock.acquire()
-        except Exception:  # noqa: BLE001
-            # 锁文件放不下（审计目录不可写）或工作区解析失败时，不应伪装成
-            # “工作区被占用”。继续运行，让真正的错误以它本来的面貌报出来。
-            return True
+        except Exception as exc:  # noqa: BLE001
+            # 锁不可用意味着无法证明“只有一个写者”，必须 fail closed；
+            # 但错误信息要指向真实原因，不能说成“工作区被占用”。
+            self._workspace_lock_error = (
+                f"工作区单写者锁不可用：{type(exc).__name__}: {exc}"
+            )
+            return False
         if not acquired:
             return False
         self._workspace_lock = lock
+        self._workspace_lock_error = ""
         return True
 
     def _release_workspace_lock(self) -> None:
@@ -1185,6 +1205,8 @@ class AgentRuntime:
 
     @property
     def _workspace_lock_busy(self) -> str:
+        if self._workspace_lock_error:
+            return self._workspace_lock_error
         return (
             "该工作区已有另一个运行中的会话（工作区单写者锁）。"
             "请等待它结束，或在另一个工作区运行。"
@@ -1205,6 +1227,8 @@ class AgentRuntime:
         if not self._acquire_workspace_lock():
             yield RunFailed(message=self._workspace_lock_busy)
             return
+        # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
+        self.prune_snapshots()
         self._stream_active = True
         try:
             async for event in self._run_unlocked(
@@ -1249,8 +1273,8 @@ class AgentRuntime:
                         ),
                     )
                 )
-            except Exception:  # noqa: BLE001, S110 - 审计失败也不阻断运行
-                pass
+            except Exception as exc:  # noqa: BLE001 - 审计失败也不阻断运行
+                _swallow_audit("audit_memory_load_failed", exc)
         unsafe = getattr(self.memory, "last_unsafe", [])
         if unsafe:
             try:
@@ -1265,8 +1289,8 @@ class AgentRuntime:
                         ),
                     )
                 )
-            except Exception:  # noqa: BLE001, S110
-                pass
+            except Exception as exc:  # noqa: BLE001 - 审计失败不阻断运行
+                _swallow_audit("audit_memory_unsafe_skipped", exc)
 
         # 分层项目指令是增强信息：发现失败（沙箱不可用、find 缺失）不影响运行
         instructions = ""
@@ -1418,8 +1442,8 @@ class AgentRuntime:
                     detail=detail,
                 )
             )
-        except Exception:  # noqa: BLE001, S110 - 已在错误路径上，不再二次抛出
-            pass
+        except Exception as exc:  # noqa: BLE001 - 已在错误路径上，不再二次抛出
+            _swallow_audit("audit_run_error", exc)
         self._forget_thread(thread_id)
 
     async def resume(self, thread_id: str, decisions: dict[str, bool]) -> AsyncIterator[Event]:
@@ -1430,6 +1454,8 @@ class AgentRuntime:
         if not self._acquire_workspace_lock():
             yield RunFailed(message=self._workspace_lock_busy)
             return
+        # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
+        self.prune_snapshots()
         self._stream_active = True
         try:
             async for event in self._resume_unlocked(thread_id, decisions):
@@ -1487,6 +1513,15 @@ class AgentRuntime:
             )
         )
         self.steering.submit(thread_id, command)
+        if action == "cancel":
+            # 同步工具（wsl.exe / 本机 bash）不会检查 steering 标志；
+            # 直接杀掉在飞进程，让工具线程尽快返回。
+            cancel_active = getattr(self._sandbox, "cancel_active", None)
+            if callable(cancel_active):
+                try:
+                    cancel_active()
+                except Exception as exc:  # noqa: BLE001 - 取消失败不阻断命令入队
+                    _swallow_audit("cancel_active", exc)
 
     def is_paused(self, thread_id: str) -> bool:
         """图是否停在 steering 的 pause 上。
@@ -1519,6 +1554,8 @@ class AgentRuntime:
         if not self._acquire_workspace_lock():
             yield RunFailed(message=self._workspace_lock_busy)
             return
+        # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
+        self.prune_snapshots()
         self._stream_active = True
         try:
             async for event in self._resume_steering_unlocked(thread_id):
@@ -2265,8 +2302,8 @@ class AgentRuntime:
                     ),
                 )
             )
-        except Exception:  # noqa: BLE001, S110 - 已在错误路径上，不再二次抛出
-            pass
+        except Exception as exc:  # noqa: BLE001 - 已在错误路径上，不再二次抛出
+            _swallow_audit("audit_error_path", exc)
         # 异常可能发生在任何节点上：此刻还开着的步骤再也不会被 act 收口，
         # 补发一个，免得前端把它显示成「仍在运行」
         for event in self._close_step(ctx, cancelled=True):
@@ -2468,191 +2505,8 @@ class AgentRuntime:
     # 回滚（用户主动发起，不走审批；审批管的是模型发起的动作）
     # ------------------------------------------------------------------
 
-    def list_snapshots(self, *, limit: int = 20) -> list[SnapshotEntry]:
-        return self.snapshots.list(limit=limit)
-
-    def restore(
-        self, *, path: str | None = None, snapshot_id: str | None = None
-    ) -> RestoreResult:
-        """回滚文件并记审计。"""
-        store = self.snapshots
-        entry: SnapshotEntry | None = None
-
-        # 解析失败同样要记账：用户以为回滚了但没回滚，审计里不能留空白
-        def _failed(message: str) -> RestoreResult:
-            result = RestoreResult(ok=False, path=path or "", message=message)
-            self._audit_rollback(result, snapshot_id or "")
-            return result
-
-        if snapshot_id:
-            entry = store.find(snapshot_id, path)
-            if entry is None:
-                return _failed(f"找不到快照 {snapshot_id}")
-        elif path:
-            entry = store.latest_for(path)
-            if entry is None:
-                return _failed(f"{path} 没有任何留底，无法回滚。")
-        else:
-            entries = store.list(limit=1)
-            if not entries:
-                return _failed("工作区里还没有任何快照，无法回滚。")
-            entry = entries[0]
-
-        result = store.restore(entry)
-        self._audit_rollback(result, snapshot_id or "")
-        return result
-
-    @staticmethod
-    def _snapshot_prefix(ts: str) -> str:
-        """把审计里的 ISO 时间转成快照 id 的可比较前缀。"""
-        try:
-            moment = datetime.fromisoformat(ts)
-        except ValueError:
-            return ""
-        if moment.tzinfo is None:
-            moment = moment.replace(tzinfo=UTC)
-        return moment.astimezone(UTC).strftime("%Y%m%dT%H%M%S%f")
-
-    def last_run_started_at(self, thread_id: str | None = None) -> str:
-        """最近一次 `run_start` 的时间戳（优先按 thread 过滤）。"""
-        groups = audit_files_by_day(self.audit.directory)
-        for _day, paths in sorted(groups.items(), reverse=True):
-            records = read_records_many(paths, thread_id=thread_id, limit=0)
-            for record in reversed(records):
-                if record.kind != audit_models.RUN_START:
-                    continue
-                if (
-                    not thread_id
-                    and record.workspace
-                    and record.workspace != self.workspace
-                ):
-                    continue
-                return record.ts
-        return ""
-
-    def restore_since(
-        self, prefix: str, *, dry_run: bool = False
-    ) -> list[RestoreResult]:
-        """回滚某个时间点之后产生的所有快照（按新→旧）。
-
-        `dry_run` 只列出将被回滚的文件，不写盘。真正回滚时每个文件仍走
-        `SnapshotStore.restore`：先给当前内容留底，所以整次回滚也可再次撤销。
-        """
-        if not prefix:
-            return []
-        entries = [
-            entry for entry in self.snapshots.list() if entry.snapshot_id > prefix
-        ]
-        results: list[RestoreResult] = []
-        for entry in entries:
-            if dry_run:
-                results.append(
-                    RestoreResult(
-                        ok=True,
-                        path=entry.path,
-                        snapshot_id=entry.snapshot_id,
-                        message="dry-run：未修改",
-                    )
-                )
-                continue
-            result = self.snapshots.restore(entry)
-            self._audit_rollback(result, entry.snapshot_id)
-            results.append(result)
-        return results
-
-    def _audit_rollback(self, result: RestoreResult, requested_id: str) -> None:
-        self._audit(
-            AuditRecord(
-                ts=now_iso(),
-                kind=audit_models.ROLLBACK,
-                workspace=self.workspace,
-                path=result.path,
-                action=ACTION_RESTORE,
-                added=result.added,
-                removed=result.removed,
-                snapshot_id=result.snapshot_id or requested_id or None,
-                ok=result.ok,
-                detail=truncate(result.message),
-            )
-        )
-
-    def diff_snapshot(self, *, path: str | None = None, snapshot_id: str | None = None) -> str:
-        """展示某个快照与当前内容的差异（即「你都改了什么」）。"""
-        store = self.snapshots
-        entry: SnapshotEntry | None = None
-
-        if snapshot_id:
-            entry = store.find(snapshot_id, path)
-        elif path:
-            entry = store.latest_for(path)
-        else:
-            entries = store.list(limit=1)
-            entry = entries[0] if entries else None
-
-        if entry is None:
-            return ""
-
-        try:
-            original = store.read(entry)
-        except Exception:  # noqa: BLE001 - 快照读不出来时给空 diff，由前端提示
-            return ""
-
-        target = posixpath.join(store.root, entry.path)
-        try:
-            current = self._sandbox_fs().read_text(
-                target, max_bytes=self.settings.max_file_read_bytes
-            )
-        except Exception:  # noqa: BLE001 - 文件已被删除时按空内容比较
-            current = ""
-
-        return unified_diff(original, current, entry.path)
-
-    def store_upload(
-        self,
-        filename: str,
-        data: bytes,
-        *,
-        thread_id: str = "",
-        max_bytes: int = 0,
-    ) -> dict[str, Any]:
-        """把用户上传的文件写入工作区的 `.agent/uploads`。
-
-        这是**用户动作**，不经过模型的写权限，也不修改仓库源码；文件路径
-        仍然走 SandboxFs 的路径校验，并写审计。返回工作区内的绝对路径。
-        """
-        if max_bytes and len(data) > max_bytes:
-            raise ValueError(f"文件超过上限 {max_bytes} 字节")
-        # 只取 basename，挡住 ../ 与 Windows 反斜杠路径。
-        name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1]
-        if not name or name in {".", ".."} or "\x00" in name:
-            raise ValueError("非法文件名")
-        name = name[:180]
-        safe_thread = "".join(
-            ch for ch in str(thread_id or "") if ch.isalnum() or ch in "_-"
-        )[:64] or "global"
-        rel_dir = f".agent/uploads/{safe_thread}"
-        rel_path = posixpath.join(rel_dir, f"{uuid4().hex[:8]}-{name}")
-        written = self._sandbox_fs().write_bytes(rel_path, data)
-        self._audit(
-            AuditRecord(
-                ts=now_iso(),
-                kind=audit_models.FILE_CHANGE,
-                thread_id=thread_id,
-                action="upload",
-                path=rel_path,
-                added=written,
-            )
-        )
-        return {
-            "path": posixpath.join(self.workspace, rel_path),
-            "relative_path": rel_path,
-            "bytes": written,
-        }
-
-    def _sandbox_fs(self) -> SandboxFs:
-        if self._fs is None:
-            self._fs = SandboxFs(self._sandbox, self.workspace)
-        return self._fs
+    # 快照/回滚/差异/上传留底已移到 `runtime_snapshots.SnapshotMixin`，
+    # 本类通过继承拿到它们（`class AgentRuntime(SnapshotMixin)`）。
 
     # ------------------------------------------------------------------
     # 审计
@@ -2786,6 +2640,7 @@ class AgentRuntime:
                         tool=str(raw.get("tool", "")),
                         command=str(raw.get("command", "")),
                         level=str(raw.get("level", "")),
+                        level_int=int(raw.get("level_int", 0) or 0),
                         reason=str(raw.get("reason", "")),
                     )
                 )

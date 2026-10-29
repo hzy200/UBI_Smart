@@ -185,3 +185,137 @@ def test_scoped_store_prefers_database_then_fallback(tmp_path) -> None:
     scoped.delete("deepseek")
     assert scoped.get("deepseek") == ""
     store.close()
+
+
+def test_decode_master_key_accepts_hex_and_rejects_bad_input(monkeypatch) -> None:
+    import base64
+
+    from coding_agent.control.credentials import _decode_key, load_master_key
+
+    assert _decode_key("") == b""
+    assert _decode_key(KEY.hex()) == KEY
+    assert _decode_key(base64.b64encode(KEY).decode("ascii")) == KEY
+    # 64 字符但不是 32 字节：按 base64 解出 48 字节后拒绝。
+    with pytest.raises(CredentialError, match="32 字节"):
+        _decode_key("z" * 64)
+    with pytest.raises(CredentialError, match="base64"):
+        _decode_key("not-base64!")
+    with pytest.raises(CredentialError, match="32 字节"):
+        _decode_key(base64.b64encode(b"short").decode("ascii"))
+
+    assert load_master_key(KEY.hex()) == KEY
+    monkeypatch.setenv("AGENT_SECRET_MASTER_KEY", KEY.hex())
+    assert load_master_key() == KEY
+    with pytest.raises(CredentialError, match="无法读取主密钥文件"):
+        load_master_key(path=str(Path("no-such-dir") / "master.key"))
+
+
+def test_master_key_file_roundtrip(tmp_path) -> None:
+    import base64
+
+    from coding_agent.control.credentials import load_master_key
+
+    key_file = tmp_path / "master.key"
+    key_file.write_text(base64.b64encode(KEY).decode("ascii"), encoding="utf-8")
+    assert load_master_key(path=str(key_file)) == KEY
+
+
+def test_missing_key_cannot_read_existing_ciphertext(tmp_path) -> None:
+    store = _store(tmp_path)
+    CredentialStore(store.engine, KEY).set(
+        "default", "alice", "deepseek", "sk-x"
+    )
+    with pytest.raises(CredentialError, match="AGENT_SECRET_MASTER_KEY"):
+        CredentialStore(store.engine, b"").get(
+            "default", "alice", "deepseek"
+        )
+    store.close()
+
+
+def test_set_rejects_empty_value_and_counts(tmp_path) -> None:
+    store = _store(tmp_path)
+    credentials = CredentialStore(store.engine, KEY)
+    with pytest.raises(CredentialError, match="不能为空"):
+        credentials.set("default", "alice", "deepseek", "")
+    assert credentials.count() == 0
+    credentials.set("default", "alice", "deepseek", "sk-1")
+    credentials.set("default", "alice", "openai", "sk-2")
+    assert credentials.count() == 2
+    assert credentials.providers_for("default", "alice") == ["deepseek", "openai"]
+    store.close()
+
+
+def test_rotate_validates_keys_and_rolling_back_on_decrypt_failure(
+    tmp_path,
+) -> None:
+    from sqlalchemy.orm import Session
+
+    from coding_agent.control.schema import ControlProviderKey
+
+    store = _store(tmp_path)
+    credentials = CredentialStore(store.engine, KEY)
+    with pytest.raises(CredentialError, match="32 字节"):
+        credentials.rotate(b"short", b"n" * 32)
+    with pytest.raises(CredentialError, match="32 字节"):
+        credentials.rotate(KEY, b"short")
+
+    # 空 ciphertext 的行跳过（不参与解密，但仍在返回计数里）。
+    with Session(store.engine) as session, session.begin():
+        session.add(
+            ControlProviderKey(
+                tenant="default",
+                user="alice",
+                provider="empty",
+                ciphertext="",
+                nonce="",
+            )
+        )
+    assert credentials.rotate(KEY, b"n" * 32) == 1
+
+    # 旧主密钥解不开现有密文：轮换必须整体中止。
+    credentials.set("default", "alice", "real", "sk-real")
+    with pytest.raises(CredentialError, match="轮换中止"):
+        credentials.rotate(KEY, b"m" * 32)
+    store.close()
+
+
+def test_scoped_store_decrypt_branches(tmp_path) -> None:
+    store = _store(tmp_path)
+    credentials = CredentialStore(store.engine, KEY)
+    credentials.set("default", "alice", "deepseek", "sk-x")
+    fallback = _Fallback()
+    scoped = ScopedSecretStore(credentials, fallback, "default", "alice")
+
+    # 没有主密钥但存在密文：fail closed，不回退 fallback。
+    broken = ScopedSecretStore(
+        CredentialStore(store.engine, b""), fallback, "default", "alice"
+    )
+    with pytest.raises(CredentialError, match="AGENT_SECRET_MASTER_KEY"):
+        broken.get("deepseek")
+
+    # 损坏密文同样 fail closed。
+    with store.engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE control_provider_keys SET ciphertext = 'AAAA' "
+            "WHERE provider = 'deepseek'"
+        )
+    with pytest.raises(CredentialError, match="解密失败"):
+        scoped.get("deepseek")
+    assert scoped.has("missing") is False
+    assert scoped.last4("missing") == ""
+    store.close()
+
+
+def test_master_key_material_edge_cases(tmp_path) -> None:
+    from coding_agent.control.credentials import find_master_key_material
+
+    outside = tmp_path / "outside.key"
+    outside.write_text("x", encoding="utf-8")
+    root = tmp_path / "root"
+    root.mkdir()
+    # key_file 不在扫描根内：不报，也不误报。
+    assert find_master_key_material(
+        root, KEY, key_file=str(outside)
+    ) == []
+    # 空 key 直接返回已有 findings，不再扫内容。
+    assert find_master_key_material(root, b"") == []

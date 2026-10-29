@@ -27,6 +27,9 @@ class _FakeServer:
         self.ran = False
         _FakeServer.last = self
 
+    def handle_exit(self, sig, frame) -> None:
+        self.should_exit = True
+
     def run(self) -> None:
         self.ran = True
         # 桌面关窗时通过 app.state.shutdown 请求退出。
@@ -96,9 +99,14 @@ def test_agent_server_main_reads_stdin_token(
     seen: dict[str, str] = {}
     real_create = agent_server.create_agent_app
 
-    def create(settings, *, token="", runtime_factory=agent_server.AgentRuntime):
+    def create(settings, *, token="", runtime_factory=agent_server.AgentRuntime, **kwargs):
         seen["token"] = token
-        return real_create(settings, token=token, runtime_factory=runtime_factory)
+        return real_create(
+            settings,
+            token=token,
+            runtime_factory=runtime_factory,
+            **kwargs,
+        )
 
     monkeypatch.setattr(agent_server, "get_settings", lambda: _settings(tmp_path))
     monkeypatch.setattr(agent_server, "create_agent_app", create)

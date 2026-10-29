@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily CodingAgent control-plane backup
+Requires=coding-agent-backup.service
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=coding-agent-backup.service
+
+[Install]
+WantedBy=timers.target

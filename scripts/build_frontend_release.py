@@ -32,9 +32,11 @@ STATIC = ROOT / "src" / "coding_agent" / "web" / "static"
 VERSION_TS = FRONTEND / "src" / "version.ts"
 WEB_VERSION_PY = ROOT / "src" / "coding_agent" / "web" / "version.py"
 
-HASH_EXTS = {".js", ".css", ".svg", ".woff", ".woff2"}
+# 图标随源图一起换内容，所以要参与哈希，否则 CDN/浏览器会一直用旧图标。
+HASH_EXTS = {".js", ".css", ".svg", ".png", ".woff", ".woff2"}
 HASH_LEN = 12
 RELEASE_FILES = ("manifest.json", "SHA256SUMS")
+CACHE_PREFIX = re.compile(r"codingagent-shell-[^'\"]*")
 
 
 def _read_text(path: Path) -> str:
@@ -155,7 +157,9 @@ def _rewrite_static_refs(text: str, mapping: dict[str, str]) -> str:
 
 def _rewrite_sw(text: str, mapping: dict[str, str], release_id: str) -> str:
     text = _rewrite_static_refs(text, mapping)
-    text = text.replace("codingagent-shell-v1", f"codingagent-shell-{release_id}")
+    # 按前缀替换而不是写死 `-v1`：换图标/换壳时必然会手动抬版本号，
+    # 写死会让发布包的 CACHE 名和 releaseId 悄悄不再对齐。
+    text = CACHE_PREFIX.sub(f"codingagent-shell-{release_id}", text)
     # 发布包首页在根目录，manifest 也在根目录；static 下不再有 index.html。
     text = text.replace("  '/',\n  '/static/index.html',\n", "  '/',\n")
     text = text.replace("  '/static/manifest.webmanifest',\n", "")
@@ -249,7 +253,6 @@ def build_release(
     )
     _write_text(release_dir / "manifest.webmanifest", manifest_web)
 
-    # icon.svg 也在 static 下被哈希；发布根目录不再单独放一份。
     bundle_hash = _bundle_hash(release_dir)
     commit = git_commit()
     release_id = f"{version}+{commit or 'local'}.{bundle_hash}"

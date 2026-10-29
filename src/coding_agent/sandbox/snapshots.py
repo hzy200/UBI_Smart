@@ -17,11 +17,13 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import logging
 import os
 import posixpath
+import re
 import shlex
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -49,6 +51,18 @@ MAX_OPERATIONAL_BYTES = 10_000_000
 
 # 同一时钟刻度内生成多个 id 时，用它保证严格递增（进程内有效）
 _SNAPSHOT_SEQ = itertools.count()
+
+# 只接受本模块生成的 id；磁盘上的目录名可能被外部改动，不能直接拼进 rm。
+_SNAPSHOT_ID_RE = re.compile(r"^\d{8}T\d{12}\d{3}-[0-9a-f]{6}$")
+
+
+def _snapshot_time(snapshot_id: str) -> datetime | None:
+    try:
+        return datetime.strptime(
+            snapshot_id[:21], "%Y%m%dT%H%M%S%f"
+        ).replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        return None
 
 
 def _new_snapshot_id() -> str:
@@ -154,8 +168,17 @@ class SnapshotStore:
                 encoding="utf-8",
             )
             os.replace(temp, path)
-        except OSError:
-            pass
+        except Exception as exc:  # noqa: BLE001 - 清单写不出来不该让写入失败
+            # 回滚仍可用（backups 已落盘），但这个回滚点**无法被索引与校验** ——
+            # 必须留痕：否则会出现"看起来能回滚、实际找不到/校验不了"的假象。
+            from coding_agent.observability import note_silent_failure
+
+            note_silent_failure("snapshot_manifest_write")
+            logging.getLogger(__name__).warning(
+                "回滚点 %s 的清单写入失败，该点仍可回滚但无法索引与校验：%s",
+                snapshot_id,
+                exc,
+            )
 
     def _load_manifest(self, snapshot_id: str) -> dict[str, Any] | None:
         path = self._manifest_path(snapshot_id)
@@ -413,6 +436,49 @@ class SnapshotStore:
             if path is None or entry.path == path.lstrip("/"):
                 return entry
         return None
+
+    def prune(
+        self, *, keep: int = 200, max_age_days: int = 30
+    ) -> list[str]:
+        """删除超出保留数量或超过天数的快照，返回被删除的 id。
+
+        只删本模块生成的 id（时间戳+序号+uuid），不会碰工作区其它文件；
+        对应宿主清单也一并删除。删除失败只跳过，不影响运行。
+        """
+        ids = sorted(
+            {entry.snapshot_id for entry in self.list()}, reverse=True
+        )
+        ids = [sid for sid in ids if _SNAPSHOT_ID_RE.fullmatch(sid)]
+        keep = max(0, int(keep))
+        cutoff = (
+            datetime.now(UTC) - timedelta(days=int(max_age_days))
+            if max_age_days and int(max_age_days) > 0
+            else None
+        )
+        removed: list[str] = []
+        for index, snapshot_id in enumerate(ids):
+            created = _snapshot_time(snapshot_id)
+            too_old = (
+                cutoff is not None
+                and created is not None
+                and created < cutoff
+            )
+            if index < keep and not too_old:
+                continue
+            target = posixpath.join(self.backup_root, snapshot_id)
+            result = self._sandbox.run(
+                f"rm -rf -- {shlex.quote(target)}"
+            )
+            if not result.ok:
+                continue
+            manifest = self._manifest_path(snapshot_id)
+            if manifest is not None:
+                try:
+                    manifest.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            removed.append(snapshot_id)
+        return removed
 
     def read(self, entry: SnapshotEntry) -> str:
         target = posixpath.join(self.backup_root, entry.snapshot_id, entry.path)

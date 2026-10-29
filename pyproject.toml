@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coding-agent"
-version = "0.1.0"
+dynamic = ["version"]
 description = "LangGraph-based terminal-native coding agent with WSL2 sandbox"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,6 +36,10 @@ dev = [
     # 集成测试全是 wsl.exe 进程启动，串行跑要十分钟；并行后 1 分钟内
     "pytest-xdist>=3.6",
     "pytest-cov>=5.0",
+    # 安全/终端等新边界先开 strict；存量模块渐进迁移
+    "mypy>=1.10",
+    # tracing 测试用 InMemorySpanExporter；生产采集端在 otel extra
+    "opentelemetry-sdk>=1.25",
 ]
 ui = [
     "textual>=0.80",
@@ -50,6 +54,10 @@ desktop = [
 ]
 secrets = [
     "keyring>=24",
+]
+otel = [
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-exporter-otlp-proto-http>=1.25",
 ]
 build = [
     "pyinstaller>=6",
@@ -76,6 +84,10 @@ coding-agent-control = "coding_agent.control_server:main"
 coding-agent-host-device = "coding_agent.host_broker.devices:main"
 coding-agent-host-policy = "coding_agent.host_broker.policy_doc:main"
 
+[tool.hatch.version]
+# 单一版本源：`coding_agent.__version__`；打包/前端/发布脚本都从这里对齐。
+path = "src/coding_agent/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/coding_agent"]
 
@@ -100,6 +112,17 @@ markers = [
     "system_e2e: A2/A3/A4 系统级端到端验收（专用 WSL 发行版 + 真实模型，本地手动执行）",
 ]
 
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = [
+  "src/coding_agent/security",
+  "src/coding_agent/access.py",
+  "src/coding_agent/terminal_text.py",
+]
+# 存量模块尚未全量注解；先只对安全/终端边界做 strict 基线，逐步扩大。
+follow_imports = "normal"
+
 [tool.coverage.run]
 source = ["src/coding_agent"]
 
@@ -121,13 +144,86 @@ target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
+# `select` 里的规则必须 **0 违规**（CI 的 `ruff check src tests` 会红）。
 select = ["E", "F", "I", "UP", "B"]
+
+# ---------------- 被预算跟踪、但故意不阻断的规则 ----------------
+# S = bandit（安全）· C90 = 圈复杂度 · TRY = 异常路径 · RET = 返回值 ·
+# ASYNC = 事件循环阻塞 · A = 内建名遮蔽 · T20 = print。
+#
+# 它们存量几百条，一次修不完，所以**不进 `select`** —— 进了 select 就会让 CI
+# 立刻变红，然后有人把它 ignore 掉、闸门就此消失。改由
+# `scripts/check_lint_budget.py` 计数并卡住"不许变多"：数字只降不升。
+# 抬预算等于关闸门，不要那么做。
+#
+# 本地看具体哪一行：`ruff check --select S,C90,TRY,RET,ASYNC,A,T20 src`
+# （`scripts/check_lint_budget.py` 里的 `SELECT` 常量必须与这个列表一致；
+#  不能在 `[tool.ruff.lint]` 下加自定义键，ruff 会拒绝解析。）
+
+# 每条都要有理由；没有理由的 ignore 就是关掉安全闸门。
+ignore = [
+    # S101 assert：测试与产品代码都用 assert 表达内部不变量。项目不以 `python -O`
+    # 运行任何受支持的入口，因此不存在"断言被编译掉"的绕过面。
+    "S101",
+    # S110/S112 try-except-pass/continue：绝大多数是"best-effort 清理"路径。
+    # 它们确实会吞掉异常 —— 关键路径（审计、计量、配额、快照留底）见 P1-5；
+    # 其余靠预算棘轮收敛，不要新增。
+    "S110",
+    "S112",
+    # S603/S607 subprocess：本产品的核心就是宿主与沙箱的进程启动（wsl.exe、
+    # git、工具链）。调用全部走 argv 列表、不经 shell；不由 argv 表达的部分
+    # 由 `sandbox/policy.py` 与 `execution/host_ops.py` 的 kind 白名单守住。
+    "S603",
+    "S607",
+    # S324 hashlib：命中的都是缓存键、短摘要与文件名（sha1），不用于口令、
+    # 签名或令牌。密码学用途一律 sha256/hmac（`control/credentials.py`）。
+    "S324",
+    # S311 random：只用于退避抖动与非安全用途；令牌与 id 走 `uuid4` / `secrets`。
+    "S311",
+    # S108 /tmp：沙箱侧的 Linux 路径是刻意的（工作区之外、不进用户改动）。
+    "S108",
+    # S310 urlopen：命中处均为 http(s) 且目标已过 `security/netguard.py`；
+    # 新增外连必须同样过守卫。
+    "S310",
+    # TRY003 raise-long-args：415 处，全是 `raise X("中文提示")`。这条规则要求
+    # 自定义异常类再 raise 无参构造，与本项目"错误信息就是给人看的"的写法冲突，
+    # 而且自定义异常本身不带来任何安全收益。整条 ignore，不进预算。
+    "TRY003",
+    # ASYNC240 async 里的 `os.path`/`Path` 元数据调用：命中的都是
+    # `exists()` / `is_dir()` / `stat()`，单次亚毫秒级路径查询。为它们逐个包
+    # `asyncio.to_thread` 只会增加延迟与噪音。**真正的**阻塞（async 里的
+    # `open()` = ASYNC230、以及循环里的同步写）不在此列，走预算。
+    "ASYNC240",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # textual 是可选依赖：必须先 importorskip，再导入它，否则缺 ui extras 时
 # 会以 collection error 而非 skip 收场。E402 在这里是有意为之。
 "tests/tui/test_tui_app.py" = ["E402"]
+# S104/S105/S106/S107 硬编码口令与全网卡绑：测试里的 `token="tok"`、`sk-...`、
+# `--host 0.0.0.0` 都是**夹具字面量**——它们正是在断言脱敏、验签与"非 loopback
+# 必须要求 token"这些行为本身。真口令只从环境变量与密钥环来，不进仓库。
+"tests/**" = ["S104", "S105", "S106", "S107"]
 # 首次启动向导的 HTML 内嵌在 Python 字符串里，长行不可避免。
 "src/coding_agent/desktop/setup.py" = ["E501"]
 # 任务种子/测试是嵌在字符串里的 Python 源码，长行不可避免。
 "tests/eval/tasks_full.py" = ["E501"]
+# T201 print：这些是 **CLI 入口与命令行工具** —— stdout 就是它们的产品形态
+# （`agent migrate` 要打印迁移结果，`host_broker --policy-doc` 要产出文档）。
+# 服务/守护进程里的 print 不在豁免之列，走预算（容器化后日志采集会分裂）。
+"src/coding_agent/cli/**" = ["T201"]
+"src/coding_agent/tui/**" = ["T201"]
+"src/coding_agent/host_broker/__main__.py" = ["T201"]
+"src/coding_agent/host_broker/policy_doc.py" = ["T201"]
+"src/coding_agent/host_broker/devices.py" = ["T201"]
+"src/coding_agent/control/migrate.py" = ["T201"]
+"src/coding_agent/control_server.py" = ["T201"]
+"src/coding_agent/agent_server.py" = ["T201"]
+# 启动握手那行 JSON（event: coding_agent_*）是给 supervisor/launcher **解析**的，
+# 不是日志 —— 换 logging 会把协议改掉。
+"src/coding_agent/server.py" = ["T201"]
+
+[tool.ruff.lint.mccabe]
+# 10 是 ruff 默认；这里不动它，让存量如实显形，靠预算棘轮收敛，
+# 而不是把阈值抬高把问题藏起来。
+max-complexity = 10

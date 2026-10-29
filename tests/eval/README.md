@@ -37,6 +37,36 @@
 3. **跨版本数字不可直接比。** 任务集会扩（例如 `long` 从 5 个扩到 6 个），历史基线必须连同当时的任务数、commit 一起看。
 4. **新尺子先过双向自检**（`--verify-seeds`），再 `--repeat 3` 记录 `spread` 与 `flipped`；没有噪声数据的新任务集不算尺子。
 
+## 读结果：`scripts/eval_gate.py`
+
+定时流水线（`.github/workflows/llm.yml` 的 `llm-eval` job）跑完 runner 之后，
+用这个脚本把 JSON 读成结论 —— 因为「套件饱和了」这件事，只看 JSON 是看不出来的。
+
+```bash
+python scripts/eval_gate.py tests/eval/baseline_long.json --markdown
+python scripts/eval_gate.py new.json --compare tests/eval/baseline_long.json
+```
+
+判定口径：
+
+| 判定 | 条件 | 退出码 |
+|---|---|---|
+| 饱和 | 所有档位 100%，且任务数 ≥ 10 | 0（只警告） |
+| 退化 | 与 `--compare` 相比通过率下降超过阈值（默认 10pp） | 1 |
+| 不可比 | `comparable=false` | 0（不下结论） |
+
+三点刻意的取舍：
+
+1. **饱和不失败、退化才失败。** 尺子失效不是代码坏了；让它变红会训练人忽略红灯。
+   但饱和必须出现在 CI 摘要里（`$GITHUB_STEP_SUMMARY`），否则等于没跑。
+2. **任务数不足 10 不算饱和。** 3 个任务全过说明不了区分度。
+3. **不可比一律不下结论。** 子集运行 / 脏工作区 / 沙箱缺 pytest 时，
+   即便通过率掉了也不能归因于改动。
+
+定时触发默认**不启用**：需要仓库变量 `WSL_RUNNER_READY=true`（self-hosted
+`wsl` runner 注册之后）。没注册就打开，job 会一直排队而不是快速失败 ——
+那比不跑更糟。
+
 ## 上下文/记忆专项标尺
 
 `context_memory_bench.py` 不调用模型、不依赖 WSL，可直接进 CI：

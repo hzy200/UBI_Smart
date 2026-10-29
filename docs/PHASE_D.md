@@ -100,7 +100,9 @@ Windows 宿主模式一个版本，standalone 不受影响。
 ### 2.3 入口参数
 
 - `agent_server.py`：新增 `--token-stdin`、`POST /v1/cancel_all`、
-  `POST /v1/shutdown`；优雅退出由 uvicorn `Server.should_exit` 驱动。
+  `POST /v1/shutdown`；SIGTERM/`/v1/shutdown` 先置 draining（拒绝新运行、
+  `/readyz` 503），等待进行中运行至 `AGENT_DRAIN_TIMEOUT_S` 后再由
+  `Server.should_exit` 收尾；第二次信号可强制退出。
 - `control_server.py`：新增 `--desktop`、`--token-stdin`；桌面模式启用
   `/api/desktop/*` 且强制单用户；同样使用 `uvicorn.Server`，让关窗时
   `cancel_all → shutdown` 生效。

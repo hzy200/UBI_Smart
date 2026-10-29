@@ -216,7 +216,7 @@ READ_ONLY_COMMANDS = frozenset({
     "file", "stat", "du", "df", "tree", "which", "whoami", "id", "date",
     "sort", "uniq", "cut", "tr", "basename", "dirname", "realpath", "readlink",
     "diff", "cmp", "comm", "jq", "yq", "xxd", "od", "md5sum", "sha256sum",
-    "uname", "hostname", "nproc", "free", "type", "command",
+    "uname", "hostname", "nproc", "free", "type",
 })
 
 # 直接输出进程环境：即使子进程已用 `env -i` 清空，也把它当作必须人工确认的
@@ -235,13 +235,52 @@ LOW_WRITE_COMMANDS = frozenset({
     "mkdir", "touch", "sed",
 })
 
-# git 子命令分级
-GIT_READ_SUBCOMMANDS = frozenset({
-    "status", "log", "diff", "show", "branch", "remote", "config", "rev-parse",
-    "ls-files", "blame", "describe", "tag", "shortlog", "whatchanged", "stash",
+# 已知的变更性命令：显式登记后保持 L2（默认 ask；approve 可自动放行）。
+# 未登记的命令一律 L3，所以这里只放常见、语义明确的构建/依赖/测试入口；
+# `python`、`node`、`bash` 这类可执行任意代码的解释器不在此列。
+MUTATE_COMMANDS = frozenset({
+    "pip", "pip3", "uv", "poetry", "pipenv", "conda",
+    "npm", "pnpm", "yarn", "make", "cmake", "ninja",
+    "pytest", "tox", "nox", "cargo", "go", "dotnet",
+    "mvn", "gradle", "composer", "bundle", "gem",
+    "ruff", "eslint", "prettier", "tsc",
 })
-GIT_LOW_WRITE_SUBCOMMANDS = frozenset({"add", "init", "fetch", "restore"})
+
+# git 子命令分级。config / remote / branch / tag / stash 同时有读写形式，
+# 不能整命令按 READ 放行，见 `_classify_git` 里的逐参数判定。
+GIT_READ_SUBCOMMANDS = frozenset({
+    "status", "log", "diff", "show", "rev-parse", "ls-files", "blame",
+    "describe", "shortlog", "whatchanged",
+})
+# restore 会丢弃工作区改动，和 checkout 一样需要人工确认；不放在 L1。
+GIT_LOW_WRITE_SUBCOMMANDS = frozenset({"add", "init", "fetch"})
 GIT_DANGER_SUBCOMMANDS = frozenset({"clean"})
+
+_READ_GIT_CONFIG_FLAGS = frozenset({
+    "--get", "--get-all", "--get-regexp", "--get-color", "--get-colorbool",
+    "--list", "-l", "--show-origin", "--show-scope", "--name-only", "-z",
+    "--null",
+})
+_READ_GIT_BRANCH_FLAGS = frozenset({
+    "--list", "-l", "-a", "--all", "-r", "--remotes", "-v", "-vv",
+    "--verbose", "--show-current", "--contains", "--no-contains", "--merged",
+    "--no-merged", "--points-at", "--format", "--sort",
+})
+_READ_GIT_TAG_FLAGS = frozenset({
+    "-l", "--list", "-n", "--contains", "--no-contains", "--merged",
+    "--no-merged", "--points-at", "--format", "--sort",
+})
+_GIT_GLOBAL_OPTS_WITH_VALUE = frozenset({
+    "-C", "--git-dir", "--work-tree", "--namespace",
+})
+_GIT_GLOBAL_OPTS = frozenset({
+    "-p", "--paginate", "--no-pager", "--bare", "--literal-pathspecs",
+    "--no-optional-locks",
+})
+_UNSAFE_ENV_VARS = frozenset({
+    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "ENV",
+    "PYTHONPATH", "PYTHONSTARTUP", "NODE_OPTIONS", "PERL5OPT", "RUBYOPT",
+})
 
 # --------------------------------------------------------------------------
 # 危险模式（对原始命令全文匹配，可捕获命令替换 $(...) 与反引号内的内容）
@@ -304,6 +343,13 @@ def split_segments(command: str) -> list[str]:
                 quote = None
             i += 1
             continue
+        # 反斜杠转义的分隔符是普通参数（`find ... -exec ... \;`），
+        # 不能当成命令分隔符拆开，否则 `-exec` 判定会失效。
+        if ch == "\\" and i + 1 < n:
+            buf.append(ch)
+            buf.append(command[i + 1])
+            i += 2
+            continue
         if ch in "'\"":
             quote = ch
             buf.append(ch)
@@ -337,16 +383,15 @@ def _tokens(segment: str) -> list[str]:
     return words[idx:]
 
 
-def _classify_segment(segment: str) -> Verdict:
+def _classify_segment(segment: str, _depth: int = 0) -> Verdict:
     words = _tokens(segment)
     if not words:
         return Verdict(CommandLevel.MUTATE, "无法解析的命令片段", segment)
 
     name = posixpath.basename(words[0])
-    sub = words[1] if len(words) > 1 else ""
-
-    if name == "git":
-        return _classify_git(sub, segment)
+    handler = _SPECIAL_CLASSIFIERS.get(name)
+    if handler is not None:
+        return handler(words, segment, _depth)
 
     # 环境输出即使已经 `env -i` 也按危险处理：CI 注入的凭据、后续新增的
     # 环境变量都不该由模型自行 dump。L3 永远要求人工确认。
@@ -360,22 +405,227 @@ def _classify_segment(segment: str) -> Verdict:
     if name in READ_ONLY_COMMANDS:
         return Verdict(CommandLevel.READ, f"{name} 属于只读命令", segment)
     if name in LOW_WRITE_COMMANDS:
-        if name == "sed":
-            in_place = any(
-                w.startswith(("-i", "--in-place")) for w in words[1:]
-            )
-            if in_place:
-                return Verdict(CommandLevel.MUTATE, "sed -i 会原地改写文件", segment)
-            # 不带 -i 的 sed 只写 stdout；输出重定向已在 classify() 单独拦截。
-            # 早先一律按 LOW_WRITE 处理，导致 `sed -n '1,5p' file` 这种纯读
-            # 也会置 dirty，探索步被误拉去跑全量测试。
-            return Verdict(CommandLevel.READ, "sed 不带 -i 时只读", segment)
+        return _classify_low_write(name, words, segment)
+    if name in MUTATE_COMMANDS:
+        return Verdict(
+            CommandLevel.MUTATE,
+            f"{name} 是已知的构建/依赖/测试命令",
+            segment,
+        )
+
+    # 未登记命令一律 L3：`approve` 只自动放行已识别的 L2，不能再把
+    # “未知脚本/包装器”当成可直接执行的变更操作。
+    return Verdict(
+        CommandLevel.DANGER,
+        f"未登记的命令（{name}）无法安全分级",
+        segment,
+    )
+
+
+def _classify_low_write(
+    name: str, words: list[str], segment: str
+) -> Verdict:
+    if name != "sed":
         return Verdict(CommandLevel.LOW_WRITE, f"{name} 属于低风险写命令", segment)
+    in_place = any(w.startswith(("-i", "--in-place")) for w in words[1:])
+    if in_place:
+        return Verdict(CommandLevel.MUTATE, "sed -i 会原地改写文件", segment)
+    # 不带 -i 的 sed 只写 stdout；输出重定向已在 classify() 单独拦截。
+    # 早先一律按 LOW_WRITE 处理，导致 `sed -n '1,5p' file` 这种纯读
+    # 也会置 dirty，探索步被误拉去跑全量测试。
+    return Verdict(CommandLevel.READ, "sed 不带 -i 时只读", segment)
 
-    return Verdict(CommandLevel.MUTATE, f"未在白名单中的命令：{name}", segment)
+
+def _classify_export(
+    words: list[str], segment: str, _depth: int = 0
+) -> Verdict:
+    if _has_unsafe_env_assignment(words[1:]):
+        return Verdict(
+            CommandLevel.DANGER,
+            "export 修改了会影响命令解析的环境变量",
+            segment,
+        )
+    return Verdict(CommandLevel.MUTATE, "export 会修改会话环境", segment)
 
 
-def _classify_git(sub: str, segment: str) -> Verdict:
+def _classify_command_builtin(
+    words: list[str], segment: str, depth: int
+) -> Verdict:
+    """`command` 只允许 `-v/-V` 查询；其余形式递归判定真实命令。"""
+    if depth >= 8:
+        return Verdict(
+            CommandLevel.DANGER, "command 嵌套过深，无法安全分级", segment
+        )
+    rest = words[1:]
+    if not rest:
+        return Verdict(CommandLevel.MUTATE, "command 没有可执行参数", segment)
+    if rest[0] in {"-v", "-V"}:
+        return Verdict(
+            CommandLevel.READ, "command -v/-V 只查询命令位置", segment
+        )
+    idx = 0
+    while idx < len(rest) and rest[idx] == "-p":
+        idx += 1
+    if idx >= len(rest):
+        return Verdict(CommandLevel.MUTATE, "command 缺少可执行参数", segment)
+    if rest[idx].startswith("-"):
+        return Verdict(
+            CommandLevel.MUTATE,
+            f"command 选项无法安全分级：{rest[idx]}",
+            segment,
+        )
+    return _classify_segment(shlex.join(rest[idx:]), depth + 1)
+
+
+def _classify_rm(
+    words: list[str], segment: str, _depth: int = 0
+) -> Verdict:
+    """按语义识别递归/强制删除，避免 `-r -f` 拆开写绕过 `-rf` 规则。"""
+    recursive = False
+    force = False
+    for word in words[1:]:
+        if word == "--":
+            break
+        if word in {"-r", "-R", "--recursive"}:
+            recursive = True
+        elif word in {"-f", "--force"}:
+            force = True
+        elif word == "--no-preserve-root":
+            return Verdict(
+                CommandLevel.DANGER, "rm 使用 --no-preserve-root", segment
+            )
+        elif word.startswith("--"):
+            continue
+        elif word.startswith("-") and len(word) > 1:
+            flags = word[1:]
+            recursive = recursive or ("r" in flags or "R" in flags)
+            force = force or ("f" in flags)
+    if recursive:
+        return Verdict(
+            CommandLevel.DANGER, "递归删除目录树会丢失未备份内容", segment
+        )
+    if force:
+        return Verdict(CommandLevel.MUTATE, "强制删除文件", segment)
+    return Verdict(CommandLevel.MUTATE, "rm 会删除文件", segment)
+
+
+def _has_unsafe_env_assignment(items: list[str]) -> bool:
+    for item in items:
+        name, sep, _value = item.partition("=")
+        if sep and name in _UNSAFE_ENV_VARS:
+            return True
+    return False
+
+
+def _leading_env_assignments(segment: str) -> list[str]:
+    """解析命令前缀的 `VAR=value`（只看真正位于 argv 起点的赋值）。"""
+    match = re.match(
+        r"^\s*((?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+)", segment
+    )
+    if match is None:
+        return []
+    return match.group(1).split()
+
+
+def _git_subcommand(
+    words: list[str],
+) -> tuple[int, Verdict | None]:
+    """剥离 git 全局选项；返回子命令下标或一条拒绝判定。"""
+    idx = 1
+    while idx < len(words):
+        word = words[idx]
+        if word in _GIT_GLOBAL_OPTS_WITH_VALUE:
+            idx += 2
+            continue
+        if word in {"-c", "--config-env"}:
+            return idx, Verdict(
+                CommandLevel.DANGER,
+                "git -c/--config-env 可注入会执行命令的配置",
+            )
+        if word.startswith(("--git-dir=", "--work-tree=", "--namespace=")):
+            idx += 1
+            continue
+        if word.startswith("--exec-path"):
+            return idx, Verdict(
+                CommandLevel.DANGER,
+                "git --exec-path 可改变子命令查找路径",
+            )
+        if word in _GIT_GLOBAL_OPTS:
+            idx += 1
+            continue
+        if word.startswith("-"):
+            return idx, Verdict(
+                CommandLevel.MUTATE,
+                f"未识别的 git 全局选项：{word}",
+            )
+        break
+    return idx, None
+
+
+def _classify_git_push(segment: str, args: list[str]) -> Verdict:
+    force = any(
+        a.startswith("+")
+        or a in {"--force", "-f", "--force-with-lease", "--force-if-includes"}
+        for a in args
+    )
+    if force:
+        return Verdict(
+            CommandLevel.DANGER, "强制推送会覆盖远端历史", segment
+        )
+    return Verdict(CommandLevel.MUTATE, "git push 会改变远端仓库", segment)
+
+
+def _classify_git_config(segment: str, args: list[str]) -> Verdict:
+    if not args or any(a in _READ_GIT_CONFIG_FLAGS for a in args):
+        return Verdict(CommandLevel.READ, "git config 只读查询", segment)
+    if any(a in {"--global", "--system"} for a in args):
+        return Verdict(
+            CommandLevel.DANGER,
+            "git 全局/系统配置可注入 fsmonitor/pager/credential 等命令",
+            segment,
+        )
+    return Verdict(CommandLevel.MUTATE, "git config 会修改仓库配置", segment)
+
+
+def _classify_git_remote(segment: str, args: list[str]) -> Verdict:
+    if not args or args[0] in {"-v", "--verbose", "show", "get-url"}:
+        return Verdict(CommandLevel.READ, "git remote 只读查询", segment)
+    return Verdict(CommandLevel.MUTATE, "git remote 会修改远端配置", segment)
+
+
+def _classify_git_branch(segment: str, args: list[str]) -> Verdict:
+    if not args or all(a in _READ_GIT_BRANCH_FLAGS for a in args):
+        return Verdict(CommandLevel.READ, "git branch 只读查询", segment)
+    if any(a in {"-D", "--delete"} for a in args):
+        return Verdict(
+            CommandLevel.DANGER, "git branch --delete 删除分支", segment
+        )
+    return Verdict(CommandLevel.MUTATE, "git branch 会修改分支", segment)
+
+
+def _classify_git_tag(segment: str, args: list[str]) -> Verdict:
+    if not args or all(a in _READ_GIT_TAG_FLAGS for a in args):
+        return Verdict(CommandLevel.READ, "git tag 只读查询", segment)
+    if any(a in {"-d", "--delete"} for a in args):
+        return Verdict(
+            CommandLevel.DANGER, "git tag --delete 删除标签", segment
+        )
+    return Verdict(CommandLevel.MUTATE, "git tag 会创建或修改标签", segment)
+
+
+def _classify_git_stash(segment: str, args: list[str]) -> Verdict:
+    if not args or args[0] in {"list", "show", "-l", "--list"}:
+        return Verdict(CommandLevel.READ, "git stash 只读查询", segment)
+    if args[0] in {"drop", "clear"}:
+        return Verdict(
+            CommandLevel.DANGER, "git stash drop/clear 会丢弃改动", segment
+        )
+    return Verdict(
+        CommandLevel.MUTATE, "git stash 会修改工作区状态", segment
+    )
+
+
+def _classify_git_generic(segment: str, sub: str) -> Verdict:
     if sub in GIT_DANGER_SUBCOMMANDS:
         return Verdict(CommandLevel.DANGER, f"git {sub} 具有破坏性", segment)
     if sub in GIT_READ_SUBCOMMANDS:
@@ -383,8 +633,46 @@ def _classify_git(sub: str, segment: str) -> Verdict:
     if sub in GIT_LOW_WRITE_SUBCOMMANDS:
         return Verdict(CommandLevel.LOW_WRITE, f"git {sub} 低风险写", segment)
     if sub:
-        return Verdict(CommandLevel.MUTATE, f"git {sub} 可能改变仓库状态", segment)
+        return Verdict(
+            CommandLevel.MUTATE, f"git {sub} 可能改变仓库状态", segment
+        )
     return Verdict(CommandLevel.READ, "git 无子命令", segment)
+
+
+def _classify_git(
+    words: list[str], segment: str, _depth: int = 0
+) -> Verdict:
+    """git 全局选项先剥离，再按子命令及其参数分级。
+
+    `config/remote/branch/tag/stash` 都有读写两种形态，不能按子命令名
+    一概放行；`-c/--config-env` 与 `--exec-path` 还能注入命令执行，按 L3。
+    """
+    idx, refusal = _git_subcommand(words)
+    if refusal is not None:
+        return Verdict(refusal.level, refusal.reason, segment)
+    sub = words[idx] if idx < len(words) else ""
+    args = words[idx + 1 :] if idx + 1 < len(words) else []
+    handler = _GIT_SUBCOMMAND_CLASSIFIERS.get(sub)
+    if handler is not None:
+        return handler(segment, args)
+    return _classify_git_generic(segment, sub)
+
+
+_SPECIAL_CLASSIFIERS = {
+    "command": _classify_command_builtin,
+    "rm": _classify_rm,
+    "export": _classify_export,
+    "git": _classify_git,
+}
+
+_GIT_SUBCOMMAND_CLASSIFIERS = {
+    "push": _classify_git_push,
+    "config": _classify_git_config,
+    "remote": _classify_git_remote,
+    "branch": _classify_git_branch,
+    "tag": _classify_git_tag,
+    "stash": _classify_git_stash,
+}
 
 
 # --------------------------------------------------------------------------
@@ -497,7 +785,7 @@ _GIT_ADD_ALL = frozenset({"-A", "--all", "-a", "."})
 _HIDDEN_EXPANSION_RE = re.compile(r"\$[A-Za-z_{(]|`")
 
 
-def _is_external_path_token(token: str) -> bool:
+def _is_external_path_token(word: str) -> bool:
     """看起来像「工作区外的路径」。
 
     相对路径按 cwd（= 工作区）解析，天然在界内，不在此列；只认绝对路径、
@@ -507,19 +795,19 @@ def _is_external_path_token(token: str) -> bool:
     `~user` 必须一起认：shell 会把 `~root` 展开成那个用户的家目录，只判裸 `~`
     与 `~/` 会让 `cat ~root/.ssh/id_rsa` 整个漏过去。
     """
-    if not token or token in _SAFE_EXTERNAL_PATHS:
+    if not word or word in _SAFE_EXTERNAL_PATHS:
         return False
     return (
-        token.startswith("/")
-        or token.startswith("~")
-        or token == ".."
-        or token.startswith("../")
-        or "/../" in token
-        or token.endswith("/..")
+        word.startswith("/")
+        or word.startswith("~")
+        or word == ".."
+        or word.startswith("../")
+        or "/../" in word
+        or word.endswith("/..")
     )
 
 
-def _ansi_quoted_path(token: str) -> str | None:
+def _ansi_quoted_path(word: str) -> str | None:
     """认出 `$'...'` / `$"..."` 里藏的工作区外路径。
 
     这两种引用会被 shell **展开**（ANSI-C 转义 / 本地化），内容不是字面量：
@@ -530,32 +818,51 @@ def _ansi_quoted_path(token: str) -> str | None:
     完全惰性的字面量也要人工确认。所以按展开后的值判定：只有像越界路径的才升级。
     转义序列（`$'\\x2fetc'`）无法便宜地还原，一律按隐藏处理。
     """
-    if not token.startswith("$") or len(token) < 2:
+    if not word.startswith("$") or len(word) < 2:
         return None
-    body = token[1:]
+    body = word[1:]
     if "\\" in body:
-        return token
-    return token if _is_external_path_token(body) else None
+        return word
+    return word if _is_external_path_token(body) else None
 
 
 def _escalate_auto_command(
     command: str, read_deny_globs: str = ""
 ) -> Verdict | None:
-    """对会直接放行的命令做越界检查；命中返回升级后的 Verdict，否则 None。"""
+    """对会直接放行的命令做越界检查；命中返回升级后的 Verdict，否则 None。
+
+    分两档，别混用：
+
+    - **`DANGER`（L3）**：会把**工作区外或秘密文件的内容读进上下文**的
+      （越界路径、`.env`/私钥、变量/命令替换藏起来的路径）。这些必须走 L3，
+      因为 L2 在 `approval_mode=approve` 下会被自动放行 —— 用 L2 等于让
+      `cat .env`、`cat ~/.ssh/id_rsa` 无人确认就执行。L3 是唯一不会被
+      「自动批准」与 `AGENT_ALLOW_RULES` 覆盖的等级。
+    - **`MUTATE`（L2）**：会改动工作区/索引但**不涉及外泄**的
+      （`git add -A`、`.agent/` 引用）。
+    - `find -exec/-delete` 与 `PATH=/tmp` 这类前缀一律按 L3：前者能执行任意
+      命令，后者能劫持后续命令解析，都已越过“只影响工作区”的边界。
+    """
     if _HIDDEN_EXPANSION_RE.search(command):
         return Verdict(
-            CommandLevel.MUTATE,
+            CommandLevel.DANGER,
             "命令含变量或命令替换，可能隐藏工作区外的访问，需要人工确认",
         )
     for segment in split_segments(command):
+        if _has_unsafe_env_assignment(_leading_env_assignments(segment)):
+            return Verdict(
+                CommandLevel.DANGER,
+                "命令前缀修改了影响命令解析的环境变量（PATH/LD_PRELOAD 等）",
+                segment,
+            )
         words = _tokens(segment)
         if not words:
             continue
         name = posixpath.basename(words[0])
         if name in _FIND_COMMANDS and any(w in _FIND_EXEC_FLAGS for w in words[1:]):
             return Verdict(
-                CommandLevel.MUTATE,
-                f"{name} 的 -exec/-delete 会在工作区外执行或删除，需要人工确认",
+                CommandLevel.DANGER,
+                f"{name} 的 -exec/-delete 会执行任意命令或删除文件，需要人工确认",
                 segment,
             )
         # `git add -A` / `git add .` 会隐式把 .agent/ 纳入索引 ——
@@ -572,7 +879,7 @@ def _escalate_auto_command(
             segment
         ):
             return Verdict(
-                CommandLevel.MUTATE,
+                CommandLevel.DANGER,
                 "检索式疑似指向凭据/密码，可能命中秘密文件；"
                 "请改用会过滤秘密文件的 search_code（需要确认才能继续）",
                 segment,
@@ -583,7 +890,7 @@ def _escalate_auto_command(
             hidden = _ansi_quoted_path(candidate)
             if hidden is not None:
                 return Verdict(
-                    CommandLevel.MUTATE,
+                    CommandLevel.DANGER,
                     f"只读命令的参数经 ANSI-C/本地化引号展开为工作区外路径："
                     f"{hidden}（需要确认）",
                     segment,
@@ -596,7 +903,7 @@ def _escalate_auto_command(
                 )
             if is_protected_read_path(candidate, read_deny_globs):
                 return Verdict(
-                    CommandLevel.MUTATE,
+                    CommandLevel.DANGER,
                     f"只读命令引用了受保护的秘密文件：{candidate}（需要确认）",
                     segment,
                 )
@@ -604,13 +911,13 @@ def _escalate_auto_command(
             # 但前缀/扩展名已经暴露了意图，按保守方向升级。
             if might_reference_secret(candidate):
                 return Verdict(
-                    CommandLevel.MUTATE,
+                    CommandLevel.DANGER,
                     f"只读命令的参数疑似指向秘密文件：{candidate}（需要确认）",
                     segment,
                 )
             if _is_external_path_token(candidate):
                 return Verdict(
-                    CommandLevel.MUTATE,
+                    CommandLevel.DANGER,
                     f"只读命令引用了工作区外的路径：{candidate}（需要确认）",
                     segment,
                 )
@@ -651,4 +958,7 @@ def classify(command: str, *, read_deny_globs: str = "") -> Verdict:
     if escalated is not None and escalated.level > worst.level:
         return escalated
     return worst
+
+
+
 

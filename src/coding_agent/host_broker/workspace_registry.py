@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
-import sys
 import uuid
 from collections.abc import Callable, MutableMapping
 from pathlib import Path
@@ -18,6 +18,8 @@ from coding_agent.host_broker.errors import BrokerOpError
 from coding_agent.host_broker.paths import HostPathError, HostPathPolicy
 from coding_agent.host_broker.protocol import CANCELLED
 from coding_agent.host_broker.store import WorkspaceRootStore
+
+_LOG = logging.getLogger(__name__)
 
 
 class WorkspaceRegistrar(Protocol):
@@ -90,7 +92,7 @@ class TkWorkspaceRegistrar:
                 a2l_id=self.a2l_id,
             )
         except Exception as exc:  # noqa: BLE001 - 本次会话仍可用
-            print(f"A2L 工作区映射保存失败：{exc}", file=sys.stderr)
+            _LOG.warning("A2L 工作区映射保存失败：%s", exc)
 
     def _pick(self) -> str:
         if os.name == "nt":
@@ -200,7 +202,7 @@ def _pick_windows_folder() -> str | None:
             if release_com:
                 ole32.CoUninitialize()
     except Exception as exc:  # noqa: BLE001 - 退回 Tk
-        print(f"原生目录选择器不可用：{exc}", file=sys.stderr)
+        _LOG.warning("原生目录选择器不可用：%s", exc)
         return None
 
 

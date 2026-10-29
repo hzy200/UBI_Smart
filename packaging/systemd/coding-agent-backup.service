@@ -1,0 +1,30 @@
+[Unit]
+Description=CodingAgent control-plane backup
+After=network-online.target mysql.service mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=coding-agent
+Group=coding-agent
+EnvironmentFile=/etc/coding-agent/control.env
+Environment=PYTHONUNBUFFERED=1
+# 没有配置控制面数据库时直接跳过，避免每天无意义失败。
+ExecCondition=/bin/grep -q '^AGENT_CONTROL_DB_URL=' /etc/coding-agent/control.env
+ExecStart=/opt/coding-agent/bin/CodingAgentControl --backup --backup-keep 14
+WorkingDirectory=/var/lib/coding-agent
+StateDirectory=coding-agent
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+ReadWritePaths=/var/lib/coding-agent/backups

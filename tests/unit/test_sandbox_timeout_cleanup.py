@@ -124,5 +124,17 @@ def test_capture_is_bounded_before_it_reaches_the_host(monkeypatch, real_exec) -
     assert len(result.stdout) < 300
 
 
+def test_cancel_active_kills_registered_proc(monkeypatch) -> None:
+    """`/cancel` 要能终止已经卡在 communicate 里的 wsl.exe。"""
+    proc = _FakeProc()
+    sandbox = _sandbox(monkeypatch, proc)
+    with sandbox._active_lock:
+        sandbox._active_procs.add(proc)
+
+    assert sandbox.cancel_active() == 1
+    assert proc.killed is True
+    assert sandbox._active_procs == set()
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__]))

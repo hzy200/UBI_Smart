@@ -34,6 +34,12 @@
           "doc": ""
         },
         {
+          "name": "level_int",
+          "type": "int",
+          "default": 0,
+          "doc": "数值等级（0–3）；四眼审批用它判断阈值，旧前端可忽略。"
+        },
+        {
           "name": "reason",
           "type": "str",
           "default": "",

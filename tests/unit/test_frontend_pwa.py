@@ -24,10 +24,19 @@ def test_manifest_and_shell_assets_exist() -> None:
     )
     assert manifest["start_url"] == "/"
     assert manifest["scope"] == "/"
+    sources = {icon["src"] for icon in manifest["icons"]}
+    assert "/static/icon-192.png" in sources
+    assert "/static/icon-512.png" in sources
     assert any(
-        icon["src"].endswith("icon.svg") for icon in manifest["icons"]
+        icon.get("purpose") == "maskable" for icon in manifest["icons"]
     )
-    assert (STATIC / "icon.svg").is_file()
+    for name in (
+        "icon-192.png",
+        "icon-512.png",
+        "apple-touch-icon.png",
+        "favicon-32.png",
+    ):
+        assert (STATIC / name).is_file()
     index = (STATIC / "index.html").read_text(encoding="utf-8")
     assert 'rel="manifest"' in index
     assert 'name="theme-color"' in index

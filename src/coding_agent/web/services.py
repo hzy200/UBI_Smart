@@ -243,6 +243,36 @@ def _terminal_marker(buffer: bytes) -> bool:
     return False
 
 
+async def _drain_sse_events(
+    buffer: bytes,
+    chunk: bytes,
+    on_event: Callable[[dict[str, Any]], Any],
+) -> bytes:
+    """解析完整 SSE 帧并逐个回调；返回未闭合的尾部。"""
+    buffer += chunk
+    while b"\n\n" in buffer:
+        raw, buffer = buffer.split(b"\n\n", 1)
+        data_lines = [
+            line[5:].strip()
+            for line in raw.splitlines()
+            if line.startswith(b"data:")
+        ]
+        if not data_lines:
+            continue
+        try:
+            payload = json.loads(b"\n".join(data_lines).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(payload, dict):
+            try:
+                await on_event(payload)
+            except Exception:  # noqa: BLE001
+                _LOG.warning("SSE on_event 处理失败", exc_info=True)
+    if len(buffer) > 1_048_576:
+        buffer = buffer[-4096:]
+    return buffer
+
+
 class AgentGateway:
     def __init__(
         self,
@@ -364,20 +394,37 @@ class AgentGateway:
         public_thread: str = "",
         on_progress: Any | None = None,
         on_terminal: Any | None = None,
+        on_event: Any | None = None,
     ) -> StreamingResponse:
         async def body() -> AsyncIterator[bytes]:
+            from coding_agent.observability import inc_gauge
+
             buffer = b""
+            event_buf = b""
             fired = False
-            async for chunk in stream.aiter_bytes():
-                if on_progress is not None:
-                    on_progress()
-                yield chunk
+            inc_gauge("agent_sse_connections", 1)
+            try:
+                async for chunk in stream.aiter_bytes():
+                    if on_progress is not None:
+                        on_progress()
+                    if on_event is not None and chunk:
+                        event_buf = await _drain_sse_events(
+                            event_buf, chunk, on_event
+                        )
+                    yield chunk
+                    if on_terminal is not None and not fired:
+                        buffer = (buffer + chunk)[-4096:]
+                        marker = _terminal_marker(buffer)
+                        if marker:
+                            fired = True
+                            on_terminal()
+            finally:
+                inc_gauge("agent_sse_connections", -1)
+                # 客户端断开、上游异常或没有 terminal 标记时也要释放租约/
+                # 停止续租心跳；否则 lease 会被心跳一直续着，直到进程退出。
                 if on_terminal is not None and not fired:
-                    buffer = (buffer + chunk)[-4096:]
-                    marker = _terminal_marker(buffer)
-                    if marker:
-                        fired = True
-                        on_terminal()
+                    fired = True
+                    on_terminal()
 
         return StreamingResponse(
             with_heartbeat_bytes(body()),

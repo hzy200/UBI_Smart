@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import re
 from pathlib import Path
 
@@ -42,7 +44,29 @@ def test_bundle_is_generated_and_contains_phase_e_hooks() -> None:
 def test_vendor_assets_are_documented() -> None:
     readme = (STATIC / "vendor" / "README.md").read_text(encoding="utf-8")
     assert "highlight.js 11.11.1" in readme
+    assert "DOMPurify 3.3.2" in readme
     assert (STATIC / "vendor" / "highlight.min.js").stat().st_size > 100_000
+
+
+def test_vendor_scripts_have_matching_sri() -> None:
+    """vendor 脚本必须带与文件内容一致的 SRI，升级时不能只换文件。"""
+    html = _read("index.html")
+    pattern = re.compile(
+        r'<script\s+[^>]*src="/static/vendor/([^"]+)"[^>]*'
+        r'integrity="sha384-([^"]+)"',
+        re.DOTALL,
+    )
+    found = dict(pattern.findall(html))
+    assert set(found) == {
+        "marked.min.js",
+        "purify.min.js",
+        "highlight.min.js",
+        "alpine-csp.min.js",
+    }
+    for name, expected in found.items():
+        data = (STATIC / "vendor" / name).read_bytes()
+        actual = base64.b64encode(hashlib.sha384(data).digest()).decode()
+        assert actual == expected, f"{name} 的 SRI 与文件内容不一致"
 
 
 def test_theme_and_accessibility_markers() -> None:

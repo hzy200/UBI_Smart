@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -18,6 +19,11 @@ from coding_agent.provider_profiles import (
     profile_from_payload,
 )
 from coding_agent.secrets_store import SecretStoreUnavailable
+from coding_agent.security.netguard import (
+    OutboundBlocked,
+    PinnedTarget,
+    resolve_outbound_target,
+)
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 
@@ -28,6 +34,49 @@ class ProviderKeyRequest(BaseModel):
 
 class ProviderTestRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
+
+
+def _pinned_request(
+    pinned: PinnedTarget,
+) -> tuple[str, dict[str, str], dict[str, str]]:
+    """把连接钉到已校验的 IP，同时保住 Host/SNI 与原域名证书校验。
+
+    DNS rebinding：校验与连接之间不能再解析一次。返回
+    `(url, extra_headers, extensions)`；IP 与域名一致时原样返回。
+    """
+    if not pinned.ip or pinned.ip == pinned.host:
+        return pinned.url, {}, {}
+    parts = urlsplit(pinned.url)
+    netloc = f"[{pinned.ip}]" if ":" in pinned.ip else pinned.ip
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+    target = urlunsplit(
+        (parts.scheme, netloc, parts.path, parts.query, parts.fragment)
+    )
+    host_header = parts.hostname or pinned.host
+    if parts.port:
+        host_header = f"{host_header}:{parts.port}"
+    extensions = (
+        {"sni_hostname": parts.hostname or pinned.host}
+        if parts.scheme == "https"
+        else {}
+    )
+    return target, {"Host": host_header}, extensions
+
+
+def _models_from_response(response: Any) -> list[str]:
+    """从 `/models` 响应里取模型 id；格式不标准不算不可达。"""
+    try:
+        parse = getattr(response, "json", None)
+        payload = parse() if callable(parse) else {}
+        rows = payload.get("data") if isinstance(payload, dict) else []
+        return [
+            str(row.get("id"))
+            for row in (rows or [])
+            if isinstance(row, dict) and row.get("id")
+        ][:100]
+    except Exception:  # noqa: BLE001 - 格式不标准不影响连通性判定
+        return []
 
 
 @dataclass(frozen=True)
@@ -143,26 +192,33 @@ def register_provider_routes(app: FastAPI, deps: ProviderDeps) -> None:
                 status_code=422, detail="provider 还没有配置密钥"
             )
         base_url = spec["base_url"].rstrip("/")
+        # 请求会带上 provider 的真实 API Key，所以目标必须过 SSRF 守卫：
+        # 只校验 scheme/host 挡不住 `http://169.254.169.254`（云元数据）与
+        # `http://[::ffff:127.0.0.1]`，判定必须在解析之后按 IP 做。
         try:
-            parsed = httpx.URL(base_url)
-        except (httpx.InvalidURL, ValueError, TypeError) as exc:
-            raise HTTPException(
-                status_code=422, detail="provider base_url 非法"
-            ) from exc
-        if parsed.scheme not in {"http", "https"} or not parsed.host:
-            raise HTTPException(
-                status_code=422, detail="provider base_url 非法"
+            pinned = resolve_outbound_target(
+                f"{base_url}/models",
+                allowed_hosts=deps.settings.provider_probe_allowed_hosts,
+                allow_private=(
+                    deps.settings.provider_probe_allow_private_network
+                ),
             )
+        except OutboundBlocked as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # DNS rebinding：校验与连接之间不能再解析一次。把连接钉到刚校验的 IP，
+        # Host/SNI 仍用原域名，证书校验也按原域名做。
+        target, extra_headers, extensions = _pinned_request(pinned)
+        headers = {"Authorization": f"Bearer {spec['api_key']}", **extra_headers}
         try:
             # 不走环境代理：避免把 Authorization 发给 HTTP_PROXY。
+            # 不跟随重定向：否则守卫过的目标可以把请求 302 到内网。
             async with httpx.AsyncClient(
-                timeout=5.0, trust_env=False
+                timeout=5.0, trust_env=False, follow_redirects=False
             ) as client:
                 response = await client.get(
-                    f"{base_url}/models",
-                    headers={
-                        "Authorization": f"Bearer {spec['api_key']}",
-                    },
+                    target,
+                    headers=headers,
+                    extensions=extensions or None,
                 )
         except httpx.HTTPError as exc:
             return {
@@ -171,19 +227,7 @@ def register_provider_routes(app: FastAPI, deps: ProviderDeps) -> None:
                 "error": f"{type(exc).__name__}: {exc}",
             }
         ok = 200 <= response.status_code < 300
-        models: list[str] = []
-        if ok:
-            try:
-                parse = getattr(response, "json", None)
-                payload = parse() if callable(parse) else {}
-                rows = payload.get("data") if isinstance(payload, dict) else []
-                models = [
-                    str(row.get("id"))
-                    for row in (rows or [])
-                    if isinstance(row, dict) and row.get("id")
-                ][:100]
-            except Exception:  # noqa: BLE001 - /models 格式不标准不影响连通性
-                models = []
+        models = _models_from_response(response) if ok else []
         return {
             "ok": ok,
             "reachable": True,

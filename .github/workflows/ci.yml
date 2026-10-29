@@ -70,12 +70,56 @@ jobs:
           python-version: "3.12"
       - name: 安装（开发 + 界面 + 控制面数据库依赖）
         run: pip install -e ".[dev,ui,web,db]"
+      - name: 依赖锁定新鲜度
+        # `pyproject.toml` 改了而 `uv.lock` 没重生成 → 红灯。
+        # 只做**校验**、不建环境：本仓库的开发环境是 conda + pip，不是 uv。
+        # 生产部署用 `uv sync --frozen`（或 `uv export` 出带哈希的
+        # requirements.txt 再 `pip install --require-hashes`），避免
+        # "装到的不是锁定的那一版"。
+        uses: astral-sh/setup-uv@v5
+      - name: 校验 uv.lock
+        run: uv lock --check
       - name: Lint
+        # 阻断式规则（E/F/I/UP/B）必须 0 违规。安全与质量类规则
+        # （S/C90/TRY/RET/ASYNC/A）刻意**不进 select**，由下面的棘轮计数。
         run: ruff check src tests
+      - name: 质量 lint 预算（棘轮）
+        # 存量 120 处一次修不完，但闸门必须存在：`try-except-pass` 之类只允许
+        # 减少，不允许新增。修完一处就用 `--update` 把预算降下来。
+        run: python scripts/check_lint_budget.py
+      - name: 类型检查（安全/终端边界 strict）
+        run: mypy
+      - name: 性能冒烟（策略/终端/限流热路径）
+        # 阈值很宽松，只挡数量级退化；慢 runner 可用 --factor 进一步放宽。
+        run: python scripts/perf_smoke.py
+      - name: SSE 并发冒烟（20 路 × 200 token）
+        # 同进程 A3 + 假 runtime；不是容量基准，只挡并发流互相拖死。
+        run: python scripts/sse_load_smoke.py
+      - name: 版本一致性
+        # pyproject 从 `coding_agent.__version__` 动态取版本；前端两份文件
+        # 无法 import Python，因此在 CI 里显式比对。
+        run: python scripts/check_version.py
+      - name: 密钥扫描（gitleaks）
+        # 只扫本次改动引入的提交区间；全量历史扫描在 security.yml 里定时跑。
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
       - name: 测试 + 覆盖率
         # 门槛（fail_under=76）与说明在 pyproject.toml 的 [tool.coverage.report]。
         # term-missing 是刻意的：沙箱层与能力层的缺口必须留在日志里能看见。
-        run: pytest -m "not wsl and not llm" --cov --cov-report=term-missing
+        run: |
+          pytest -m "not wsl and not wsl_env and not llm" \
+            --cov --cov-report=term-missing \
+            --cov-report=json:coverage.json
+      - name: 承重模块覆盖率棘轮
+        # 全局 fail_under 掩盖不了安全模块；每个模块有独立下限，
+        # 数字只许上升（scripts/coverage_budget.json）。
+        run: python scripts/check_module_coverage.py --json coverage.json
+      - name: 指标快照漂移
+        # docs/METRICS.md + docs/metrics.json 由覆盖率与 collect-only 生成；
+        # 文件过期（超出平台容差）就红，不再靠手抄数字。
+        run: python scripts/snapshot_metrics.py --coverage coverage.json --collect --check
       - name: 执行后端契约（Linux local）
         # WSL 契约在 Windows 本地用 `pytest -m wsl` 跑；这里验证 Linux 本地后端。
         run: pytest -m execution -q
@@ -88,10 +132,75 @@ jobs:
         run: python scripts/phase_f_drill.py
       - name: 显式化沙箱层缺口
         # 没有这一步，"CI 全绿" 很容易被读成 "沙箱层也没问题" —— 恰恰相反：
-        # 执行真实命令的那一层在 CI 里**一行都没跑**，它的低覆盖就写在上面
-        # 覆盖率报告的 Missing 列里（tools/files.py、sandbox/snapshots.py…）。
+        # 执行真实命令的那一层在 Linux CI 里**一行都没跑**，它的低覆盖就写在
+        # 上面覆盖率报告的 Missing 列里（tools/files.py、sandbox/snapshots.py…）。
         # 用 ::warning:: 让它成为 GitHub 界面上的可见标注，而不是埋在日志里。
+        #
+        # 真正的门禁在 `.github/workflows/sandbox.yml`：它跑在带 WSL2 的
+        # self-hosted runner 上，并对沙箱层单设覆盖率下限；必须在分支保护里
+        # 把它设为 required check。
         run: |
           skipped=$(pytest -m wsl --collect-only -q 2>/dev/null | tail -1 || true)
-          echo "::warning::CI 是 Linux runner、没有 WSL2，沙箱层用例未执行（$skipped）。仅快反馈用例通过 ≠ 沙箱层可用。"
+          echo "::warning::Linux CI 没有 WSL2，沙箱层用例未执行（$skipped）。仅快反馈用例通过 ≠ 沙箱层可用；沙箱层门禁见 Sandbox 工作流。"
           echo "被跳过的沙箱层用例：$skipped"
+
+  backend-py311:
+    # 开发机最低版本是 3.11；主 backend 用 3.12 跑覆盖率与棘轮，
+    # 这里保证最低受支持版本不会被悄悄写坏。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装（开发 + 界面 + 控制面数据库依赖）
+        run: pip install -e ".[dev,ui,web,db]"
+      - name: Python 3.11 快反馈
+        run: pytest -m "not wsl and not wsl_env and not llm" -q
+
+  windows:
+    # Windows 专属路径：路径守卫、A2L host broker、desktop 启动链。
+    # 这些在 Linux runner 上要么 skip，要么走不到；单独一条 job 才有意义。
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装（开发 + 界面 + 控制面依赖）
+        run: pip install -e ".[dev,ui,web,db]"
+      - name: Windows 快反馈
+        # 默认 addopts 是 `-n auto --dist loadfile`；Windows runner 上同样并行。
+        run: pytest -m "not wsl and not wsl_env and not llm" -q
+
+  mysql:
+    # 控制面 MySQL 契约：迁移、账号/密钥、配额、用量、备份恢复。
+    # 默认被 skip 的 `-m mysql` 必须在真实实例上跑一次。
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: coding_agent_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装（开发 + 控制面数据库依赖）
+        run: pip install -e ".[dev,db]"
+      - name: 安装 MySQL 客户端
+        # 备份/恢复用例直接调用 mysqldump/mysql，service container 只提供服务端。
+        run: sudo apt-get update && sudo apt-get install -y default-mysql-client
+      - name: MySQL 契约
+        env:
+          AGENT_TEST_MYSQL_URL: mysql+pymysql://root:root@127.0.0.1:3306/coding_agent_test?charset=utf8mb4
+        run: pytest -m mysql -q

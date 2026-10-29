@@ -596,10 +596,28 @@ class Settings(BaseSettings):
     audit_enabled: bool = Field(default=True, alias="AGENT_AUDIT_ENABLED")
     # 留空表示自动用 <当前目录>/.agent/audit
     audit_dir: str = Field(default="", alias="AGENT_AUDIT_DIR")
+    # SIEM 导出：host:port（UDP syslog），每条审计 JSON 一行；空 = 不导出。
+    audit_syslog_address: str = Field(
+        default="", alias="AGENT_AUDIT_SYSLOG_ADDRESS"
+    )
+    # SIEM webhook：POST 每行审计 JSON；空 = 不导出。
+    audit_webhook_url: str = Field(
+        default="", alias="AGENT_AUDIT_WEBHOOK_URL"
+    )
+    audit_webhook_token: str = Field(
+        default="", alias="AGENT_AUDIT_WEBHOOK_TOKEN"
+    )
     # 快照校验清单根目录；留空 = 用户主目录下的 .codingagent/snapshots。
     # 放在工作区外，shell 级篡改快照内容也能在恢复时被发现。
     snapshot_manifest_dir: str = Field(
         default="", alias="AGENT_SNAPSHOT_MANIFEST_DIR"
+    )
+    # 快照保留：每次运行开始清理，保留最新 N 份且不超过 M 天。0 = 不按该维度清理。
+    snapshot_keep_count: int = Field(
+        default=200, alias="AGENT_SNAPSHOT_KEEP_COUNT"
+    )
+    snapshot_keep_days: int = Field(
+        default=30, alias="AGENT_SNAPSHOT_KEEP_DAYS"
     )
     # 未消费 steering 指令的持久化目录；留空 = <当前目录>/.agent/steering
     steering_dir: str = Field(default="", alias="AGENT_STEERING_DIR")
@@ -608,7 +626,7 @@ class Settings(BaseSettings):
         default="", alias="AGENT_RATE_LIMIT_STATE_PATH"
     )
     # 单个审计文件超过该大小（MB）就轮转；0 表示不轮转
-    audit_max_mb: int = Field(default=0, alias="AGENT_AUDIT_MAX_MB")
+    audit_max_mb: int = Field(default=256, alias="AGENT_AUDIT_MAX_MB")
 
     # ---------- 安全 profile 与不可信仓库 ----------
     # local（默认，面向可信仓库）| untrusted（bwrap + 禁网 + 强制 ask +
@@ -699,9 +717,114 @@ class Settings(BaseSettings):
     web_session_ttl_s: int = Field(
         default=12 * 3600, alias="AGENT_WEB_SESSION_TTL_S"
     )
-    # 运行前为 token 限额预留的量；0 = 只做事后限额。
+    # 对外访问根，用于邮件里的重置链接；空 = 邮件只带 token。
+    web_public_url: str = Field(default="", alias="AGENT_WEB_PUBLIC_URL")
+    web_password_reset_ttl_s: int = Field(
+        default=1800, alias="AGENT_WEB_PASSWORD_RESET_TTL_S"
+    )
+    # 自助密码重置邮件（SMTP）；host 为空 = 不发送。
+    smtp_host: str = Field(default="", alias="AGENT_SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="AGENT_SMTP_PORT")
+    smtp_user: str = Field(default="", alias="AGENT_SMTP_USER")
+    smtp_password: str = Field(default="", alias="AGENT_SMTP_PASSWORD")
+    smtp_from: str = Field(default="", alias="AGENT_SMTP_FROM")
+    smtp_starttls: bool = Field(default=True, alias="AGENT_SMTP_STARTTLS")
+    # 空闲超时：超过该时长没有请求则失效；仍受上面的绝对 TTL 限制。
+    # 0 = 关闭（只使用绝对 TTL）。
+    web_session_idle_ttl_s: int = Field(
+        default=0, alias="AGENT_WEB_SESSION_IDLE_TTL_S"
+    )
+    # A2 /metrics 的抓取 token；空 = 复用普通 Web 认证。
+    metrics_token: str = Field(
+        default="", alias="AGENT_METRICS_TOKEN"
+    )
+    # text | json；容器/日志采集建议 json。
+    log_format: str = Field(default="text", alias="AGENT_LOG_FORMAT")
+    # /openapi.json 与 /docs；默认关闭，避免把完整路由表暴露给公网。
+    web_openapi: bool = Field(default=False, alias="AGENT_WEB_OPENAPI")
+    # OTLP HTTP trace；空 = 关闭。需要 `pip install -e ".[otel]"`。
+    otel_endpoint: str = Field(default="", alias="AGENT_OTEL_ENDPOINT")
+    otel_service_name: str = Field(
+        default="coding-agent", alias="AGENT_OTEL_SERVICE_NAME"
+    )
+    # `k=v,k2=v2` 形式的 collector headers。
+    otel_headers: str = Field(default="", alias="AGENT_OTEL_HEADERS")
+
+    # --- 企业身份（RFC-0004）---
+    oidc_enabled: bool = Field(
+        default=False, alias="AGENT_OIDC_ENABLED"
+    )
+    oidc_issuer: str = Field(default="", alias="AGENT_OIDC_ISSUER")
+    oidc_client_id: str = Field(
+        default="", alias="AGENT_OIDC_CLIENT_ID"
+    )
+    oidc_client_secret: str = Field(
+        default="", alias="AGENT_OIDC_CLIENT_SECRET"
+    )
+    oidc_redirect_uri: str = Field(
+        default="", alias="AGENT_OIDC_REDIRECT_URI"
+    )
+    oidc_scopes: str = Field(
+        default="openid profile email", alias="AGENT_OIDC_SCOPES"
+    )
+    oidc_auto_create_users: bool = Field(
+        default=True, alias="AGENT_OIDC_AUTO_CREATE_USERS"
+    )
+    oidc_default_role: str = Field(
+        default="member", alias="AGENT_OIDC_DEFAULT_ROLE"
+    )
+    oidc_role_claim: str = Field(
+        default="groups", alias="AGENT_OIDC_ROLE_CLAIM"
+    )
+    # JSON: {"idp-group": "admin", ...}；未命中用 default_role。
+    oidc_role_map: str = Field(
+        default="", alias="AGENT_OIDC_ROLE_MAP"
+    )
+    oidc_username_claim: str = Field(
+        default="preferred_username", alias="AGENT_OIDC_USERNAME_CLAIM"
+    )
+    oidc_email_claim: str = Field(
+        default="email", alias="AGENT_OIDC_EMAIL_CLAIM"
+    )
+    oidc_state_ttl_s: int = Field(
+        default=600, alias="AGENT_OIDC_STATE_TTL_S"
+    )
+    oidc_http_timeout_s: float = Field(
+        default=10.0, alias="AGENT_OIDC_HTTP_TIMEOUT_S"
+    )
+    # 仅本地开发允许 http:// issuer；生产必须 HTTPS。
+    oidc_allow_insecure_http: bool = Field(
+        default=False, alias="AGENT_OIDC_ALLOW_INSECURE_HTTP"
+    )
+    mfa_enabled: bool = Field(
+        default=False, alias="AGENT_MFA_ENABLED"
+    )
+    mfa_issuer: str = Field(
+        default="CodingAgent", alias="AGENT_MFA_ISSUER"
+    )
+    mfa_challenge_ttl_s: int = Field(
+        default=300, alias="AGENT_MFA_CHALLENGE_TTL_S"
+    )
+    mfa_max_attempts: int = Field(
+        default=5, alias="AGENT_MFA_MAX_ATTEMPTS"
+    )
+    mfa_window_steps: int = Field(
+        default=1, alias="AGENT_MFA_WINDOW_STEPS"
+    )
+    # 四眼审批：L3 默认；0 = 关闭（但仍可用独立开关关闭整个特性）。
+    approval_four_eyes: bool = Field(
+        default=False, alias="AGENT_APPROVAL_FOUR_EYES"
+    )
+    approval_four_eyes_min_level: int = Field(
+        default=3, alias="AGENT_APPROVAL_FOUR_EYES_MIN_LEVEL"
+    )
+    approval_ttl_s: int = Field(
+        default=3600, alias="AGENT_APPROVAL_TTL_S"
+    )
+    # 运行前为 token 限额预留的量；0 = 只做事后限额。默认预留一段，
+    # 让并发/长 run 在真正超额前被硬上限拦住。
     web_quota_reserve_tokens: int = Field(
-        default=0, alias="AGENT_WEB_QUOTA_RESERVE_TOKENS"
+        default=20_000, alias="AGENT_WEB_QUOTA_RESERVE_TOKENS"
     )
     # 成本展示与额度计量货币；上游价格仍按 USD 计价。
     cost_currency: str = Field(
@@ -713,6 +836,13 @@ class Settings(BaseSettings):
     # 登录按来源 IP 的固定窗口限流。
     web_login_rate_limit_per_min: int = Field(
         default=10, alias="AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN"
+    )
+    # memory = 单进程内存；redis = 多实例共享固定窗口。
+    rate_limit_backend: str = Field(
+        default="memory", alias="AGENT_RATE_LIMIT_BACKEND"
+    )
+    rate_limit_redis_url: str = Field(
+        default="", alias="AGENT_RATE_LIMIT_REDIS_URL"
     )
     # 配额预留的存活时间；进程崩溃后由其他实例/下次启动清理。
     quota_reservation_ttl_s: int = Field(
@@ -796,6 +926,20 @@ class Settings(BaseSettings):
     web_static_dir: str = Field(
         default="", alias="AGENT_WEB_STATIC_DIR"
     )
+    # ---------- 服务端外连守卫（SSRF） ----------
+    # provider 连通性探测会带上真实 API Key，目标必须过
+    # security/netguard.py 的解析后 IP 判定。默认拒绝回环 / 内网 / 保留地址；
+    # 链路本地（169.254.169.254 等云元数据）**永远**拒绝，不受此开关影响。
+    # 本机或内网 OpenAI-compatible 端点显式打开它。
+    provider_probe_allow_private_network: bool = Field(
+        default=False, alias="AGENT_PROVIDER_PROBE_ALLOW_PRIVATE_NETWORK"
+    )
+    # 目标主机后缀白名单（逗号分隔，如 `deepseek.com,openai.com`）；
+    # 空 = 不额外限制，仍需过 IP 判定。企业部署建议填上，可以顺带收敛
+    # DNS rebinding 的残余风险。
+    provider_probe_allowed_hosts: str = Field(
+        default="", alias="AGENT_PROVIDER_PROBE_ALLOWED_HOSTS"
+    )
 
     # ---------- A2 控制面（Phase B，可选） ----------
     # 空 = 继续用 gui-sessions.json / 本地文件（Standalone 与旧部署）。
@@ -815,7 +959,8 @@ class Settings(BaseSettings):
         default=False, alias="AGENT_WORKSPACE_REGISTRY"
     )
     # 工作区根；空 = 沿用租户 workspaces_root（TenantManager）。
-    # 必须是 A3/A4 视角的绝对 POSIX 路径。
+    # 必须是 A3/A4 视角的绝对 POSIX 路径；host 工作区也可以写成 Windows
+    # 路径（`D:\ws`），校验时两侧都会归一化成 POSIX 再比较。
     workspace_root: str = Field(default="", alias="AGENT_WORKSPACE_ROOT")
     # revision 归档根；空 = 关闭归档（仍可运行，但不能灾难恢复）。
     workspace_archive_root: str = Field(
@@ -871,10 +1016,21 @@ class Settings(BaseSettings):
     idempotency_ttl_s: int = Field(
         default=600, alias="AGENT_IDEMPOTENCY_TTL_S"
     )
+    # SIGTERM 优雅退出：A3 停止接收新运行并等待进行中的运行自然结束；
+    # 超时后取消，A2 用同一数值约束 uvicorn 在途请求。0 = 不等待。
+    drain_timeout_s: int = Field(
+        default=60, ge=0, le=3600, alias="AGENT_DRAIN_TIMEOUT_S"
+    )
     # 空 = 只依赖内部 Bearer token（兼容旧部署）；
     # 非空 = A2 对 X-Agent-Context 做 HMAC，A3 验签。
     agent_internal_hmac_key: str = Field(
         default="", alias="AGENT_INTERNAL_HMAC_KEY"
+    )
+    # 是否**要求** A2 发来的 X-Agent-Context 带 HMAC 签名（非空 key）。
+    # 空 = 兼容未升级的部署，只靠内部 Bearer token；拆分部署应显式设 true。
+    # A3 绑在非 loopback 地址时无论这里怎么配都强制要求（启动时校验）。
+    agent_internal_hmac_required: bool = Field(
+        default=False, alias="AGENT_INTERNAL_HMAC_REQUIRED"
     )
 
     # ---------- 共享事件传输（Phase B3） ----------

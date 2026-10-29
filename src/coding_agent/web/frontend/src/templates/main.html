@@ -4,8 +4,8 @@
       <button x-show="_errorRetryKind" @click="retryLastError" x-text="i18n.common.retry"></button>
       <button @click="dismissError" x-text="i18n.common.close"></button>
     </div>
-    <div class="main-tabs" role="tablist" :aria-label="i18n.main.mainTabs">
-      <div class="main-tab-list" role="presentation" @keydown="onMainTabKeydown">
+    <div class="main-tabs">
+      <div class="main-tab-list" role="tablist" :aria-label="i18n.main.mainTabs" @keydown="onMainTabKeydown">
         <button class="main-tab" role="tab" :class="mainTabClasses.chat"
                 :aria-selected="mainTabFlags.chat" :tabindex="chatTabIndex" @click="showChat">
           <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>

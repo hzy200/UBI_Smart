@@ -6,6 +6,7 @@ export interface ApprovalRequestedEvent {
   tool: string;
   command: string;
   level: string;
+  level_int: number;
   reason: string;
 }
 

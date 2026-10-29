@@ -69,23 +69,155 @@ items:
       设计，并满足任务数 ≥20、repeat 3、spread <10pp
     owner: 评测维护者
     due: 下次要量化任何改动之前
+    added_2026-10-28: |
+      `tests/eval` **不在 PR 门禁里**（`pytest -m "not wsl and not wsl_env and not llm"` 选不中它）。
+      副作用是：套件什么时候饱和的没人知道，得等下次想量化改动才发现尺子已经废了。
+      建议给它一条定时的独立流水线（跑 `-m eval` 之类），失败/饱和都出结论，
+      而不是靠人记得去跑。
+    added_2026-10-29: |
+      流水线与"读结果"都补上了：
+      - `.github/workflows/llm.yml` 的 `llm-eval` job 增加定时触发（每周一随
+        `llm-tests` 一起跑），由仓库变量 `WSL_RUNNER_READY` 控制 —— runner 没注册
+        时 job 会一直排队，那比不跑更糟，所以默认关闭。
+      - `scripts/eval_gate.py` 把 JSON 读成结论：饱和只警告（尺子失效不是代码坏了）、
+        通过率下降超过阈值才失败、`comparable=false` 一律不下结论。结果写进
+        `$GITHUB_STEP_SUMMARY`，不会静默。
+      - 口径与用法写进 `tests/eval/README.md`「读结果」一节，判定逻辑由
+        `tests/unit/test_eval_gate.py` 8 条用例钉住。
+      **仍未偿还的部分**：任务集本身还是饱和的（这是内容工作，得设计新尺子），
+      流水线只是让"饱和"变得可见。
     do_not: |
       **不要用饱和套件的单轮差异证明任何改进。** 历史上 52%/83%
       （spread 31pp）就是这么来的 —— 那次读数说明不了任何事。
       也不要把 long 的历史 2/5 当成当前基线：任务数已从 5 扩到 6。
 
-  - id: TD-008
-    title: 文档里的测试数字多份不一致（1561 / 1661 / 1443 / 1420 / 1403）
-    where: README.md, docs/ACCEPTANCE.md, docs/COMPLEXITY.md, docs/TEST_REPORT_*.md
-    why_now: 手写数字会过期；README 未纳入本次分层改造
-    debt_type: 文档
+  - id: TD-032
+    title: CLI 压平 A1/A2 边界
+    status: 已偿还 2026-10-29（安全面）；余下两条是组装边，转入允许清单
+    where: cli/admin.py, cli/app.py（仅组装）
+    why_now: |
+      原状：CLI 直接 import 了控制面与 Web/TUI。`cli/admin.py` 拿着
+      `control.store` 建账号 —— 手里有 store 句柄就能改角色、改密码、删账号，
+      审计与审批全绕过；`cli/platform.py` 把 `sandbox.run` 原样透传，等于
+      CLI 层还有第二个 shell。
+
+      三条都已收口：
+      - **探活**：`SandboxProbe` 不再有 `run(command)`，只剩四个固定意图
+        （`identity` / `which` / `dir_exists` / `ensure_dir`），实现在 A4 的
+        `sandbox/probe.py`；中间那版"命令名闭集"闸门随之删除（没有触发点）。
+      - **账号**：`cli/admin.py` 不再构造 `ControlStore`，只调
+        `control.bootstrap.create_first_admin()`；该函数在租户下**已有任何账号**
+        时拒绝，并提示走 A2 的 `/api/admin/users`。冷启动必须有这条路径 ——
+        服务还没起来，走 HTTP 无门。
+      - **组装**：`cli/app.py` 仍 import `web` / `tui`，因为 `agent serve` 与
+        `agent tui` 本来就是"一个进程里拉起另一层"。这是组装不是越权，
+        保留在 `_FROZEN_CLI_EDGES` 里作为允许清单。
+    debt_type: 安全
     severity: low
-    plan: |
-      数字一律改成"生成命令 + 实测日期"，不再手抄。
-      docs/contracts/ 已实现自动生成；README 需单独一次编辑。
+    workaround: |
+      两条能力边界都有用例钉住：
+      `tests/unit/test_cli_platform_probe.py`（`SandboxProbe` 没有 `run`）、
+      `tests/unit/test_admin_bootstrap.py`（已有账号即拒绝、失败也关连接）。
+      跨层边冻结在 `tests/unit/test_architecture.py::_FROZEN_CLI_EDGES`，新增即失败。
     owner: 项目作者
-    due: 下次 README 编辑时
-    do_not: 不要在各文档之间互相抄数字 —— 抄一次错一次
+    due: 已结清；仅当 CLI 新增"直接改控制面数据"的能力时重新打开
+    do_not: |
+      不要让 `cli/admin.py` 再碰 `ControlStore` / `UserStore`：账号的增删改查
+      只能走 A2 的 `/api/admin/users`，CLI 只保留冷启动那一次。
+      不要给 `SandboxProbe` 加回 `run(command)`，也不要把 `sandbox/probe.py`
+      扩成"通用命令执行器"——探活的价值就是**只有固定意图**。
+      也不要把 `_FROZEN_CLI_EDGES` 当成"允许分子"随手加条目：新增一条边先问
+      "这是组装，还是绕过了 A2"。
+
+  - id: TD-033
+    title: 依赖图存在已知环，靠延迟 import 维持
+    status: 已偿还 2026-10-29（模块级环清零）
+    where: orchestrator/scheduler.py, orchestrator/scheduler_run.py, orchestrator/scheduler_plan.py
+    why_now: |
+      原状：模块级有一处真环 —— `orchestrator.scheduler_run` 顶层 import
+      `scheduler`，而 `scheduler` 在函数里反向 import `scheduler_run`。靠
+      "晚导入"绕开导入期崩溃，但只要有人把那行挪到顶层就会互相等待初始化，
+      而且没人知道这条约束存在。
+
+      处置：把 5 个**纯函数**（依赖判断、implement 下游接线、深度、重试上下文、
+      失败兜底结果）下沉到 `orchestrator/scheduler_plan.py`。它们只吃
+      `tasks`/`status` 两个字典，本来就与运行态无关。之后
+      `scheduler_run → scheduler_plan` 是普通依赖，`scheduler → scheduler_run`
+      只剩节点工厂里那一条函数内 import，模块级图重新成为 DAG。
+
+      包级仍然"看起来有环"：`graph ⇄ orchestrator` 与 `config ⇄ llm` 是把
+      模块折叠成包之后的假象（各自动的车不同），Python 在乎的是模块级顺序，
+      所以断言建在模块粒度。
+    debt_type: 架构
+    severity: low
+    workaround: |
+      `tests/unit/test_architecture.py::test_dependency_graph_has_no_new_cycles`
+      的已知环基线现在是**空集合**，新增任何环都会红，且修好后不清基线也会红；
+      `test_orchestrator_does_not_import_graph_build` 单独盯住最容易闭合的那条边。
+    owner: 项目作者
+    due: 已结清
+    do_not: |
+      不要在 orchestrator 里写 `import coding_agent.graph.build`。
+      不要把 `scheduler_plan.py` 里的纯函数搬回去 —— 它们回到 `scheduler.py`
+      就等于把环重新焊上。
+      注意包级环与模块级环不是一回事：折叠成包之后 `graph ⇄ orchestrator`
+      看起来一定是环。
+
+  - id: TD-034
+    title: A4 之外仍有模块裸跑 sandbox.run
+    status: 已偿还 2026-10-29（7 个模块全部迁走，冻结基线清零）
+    where: 无（基线为空集合，新增即失败）
+    why_now: |
+      原来 7 个模块直接在 `sandbox` 上跑命令，绕过 `execution/` 契约层：命令不经
+      `classify()` 分级、不进审批闸门、多数也不在工具边界的审计里。
+      原先 `test_host_ops.py` 的扫描只扫 `orchestrator/` 一个包，且只认接收者
+      名字字面叫 `sandbox` 的 `ast.Name`，所以 `self._sandbox.run(...)` 这类写法
+      全都漏网 —— 上面这批是一个都没被看见过的。
+
+      `memory/longterm.py` 已迁走：写锁原来取私有属性 `self._fs._sandbox` 拼
+      `mkdir`/`rmdir`/`stat -c %Y` 脚本，现在改用 `SandboxFs` 的目录能力
+      （`mkdir` / `mkdir_exclusive` / `rmdir` / `stat().mtime`），记忆层不再需要
+      任何 shell。
+
+      `instructions.py` 已迁走：发现仓库指令文件原来是 `sandbox.run("find . ...")`，
+      而这条路径的产出会**直接进模型上下文** —— 拼错了就是把任意命令的输出当
+      指令注入。现在走 `SandboxFs.find_files()`：调用方只给文件名清单，命令由
+      A4 生成，还省掉了"`find` 失败就退回根目录"那条容易腐烂的分支判断。
+
+      `tenancy.py` 已迁走：租户工作区/记忆目录原来是 `sandbox.run("mkdir -p …")`。
+      现在走 `SandboxFs.mkdir(path)`，并把允许范围（`workspaces_root` /
+      `memory_root`）一起交给 A4 复核 —— 上游已经用 `ensure_inside` 算过一次，
+      但"下游照抄上游结论"正是这类越权最容易复发的地方。
+
+      `codeintel/python_index.py` 已迁走：`collect_python_sources` 原来往沙箱里
+      塞一段 `python3 - <<EOF` 走全仓库，脚本是拼出来的（内容安全，但形状是
+      "任意脚本"）。现在走 `SandboxFs.collect_sources(suffixes, …)`：只给后缀
+      清单与三个上限，遍历/读取/截断都由 A4 生成，仍保持**一次**调用（逐文件
+      读要 0.2–0.3s/个 `wsl.exe`，两千个文件就是十分钟）。
+
+      `agents/policy.py` 已迁走：仓库画像原来是两条 `find … | wc -l` 拼在一个
+      脚本里。现在走 `SandboxFs.count_files({"total": (), "tests": (…)})`：
+      分组与上限由调用方声明，`find` 表达式由 A4 生成，**一次调用**拿回全部
+      计数（`limit` 用 `head` 截断，超大仓库不必全量遍历）。
+
+      `cli/platform.py` 已迁走：探活改成四个固定意图
+      （`identity` / `which` / `dir_exists` / `ensure_dir`），实现在 A4 的
+      `sandbox/probe.py`；`cli/app.py` 只是调用方，不再持有命令字符串。
+
+      至此**冻结基线为空**：A4 之外没有任何一处直接调 `sandbox.run`。
+    debt_type: 安全
+    severity: high
+    workaround: |
+      清单冻结在 `tests/unit/test_host_ops.py::_FROZEN_DIRECT_RUN_MODULES`，
+      扫描范围已扩到全 src 且接受 `${name}.run` / `self._sandbox.run` 两种写法。
+      这些调用大多是探活、加锁、清理，逐条迁到 `execution/host_ops.host_run`
+      或 `FileAccess` 抽象后才从清单里删掉。
+    owner: 项目作者
+    due: 任何一处要执行非只读命令之前
+    do_not: |
+      不要靠"名字里有 sandbox"这条 heuristics 当作万能检测 —— 它是棘轮，
+      不是证明。新增这类调用一定会红，但换个接收者名字（且不在已有模块里）
+      仍可能溜过，所以每次偿还都要同步缩小清单。
 
   - id: TD-011
     title: Windows host 后端没有等价 bwrap，exec 仍不是 T2
@@ -105,6 +237,17 @@ items:
     due: 面向不可信仓库开放 host.exec 之前
     do_not: 不要把 user-t1 写成 T2，也不要用“绝对禁止”包装策略 glob；
       不要把 AppContainer exec 描述成内核级隔离，也不要让它接收 shell 字符串
+    remaining: |
+      三条剩余项，按"能不能靠改代码消除"分类：
+      1. **toolchain root 整树授 RX** —— 部署动作（安装器/管理员）。代码侧已按
+         root 逐项授权限；验收：`agent doctor` 显示工具链 available，且
+         `host.exec` 对未注册工具链返回 denied。
+      2. **孙进程硬超时** —— 代码侧只能 best-effort：Job Object 的 kill-on-close
+         覆盖直接子进程树，脱离 job 的进程逃不掉。**不要**宣称硬超时。
+      3. **lowpriv 账户 / ACL 部署、企业设备注册** —— 部署侧，不在仓内。
+      关闭条件：不再面向不可信仓库开放 `host.exec`，或上面三条在部署侧落地
+      并有真机验收。仅改代码不会关闭本条 —— 所以 severity 是 high 而 `due`
+      是"开放 host.exec 之前"，不是某个版本号。
     boundary: |
       唯一口径：docs/THREAT_MODEL.md §6.1。
       可宣称：T1 + lowpriv/ACL 的 ZX；默认关闭；写需 grant + 工作区外快照 +
@@ -134,8 +277,11 @@ items:
     where: host_broker/{server,client,acceptor,devices,policy_doc,attestation}.py
     why_now: P0 已有 mTLS/设备指纹、hello nonce、grant one-shot/限流/断线撤销；
       P1/P2 已加本地设备台账/注册吊销 CLI、acceptor 吊销断开、A2L 验签策略、
-      软件/TPM 背书密钥的设备证明；但仍无 PCR quote/远程启动证明、无 CSR、
-      无控制面 MySQL 设备表、无红队演练，横向风险不能归零
+      软件/TPM 背书密钥的设备证明；2026-10-29 补了**服务端失陷方向**的红队
+      矩阵（`docs/THREAT_MODEL.md §5.12.1`，R1–R10 逐条对到用例，
+      `tests/unit/test_host_broker_redteam.py` 覆盖 R1–R3）；但仍无
+      PCR quote/远程启动证明、无 CSR、无控制面 MySQL 设备表，
+      acceptor 吊销断开（G1）有实现没测试，横向风险不能归零
     debt_type: 安全
     severity: high
     workaround: 默认关闭；企业启用 DEVICE_POLICY=enforce + 签名策略 + TLS；
@@ -150,13 +296,22 @@ items:
       可宣称：只外连；mTLS/设备指纹；本地设备台账与吊销；签名策略验签；
       TPM 背书密钥或软件 Ed25519 的 nonce 证明；服务端请求不等于授权，
       本地 grant/ZX 是最终闸门；scope/verbs/TTL 不落服务端；one-shot/限流/
-      断线撤销；离线降级 sandbox；本地审计链。
+      断线撤销；离线降级 sandbox；本地审计链；**服务端失陷方向 R1–R10 有
+      本机用例**（§5.12.1）。
       不可宣称：PCR quote / 远程启动度量；CSR 或自动签发；控制面 MySQL
-      设备表；红队结论；对已被攻陷客户端、宿主管理员或误点同意的防护。
+      设备表；"红队已通过"（G1 无测试、G2–G4 未实现、G5 不可消除）；
+      对已被攻陷客户端、宿主管理员或误点同意的防护。
       启用前置：企业批量启用前完成 DEVICE_POLICY=enforce + 签名策略 + TLS
-      + 设备台账预登记 + 吊销演练 + 红队；不可信仓库禁用 host 后端。
+      + 设备台账预登记 + 吊销演练 + 真机红队（G1 必须有结果）；不可信仓库
+      禁用 host 后端。
       禁止措辞：远程证明 / 设备可信 / 服务端授权即可执行 / 零横向风险 /
       服务端静默自动更新。
+    redteam: |
+      矩阵与缺口清单：docs/THREAT_MODEL.md §5.12.1。
+      本机可跑：tests/unit/test_host_broker_redteam.py（R1 伪造响应 / R2 断线
+      fail-closed / R3 未握手拒绝）。
+      待补：G1 设备吊销断开需要真实 TCP/TLS + 台账热重载时序，只能在 Windows
+      真机跑；补的时候不要 mock 掉 `_watch_devices` —— 要测的就是那个循环。
 
   - id: TD-014
     title: A2L 生命周期管理与企业分发未实现
@@ -170,6 +325,36 @@ items:
     due: 企业批量部署之前
     do_not: 不要把 A2L 做成独立系统服务或开机自启；也不要接服务端静默自动更新
 
+  - id: TD-016
+    title: 控制面 SQLite 跨进程计费的 cursor 首次插入竞态
+    status: 已偿还 2026-10-29（验证为不会多记，并加了守路径的用例）
+    where: control/store.py::record_usage
+    why_now: 日用量、配额预留、结算与过期清理已改成条件 UPDATE / 方言
+      upsert / 删除后扣减，SQLite 单进程并发不再丢更新。
+
+      原先记录的剩余风险是"两个进程同时看到空 cursor 时各按全量累加，可能
+      多记一次"。**2026-10-29 实测推翻了这条**：拿掉进程内 `_USAGE_LOCK`、
+      用两个独立 engine 指向同一 SQLite 文件、并放大"读完再写"的窗口（在
+      `_daily_add` 前 sleep），20 轮并发里日用量每轮都等于较大的累计值
+      （不是两者之和），无异常。
+
+      收敛机制：cursor 是复合主键 (tenant, user, thread_id)，后写的一方必然
+      撞唯一键 → 整个事务（含刚加的增量）回滚 → 重试时读到对方已提交的游标，
+      按差值补。所以那次重试不是兜底，是正确性的一部分。
+    debt_type: 已知缺陷
+    severity: low
+    workaround: 企业部署仍建议 MySQL（cursor 行锁让路径更直白）；SQLite 的
+      限制回到它本身：写事务串行，高并发下会等锁/超时，那时表现为**少记或
+      报错**，而不是多记
+    owner: 项目作者
+    due: 已结清
+    do_not: 不要删 `record_usage` 里那个 `except IntegrityError` 重试 ——
+      删了就会静默多记一次，
+      `test_quota_usage.py::test_concurrent_first_cursor_insert_does_not_double_count`
+      会拦住这种改动。
+      也不要以为"加了 WAL 就等于加锁了"——WAL 只解决并发写冲突，不解决
+      读-改-写的原子性；同样不要把累加改成 Python 侧自增再写回。
+
   - id: TD-015
     title: P1 host 工作区只支持 Windows 本地固定 NTFS
     where: host_broker/paths.py, host_broker/store.py
@@ -182,10 +367,154 @@ items:
     due: 需要跨平台或网络盘工作区时
     do_not: 不要用字符串判断文件系统类型，也不要用 `/mnt` 或 `\\wsl$` 绕过
 
+  - id: TD-025
+    title: 企业身份只覆盖 OIDC + TOTP，未做 SAML/SCIM/WebAuthn/OIDC 登出
+    where: control/oidc.py, control/mfa.py
+    why_now: 本轮优先完成 OIDC Authorization Code + PKCE 与本地 TOTP；
+      SAML/SCIM/WebAuthn/front-channel logout 都需要新的外部协议与测试面
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 用 OIDC 作为统一入口；IdP 侧管理 MFA 与用户生命周期
+    owner: 项目作者
+    due: 客户明确要求 SAML/SCIM 或 WebAuthn 时
+    do_not: 不要把 OIDC PKCE 写成“完整 SSO”；也不要把 TOTP 当成 OIDC 登录的
+      第二因子（OIDC 的 MFA 由 IdP 负责）
+
+  - id: TD-026
+    title: 主密钥轮换不会自动重加密 TOTP 密钥
+    where: control/mfa.py
+    why_now: MFA 密文记录了 key_version，但没有批量轮换脚本；旧代次密钥
+      仍可解密，主密钥丢失时这些 TOTP 密钥不可恢复
+    debt_type: 运维
+    severity: medium
+    workaround: 轮换前先禁用/重置 MFA，或保留旧主密钥直到用户重新注册
+    owner: 项目作者
+    due: 首次主密钥轮换前
+    do_not: 不要把 key_version 当成“已经轮换”；也不要把 TOTP 密钥写回明文列
+
+  - id: TD-027
+    title: 四眼审批只有轮询队列，没有推送与跨租户管理员
+    where: control/approvals.py, web/routes/admin.py
+    why_now: 管理员 SPA 每 5 秒轮询本租户待审批；通知、跨租户审批与
+      审批历史导出都未做
+    debt_type: 能力缺口
+    severity: low
+    workaround: 管理员保持控制台打开；发起人手动“刷新并继续”
+    owner: 项目作者
+    due: 多租户或审批量变大时
+    do_not: 不要把轮询间隔缩到 0；也不要把审批决定缓存到前端后跳过 A2 合并
+
+  - id: TD-030
+    title: 可观测性只有进程内指标/日志，没有直方图、OTel 与 SIEM 转发
+    where: observability.py, docs/OBSERVABILITY.md
+    why_now: 本轮补了 A2/A3 计数器、gauge、JSON 日志与 Prometheus 告警基线；
+      分位数/直方图、OpenTelemetry trace、审计 SIEM 转发仍需要外部组件
+    debt_type: 能力缺口
+    severity: low
+    workaround: 用 request_id 关联日志；需要 p95 时接外部 APM 或按日志聚合
+    owner: 项目作者
+    due: 需要 SLO 或客户要求 OTel/SIEM 时
+    do_not: 不要为了指标引入高基数标签；也不要让 /metrics 暴露到公网
+
+  - id: TD-031
+    title: 工作区 ACL 只有只读共享，管理端没有授权 UI
+    where: control/workspaces.py, web/routes/admin.py, frontend/src/admin/
+    why_now: 本轮先用 API（PUT/DELETE /api/admin/workspaces/{id}/acl）落地
+      只读授权与执行边界分离；写入共享、按 revision 的细粒度权限和界面
+      需要重新设计威胁模型，不能顺手放开
+    debt_type: 能力缺口
+    severity: low
+    workaround: 管理员用 API 授予 read；需要协同时仍由 owner 执行
+    owner: 项目作者
+    due: 出现多人协作同一工作区的实际需求时
+    do_not: 不要让 ACL 间接授予执行/写入；绑定会话仍必须校验 workspace.owner
+
 # ===========================================================================
 # 已还清（保留作历史，避免重复讨论）
 # ===========================================================================
 paid_off:
+  - id: TD-019
+    title: approve 模式自动放行未知 L2 命令
+    resolved: 2026-10-28
+    how: 未登记命令从 L2 提升到 L3；`approve` 只自动放行已识别的 L2
+      （文件写、git add 等），未知脚本/包装器必须人工确认。回归覆盖
+      `some-unknown-tool`、`python3 -c`、`xargs`。
+    regression: tests/unit/test_policy.py
+    see: src/coding_agent/sandbox/policy.py
+
+  - id: TD-028
+    title: A2 没有可抓取指标与结构化日志
+    resolved: 2026-10-28
+    how: A2 /metrics 增加 HTTP/活跃运行/SSE/认证/审批指标；AGENT_METRICS_TOKEN
+      支持独立抓取；AGENT_LOG_FORMAT=json 统一字段；新增 Prometheus 告警基线
+      与 docs/OBSERVABILITY.md。
+    regression: tests/unit/test_observability.py
+    see: src/coding_agent/observability.py、packaging/prometheus/
+
+  - id: TD-029
+    title: 控制面备份只有手工脚本，没有调度与演练基线
+    resolved: 2026-10-28
+    how: CodingAgentControl --backup + systemd timer（每天 03:30、保留 14 份）；
+      docs/DATABASE.md 定义 RPO 24h/RTO 1h；新增 0011→0012 跨版本迁移用例，
+      runbook RB-017 记录演练。
+    regression: tests/unit/test_control_migrations.py、pytest -m mysql
+    see: packaging/systemd/coding-agent-backup.*、docs/DATABASE.md
+
+  - id: TD-008
+    title: 文档里的测试数字多份不一致（手抄会过期）
+    resolved: 2026-10-28
+    how: |
+      新增 scripts/snapshot_metrics.py：从 coverage.json + pytest --collect-only
+      生成 docs/METRICS.md 与 docs/metrics.json；CI 用 --check 校验（测试数精确、
+      覆盖率在平台容差内）。README/ACCEPTANCE/CI/COVERAGE 改为指向生成快照；
+      COMPLEXITY 仍由 measure_complexity.py --check 守。
+    regression: docs/METRICS.md、docs/metrics.json、CI backend job
+    see: scripts/snapshot_metrics.py
+
+  - id: TD-023
+    title: 日用量/配额预留的非原子读-改-写在 SQLite 上丢更新
+    resolved: 2026-10-28
+    how: 日用量走方言 upsert + `x = x + delta`；配额预留用带额度条件的单条
+      UPDATE；结算/过期清理改为条件 DELETE 成功后再扣减；并发测试覆盖
+      超额预留、重复结算、重复清理与用量累加。
+    regression: tests/unit/test_quota_usage.py
+    see: src/coding_agent/control/store.py
+
+  - id: TD-024
+    title: 租约续期依赖 SSE 事件，/cancel 不终止已卡住的同步工具
+    resolved: 2026-10-28
+    how: 新增 `LeaseHeartbeat` 独立续租（TTL/3）；`WslSandbox`/`LocalLinuxSandbox`
+      登记在飞进程并提供 `cancel_active()`；runtime 收到 `/cancel` 时终止进程；
+      proxy 在流结束/断开时兜底调用 on_terminal，避免租约被心跳永久续着。
+    regression: tests/unit/test_run_leases.py、tests/unit/test_sandbox_timeout_cleanup.py
+    see: src/coding_agent/control/leases.py、src/coding_agent/sandbox/wsl_exec.py
+
+  - id: TD-020
+    title: "`command` 内建与 git 只读子命令可绕过命令分级"
+    resolved: 2026-10-28
+    how: |
+      `command` 仅放行 `-v/-V`，其余递归分类；git config/remote/branch/tag/stash
+      按参数区分读写，`-c/--config-env/--exec-path` 升 L3；rm 拆分 flag、
+      find -exec、`git push +ref`、PATH/LD_PRELOAD 前缀均升 L3；`\;` 不再被拆段。
+    regression: tests/unit/test_policy.py
+    see: src/coding_agent/sandbox/policy.py
+
+  - id: TD-021
+    title: 工作区导入/上传任务裸 create_task 可能被 GC
+    resolved: 2026-10-28
+    how: task 存入 `job["_task"]` 保持强引用，加 1h 超时与 done callback 兜底终态；
+      staging/workdir 留给 `_load_jobs` 在重启时清理。
+    regression: tests/unit/test_workspace_import_a3.py
+    see: src/coding_agent/agent_server_routes/imports.py
+
+  - id: TD-022
+    title: vendored DOMPurify 3.1.6 已知 XSS 绕过且无 SRI
+    resolved: 2026-10-28
+    how: 升级 DOMPurify 3.3.2 / marked 18.1.2；四个 vendor script 加
+      integrity+crossorigin；vendor README 记录版本/来源/SHA-256；新增 SRI 单测。
+    regression: tests/unit/test_web_frontend_assets.py
+    see: src/coding_agent/web/static/vendor/README.md
+
   - id: TD-018
     title: 缺少 Playwright 真实浏览器 E2E
     resolved: 2026-10-27

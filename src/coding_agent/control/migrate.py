@@ -5,7 +5,9 @@
 - 新库：`alembic upgrade head` 建表并写 `alembic_version`；
 - 旧库（Phase B 用 `create_all` 建过表、没有 `alembic_version`）：
   先 `stamp head`，不重复建表；
-- 迁移前可选备份；备份失败不继续迁移。
+- 迁移前可选备份；备份失败不继续迁移；
+- **回滚**：`downgrade(url, revision)` 可以退回指定版本。**默认先备份** ——
+  降级是破坏性操作（丢列/丢表），没有备份就是单向门。
 """
 
 from __future__ import annotations
@@ -79,7 +81,21 @@ def _is_current_schema(url: str) -> bool:
         and has_table(url, "control_quota_reservations")
         and has_column(url, "control_usage_cursor", "user")
         and has_column(url, "control_user_quotas", "daily_cost_cny")
+        and has_table(url, "control_workspace_acl")
+        and has_column(url, "control_users", "max_access_mode")
+        and has_table(url, "control_password_resets")
     )
+
+
+def _latest_unversioned_revision(url: str) -> str:
+    """没有 alembic_version 的旧库：识别它已经到过的最近版本。
+
+    `create_all` 建库不会写 alembic_version。只知道“不是最新”还不够——
+    必须从它真实的结构起点往上补，不能总回到 0001 重复建表。
+    """
+    if has_table(url, "control_approvals"):
+        return "0012_enterprise_identity"
+    return BASELINE_REVISION
 
 
 def current_revision(url: str) -> str | None:
@@ -118,13 +134,51 @@ def upgrade(
             # 新 create_all 已建出最新结构，只需补版本标记。
             command.stamp(config, "head")
             return {"action": "stamp", "revision": current_revision(url)}
-        # Phase B 旧库只建过基线：先 stamp 到 0001，再执行增量迁移。
-        command.stamp(config, BASELINE_REVISION)
+        # Phase B/旧 create_all 库：先 stamp 到它已经具备的最近版本，
+        # 再执行增量迁移（重复 stamp 到 0001 会在已有表上重建失败）。
+        command.stamp(config, _latest_unversioned_revision(url))
         command.upgrade(config, "head")
         return {"action": "upgrade", "revision": current_revision(url)}
 
     command.upgrade(config, "head")
     return {"action": "upgrade", "revision": current_revision(url)}
+
+
+def downgrade(
+    url: str,
+    revision: str,
+    *,
+    backup: bool = True,
+    backup_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """把数据库退到指定版本。
+
+    `backup` **默认 True**：降级会丢列/丢表，没有备份它就是单向门。
+    只在确认已有备份点、或库是可重建的测试库时才传 `backup=False`。
+
+    未纳管的库（`alembic_version` 缺失）拒绝降级 —— 不知道自己在哪，
+    就不知道该往哪退。
+    """
+    url = str(url or "").strip()
+    target = str(revision or "").strip()
+    if not url:
+        raise ValueError("control DB URL 为空")
+    if not target:
+        raise ValueError("downgrade 必须给出目标 revision")
+    if current_revision(url) is None:
+        raise ValueError(
+            "该库没有被 alembic 纳管（缺少 alembic_version），无法确定当前版本"
+        )
+    if backup:
+        from coding_agent.control.backup import backup as backup_db
+
+        backup_db(url, backup_dir)
+        _LOG.info("降级前已备份控制面数据库")
+    else:
+        _LOG.warning("降级前未备份：%s -> %s", url, target)
+
+    command.downgrade(alembic_config(url), target)
+    return {"action": "downgrade", "revision": current_revision(url)}
 
 
 def metadata() -> Any:
@@ -144,17 +198,47 @@ def _main() -> int:
     )
     parser.add_argument("--backup", action="store_true", help="迁移前备份")
     parser.add_argument("--backup-dir", default="")
+    parser.add_argument(
+        "--downgrade",
+        default="",
+        metavar="REV",
+        help="退到指定 revision（默认先备份；用 --no-backup 跳过）",
+    )
+    parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="降级前不备份（仅用于可重建的测试库）",
+    )
+    parser.add_argument(
+        "--current", action="store_true", help="只打印当前 revision"
+    )
     args = parser.parse_args()
     url = str(args.url or get_settings().control_db_url or "").strip()
     if not url:
         print("必须提供 --url 或设置 AGENT_CONTROL_DB_URL")
         return 2
     try:
-        result = upgrade(
-            url,
-            backup=bool(args.backup),
-            backup_dir=args.backup_dir or None,
-        )
+        if args.current:
+            print(
+                json.dumps(
+                    {"ok": True, "revision": current_revision(url)},
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        if args.downgrade:
+            result = downgrade(
+                url,
+                args.downgrade,
+                backup=not args.no_backup,
+                backup_dir=args.backup_dir or None,
+            )
+        else:
+            result = upgrade(
+                url,
+                backup=bool(args.backup),
+                backup_dir=args.backup_dir or None,
+            )
     except Exception as exc:  # noqa: BLE001 - CLI 边界
         print(
             json.dumps(

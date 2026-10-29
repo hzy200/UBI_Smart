@@ -24,6 +24,13 @@ export const approvalsMixin = {
 
   async decideFor(view, granted) {
     if (!view || !view.approval) return;
+    if (
+      this.fourEyes
+      && Number(view.approval.level_int || 0) >= this.fourEyesMinLevel
+    ) {
+      this.toastMessage('该审批需要管理员在管理端处理');
+      return;
+    }
     view.decisions[view.approval.request_id] = !!granted;
     view.approvals.shift();
     if (view.approvals.length) {

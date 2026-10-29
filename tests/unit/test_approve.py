@@ -27,6 +27,7 @@ from coding_agent.sandbox.policy import (
     DENY,
     CommandLevel,
     SessionPolicy,
+    classify,
     parse_allow_rules,
 )
 from coding_agent.tools.artifacts import ShellArtifact, pack
@@ -153,6 +154,26 @@ def test_deny_overrides_write_auto() -> None:
     )
     assert policy.decide(CommandLevel.LOW_WRITE) == DENY
     assert policy.decide(CommandLevel.MUTATE) == DENY
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat .env",
+        "cat ~/.ssh/id_rsa",
+        "cat /etc/shadow",
+        "grep -rn password .",
+        "cat $HOME/.aws/credentials",
+    ],
+)
+def test_approve_mode_still_asks_for_secret_reads(command: str) -> None:
+    """`approve` 模式自动放行 L2 —— 秘密文件读取因此必须落在 L3。
+
+    这是历史上真实存在的绕过：升级只到 L2 时，`cat .env` 在 approve 模式下
+    无人确认就执行了。
+    """
+    policy = SessionPolicy(approval_mode=APPROVAL_APPROVE, allow_write=True)
+    assert policy.decide(classify(command).level) == ASK
 
 
 def test_allow_rule_matches_only_the_configured_call() -> None:
@@ -450,3 +471,29 @@ def test_empty_or_duplicate_call_id_fails_closed(tool_calls: list[dict]) -> None
         assert result["messages"][-1].artifact["decision"] == "denied"
 
     _run(scenario())
+
+
+def test_describe_covers_all_mutating_tools() -> None:
+    from coding_agent.graph.nodes.approve import _describe
+    from coding_agent.tools.delegate import DELEGATE_EXPLORE
+    from coding_agent.tools.deps import DEPS_INSTALL
+    from coding_agent.tools.git import GIT_ADD, GIT_COMMIT
+    from coding_agent.tools.host_exec import HOST_EXEC_TOOL_NAME
+    from coding_agent.tools.memory import MEMORY_SAVE
+    from coding_agent.tools.shell import SHELL_TOOL_NAME
+    from coding_agent.tools.testrun import RUN_TESTS_TOOL
+
+    assert _describe(SHELL_TOOL_NAME, {"command": "rm -rf build"}) == "rm -rf build"
+    assert _describe(
+        HOST_EXEC_TOOL_NAME, {"toolchain": "node", "argv": ["npm", "test"]}
+    ) == "node: npm test"
+    assert _describe(GIT_COMMIT, {"message": "fix"}) == "git commit -m 'fix'"
+    assert _describe(DEPS_INSTALL, {"packages": ["pytest", "ruff"]}) == (
+        "安装依赖：pytest, ruff"
+    )
+    assert _describe(GIT_ADD, {"paths": ["a.py", "b.py"]}) == "git add a.py b.py"
+    assert _describe(RUN_TESTS_TOOL, {}) == "运行本项目的测试"
+    assert _describe(MEMORY_SAVE, {"fact": "记得喝水"}) == "记住：记得喝水"
+    assert _describe(DELEGATE_EXPLORE, {"goal": "找入口"}) == "探索：找入口"
+    assert _describe("file_write", {"path": "src/a.py"}) == "src/a.py"
+    assert _describe("unknown", {}) == "unknown"

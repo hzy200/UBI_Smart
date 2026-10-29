@@ -9,10 +9,11 @@ LSP（尚未接入）。
 from __future__ import annotations
 
 import ast
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
+from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
+from coding_agent.sandbox.pathguard import SandboxPathError
 from coding_agent.sandbox.wsl_exec import WslSandbox
 
 _IGNORED_DIRS = {
@@ -290,60 +291,17 @@ def collect_python_sources(
 ) -> dict[str, str]:
     """一次沙箱调用收集 .py 源码；失败返回空 dict。
 
-    `max_total_bytes` 是硬上限：源码内容会整体经 stdout 回到宿主内存，超大
-    仓库若只按单文件限制，仍可能物化出数百 MB。达到上限时返回部分索引，
-    影响分析会偏保守，但不会把进程拖垮。
+    遍历与读取都交给 A4 的 `SandboxFs.collect_sources`：索引是只读动作，
+    没必要为了它在这个模块里握一条"跑任意脚本"的通道（TD-034）。
+    上限语义不变 —— 达到上限返回**部分**索引，影响分析偏保守但不会拖垮进程。
     """
-    ignored = json.dumps(sorted(_IGNORED_DIRS))
-    script = f"""\
-python3 - <<'__AGENT_INDEX__'
-import json, os
-ignored = set({ignored})
-out = {{}}
-count = 0
-total = 0
-for base, dirs, files in os.walk('.'):
-    dirs[:] = [d for d in dirs if d not in ignored]
-    for name in files:
-        if not name.endswith('.py'):
-            continue
-        path = os.path.relpath(os.path.join(base, name), '.')
-        path = path.replace(os.sep, '/')
-        try:
-            size = os.path.getsize(path)
-            if size > {int(max_bytes)}:
-                continue
-            if total + size > {int(max_total_bytes)}:
-                break
-            with open(path, 'r', encoding='utf-8', errors='replace') as fh:
-                out[path] = fh.read()
-        except OSError:
-            continue
-        total += size
-        count += 1
-        if count >= {int(max_files)}:
-            break
-    if count >= {int(max_files)} or total >= {int(max_total_bytes)}:
-        break
-print('AGENT_INDEX_JSON:' + json.dumps(out))
-__AGENT_INDEX__
-"""
     try:
-        result = sandbox.run(script, cwd=root)
-    except Exception:  # noqa: BLE001 - 索引失败必须回退，不影响主流程
+        return SandboxFs(sandbox, root).collect_sources(
+            (".py",),
+            exclude_dirs=_IGNORED_DIRS,
+            max_files=max_files,
+            max_file_bytes=max_bytes,
+            max_total_bytes=max_total_bytes,
+        )
+    except (SandboxFsError, SandboxPathError):
         return {}
-    if not result.ok:
-        return {}
-    for line in reversed(result.stdout.splitlines()):
-        if line.startswith("AGENT_INDEX_JSON:"):
-            try:
-                payload = json.loads(line[len("AGENT_INDEX_JSON:") :])
-            except json.JSONDecodeError:
-                return {}
-            if isinstance(payload, dict):
-                return {
-                    str(key): str(value)
-                    for key, value in payload.items()
-                    if isinstance(value, str)
-                }
-    return {}

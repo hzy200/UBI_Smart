@@ -85,6 +85,16 @@ code, .mono { font-family: var(--mono); }
   flex-wrap: wrap;
 }
 .boot-error { color: var(--bad); }
+.boot-error-body { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.boot-error-msg {
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 60ch;
+  word-break: break-word;
+}
+.boot-error-actions { display: flex; gap: 8px; margin-top: 6px; }
+/* 页面内的错误边界只占出错的那一块，不要像启动屏那样撑满一屏。 */
+.page-wrap .boot { min-height: 220px; }
 .spinner {
   width: 16px; height: 16px;
   border: 2px solid var(--border);
@@ -140,13 +150,17 @@ code, .mono { font-family: var(--mono); }
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  color: #fff;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 82%, #fff), var(--accent-2));
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, .35);
+  overflow: hidden;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 25%, transparent);
 }
-.brand-mark svg {
-  width: 20px; height: 20px; fill: none; stroke: currentColor;
-  stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+/* 图标自带深色底与高光，铺满容器即可；不要再用渐变底叠在它上面。 */
+.brand-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .menu-btn {
   display: none;

@@ -57,6 +57,7 @@ draft ──批准──▶ accepted ──实现完成──▶ implemented
 | [0001](0001-workspace-registry.md) | 工作区注册表与托管存储 | accepted | 项目作者 | 0012、0013 |
 | [0002](0002-native-execution-domain-and-grant-model.md) | 客户端执行域、授权凭证模型与 A2L 宿主能力代理（五层） | accepted | 项目作者 | 0015 |
 | [0003](0003-frontend-backend-separation.md) | 前后端分离的运行时契约、错误协议与传输矩阵 | accepted | 项目作者 | 0016、0017、0018 |
+| [0004](0004-enterprise-identity-and-four-eyes.md) | 企业身份（OIDC / TOTP）与四眼审批 | accepted | 项目作者 | 0023 |
 
 ## 模板
 

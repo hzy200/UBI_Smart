@@ -77,6 +77,25 @@ def test_steer_audits_and_queues_a_command(tmp_path) -> None:
     assert queued[0].source == "test"
 
 
+def test_cancel_steering_kills_active_processes(
+    tmp_path, monkeypatch
+) -> None:
+    """cancel 不能只等节点边界：同步工具要先被终止。"""
+    runtime = _runtime(tmp_path)
+    calls: list[int] = []
+    monkeypatch.setattr(
+        runtime._sandbox,
+        "cancel_active",
+        lambda: calls.append(1) or 0,
+        raising=False,
+    )
+
+    runtime.steer(THREAD, "pause", source="test")
+    assert calls == []
+    runtime.steer(THREAD, "cancel", source="test")
+    assert calls == [1]
+
+
 def test_fresh_run_clears_stale_commands_but_keeps_early_new_ones(tmp_path) -> None:
     """清队列必须发生在耗时初始化之前。
 

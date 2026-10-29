@@ -45,7 +45,6 @@ def test_low_write(command: str) -> None:
         "pip install requests",
         "sed -i 's/a/b/' f.py",
         "echo hi > out.txt",
-        "some-unknown-tool --flag",
         "git push origin main",
     ],
 )
@@ -81,6 +80,20 @@ def test_file_mutation_via_shell_is_not_auto_allowed(command: str) -> None:
         "echo $(rm -rf /tmp/x)",
         "history -c",
         "find . -name '*.py' -delete",
+        "find . -name '*.py' -exec sh -c 'id' \\;",
+        "rm -r -f project",
+        "rm --recursive --force project",
+        "git push origin +main",
+        "git config --global core.fsmonitor evil",
+        "git branch -D feature",
+        "git stash drop",
+        "PATH=/tmp ls",
+        "LD_PRELOAD=/tmp/x.so ls",
+        "git -c core.fsmonitor=evil status",
+        "git --exec-path=/tmp status",
+        "some-unknown-tool --flag",
+        "python3 -c 'print(1)'",
+        "xargs -n1 rm",
     ],
 )
 def test_danger(command: str) -> None:
@@ -124,7 +137,6 @@ def test_auto_allowed_only_for_read_and_low_write() -> None:
         "cat --file=/etc/hostname",   # 选项值里的路径
         "echo $(cat /etc/hostname)",  # 命令替换
         "echo `id`",                  # 反引号
-        "find . -name '*.py' -exec cat {} +",  # -exec 逃出只读语义
         "cat $'/etc/passwd'",         # ANSI-C 引号：会被展开，不是字面量
         'cat $"/etc/passwd"',         # 本地化引号同理
         "cat $'\\x2fetc\\x2fpasswd'",  # 转义写法，解出来仍是绝对路径
@@ -132,8 +144,28 @@ def test_auto_allowed_only_for_read_and_low_write() -> None:
         "grep -rn x ~user/",
     ],
 )
-def test_external_access_is_escalated_to_confirmation(command: str) -> None:
-    """只读命令名不代表参数安全：工作区外访问必须升级到人工确认，不能自动放行。"""
+def test_external_access_is_escalated_to_danger(command: str) -> None:
+    """只读命令名不代表参数安全：工作区外/秘密文件的**读取**必须升到 L3。
+
+    不能停在 L2：`approval_mode=approve` 会自动放行 L2，`AGENT_ALLOW_RULES`
+    也能把 L2 的 ASK 转成 AUTO —— 停在 L2 等于让 `cat .env`、
+    `cat ~/.ssh/id_rsa` 在无人确认的情况下执行。L3 是唯一不会被这两条
+    覆盖的等级。
+    """
+    verdict = classify(command)
+    assert verdict.level is CommandLevel.DANGER, verdict
+    assert not verdict.auto_allowed
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git add -A",                            # 会把 .agent/ 一起暂存
+        "cat .agent/memory.md",                  # agent 内部目录
+    ],
+)
+def test_workspace_local_escalations_stay_mutate(command: str) -> None:
+    """只影响工作区内部、不涉及外泄的升级保持 L2，不占 L3 的语义。"""
     verdict = classify(command)
     assert verdict.level is CommandLevel.MUTATE, verdict
     assert not verdict.auto_allowed
@@ -263,7 +295,7 @@ def test_executed_content_matrix_is_dangerous(command: str) -> None:
 @pytest.mark.parametrize("command", ['cat "/etc/hostname"', "cat '/etc/hostname'"])
 def test_quoted_external_paths_still_escalate(command: str) -> None:
     """引号只是词法层的包装，路径越界的判定不能被引号绕过。"""
-    assert classify(command).level is CommandLevel.MUTATE, classify(command)
+    assert classify(command).level is CommandLevel.DANGER, classify(command)
 
 
 # ---------------- .agent 目录：shell 路径也要挡住 ----------------
@@ -293,3 +325,88 @@ def test_agent_state_dir_requires_confirmation(command: str) -> None:
 def test_agent_prefix_does_not_overmatch(command: str) -> None:
     """只有真正是 .agent 目录才拦，前缀相似的普通文件不误伤。"""
     assert classify(command).level <= CommandLevel.LOW_WRITE, classify(command)
+
+
+# ---------------- `command` 内建：只能查询位置，不能整体放行 ----------------
+
+def test_command_builtin_queries_are_read_only() -> None:
+    assert classify("command -v git").level is CommandLevel.READ
+    assert classify("command -V git").level is CommandLevel.READ
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "command python3 -c 'print(1)'",
+        "command sh -c 'id'",
+        "command bash -c 'id'",
+        "command rm -rf project",
+    ],
+)
+def test_command_builtin_cannot_hide_execution(command: str) -> None:
+    assert classify(command).level is not CommandLevel.READ, classify(command)
+
+
+# ---------------- git：读写形态必须区分 ----------------
+
+@pytest.mark.parametrize(
+    ("command", "level"),
+    [
+        ("git config --get user.email", CommandLevel.READ),
+        ("git config --list --global", CommandLevel.READ),
+        ("git config user.email x", CommandLevel.MUTATE),
+        ("git remote -v", CommandLevel.READ),
+        ("git remote show origin", CommandLevel.READ),
+        ("git remote add origin https://example.com/x.git", CommandLevel.MUTATE),
+        ("git branch --list", CommandLevel.READ),
+        ("git branch feature", CommandLevel.MUTATE),
+        ("git tag -l", CommandLevel.READ),
+        ("git tag v1", CommandLevel.MUTATE),
+        ("git stash list", CommandLevel.READ),
+        ("git stash pop", CommandLevel.MUTATE),
+    ],
+)
+def test_git_read_and_write_forms_are_distinguished(
+    command: str, level: CommandLevel
+) -> None:
+    assert classify(command).level is level, classify(command)
+
+
+def test_git_restore_is_not_low_write() -> None:
+    """restore 会丢弃工作区改动，不能走 --write 一次性自动放行。"""
+    verdict = classify("git restore .")
+    assert verdict.level > CommandLevel.LOW_WRITE, verdict
+    assert not verdict.auto_allowed
+
+
+# ---------------- rm：拆开写的 flag 不能绕过 L3 ----------------
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -r -f project",
+        "rm --recursive --force project",
+        "rm -R project",
+        "rm --no-preserve-root -rf /",
+    ],
+)
+def test_rm_recursive_is_danger(command: str) -> None:
+    assert classify(command).level is CommandLevel.DANGER, classify(command)
+
+
+def test_rm_without_recursive_is_still_mutate() -> None:
+    assert classify("rm -f file.txt").level is CommandLevel.MUTATE
+    assert classify("rm file.txt").level is CommandLevel.MUTATE
+
+
+# ---------------- 环境变量前缀：不能劫持命令解析 ----------------
+
+def test_unsafe_env_prefix_is_danger() -> None:
+    assert classify("PATH=/tmp ls").level is CommandLevel.DANGER
+    assert classify("LD_PRELOAD=/tmp/x.so ls").level is CommandLevel.DANGER
+    assert classify("FOO=bar ls").level is CommandLevel.READ
+
+
+def test_export_of_unsafe_variable_is_danger() -> None:
+    assert classify("export PATH=/tmp").level is CommandLevel.DANGER
+    assert classify("export FOO=bar").level is CommandLevel.MUTATE
