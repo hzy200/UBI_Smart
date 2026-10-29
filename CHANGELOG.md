@@ -321,6 +321,21 @@
   `test_concurrent_first_cursor_insert_does_not_double_count` 守这条路径。
   SQLite 的残余限制回到它本身：高并发下等锁/超时表现为少记或报错，而不是多记。
 
+### CI（沙箱门禁不再空转）
+
+- **没有在线 runner 时显式跳过，而不是排队 24 小时**：`sandbox.yml` 增加
+  `preflight` job（托管 runner 上用 `gh api` 查在线 runner），只有存在带 `wsl`
+  label 的在线 runner 时才启动 `wsl` job；跳过时写 Step Summary 与
+  `::warning::`，明确「跳过不等于通过」。排队后被取消既不会让 PR 更快通过，
+  也不比一条可见的 warning 更可信。
+- **统一两个自托管 job 的 label 为 `[self-hosted, wsl]`**：原来 sandbox 用
+  `[self-hosted, Windows, X64]`、llm-eval 用 `[self-hosted, wsl]`，同一台机器
+  注册两次才能同时命中 —— 现在只有一个约定。
+- 文档：`ENVIRONMENT.md` 新增「注册 WSL 门禁 runner」（机器要求、`config.cmd`
+  命令、`gh api` 验证、注册后两步）；`CI.md` 的 Sandbox 节改写为
+  "preflight → wsl" 两段结构；`runbook.yaml` 新增 **RB-019**（runner 掉线 →
+  CI 报「沙箱层门禁未执行」时怎么查）。
+
 ### 可靠性
 
 - 控制面 SQLite 补 `PRAGMA journal_mode=WAL` / `busy_timeout` / `synchronous=NORMAL`。

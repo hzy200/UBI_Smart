@@ -113,6 +113,56 @@ sudo packaging/systemd/install.sh --python /opt/coding-agent/venv/bin/python
 - 故障演练：`python scripts/phase_d_smoke.py`（不需要 API Key）；
 - 卸载：`sudo packaging/systemd/install.sh --uninstall`（保留配置与数据）。
 
+### 注册 WSL 门禁 runner
+
+`ci.yml` 跑在 Linux 托管 runner 上，**没有 WSL2**，所以沙箱层（路径守卫、
+写前快照、命令分级、文件写工具）在那边一行都跑不到。这部分由
+`.github/workflows/sandbox.yml` 守，它需要一个自托管 runner。
+
+机器要求：
+
+- Windows 10/11 + WSL2；
+- WSL 内装好项目发行版（默认 `CodingAgent`，见 `scripts/build_wsl_distro.py`），
+  且发行版里的默认用户**不是 root**（`agent doctor` 会检查）；
+- Python 3.11+（runner 会 `pip install -e ".[dev,ui,web,db]"`）。
+
+注册（在仓库 Settings → Actions → Runners → New self-hosted runner 拿 token）：
+
+```powershell
+mkdir C:\actions-runner; cd C:\actions-runner
+# 下载并解压 actions-runner-win-x64 后：
+.\config.cmd --url https://github.com/<owner>/<repo> `
+  --token <RUNNER_TOKEN> `
+  --name ca-wsl-1 `
+  --labels wsl `
+  --runasservice
+```
+
+**label 必须是 `wsl`**：`sandbox.yml` 与 `llm.yml` 的 eval job 都按这个 label
+找 runner。用默认的 `self-hosted`/`Windows` 不会命中。
+
+验证（不需要开 PR）：
+
+```bash
+gh api repos/<owner>/<repo>/actions/runners \
+  --jq '.runners[] | select(.status=="online") | [.name, ([.labels[].name]|join(","))] | @tsv'
+```
+
+应当看到 `ca-wsl-1  self-hosted,wsl,...`。
+
+没注册时不会卡住 PR：`sandbox.yml` 的 `preflight` job 探测不到在线 runner 就
+让 `wsl` job 直接跳过，并在该次运行的 Step Summary 里打一条
+「跳过不等于通过」的 warning。**看到这条 warning 的运行不能当成沙箱层验收。**
+
+注册完成后还有两步：
+
+1. 把 `Sandbox / wsl` 设为分支保护的 required check，否则"有跑但不拦合并"：
+   ```bash
+   GITHUB_TOKEN=... python scripts/check_sandbox_gate.py --repo <owner>/<name> --branch main
+   ```
+2. 需要真实模型评测时，在同一仓库设置变量 `WSL_RUNNER_READY=true`（`llm.yml`
+   的 `llm-eval` 用它做成本开关；默认关闭）。
+
 ### 安全 / 性能 / 迁移验收（Phase F）
 
 ```bash

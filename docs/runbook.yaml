@@ -247,6 +247,22 @@ scenarios:
       2026-10-29 演练：`scripts/phase_d_smoke.py` 覆盖 A3 崩溃→恢复
       （unavailable → ok）、版本不匹配（incompatible）与 A2 重启后会话保留。
 
+  - id: RB-019
+    symptom: PR / push 的 run 摘要出现「⚠️ 沙箱层门禁未执行」，或根本没有 `Sandbox / wsl` job
+    signal: preflight job 输出 ready=false；warning「未找到在线 wsl runner」
+    cause: 自托管 runner 离线、被移除，或注册时 label 不是 `wsl`
+    steps:
+      - 'gh api repos/<owner>/<repo>/actions/runners --jq ''.runners[] | select(.status=="online") | [.name, ([.labels[].name]|join(","))] | @tsv'''
+      - 没有 online 条目：到装 runner 的 Windows 机器上 `Get-Service actions.runner.*`，停掉的话 `Start-Service`
+      - 有 online 但 label 里没有 wsl：`.\config.cmd remove` 后按 docs/ENVIRONMENT.md「注册 WSL 门禁 runner」重配 `--labels wsl`
+      - 修好后 `gh workflow run sandbox.yml` 手动触发一次验证
+    verify: 最近一次 run 里出现 `Sandbox / wsl` job，且覆盖率门槛步骤通过
+    last_drilled: 2026-10-29
+    note: |
+      2026-10-29 起，没有在线 runner 时 `wsl` job 会**跳过**而不是排队 24 小时，
+      并在摘要里写明「跳过不等于通过」。看到这条 warning 的运行不能当验收，
+      也不要为了让 CI 变绿去把 sandbox 的 required check 删掉。
+
 escalation:
   - 涉及 sandbox/ 或审批语义的异常 → 对照 docs/THREAT_MODEL.md 第 4 节，
     确认防线等级没有下降，不要"先修好再说"

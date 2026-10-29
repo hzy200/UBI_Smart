@@ -4,14 +4,15 @@ name: Sandbox
 # 文件写工具）。GitHub 托管 runner 没有 WSL2，这一层在 ci.yml 里一行都跑不到，
 # 它的覆盖率被全局数字稀释 —— 所以单独开一条跑在自建 runner 上的流水线。
 #
-# 前置条件：注册一个 Windows + WSL2 的 self-hosted runner（label:
-# `self-hosted` / `Windows` / `X64`），并装好项目要求的发行版。
-# 没有注册 runner 时这个 job 会一直排队 —— 这不是本文件的 bug，
-# 见 docs/CI.md 第「沙箱层」节。
+# runner 约定：一个带 WSL2 与项目发行版的机器，注册时打自定义 label `wsl`
+# （`./config.cmd --labels wsl`）。`llm.yml` 的 eval job 用的是同一个 label。
+#
+# 没注册 runner 时**不会排队**：preflight 先探测一次在线 runner，没有就明确
+# 跳过并打 warning。排队 24 小时后被取消不是"可见化"，只是把 PR 卡住 ——
+# 跳过 + 摘要里写明"这不等于通过"才是。
 on:
   push:
     branches: [main]
-  # PR 也要过沙箱门禁；没有自托管 runner 时它会排队，不能替代 ci.yml。
   pull_request:
   schedule:
     # 每天 UTC 04:00（北京时间 12:00）
@@ -19,8 +20,50 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 探测是否存在带 `wsl` label 的在线 runner。
+  # 失败方向是安全的：查不到（无权限/网络错误）一律按"没就绪"处理，
+  # 只会少跑、不会把没跑的当成通过。
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: 探测 self-hosted WSL runner
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          runners="$(gh api "repos/${{ github.repository }}/actions/runners" \
+            --paginate \
+            --jq '.runners[] | select(.status=="online") | .name + "\t" + ([.labels[].name] | join(","))' \
+            2>/dev/null || true)"
+          printf '%s\n' "$runners" | sed '/^$/d; s/^/runner: /'
+
+          if printf '%s\n' "$runners" | grep -qi 'wsl'; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "### ⚠️ 沙箱层门禁未执行"
+            echo ""
+            echo '没有发现带 `wsl` label 的在线 self-hosted runner，'
+            echo "本轮**跳过**真实 WSL 覆盖（路径守卫 / 写前快照 / 命令分级 / 文件写工具）。"
+            echo ""
+            echo "**跳过不等于通过。** 注册方法见 \`docs/ENVIRONMENT.md\` 的"
+            echo "「注册 WSL 门禁 runner」一节。"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::未找到在线 wsl runner，沙箱层门禁被跳过（不等于通过）"
+
   wsl:
-    runs-on: [self-hosted, Windows, X64]
+    needs: preflight
+    if: needs.preflight.result == 'success' && needs.preflight.outputs.ready == 'true'
+    runs-on: [self-hosted, wsl]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

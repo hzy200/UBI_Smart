@@ -94,9 +94,25 @@ Linux `backend` job 没有 WSL2，所以 `wsl` 标记的用例仍然**一行都�
 ## Sandbox（`.github/workflows/sandbox.yml`）
 
 触发：push 到 `main` / **pull_request** / 每天 UTC 04:00 / 手动
-`workflow_dispatch`。跑在 **self-hosted Windows + WSL2** runner 上
-（`runs-on: [self-hosted, Windows, X64]`）。注册 runner 后，必须把
-`Sandbox / wsl` 设为分支保护的 required check；否则它只是“有跑但不拦合并”。
+`workflow_dispatch`。
+
+**先探测，再决定跑不跑**：
+
+| job | 跑在哪 | 做什么 |
+|---|---|---|
+| `preflight` | `ubuntu-latest` | 查仓库有没有在线且带 `wsl` label 的 self-hosted runner，输出 `ready` |
+| `wsl` | `[self-hosted, wsl]` | 预检 WSL/发行版 → 沙箱层全量 → 分层覆盖率门槛 → 上传报告 |
+
+没有在线 runner 时 `wsl` job **不启动**：`preflight` 写一条 `::warning::`
+并在 Step Summary 里写明"跳过不等于通过"。排队 24 小时后被取消既不会让 PR
+通过得更快，也不比"明确跳过"更可信 —— 那只是把 PR 悄悄卡住。
+
+runner 约定：注册时打**自定义 label `wsl`**（`--labels wsl`）。`llm.yml` 的
+`llm-eval` job 用同一个 label，两处不要各写一套。注册步骤见
+[ENVIRONMENT.md](ENVIRONMENT.md) 的「注册 WSL 门禁 runner」一节。
+
+注册之后必须把 `Sandbox / wsl` 设为分支保护的 required check；否则它只是
+“有跑但不拦合并”。
 
 | 步骤 | 命令 |
 |---|---|
@@ -121,9 +137,9 @@ GITHUB_TOKEN=... python scripts/check_sandbox_gate.py \
 所以 `check_layer_coverage.py` 对这几个模块**另设下限**，只在真的执行过它们
 的机器上判定。
 
-前置条件：必须先注册一个带 WSL2 与项目发行版的 self-hosted runner；
-没注册时这个 job 会一直排队（`ci.yml` 不受影响，仍是绿灯）。
-这不是流水线的 bug，是"沙箱层无人看管"这一事实的可见化。
+前置条件：必须先注册一个带 WSL2 与项目发行版的 self-hosted runner。
+没注册时 `wsl` job 直接跳过（`ci.yml` 不受影响，仍是绿灯），并在该次运行的
+摘要里留下一条 warning —— **跳过的运行不能当成沙箱层通过**。
 
 本地等价：`pytest -m "not llm" --cov --cov-report=json:coverage.json` +
 `python scripts/check_layer_coverage.py --json coverage.json`。
