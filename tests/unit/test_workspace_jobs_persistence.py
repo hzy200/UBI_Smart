@@ -7,14 +7,14 @@ import os
 import threading
 import time
 
-from coding_agent.agent_server_routes.workspace_import import (
+from coding_agent.config import Settings
+from coding_agent.servers.agent_server_routes.workspace_import import (
     ImportDeps,
     _jobs_root,
     _load_jobs,
     _persist_job,
     _update,
 )
-from coding_agent.config import Settings
 
 
 async def _noop(_runtime) -> None:

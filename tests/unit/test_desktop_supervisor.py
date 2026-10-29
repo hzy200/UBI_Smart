@@ -138,7 +138,7 @@ def test_control_prefix_prefers_packaged_binary(tmp_path, monkeypatch) -> None:
     assert supervisor._control_prefix() == [
         str(tmp_path / "python.exe"),
         "-m",
-        "coding_agent.control_server",
+        "coding_agent.servers.control_server",
     ]
 
 

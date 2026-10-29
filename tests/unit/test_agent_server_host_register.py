@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from coding_agent.agent_protocol import AgentContext
-from coding_agent.agent_server import create_agent_app
 from coding_agent.config import Settings
+from coding_agent.servers.agent_server import create_agent_app
 
 
 class FakeCaller:

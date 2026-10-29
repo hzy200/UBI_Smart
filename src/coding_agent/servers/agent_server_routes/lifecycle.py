@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
 from coding_agent.agent_protocol import AgentContext
-from coding_agent.agent_server_models import (
+from coding_agent.servers.agent_server_models import (
     CompactBody,
     ResumeBody,
     RunBody,

@@ -11,11 +11,11 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from coding_agent import agent_server
 from coding_agent.agent_protocol import AgentContext
-from coding_agent.agent_server_support import RunState
 from coding_agent.config import Settings
 from coding_agent.events import RunFinished, RunStarted
+from coding_agent.servers import agent_server
+from coding_agent.servers.agent_server_support import RunState
 
 
 class _HangingRuntime:

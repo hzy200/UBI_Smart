@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from coding_agent import agent_server
 from coding_agent.agent_protocol import AgentContext
 from coding_agent.config import Settings
 from coding_agent.events import (
@@ -16,6 +15,7 @@ from coding_agent.events import (
     RunFinished,
     RunStarted,
 )
+from coding_agent.servers import agent_server
 
 TOKEN = "tok"
 

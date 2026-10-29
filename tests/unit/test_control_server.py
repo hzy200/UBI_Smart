@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import uvicorn
 
-from coding_agent import control_server
+from coding_agent.servers import control_server
 
 
 class _Settings:

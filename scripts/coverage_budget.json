@@ -8,7 +8,7 @@
     "tools/files.py"
   ],
   "modules": {
-    "agent_server_routes/workspace_import.py": 87.1,
+    "servers/agent_server_routes/workspace_import.py": 87.1,
     "control/accounts.py": 87.1,
     "control/approvals.py": 96.8,
     "control/credentials.py": 94.8,

@@ -6,11 +6,12 @@ import time
 
 from fastapi.testclient import TestClient
 
-from coding_agent import AGENT_API_VERSION, __version__, agent_server
+from coding_agent import AGENT_API_VERSION, __version__
 from coding_agent.config import Settings
 from coding_agent.control.protocol import AgentMeta
 from coding_agent.desktop.config import LauncherConfig
 from coding_agent.desktop.watchdog import WatchTarget, supervise_many
+from coding_agent.servers import agent_server
 
 
 def test_agent_server_cancel_all_and_shutdown(tmp_path) -> None:

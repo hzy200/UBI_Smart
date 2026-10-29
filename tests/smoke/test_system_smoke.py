@@ -12,10 +12,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import agent_server, web
+from coding_agent import web
 from coding_agent.audit import AuditLogger, AuditRecord
 from coding_agent.audit.logger import now_iso
 from coding_agent.config import Settings
+from coding_agent.servers import agent_server
 from coding_agent.workspace.browse import list_directory, read_text_file
 
 pytestmark = pytest.mark.smoke
@@ -39,7 +40,7 @@ CORE_MODULES = (
     "coding_agent.workspace.browse",
     "coding_agent.audit.logger",
     "coding_agent.web.app",
-    "coding_agent.agent_server",
+    "coding_agent.servers.agent_server",
 )
 
 

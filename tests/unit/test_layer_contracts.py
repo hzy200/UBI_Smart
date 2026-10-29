@@ -188,7 +188,7 @@ def test_frontend_is_built_from_ts_source() -> None:
 def test_native_service_packaging_assets_exist() -> None:
     for path in (
         "scripts/build_services.py",
-        "src/coding_agent/control_server.py",
+        "src/coding_agent/servers/control_server.py",
         "packaging/systemd/coding-agent-agent.service",
         "packaging/systemd/coding-agent-control.service",
         "packaging/windows/install-startup-task.ps1",

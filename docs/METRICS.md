@@ -21,16 +21,15 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 | 指标 | 值 |
 | --- | --- |
 | 快反馈用例 | **3,143** |
-| 覆盖率 | **84.71%** |
+| 覆盖率 | **84.70%** |
 | 总语句 | **35,319** |
-| 未覆盖 | **5,399** |
+| 未覆盖 | **5,405** |
 | 承重模块目标 | **85%** |
 
 ## 承重模块
 
 | 模块 | 当前 | 棘轮下限 | 目标 |
 | --- | ---: | ---: | ---: |
-| `agent_server_routes/workspace_import.py` | 88.1% | 87.1% | 85% |
 | `control/accounts.py` | 87.2% | 87.1% | 85% |
 | `control/approvals.py` | 96.5% | 96.8% | 85% |
 | `control/credentials.py` | 95.8% | 94.8% | 85% |
@@ -55,6 +54,7 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 | `sandbox/pathguard.py` | 100.0% | 99.0% | 85% |
 | `sandbox/policy.py` | 92.0% | 91.0% | 85% |
 | `sandbox/snapshots.py` | 76.8% | 75.8% | 85% |
+| `servers/agent_server_routes/workspace_import.py` | 88.1% | 87.1% | 85% |
 | `tools/code_intel.py` | 98.9% | 97.9% | 85% |
 | `tools/files.py` | 88.5% | 88.3% | 85% |
 | `tools/git.py` | 96.0% | 95.8% | 85% |

@@ -110,17 +110,23 @@ Linux `backend` job 没有 WSL2，所以 `wsl` 标记的用例仍然**一行都�
 |---|---|---|
 | `preflight` | `ubuntu-latest` | 查仓库有没有在线且带 `wsl` label 的 self-hosted runner，输出 `ready` |
 | `wsl` | `[self-hosted, wsl]` | 预检 WSL/发行版 → 沙箱层全量 → 分层覆盖率门槛 → 上传报告 |
+| `gate` | `ubuntu-latest` | **汇总门禁**：`ready != true` 或 `wsl` 非 success 时失败 |
 
-没有在线 runner 时 `wsl` job **不启动**：`preflight` 写一条 `::warning::`
-并在 Step Summary 里写明"跳过不等于通过"。排队 24 小时后被取消既不会让 PR
-通过得更快，也不比"明确跳过"更可信 —— 那只是把 PR 悄悄卡住。
+没有在线 runner 时 `wsl` job 不启动，但 `gate` 会**显式失败**并写明
+“跳过不等于通过”。确实不需要沙箱层的改动，必须在仓库变量里设置
+`WSL_GATE_ALLOW_SKIP=true` 才能放行；这只会在日志里留 warning，不会被
+误当成“沙箱层已通过”。
+
+排队 24 小时后被取消既不会让 PR 通过得更快，也不比“明确失败”更可信 ——
+那只是把 PR 悄悄卡住。
 
 runner 约定：注册时打**自定义 label `wsl`**（`--labels wsl`）。`llm.yml` 的
 `llm-eval` job 用同一个 label，两处不要各写一套。注册步骤见
 [ENVIRONMENT.md](ENVIRONMENT.md) 的「注册 WSL 门禁 runner」一节。
 
-注册之后必须把 `Sandbox / wsl` 设为分支保护的 required check；否则它只是
-“有跑但不拦合并”。
+注册之后必须把 **`Sandbox / sandbox-gate`** 设为分支保护的 required check
+（不要 required `wsl` 本身：它被跳过时语义不可靠）。这样“没有 runner”
+和“沙箱层失败”都会拦住合并，而不是静默变绿。
 
 | 步骤 | 命令 |
 |---|---|

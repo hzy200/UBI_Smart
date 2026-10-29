@@ -81,10 +81,10 @@ embeddings = [
 
 [project.scripts]
 agent = "coding_agent.cli.app:main"
-coding-agent-server = "coding_agent.server:main"
+coding-agent-server = "coding_agent.servers.server:main"
 coding-agent-desktop = "coding_agent.desktop.launcher:main"
-coding-agent-agent = "coding_agent.agent_server:main"
-coding-agent-control = "coding_agent.control_server:main"
+coding-agent-agent = "coding_agent.servers.agent_server:main"
+coding-agent-control = "coding_agent.servers.control_server:main"
 coding-agent-host-device = "coding_agent.host_broker.devices:main"
 coding-agent-host-policy = "coding_agent.host_broker.policy_doc:main"
 
@@ -221,11 +221,11 @@ ignore = [
 "src/coding_agent/host_broker/policy_doc.py" = ["T201"]
 "src/coding_agent/host_broker/devices.py" = ["T201"]
 "src/coding_agent/control/migrate.py" = ["T201"]
-"src/coding_agent/control_server.py" = ["T201"]
-"src/coding_agent/agent_server.py" = ["T201"]
+"src/coding_agent/servers/control_server.py" = ["T201"]
+"src/coding_agent/servers/agent_server.py" = ["T201"]
 # 启动握手那行 JSON（event: coding_agent_*）是给 supervisor/launcher **解析**的，
 # 不是日志 —— 换 logging 会把协议改掉。
-"src/coding_agent/server.py" = ["T201"]
+"src/coding_agent/servers/server.py" = ["T201"]
 
 [tool.ruff.lint.mccabe]
 # 10 是 ruff 默认；这里不动它，让存量如实显形，靠预算棘轮收敛，

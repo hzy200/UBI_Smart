@@ -161,13 +161,16 @@ def _has_prefix(imported: set[str], prefix: str) -> bool:
 
 
 def test_agent_server_depends_on_neutral_protocol_not_a2() -> None:
-    paths = [SRC / "agent_server.py", *_modules("agent_server_routes")]
+    paths = [
+        SRC / "servers" / "agent_server.py",
+        *_modules("servers/agent_server_routes"),
+    ]
     for path in paths:
         imported = _imported_modules(path)
         assert not _has_prefix(imported, "coding_agent.control"), path
         assert not _has_prefix(imported, "coding_agent.web"), path
     assert "coding_agent.agent_protocol" in _imported_modules(
-        SRC / "agent_server.py"
+        SRC / "servers" / "agent_server.py"
     )
 
 
@@ -240,24 +243,18 @@ def test_shared_modules_stay_neutral() -> None:
 _ROOT_ALLOWED = {
     "__init__.py",
     "agent_protocol.py",      # A2↔A3 契约
-    "agent_server.py",        # A3 入口
-    "agent_server_models.py",  # A3 HTTP 模型
-    "agent_server_support.py",  # A3 RunState/SSE 原语
-    "agent_context.py",       # A3 租户目录与 runtime 构造
     "config.py",              # 配置契约源
-    "control_server.py",      # A2 入口
     "events.py",              # 领域事件契约源
     "runtime_snapshots.py",   # AgentRuntime 快照 mixin
-    "server.py",              # 本地开发入口
 }
 
 
 def test_root_modules_are_allowlisted() -> None:
     actual = {path.name for path in SRC.glob("*.py")}
-    unexpected = actual - _ROOT_ALLOWED
-    assert not unexpected, (
-        f"根目录新增了未登记的模块：{sorted(unexpected)}。"
-        "请把它放进对应子包（platform/ protocol/ identity/ session/ 等）；"
+    assert actual == _ROOT_ALLOWED, (
+        f"根目录模块与白名单不一致：新增={sorted(actual - _ROOT_ALLOWED)}，"
+        f"已迁走={sorted(_ROOT_ALLOWED - actual)}。"
+        "请把它放进对应子包（servers/ platform/ protocol/ identity/ session/ 等）；"
         "确属入口/契约文件时，再更新本测试的白名单并写清理由。"
     )
 

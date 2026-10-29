@@ -872,7 +872,7 @@ CLI 的沙箱探测已收窄到 `cli/platform.py`。A2 的系统/能力路由已
 `uploads.py` / `ops.py` / `snapshots.py` / `runs.py` / `desktop.py` /
 `compact.py`，A3 的 RunState/SSE 与租户上下文已拆到
 `agent_server_support.py` / `agent_context.py`，A3 路由已全部移到
-`agent_server_routes/{lifecycle,workspace,state}.py`；
+`servers/agent_server_routes/{lifecycle,workspace,state}.py`；
 `create_agent_app` 已降到 321 行，只负责装配。A2 的会话目录/Provider/
 Agent 代理已下沉到 `web/services.py`，`create_app` 降到 758 行。
 

@@ -100,8 +100,8 @@ install_binaries() {
       echo "Python 不可执行：$PYTHON" >&2
       exit 2
     fi
-    write_wrapper CodingAgentControl coding_agent.control_server
-    write_wrapper CodingAgentAgent coding_agent.agent_server
+    write_wrapper CodingAgentControl coding_agent.servers.control_server
+    write_wrapper CodingAgentAgent coding_agent.servers.agent_server
     return
   fi
 

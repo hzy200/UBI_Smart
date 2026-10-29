@@ -8,9 +8,7 @@ from types import SimpleNamespace
 import httpx
 from fastapi.testclient import TestClient
 
-from coding_agent import agent_server, web
-from coding_agent.agent_server_routes import state as state_routes
-from coding_agent.agent_server_routes import workspace as workspace_routes
+from coding_agent import web
 from coding_agent.config import Settings
 from coding_agent.control.agent_client import (
     AgentContext,
@@ -23,6 +21,9 @@ from coding_agent.events import (
     RunStarted,
 )
 from coding_agent.sandbox.snapshots import SnapshotEntry
+from coding_agent.servers import agent_server
+from coding_agent.servers.agent_server_routes import state as state_routes
+from coding_agent.servers.agent_server_routes import workspace as workspace_routes
 
 
 class FakeRuntime:

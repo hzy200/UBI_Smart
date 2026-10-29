@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import agent_server, server
 from coding_agent.config import Settings
+from coding_agent.servers import agent_server, server
 
 pytestmark = pytest.mark.regression
 

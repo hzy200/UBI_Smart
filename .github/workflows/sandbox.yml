@@ -90,3 +90,33 @@ jobs:
           name: sandbox-coverage
           path: coverage.json
           retention-days: 14
+
+  # 汇总门禁：分支保护只 required 这一个 check。
+  # 无 runner（preflight 跳过）或 wsl 失败时它都会红 —— 跳过不再等于通过。
+  # 确实不需要沙箱层的改动，可显式设置仓库变量 WSL_GATE_ALLOW_SKIP=true。
+  gate:
+    name: sandbox-gate
+    needs: [preflight, wsl]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 判定沙箱层门禁
+        env:
+          READY: ${{ needs.preflight.outputs.ready }}
+          WSL_RESULT: ${{ needs.wsl.result }}
+          ALLOW_SKIP: ${{ vars.WSL_GATE_ALLOW_SKIP }}
+        run: |
+          if [ "$READY" != "true" ]; then
+            if [ "$ALLOW_SKIP" = "true" ]; then
+              echo "::warning::WSL_GATE_ALLOW_SKIP=true，本轮跳过沙箱层门禁（不等于通过）"
+              exit 0
+            fi
+            echo "::error::沙箱层门禁未执行：没有在线 wsl runner。跳过不等于通过。"
+            exit 1
+          fi
+          if [ "$WSL_RESULT" != "success" ]; then
+            echo "::error::沙箱层门禁失败：wsl job result=$WSL_RESULT"
+            exit 1
+          fi
+          echo "沙箱层门禁通过"

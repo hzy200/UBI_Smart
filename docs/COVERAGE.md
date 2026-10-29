@@ -34,7 +34,7 @@ pytest -m "not wsl and not wsl_env and not llm" --cov --cov-report=term-missing
 | 模块 | P3 目标 | 当前 | 覆盖手段 |
 |---|---:|---:|---|
 | `orchestrator/implement.py` | ≥50% | **75.8%** | fake sandbox + 假工具/假 LLM；WSL 路径仍由 `-m wsl` 门禁 |
-| `control_server.py` | ≥70% | **98.9%** | 参数冲突、迁移失败、握手降级、shutdown 回调 |
+| `servers/control_server.py` | ≥70% | **98.9%** | 参数冲突、迁移失败、握手降级、shutdown 回调 |
 | `execution/sandbox_backend.py` | ≥70% | **100%** | fake sandbox / fake fs / fake snapshots |
 | `desktop/setup.py` | 配置/参数/错误分支 | **100%** | 无头驱动 `SetupApi.detect/finish/pick_folder` |
 | `desktop/launcher.py` | 配置/参数/错误分支 | **46.3%** | 启动/锁/回退/错误窗口；GUI 窗口仍手测 |
@@ -48,18 +48,18 @@ pytest -m "not wsl and not wsl_env and not llm" --cov --cov-report=term-missing
 | `orchestrator/retry.py` | 21% | **100%** | 空上下文、字段截断、条目上限 |
 | `desktop/supervisor.py` | 50% | **82.8%** | 假 Popen/握手、端口校验、进程清理 |
 | `control/backup.py` | 51% | **99.1%** | MySQL dump/restore、密码走环境变量、失败清理 |
-| `agent_server.py` | 60% | **75.6%** | 共享传输 SSE、缓冲裁剪、运行异常、租户上下文 |
-| `agent_server_routes/state.py` | 46% | **96.3%** | fork/rewind/checkpoints、记忆动作、审计与会话 |
-| `agent_server_routes/workspace.py` | 50% | **81.5%** | 文件/Git/项目、快照恢复、上传配额与删除越界 |
-| `agent_server_routes/lifecycle.py` | 79% | **94.2%** | 流式补齐、steering 恢复、取消/关停、compact |
+| `servers/agent_server.py` | 60% | **75.6%** | 共享传输 SSE、缓冲裁剪、运行异常、租户上下文 |
+| `servers/agent_server_routes/state.py` | 46% | **96.3%** | fork/rewind/checkpoints、记忆动作、审计与会话 |
+| `servers/agent_server_routes/workspace.py` | 50% | **81.5%** | 文件/Git/项目、快照恢复、上传配额与删除越界 |
+| `servers/agent_server_routes/lifecycle.py` | 79% | **94.2%** | 流式补齐、steering 恢复、取消/关停、compact |
 | `orchestrator/merge.py` | 62% | **91.6%** | numstat 解析、快照/回退、3-way 预演 |
-| `agent_server_support.py` | 77% | **100%** | RunState / SSE / tenant 纯函数 |
-| `server.py` | 0% | **92%** | 参数解析、握手、uvicorn 装配 |
+| `servers/agent_server_support.py` | 77% | **100%** | RunState / SSE / tenant 纯函数 |
+| `servers/server.py` | 0% | **92%** | 参数解析、握手、uvicorn 装配 |
 | `web/local_runtime.py` | 85% | **83.1%** | 同进程回退；配额/TTL 分支基本覆盖 |
 | `cli/platform.py` | 89% | **92.9%** | doctor/sandbox-init 适配器 |
-| `agent_context.py` | 92% | **94.7%** | A3 租户目录与 runtime 构造 |
+| `servers/agent_context.py` | 92% | **94.7%** | A3 租户目录与 runtime 构造 |
 
-剩余缺口集中在真实 WSL/patch 路径与长连接超时分支（`agent_server.py` 的
+剩余缺口集中在真实 WSL/patch 路径与长连接超时分支（`servers/agent_server.py` 的
 keepalive、`desktop/launcher.py` 的 GUI 窗口），继续靠 `-m wsl`、集成测试与
 桌面手测守着，不在 CI 里堆假集成。
 
@@ -73,7 +73,7 @@ P1-8 计划的 85% 承重模块门槛；`control/credentials.py` 95.8%、
 `graph/nodes/approve.py` 100.0%。
 
 P1-3/P1-5 新增与改动模块：`control/workspaces.py` 93.0%（ACL 授权/撤销/
-可见性）、`web/middleware.py` 95.6%（审计只读中间件）、`agent_server.py`
+可见性）、`web/middleware.py` 95.6%（审计只读中间件）、`servers/agent_server.py`
 80.1%（drain 入口与拒绝新运行）、`web/routes/workspaces.py` 82.7%、
 `control/migrate.py` 69.0%（0013 与无版本旧库识别）。
 
@@ -87,7 +87,7 @@ P1-3/P1-5 新增与改动模块：`control/workspaces.py` 93.0%（ACL 授权/撤
 - 本地授权 `host_broker/consent.py` 已从 18.7% 提到 **97%**（Tk/远程/stdin
   与失败关闭），`tools/git.py` 用假沙箱补到 **97%**（路径越界、`.agent`
   保护、失败回报），`tools/code_intel.py` 用假 FS/LSP 补到 **99%**；三者均
-  纳入覆盖率棘轮；`agent_server_routes/workspace_import.py` 补到 **88.1%**（导入 worker、上传入口/状态/
+  纳入覆盖率棘轮；`servers/agent_server_routes/workspace_import.py` 补到 **88.1%**（导入 worker、上传入口/状态/
   取消、恢复/删除归档），也已纳入棘轮；未覆盖行仍必须继续可见；
 - 测试分层与运行口径见 [TESTING.md](TESTING.md)：冒烟挡启动、回归守不变量、
   增量缩短反馈、集成与全量负责深层行为；

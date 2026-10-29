@@ -3,10 +3,9 @@
   "tests": 3143,
   "coverage": {
     "statements": 35319,
-    "missing": 5399,
-    "percent": 84.71,
+    "missing": 5405,
+    "percent": 84.7,
     "modules": {
-      "agent_server_routes/workspace_import.py": 88.13,
       "control/accounts.py": 87.25,
       "control/approvals.py": 96.49,
       "control/credentials.py": 95.83,
@@ -31,6 +30,7 @@
       "sandbox/pathguard.py": 100.0,
       "sandbox/policy.py": 92.01,
       "sandbox/snapshots.py": 76.79,
+      "servers/agent_server_routes/workspace_import.py": 88.13,
       "tools/code_intel.py": 98.86,
       "tools/files.py": 88.5,
       "tools/git.py": 96.0,
@@ -41,10 +41,6 @@
   },
   "target": 85.0,
   "modules": {
-    "agent_server_routes/workspace_import.py": {
-      "actual": 88.13,
-      "floor": 87.1
-    },
     "control/accounts.py": {
       "actual": 87.25,
       "floor": 87.1
@@ -140,6 +136,10 @@
     "sandbox/snapshots.py": {
       "actual": 76.79,
       "floor": 75.8
+    },
+    "servers/agent_server_routes/workspace_import.py": {
+      "actual": 88.13,
+      "floor": 87.1
     },
     "tools/code_intel.py": {
       "actual": 98.86,

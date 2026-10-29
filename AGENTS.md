@@ -81,12 +81,9 @@ src/coding_agent/
   sandbox/          执行安全层：wsl_exec / policy / pathguard / fs / snapshots / limits
   tools/            能力层：shell / files / git / deps / search / symbols / testrun / delegate
   control/          A2 控制面：schema / store / transport / 协议 / 迁移 / 备份
-  agent_server.py   A3 独立进程入口：仅装配
-  agent_server_routes/ A3 领域路由（lifecycle / workspace / workspace_import / state）
-  agent_server_models.py A3 HTTP 请求模型
-  agent_server_support.py A3 RunState / SSE 原语
-  agent_context.py  A3 租户目录与 runtime 构造
-  control_server.py A2 独立进程入口：认证 / 会话目录 / 代理 / 降级
+  servers/          A2/A3 入口与路由：agent_server / control_server / server
+                    + agent_server_routes（lifecycle / workspace / workspace_import / state）
+                    + models / support / agent_context
   web/routes/       A2 领域路由（system/providers/sessions/workspace/uploads/ops/snapshots/runs/desktop/compact）
   web/services.py   A2 会话目录 / Provider / Agent 代理服务
   web/streaming.py  运行事件流缓冲/重放；web/sse.py 帧原语
@@ -126,8 +123,8 @@ runtime -> execution -> sandbox；tools -> sandbox
   `execution/host_ops.py::host_run` 的 kind 白名单，见 `docs/adr/0011-host-side-execution.md`；
   `orchestrator/` 不许直接 `sandbox.run`，有 AST 测试锁定。
 
-A3 已不再依赖 `web/` 或 `control.agent_client`：`agent_server.py` 使用
-`agent_protocol`、`event_transport` 与 `workspace.browse`。
+A3 已不再依赖 `web/` 或 `control.agent_client`：`servers/agent_server.py` 使用
+`agent_protocol`、`protocol.event_transport` 与 `workspace.browse`。
 
 按子目录分层注入的模块级指令：`src/coding_agent/{graph,orchestrator,sandbox,tools}/AGENTS.md`。
 

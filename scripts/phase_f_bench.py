@@ -298,7 +298,7 @@ def measure_sse_proxy(workdir: Path, rounds: int = 20) -> dict:
         [
             sys.executable,
             "-m",
-            "coding_agent.control_server",
+            "coding_agent.servers.control_server",
             "--host",
             "127.0.0.1",
             "--port",

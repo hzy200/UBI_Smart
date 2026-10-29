@@ -86,7 +86,7 @@ def main() -> int:
         print("警告：未找到 packaging/wsl/CodingAgent-rootfs.tar")
 
     # A2 控制面必须是随包可执行的 onedir；否则打包后的 launcher 只能回退到
-    # `CodingAgent.exe -m coding_agent.control_server`（GUI 入口不认识 -m）。
+    # `CodingAgent.exe -m coding_agent.servers.control_server`（GUI 入口不认识 -m）。
     print("构建并合并 A2 控制面")
     build = subprocess.run(
         [

@@ -133,7 +133,7 @@ def _control_prefix() -> list[str]:
     ):
         if exe.is_file():
             return [str(exe)]
-    return [sys.executable, "-m", "coding_agent.control_server"]
+    return [sys.executable, "-m", "coding_agent.servers.control_server"]
 
 
 _WORKSPACE_ENV_KEYS = (
@@ -206,7 +206,7 @@ def build_command(
         *[f"{key}={value}" for key, value in env.items()],
         config.python,
         "-m",
-        "coding_agent.agent_server",
+        "coding_agent.servers.agent_server",
         "--host",
         "127.0.0.1",
         "--port",

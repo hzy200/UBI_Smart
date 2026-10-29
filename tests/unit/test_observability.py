@@ -145,8 +145,8 @@ def test_a2_metrics_accepts_dedicated_token(settings) -> None:
 
 def test_a3_metrics_requires_internal_token(tmp_path) -> None:
     """指标含运行量与安全事件计数：不能匿名可读。"""
-    from coding_agent import agent_server
     from coding_agent.config import Settings
+    from coding_agent.servers import agent_server
 
     settings = Settings(
         _env_file=None,

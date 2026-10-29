@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from coding_agent.agent_server_support import (
+from coding_agent.events import (
+    ApprovalRequested,
+    AssistantToken,
+    RunFailed,
+    RunFinished,
+    SteeringApplied,
+)
+from coding_agent.servers.agent_server_support import (
     RunState,
     _ContextSecretStore,
     _is_suspended,
@@ -10,13 +17,6 @@ from coding_agent.agent_server_support import (
     _sse,
     _sse_with_id,
     _terminal_payload,
-)
-from coding_agent.events import (
-    ApprovalRequested,
-    AssistantToken,
-    RunFailed,
-    RunFinished,
-    SteeringApplied,
 )
 
 

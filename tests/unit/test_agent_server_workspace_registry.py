@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import agent_server
 from coding_agent.agent_protocol import AgentContext
 from coding_agent.config import Settings
 from coding_agent.platform.paths import PathGuardError
+from coding_agent.servers import agent_server
 
 ensure_host_workspace = agent_server.ensure_host_workspace
 

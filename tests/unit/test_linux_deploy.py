@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent import control_server
 from coding_agent.config import Settings
+from coding_agent.servers import control_server
 
 ROOT = Path(__file__).resolve().parents[2]
 SYSTEMD = ROOT / "packaging" / "systemd"

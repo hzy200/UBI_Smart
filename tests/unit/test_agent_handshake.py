@@ -8,12 +8,7 @@ import socket
 import httpx
 from fastapi.testclient import TestClient
 
-from coding_agent import (
-    AGENT_API_VERSION,
-    __version__,
-    agent_server,
-    control_server,
-)
+from coding_agent import AGENT_API_VERSION, __version__
 from coding_agent.config import Settings
 from coding_agent.control.agent_client import HttpAgentClient
 from coding_agent.control.protocol import (
@@ -21,6 +16,7 @@ from coding_agent.control.protocol import (
     AgentMeta,
     check_compatibility,
 )
+from coding_agent.servers import agent_server, control_server
 
 
 def _settings(tmp_path, **updates) -> Settings:

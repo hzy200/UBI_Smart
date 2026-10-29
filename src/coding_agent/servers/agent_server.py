@@ -5,7 +5,7 @@ checkpoint、工作区与 SSE。默认只绑 loopback，不暴露给浏览器。
 
 启动：
 
-    python -m coding_agent.agent_server --port 8790
+    python -m coding_agent.servers.agent_server --port 8790
     AGENT_INTERNAL_TOKEN=... AGENT_INTERNAL_URL=...（A2 侧）
 
 当前迁移范围是运行生命周期：runs / stream / resume / resume_steering /
@@ -33,34 +33,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from coding_agent import AGENT_API_VERSION, __version__
-from coding_agent.agent_context import AgentRuntimeFactory
 from coding_agent.agent_protocol import (
     AGENT_CAPABILITIES,
     AgentContext,
     verify_context,
-)
-from coding_agent.agent_server_routes.lifecycle import (
-    LifecycleDeps,
-    register_lifecycle_routes,
-)
-from coding_agent.agent_server_routes.state import (
-    StateDeps,
-    register_state_routes,
-)
-from coding_agent.agent_server_routes.workspace import (
-    WorkspaceDeps,
-    register_workspace_routes,
-)
-from coding_agent.agent_server_routes.workspace_import import (
-    ImportDeps,
-    register_import_routes,
-)
-from coding_agent.agent_server_support import (
-    RunState,
-    _is_suspended,
-    _safe_tenant,
-    _sse_with_id,
-    _terminal_payload,
 )
 from coding_agent.config import Settings, get_settings
 from coding_agent.events import (
@@ -81,6 +57,30 @@ from coding_agent.platform.paths import (
 from coding_agent.protocol.event_transport import build_event_transport
 from coding_agent.protocol.sse_stream import sse_headers
 from coding_agent.runtime import AgentRuntime
+from coding_agent.servers.agent_context import AgentRuntimeFactory
+from coding_agent.servers.agent_server_routes.lifecycle import (
+    LifecycleDeps,
+    register_lifecycle_routes,
+)
+from coding_agent.servers.agent_server_routes.state import (
+    StateDeps,
+    register_state_routes,
+)
+from coding_agent.servers.agent_server_routes.workspace import (
+    WorkspaceDeps,
+    register_workspace_routes,
+)
+from coding_agent.servers.agent_server_routes.workspace_import import (
+    ImportDeps,
+    register_import_routes,
+)
+from coding_agent.servers.agent_server_support import (
+    RunState,
+    _is_suspended,
+    _safe_tenant,
+    _sse_with_id,
+    _terminal_payload,
+)
 
 _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
 _STREAM_BUFFER_MAX_EVENTS = 5_000

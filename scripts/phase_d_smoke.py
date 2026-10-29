@@ -277,7 +277,7 @@ class Smoke:
             [
                 self.python,
                 "-m",
-                "coding_agent.agent_server",
+                "coding_agent.servers.agent_server",
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -310,7 +310,7 @@ class Smoke:
             [
                 self.python,
                 "-m",
-                "coding_agent.control_server",
+                "coding_agent.servers.control_server",
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -528,7 +528,7 @@ class Smoke:
             [
                 self.python,
                 "-m",
-                "coding_agent.control_server",
+                "coding_agent.servers.control_server",
                 "--migrate-only",
             ],
             env=env,
