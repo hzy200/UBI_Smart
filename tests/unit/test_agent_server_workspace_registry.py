@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from coding_agent import agent_server
 from coding_agent.agent_protocol import AgentContext
 from coding_agent.config import Settings
-from coding_agent.paths import PathGuardError
+from coding_agent.platform.paths import PathGuardError
 
 ensure_host_workspace = agent_server.ensure_host_workspace
 

@@ -10,7 +10,7 @@ from typing import Any
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from coding_agent.request_context import REQUEST_ID_HEADER, current_request_id
+from coding_agent.platform.request_context import REQUEST_ID_HEADER, current_request_id
 
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 

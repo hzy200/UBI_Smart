@@ -34,7 +34,6 @@ from langgraph.graph import END, START, StateGraph
 
 from coding_agent.access import ACCESS_READ_ONLY
 from coding_agent.agents.explore import make_explore_runner, make_review_runner
-from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import (
     PRODUCTION_PROFILES,
     Settings,
@@ -89,7 +88,8 @@ from coding_agent.memory.longterm import (
 from coding_agent.orchestrator import make_worker_runner, route_entry
 from coding_agent.orchestrator.implement import make_implement_runner
 from coding_agent.orchestrator.subgraph import build_orchestrator_subgraph
-from coding_agent.read_cache import ReadCache
+from coding_agent.platform.concurrency import ConcurrencyGovernor
+from coding_agent.platform.read_cache import ReadCache
 from coding_agent.sandbox.backend import build_sandbox
 from coding_agent.sandbox.policy import SessionPolicy, parse_allow_rules
 from coding_agent.sandbox.wsl_exec import resolve_workspace

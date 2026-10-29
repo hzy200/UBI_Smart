@@ -9,13 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from coding_agent.concurrency import (
+from coding_agent.config import Settings
+from coding_agent.platform.concurrency import (
     AsyncLeasePool,
     ConcurrencyGovernor,
     ResourceTimeout,
     SyncLeasePool,
 )
-from coding_agent.config import Settings
 from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
 
 # conftest 的 autouse 守卫会把 _exec 换成「一碰就炸」；这个用例要测槽位租约，

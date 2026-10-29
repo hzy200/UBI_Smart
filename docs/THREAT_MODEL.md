@@ -188,7 +188,7 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
 | 引号感知（字面量不误判，`$()`/`sh -c` 照扫） | `policy._mask_quoted` | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | `.agent` 在 shell/git 路径的防护 | `policy`（整树 `git add`、`.agent` 引用 → L2） | T1 | [`test_policy.py`](../tests/unit/test_policy.py) |
 | 路径双重校验（词法 + realpath，含悬空链接） | `pathguard` + `fs` | **接近 T2**（对文件工具路径是硬约束） | [`test_pathguard.py`](../tests/unit/test_pathguard.py)、[`test_fs_guard.py`](../tests/unit/test_fs_guard.py)、[`test_file_tools.py`](../tests/integration/test_file_tools.py) |
-| 工作区根路径由 A2 生成 + 白名单校验 | `control/workspaces.py` + `paths.py` | T1（A2 层；符号链接由 A4 的 realpath 补齐） | [`test_workspace_paths.py`](../tests/unit/test_workspace_paths.py)、[`test_workspace_registry.py`](../tests/unit/test_workspace_registry.py) |
+| 工作区根路径由 A2 生成 + 白名单校验 | `control/workspaces.py` + `platform/paths.py` | T1（A2 层；符号链接由 A4 的 realpath 补齐） | [`test_workspace_paths.py`](../tests/unit/test_workspace_paths.py)、[`test_workspace_registry.py`](../tests/unit/test_workspace_registry.py) |
 | 审批在节点、执行在 `tools` 唯一咽喉 | `graph/nodes/{approve,tools}.py` | **接近 T2**（前端绕不过） | [`test_approve.py`](../tests/unit/test_approve.py)、[`test_nodes.py`](../tests/unit/test_nodes.py) |
 | OIDC state/nonce/PKCE + ID token 验签 | `control/oidc.py` | T1（依赖 HTTPS/JWKS） | [`test_oidc.py`](../tests/unit/test_oidc.py) |
 | TOTP 密钥加密、恢复码哈希、时间步防重放 | `control/mfa.py` | T1（本地账号第二因子） | [`test_mfa.py`](../tests/unit/test_mfa.py) |

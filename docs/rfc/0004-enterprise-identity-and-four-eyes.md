@@ -93,7 +93,7 @@ review_cadence: 身份、审批语义或数据迁移变化时
 - 审计/认证事件新增：`oidc_login_ok`、`oidc_login_failed`、`mfa_enroll`、
   `mfa_enabled`、`mfa_disabled`、`mfa_failed`、`approval_requested`、
   `approval_decided`、`approval_self_denied`。
-- 指标（复用 `observability.py`）：`agent_auth_events_total{kind}`、
+- 指标（复用 `platform/observability.py`）：`agent_auth_events_total{kind}`、
   `agent_approvals_pending`、`agent_approvals_decided_total{decision}`。
 - 日志不记录 token、ID token、TOTP secret、恢复码明文。
 

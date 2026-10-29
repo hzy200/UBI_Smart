@@ -18,7 +18,7 @@ from coding_agent.access import (
     normalize_access_mode,
 )
 from coding_agent.memory.sessions import SessionIndex
-from coding_agent.observability import note_silent_failure
+from coding_agent.platform.observability import note_silent_failure
 from coding_agent.tenancy import TenantError, WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep

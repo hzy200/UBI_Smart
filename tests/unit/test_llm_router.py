@@ -371,7 +371,7 @@ def test_rate_limiter_accumulates_cache_tokens() -> None:
 
 
 def test_governor_limits_concurrent_llm_calls() -> None:
-    from coding_agent.concurrency import ConcurrencyGovernor
+    from coding_agent.platform.concurrency import ConcurrencyGovernor
 
     class _BlockingProvider(_Provider):
         def __init__(self) -> None:
@@ -418,7 +418,7 @@ def test_governor_limits_concurrent_llm_calls() -> None:
 
 
 def test_aimd_shrinks_on_429_and_recovers_on_success() -> None:
-    from coding_agent.concurrency import ConcurrencyGovernor
+    from coding_agent.platform.concurrency import ConcurrencyGovernor
 
     async def scenario() -> tuple[int, int]:
         provider = _Provider("p", error=_RateLimit("429"))

@@ -24,11 +24,11 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from coding_agent.concurrency import (
-    ConcurrencyGovernor,
-)
 from coding_agent.config import Settings
 from coding_agent.orchestrator.workers import WorkerRunner
+from coding_agent.platform.concurrency import (
+    ConcurrencyGovernor,
+)
 from coding_agent.sandbox.wsl_exec import WslSandbox
 from coding_agent.steering import SteeringController
 

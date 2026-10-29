@@ -648,7 +648,7 @@ def _record_usage_during_stream(graph: FakeGraph, provider: str, **usage: Any) -
 def test_cost_report_includes_billing_reconciliation(
     monkeypatch, tmp_path
 ) -> None:
-    import coding_agent.runtime as runtime_module
+    import coding_agent.runtime.stream as runtime_module
     from coding_agent.llm.billing import BillingResult
 
     monkeypatch.setattr(
@@ -721,6 +721,6 @@ def test_workspace_lock_error_is_fail_closed(tmp_path, monkeypatch) -> None:
     def boom(*args, **kwargs):
         raise OSError("audit directory is not writable")
 
-    monkeypatch.setattr("coding_agent.runtime.WorkspaceLock", boom)
+    monkeypatch.setattr("coding_agent.runtime.core.WorkspaceLock", boom)
     assert runtime._acquire_workspace_lock() is False
     assert "锁不可用" in runtime._workspace_lock_busy

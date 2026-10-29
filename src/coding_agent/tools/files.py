@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from coding_agent.config import Settings
 from coding_agent.diffing import count_changes, unified_diff
 from coding_agent.execution.file_access import FileAccess, SandboxFileAccess
-from coding_agent.observability import note_silent_failure
+from coding_agent.platform.observability import note_silent_failure
 from coding_agent.sandbox.fs import SandboxFs, SandboxFsError, SandboxFsTooLarge
 from coding_agent.sandbox.pathguard import SandboxPathError
 from coding_agent.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore

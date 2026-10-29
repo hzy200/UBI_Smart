@@ -36,7 +36,7 @@ from coding_agent.control.agent_client import HttpAgentClient  # noqa: E402
 from coding_agent.desktop import supervisor  # noqa: E402
 from coding_agent.desktop.config import LauncherConfig  # noqa: E402
 from coding_agent.desktop.wsl import run  # noqa: E402
-from coding_agent.paths import win_to_wsl  # noqa: E402
+from coding_agent.platform.paths import win_to_wsl  # noqa: E402
 from coding_agent.web import create_app  # noqa: E402
 from coding_agent.web.auth import AuthConfig  # noqa: E402
 

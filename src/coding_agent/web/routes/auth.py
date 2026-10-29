@@ -19,7 +19,7 @@ from coding_agent.config import Settings
 from coding_agent.control.mfa import MfaError, otpauth_uri
 from coding_agent.control.oidc import OidcError
 from coding_agent.costs import CurrencyConfig
-from coding_agent.observability import inc
+from coding_agent.platform.observability import inc
 from coding_agent.web.auth import AuthConfig, AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.mailer import send_password_reset

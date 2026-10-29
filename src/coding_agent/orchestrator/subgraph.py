@@ -15,7 +15,6 @@ from __future__ import annotations
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import Settings
 
 # 与 graph/nodes/steering.py 的节点工厂同名，避免两套 steering 语义。
@@ -43,6 +42,7 @@ from coding_agent.orchestrator.write_gate import (
     WRITE_GATE,
     make_write_gate_node,
 )
+from coding_agent.platform.concurrency import ConcurrencyGovernor
 from coding_agent.sandbox.wsl_exec import WslSandbox
 from coding_agent.steering import SteeringController
 

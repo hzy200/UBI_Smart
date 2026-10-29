@@ -36,7 +36,7 @@ from coding_agent.control.schema import (
     Workspace,
     WorkspaceRevision,
 )
-from coding_agent.paths import (
+from coding_agent.platform.paths import (
     PathGuardError,
     ensure_inside,
     is_within,

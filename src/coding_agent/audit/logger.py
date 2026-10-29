@@ -24,8 +24,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from coding_agent.audit.models import AuditRecord
-from coding_agent.filelock import FileLock
-from coding_agent.observability import inc
+from coding_agent.platform.filelock import FileLock
+from coding_agent.platform.observability import inc
 from coding_agent.security.secrets import redact_secrets
 
 MAX_ARG_CHARS = 400

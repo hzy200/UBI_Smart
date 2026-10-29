@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from coding_agent.filelock import FileLock, NullLock
+from coding_agent.platform.filelock import FileLock, NullLock
 
 DEFAULT_COOLDOWN_S = 2.0
 MAX_COOLDOWN_S = 60.0

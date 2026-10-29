@@ -9,7 +9,7 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 300,
+  "count": 305,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
@@ -253,6 +253,10 @@
     "AGENT_VERIFY_ENABLED",
     "AGENT_VERIFY_ONLY_FINAL",
     "AGENT_VERIFY_TIMEOUT",
+    "AGENT_WEBPUSH_PRIVATE_KEY",
+    "AGENT_WEBPUSH_PUBLIC_KEY",
+    "AGENT_WEBPUSH_SUBJECT",
+    "AGENT_WEBPUSH_TTL",
     "AGENT_WEB_ACCOUNTS_ENABLED",
     "AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL",
     "AGENT_WEB_ACCOUNT_TENANT",
@@ -260,6 +264,7 @@
     "AGENT_WEB_AUTH_TOKENS",
     "AGENT_WEB_AUTH_TOKENS_FILE",
     "AGENT_WEB_COOKIE_SECURE",
+    "AGENT_WEB_CSP_REPORT_RATE_LIMIT_PER_MIN",
     "AGENT_WEB_DATA_ROOT",
     "AGENT_WEB_FRONTEND_DIR",
     "AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN",
@@ -2250,6 +2255,38 @@
       "doc": "自动验证的独立超时。测试/构建通常比普通 shell 命令长，不能共用 60s； 0 表示回退到 shell_timeout。"
     },
     {
+      "name": "webpush_private_key",
+      "env": "AGENT_WEBPUSH_PRIVATE_KEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "webpush_public_key",
+      "env": "AGENT_WEBPUSH_PUBLIC_KEY",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "浏览器 Web Push（VAPID）。公钥/私钥都配置且安装 pywebpush 才启用； 私钥只放服务端，绝不下发。"
+    },
+    {
+      "name": "webpush_subject",
+      "env": "AGENT_WEBPUSH_SUBJECT",
+      "type": "str",
+      "default": "mailto:admin@localhost",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "webpush_ttl",
+      "env": "AGENT_WEBPUSH_TTL",
+      "type": "int",
+      "default": 3600,
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "web_accounts_enabled",
       "env": "AGENT_WEB_ACCOUNTS_ENABLED",
       "type": "bool",
@@ -2304,6 +2341,14 @@
       "default": false,
       "section": "通用",
       "doc": "跨源部署时 Cookie 必须 Secure；同源反代可关。"
+    },
+    {
+      "name": "web_csp_report_rate_limit_per_min",
+      "env": "AGENT_WEB_CSP_REPORT_RATE_LIMIT_PER_MIN",
+      "type": "int",
+      "default": 300,
+      "section": "通用",
+      "doc": "匿名 CSP 违规上报按来源 IP 限流；防止被当作写日志放大器。"
     },
     {
       "name": "web_data_root",

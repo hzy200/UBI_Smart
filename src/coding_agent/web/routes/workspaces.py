@@ -33,7 +33,7 @@ from coding_agent.control.workspaces import (
     WorkspaceError,
     WorkspaceNotFound,
 )
-from coding_agent.paths import PathGuardError, is_within, normalize_root
+from coding_agent.platform.paths import PathGuardError, is_within, normalize_root
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 

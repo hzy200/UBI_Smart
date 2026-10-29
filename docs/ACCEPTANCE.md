@@ -73,7 +73,7 @@ note: |
 | RBAC（approver/auditor） | `control/accounts.py`、`web/dependencies.py`、`AuditorReadOnlyMiddleware` | `test_admin_api.py` |
 | 工作区只读 ACL | `control/workspaces.py`、`web/routes/admin.py`、迁移 `0013` | `test_workspace_acl.py`、`test_control_migrations.py` |
 | SIGTERM 优雅 drain | `agent_server.py`、`control_server.py`、`AGENT_DRAIN_TIMEOUT_S` | `test_agent_server_drain.py` |
-| 可观测性 | `observability.py`、A2/A3 `/metrics`、`docs/OBSERVABILITY.md` | `test_observability.py` |
+| 可观测性 | `platform/observability.py`、A2/A3 `/metrics`、`docs/OBSERVABILITY.md` | `test_observability.py` |
 | 备份调度 | `packaging/systemd/coding-agent-backup.*`、`CodingAgentControl --backup` | `test_control_migrations.py`、`pytest -m mysql` |
 | checkpoint 回滚 | checkpoint 负责**会话状态**恢复；快照负责**文件内容**回滚 | `test_checkpointer.py` + `agent undo` |
 | 会话分叉/回退 | `AgentRuntime.fork/rewind`；历史不删除，回退即新建分支 | `agent fork` / `agent rewind`；`test_runtime_checkpoints.py` |

@@ -15,8 +15,8 @@ import time
 from collections.abc import Callable
 from typing import TypeVar, cast
 
-from coding_agent.concurrency import SyncLeasePool
 from coding_agent.config import Settings, get_settings
+from coding_agent.platform.concurrency import SyncLeasePool
 from coding_agent.sandbox.limits import (
     TIMEOUT_EXIT_CODE,
     ResourceLimits,

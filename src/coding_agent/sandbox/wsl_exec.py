@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from typing import TypeVar, cast
 from uuid import uuid4
 
-from coding_agent.concurrency import ResourceTimeout, SyncLeasePool
 from coding_agent.config import Settings, get_settings
+from coding_agent.platform.concurrency import ResourceTimeout, SyncLeasePool
 from coding_agent.sandbox.limits import (
     TIMEOUT_EXIT_CODE,
     ResourceLimits,

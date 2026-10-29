@@ -97,7 +97,7 @@ shell、写、删除、快照、编译、安装全部留到后续阶段，避免
 2. A2 只持有 `grant_id`、`a2l_id`、`root_handle` 与审计索引，不持有 grant scope
    或 host 绝对路径。
 3. A1 不直接调用 A2L 能力 API；本地同意 UI 由 A2L 自己渲染。
-4. A2L 不导入 `tools/`、`sandbox/`、`graph/`、`runtime.py`；它是独立进程。
+4. A2L 不导入 `tools/`、`sandbox/`、`graph/`、`runtime/`；它是独立进程。
 5. A2L 不得以 LocalSystem/root 运行；按交互用户会话隔离 grant 与工作区映射。
 
 ### 2.1 常驻形态与生命周期
@@ -531,7 +531,7 @@ toolchain root 会被 AppContainer 授予 `RX` ACL；只应注册可信工具链
 | `src/coding_agent/workspace/browse.py` | 接收 `WorkspaceRef`，拒绝裸绝对路径 |
 | `src/coding_agent/tools/files.py` | `file_read/file_list` 改走 `FileAccess`；P1 只读，不碰写路径 |
 | `src/coding_agent/tools/search.py` | `find_files` 增加 host 原生遍历；不启动 shell |
-| `src/coding_agent/runtime.py` | 按工作区 kind 注入 `HostFileAccess` 或 `SandboxFileAccess` |
+| `src/coding_agent/runtime/` | 按工作区 kind 注入 `HostFileAccess` 或 `SandboxFileAccess` |
 | `src/coding_agent/agent_protocol.py` | A2/A3 上下文增加 `workspace_kind/a2l_id/root_handle` |
 | `src/coding_agent/web/models.py` / `services.py` | 会话上下文透传 host 字段 |
 | `src/coding_agent/agent_context.py` | host 工作区自动注入 `file_access/targets`，强制只读 |
@@ -755,7 +755,7 @@ P2/P3 的核心能力（brokered write、快照、AppContainer 受控 exec）已
 | A3 侧监听 + 握手 | 完成 | `host_broker/acceptor.py`、`agent_server.py` |
 | A2L 子进程入口 | 完成 | `host_broker/__main__.py` |
 | desktop supervisor 拉起/终止 A2L | 完成（开发/桌面） | `desktop/supervisor.py`、`desktop/launcher.py` |
-| runtime 注入 `file_access/targets` | 完成 | `runtime.py`、`graph/build.py` |
+| runtime 注入 `file_access/targets` | 完成 | `runtime/`、`graph/build.py` |
 | A2 → A3 host 上下文字段 | 完成 | `agent_protocol.py`、`web/models.py`、`web/services.py` |
 | runtime factory 按 host 工作区自动注入 | 完成 | `agent_context.py` |
 | 本机同意对话框 | 完成（tkinter 最小实现） | `host_broker/consent.py` |

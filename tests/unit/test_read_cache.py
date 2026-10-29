@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from coding_agent.config import Settings
-from coding_agent.read_cache import ReadCache
+from coding_agent.platform.read_cache import ReadCache
 from coding_agent.sandbox.wsl_exec import ExecResult
 from coding_agent.tools.shell import build_shell_tool
 

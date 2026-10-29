@@ -1,7 +1,8 @@
 """图节点 ↔ 事件翻译的覆盖约束。
 
-runtime 把图节点的更新翻译成领域事件，分发写在 `AgentRuntime._NODE_HANDLERS`
-表与 `_update_events` 的前缀分支里（`steering*` 共用一套）。漏翻译既不会报错、
+runtime 把图节点的更新翻译成领域事件，分发写在
+`EventMapMixin._NODE_HANDLERS` 表与 `_update_events` 的前缀分支里
+（`steering*` 共用一套）。漏翻译既不会报错、
 也不会有测试失败 —— 只是前端时间线上少一行。这个约束用 AST 从实现里抽出
 **真正登记过**的节点名，与 `build_graph` 编译出的真实节点集比对，把"静默
 漏翻译"变成一次断言失败。
@@ -21,7 +22,8 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from coding_agent.config import Settings
 from coding_agent.graph.build import build_graph
-from coding_agent.runtime import AgentRuntime
+from coding_agent.runtime.event_map import EventMapMixin
+from coding_agent.runtime.stream import StreamMixin
 from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
 
 # 建图时检索工具要探测 rg。给固定应答，让本用例不依赖真实 WSL
@@ -81,8 +83,8 @@ def _graph_nodes(graph) -> set[str]:
 
 
 def _table_keys() -> set[str]:
-    """从 `AgentRuntime._NODE_HANDLERS` 的字面量里取节点名。"""
-    source = textwrap.dedent(inspect.getsource(AgentRuntime))
+    """从 `EventMapMixin._NODE_HANDLERS` 的字面量里取节点名。"""
+    source = textwrap.dedent(inspect.getsource(EventMapMixin))
     names: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         value: ast.expr | None = None
@@ -114,7 +116,7 @@ def _translated_nodes() -> tuple[set[str], set[str]]:
     """
     names = _table_keys()
     prefixes: set[str] = set()
-    for method in (AgentRuntime._stream, AgentRuntime._update_events):
+    for method in (StreamMixin._stream, EventMapMixin._update_events):
         source = textwrap.dedent(inspect.getsource(method))
         for node in ast.walk(ast.parse(source)):
             if isinstance(node, ast.Compare):
@@ -160,7 +162,8 @@ def test_every_graph_node_is_translated_or_declared_silent(real_graph) -> None:
     untranslated = {node for node in nodes if not _is_translated(node, names, prefixes)}
     assert untranslated == SILENT_NODES, (
         f"这些图节点没有对应的事件翻译：{sorted(untranslated - SILENT_NODES)}。"
-        f"要么在 runtime._NODE_HANDLERS 里登记，要么在 SILENT_NODES 里登记并写明"
+        f"要么在 runtime/event_map.py 的 _NODE_HANDLERS 里登记，"
+        f"要么在 SILENT_NODES 里登记并写明"
         f"为什么它对用户不可见。"
     )
 

@@ -55,7 +55,7 @@ def _history(saver: MemorySaver) -> list:
 
 def test_history_returns_user_and_assistant_text(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "coding_agent.runtime.build_graph",
+        "coding_agent.runtime.core.build_graph",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("history 不应建图")),
     )
     history = _history(_populated_saver())

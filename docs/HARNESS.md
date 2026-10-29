@@ -92,7 +92,7 @@ note: |
 | 委派成本策略 | `agents/policy.py` | 已实现 |
 | 验证/修复/停滞检测 | `nodes/verify.py`、`routing.py` | 已实现 |
 | 审批 / 沙箱 / 审计 / 快照 | `sandbox/`、`audit/` | 已实现 |
-| 领域事件 | `events.py`、`runtime.py` | 已实现 |
+| 领域事件 | `events.py`、`runtime/event_map.py` | 已实现 |
 | 端到端评测 | `tests/eval/`，含 LangSmith 全功能数据集 | 已实现 |
 | Orchestrator 3A | `orchestrator/`：survey / workflow select / TaskGraph / scheduler / fan-in | **已实现**（只读 worker） |
 | Orchestrator 3B | explore/test/**review** worker、任务级重试、fan-in 文件重叠报告 | **已实现** |
@@ -689,10 +689,10 @@ worker 的脏检查会把它们误判为用户改动。`implement._git_ready` �
 | 调度节点 | 新增 `orchestrator/nodes.py` |
 | 图接线 | 修改 `graph/build.py`（条件入口）、`graph/routing.py` |
 | 状态 | 修改 `graph/state.py`（新增 orchestrator 字段） |
-| 事件 | 修改 `events.py`、`runtime.py` |
+| 事件 | 修改 `events.py`、`runtime/event_map.py` |
 | 审计 | 修改 `audit/models.py` |
 | 配置 | 修改 `config.py`、`.env.example` |
-| 前端 | 修改 `cli/app.py`、`tui/app.py`、`web/static/app.js`（树状进度） |
+| 前端 | 修改 `cli/`、`tui/app.py`、`web/static/app.js`（树状进度） |
 | 评测 | 修改 `tests/eval/harness.py`、`runner.py` |
 
 **不建议**：

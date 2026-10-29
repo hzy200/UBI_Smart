@@ -179,7 +179,7 @@ CLI / TUI / Web / Desktop GUI 因此都无法绕过命令分级审批。这条�
 ```
 CodingAgent/
 ├─ src/coding_agent/
-│  ├─ runtime.py               # 唯一编排入口：图 + 沙箱 + 策略 + 审计 → 领域事件
+│  ├─ runtime/                 # 唯一编排入口：core + event_map + stream + 会话/记忆/审计 mixin
 │  ├─ events.py                # 前端契约：领域事件
 │  ├─ config.py                # 配置（.env > 环境变量 > 默认值）
 │  ├─ messages.py              # 消息文本提取

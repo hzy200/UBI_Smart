@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Protocol
 
 from coding_agent.config import Settings
-from coding_agent.secrets_store import SecretStore, SecretStoreUnavailable
+from coding_agent.platform.secrets_store import SecretStore, SecretStoreUnavailable
 
 
 class SecretProvider(Protocol):

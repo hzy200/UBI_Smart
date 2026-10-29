@@ -20,8 +20,8 @@ from coding_agent.config import Settings
 from coding_agent.control.accounts import AccountError
 from coding_agent.control.approvals import SelfApprovalError
 from coding_agent.costs import CurrencyConfig
-from coding_agent.observability import inc, snapshot
-from coding_agent.secrets_store import SecretStoreUnavailable
+from coding_agent.platform.observability import inc, snapshot
+from coding_agent.platform.secrets_store import SecretStoreUnavailable
 from coding_agent.sse_stream import sse_headers, with_heartbeat
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import (

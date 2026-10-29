@@ -64,7 +64,7 @@ keepalive、`desktop/launcher.py` 的 GUI 窗口），继续靠 `-m wsl`、集�
 桌面手测守着，不在 CI 里堆假集成。
 
 `execution/service.py`（92.0%）、`control/migrate.py`（69.0%）、
-`control/store.py`（87.9%）、`web/app.py`（81.3%）为本轮实测。
+`control/store/`（89.8%，拆包后按子模块统计）、`web/app.py`（82.2%）为本轮实测。
 
 P1-3 新身份/审批模块本轮实测：`control/mfa.py` 92.8%、
 `control/approvals.py` 97.8%、`control/oidc.py` 99.2%、
@@ -80,13 +80,14 @@ P1-3/P1-5 新增与改动模块：`control/workspaces.py` 93.0%（ACL 授权/撤
 ## 4. 结论
 
 - 旧的 75.36% / 80.20% 不能继续引用；以本页和 CI 输出为准；
-- 全局 **83.34%** 已超过门槛；`web/routes/runs.py` 通过 fake RunDeps 补到
-  **86.5%** 并纳入棘轮；`sandbox/fs.py`（45.1%）、`sandbox/snapshots.py`
-  （76.0%）、`tools/files.py`（59.4%）由 WSL 门禁单列；
+- 全局 **84.62%** 已超过门槛；`web/routes/runs.py` 通过 fake RunDeps 补到
+  **86.3%** 并纳入棘轮；`sandbox/fs.py`（95.9%）、`tools/files.py`（89.3%）
+  已用假沙箱单测覆盖错误/回滚分支，`sandbox/snapshots.py`（76.8%）仍由
+  WSL 门禁单列；
 - 本地授权 `host_broker/consent.py` 已从 18.7% 提到 **97%**（Tk/远程/stdin
   与失败关闭），`tools/git.py` 用假沙箱补到 **97%**（路径越界、`.agent`
   保护、失败回报），`tools/code_intel.py` 用假 FS/LSP 补到 **99%**；三者均
-  纳入覆盖率棘轮；`agent_server_routes/imports.py` 补到 **88.1%**（导入 worker、上传入口/状态/
+  纳入覆盖率棘轮；`agent_server_routes/workspace_import.py` 补到 **88.1%**（导入 worker、上传入口/状态/
   取消、恢复/删除归档），也已纳入棘轮；未覆盖行仍必须继续可见；
 - 测试分层与运行口径见 [TESTING.md](TESTING.md)：冒烟挡启动、回归守不变量、
   增量缩短反馈、集成与全量负责深层行为；
@@ -99,7 +100,9 @@ P1-3/P1-5 新增与改动模块：`control/workspaces.py` 93.0%（ACL 授权/撤
 在 CI 卡“不许回退”，`--update` 只抬高下限（故意下调需要 `--force`）。
 目标统一为 85%；低于目标的模块会打印告警，夜间/发版可用 `--strict-target`。
 `sandbox/fs.py`、`sandbox/snapshots.py`、`tools/files.py` 另有 WSL 门禁
-（`.github/workflows/sandbox.yml`），CI 子集的低覆盖不会被当成“已达标”。
+（`.github/workflows/sandbox.yml`）。`fs.py` / `files.py` 的 Python 侧分支
+已由假沙箱单测覆盖，WSL 门禁继续负责真实脚本与路径校验；CI 子集的低覆盖
+不会被当成“已达标”。
 
 用例数、总覆盖率与模块当前值由 `scripts/snapshot_metrics.py` 生成到
 [METRICS.md](METRICS.md) 与 [metrics.json](metrics.json)；CI 用

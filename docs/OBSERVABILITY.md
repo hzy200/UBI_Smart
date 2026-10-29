@@ -19,7 +19,7 @@ A2 与 A3 都暴露 Prometheus text exposition：
 | A2（control_server / web） | `GET /metrics` | `AGENT_METRICS_TOKEN` Bearer；空则复用普通 Web 认证（Cookie/Bearer/loopback） |
 | A3（agent_server） | `GET /metrics` | `AGENT_INTERNAL_TOKEN` Bearer；非 loopback 仍需内部 HMAC |
 
-指标定义在 `src/coding_agent/observability.py`。标签只取有界枚举，
+指标定义在 `src/coding_agent/platform/observability.py`。标签只取有界枚举，
 `thread_id` / 文件路径 / workspace 不允许作为标签值。
 
 常用指标：

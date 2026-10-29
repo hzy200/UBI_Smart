@@ -14,11 +14,6 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 
-from coding_agent.concurrency import (
-    AsyncLeasePool,
-    ConcurrencyGovernor,
-    ResourceTimeout,
-)
 from coding_agent.config import Settings
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
 from coding_agent.orchestrator.contracts import WorkerResult
@@ -41,6 +36,11 @@ from coding_agent.orchestrator.scheduling import (
     task_token_reserve,
 )
 from coding_agent.orchestrator.workers import WorkerRunner
+from coding_agent.platform.concurrency import (
+    AsyncLeasePool,
+    ConcurrencyGovernor,
+    ResourceTimeout,
+)
 from coding_agent.sandbox.wsl_exec import WslSandbox
 from coding_agent.steering import SteeringController
 

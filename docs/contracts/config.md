@@ -9,7 +9,7 @@
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **300** 个配置项。
+共 **305** 个配置项。
 
 ## 通用
 
@@ -257,6 +257,10 @@
 | `AGENT_VERIFY_ENABLED` | `verify_enabled` | `bool` | `true` | ---------- 验证 ---------- |
 | `AGENT_VERIFY_ONLY_FINAL` | `verify_only_final` | `bool` | `true` | 多步计划里，非最终的 implement 步不跑全量测试：早期步骤只完成了一部分， 全量套件必然因为后面还没做的步骤而失败，会把 agent 卡死在这一步。 只在 kind=verify 或最后一步验证；单步任务不受影响。 |
 | `AGENT_VERIFY_TIMEOUT` | `verify_timeout` | `int` | `300` | 自动验证的独立超时。测试/构建通常比普通 shell 命令长，不能共用 60s； 0 表示回退到 shell_timeout。 |
+| `AGENT_WEBPUSH_PRIVATE_KEY` | `webpush_private_key` | `str` | `""` |  |
+| `AGENT_WEBPUSH_PUBLIC_KEY` | `webpush_public_key` | `str` | `""` | 浏览器 Web Push（VAPID）。公钥/私钥都配置且安装 pywebpush 才启用； 私钥只放服务端，绝不下发。 |
+| `AGENT_WEBPUSH_SUBJECT` | `webpush_subject` | `str` | `"mailto:admin@localhost"` |  |
+| `AGENT_WEBPUSH_TTL` | `webpush_ttl` | `int` | `3600` |  |
 | `AGENT_WEB_ACCOUNTS_ENABLED` | `web_accounts_enabled` | `bool` | `false` | 企业账号：打开后使用 control_users / session Cookie 登录。 |
 | `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL` | `web_accounts_require_mysql` | `bool` | `true` | 企业账号的生产约束：只允许 MySQL；本地测试可显式关闭。 |
 | `AGENT_WEB_ACCOUNT_TENANT` | `web_account_tenant` | `str` | `"default"` |  |
@@ -264,6 +268,7 @@
 | `AGENT_WEB_AUTH_TOKENS` | `web_auth_tokens` | `str` | `""` | ---------- Web 多用户 ---------- JSON：{"token": "user"}；与 AGENT_WEB_AUTH_TOKENS_FILE 二选一。 |
 | `AGENT_WEB_AUTH_TOKENS_FILE` | `web_auth_tokens_file` | `str` | `""` |  |
 | `AGENT_WEB_COOKIE_SECURE` | `web_cookie_secure` | `bool` | `false` | 跨源部署时 Cookie 必须 Secure；同源反代可关。 |
+| `AGENT_WEB_CSP_REPORT_RATE_LIMIT_PER_MIN` | `web_csp_report_rate_limit_per_min` | `int` | `300` | 匿名 CSP 违规上报按来源 IP 限流；防止被当作写日志放大器。 |
 | `AGENT_WEB_DATA_ROOT` | `web_data_root` | `str` | `""` | per-user 宿主侧数据根目录（审计/checkpoint/steering）； 空 = <当前目录>/.agent/web/users。 |
 | `AGENT_WEB_FRONTEND_DIR` | `web_frontend_dir` | `str` | `""` | 前端发布包根目录（含 index.html / sw.js / manifest.webmanifest）。 空 = 包内 web/static（桌面与开发回退）。 |
 | `AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN` | `web_login_rate_limit_per_min` | `int` | `10` | 登录按来源 IP 的固定窗口限流。 |

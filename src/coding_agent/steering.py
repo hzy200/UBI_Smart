@@ -20,7 +20,7 @@ import threading
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from coding_agent.filelock import FileLock, NullLock
+from coding_agent.platform.filelock import FileLock, NullLock
 
 # resume 不走队列：它必须把挂起的图唤醒（Command(resume=...)），
 # 放进队列只会在恢复之后才被消费，语义不对。

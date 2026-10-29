@@ -202,7 +202,7 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = get_settings()
-    from coding_agent.observability import configure_logging
+    from coding_agent.platform.observability import configure_logging
 
     configure_logging(
         level=args.log_level,

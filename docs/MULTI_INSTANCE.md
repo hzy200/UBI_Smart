@@ -1,3 +1,13 @@
+---
+layer: L2
+doc_id: multi-instance
+title: 多实例部署
+owner: 项目作者
+status: active
+last_reviewed: 2026-10-29
+review_cadence: 拓扑或扩展策略变更时
+---
+
 # 多实例部署
 
 本文只列 A2 Web 控制面横向扩展的**硬约束**与检查项；单机部署保持默认值即可。

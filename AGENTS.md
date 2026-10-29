@@ -65,8 +65,9 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 
 ```
 src/coding_agent/
-  runtime.py        唯一编排入口：图 + 沙箱 + 策略 + 审计 → 领域事件
-  runtime_snapshots.py  AgentRuntime 的快照/回滚/差异 mixin（从 runtime.py 拆出）
+  runtime/          唯一编排入口：core + event_map + stream + sessions/memory/audit_bridge
+  runtime_snapshots.py  AgentRuntime 的快照/回滚/差异 mixin
+  platform/         基础设施：paths / filelock / read_cache / request_context / concurrency / observability / tracing / secrets_store
   events.py         前端契约（领域事件）★ 改它要重生成契约
   agent_protocol.py A2↔A3 共享 DTO / 版本与能力协议
   event_transport.py 共享 SSE 事件传输（内存 / Redis）
@@ -79,7 +80,7 @@ src/coding_agent/
   tools/            能力层：shell / files / git / deps / search / symbols / testrun / delegate
   control/          A2 控制面：schema / store / transport / 协议 / 迁移 / 备份
   agent_server.py   A3 独立进程入口：仅装配
-  agent_server_routes/ A3 领域路由（lifecycle / workspace / state）
+  agent_server_routes/ A3 领域路由（lifecycle / workspace / workspace_import / state）
   agent_server_models.py A3 HTTP 请求模型
   agent_server_support.py A3 RunState / SSE 原语
   agent_context.py  A3 租户目录与 runtime 构造

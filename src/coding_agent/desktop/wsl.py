@@ -8,7 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from coding_agent.paths import strip_wsl_scheme
+from coding_agent.platform.paths import strip_wsl_scheme
 
 _WIN_DRIVE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
 # 刚 import 完或 WSL 服务刚唤醒时，wsl.exe 可能返回 0xC0000142

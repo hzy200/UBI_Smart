@@ -11,14 +11,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field, replace
-from pathlib import Path
+from dataclasses import replace
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -39,7 +37,6 @@ from coding_agent.access import (
     clamp_access_mode,
     normalize_access_mode,
 )
-from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import Settings, apply_security_profile, get_settings
 from coding_agent.control.webhooks import schedule_webhooks
 from coding_agent.events import (
@@ -47,22 +44,26 @@ from coding_agent.events import (
     Event,
     RunFailed,
     RunFinished,
-    SteeringApplied,
 )
-from coding_agent.observability import note_silent_failure
+from coding_agent.platform.concurrency import ConcurrencyGovernor
+from coding_agent.platform.observability import note_silent_failure
+from coding_agent.platform.tracing import TracingMiddleware
 from coding_agent.sse_stream import (
     SSE_HEARTBEAT_MS,
     sse_headers,
     with_heartbeat,
 )
 from coding_agent.tenancy import TenantError, TenantManager, WebTenant
-from coding_agent.tracing import TracingMiddleware
+from coding_agent.web.assets import resolve_frontend_dirs
 from coding_agent.web.auth import AuthConfig, AuthUser
 from coding_agent.web.cors import StrictCORSMiddleware, parse_allowed_origins
 from coding_agent.web.errors import (
     is_retryable_status,
     problem_response,
     status_error_code,
+)
+from coding_agent.web.identity import (
+    build_identity_stores as _build_identity_stores,
 )
 from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
 from coding_agent.web.middleware import (
@@ -128,6 +129,27 @@ from coding_agent.web.services import (
     ProviderService,
     SessionCatalog,
 )
+from coding_agent.web.sse import (
+    StreamEntry,
+)
+from coding_agent.web.sse import (
+    event_is_terminal as _event_is_terminal,
+)
+from coding_agent.web.sse import (
+    event_key as _event_key,
+)
+from coding_agent.web.sse import (
+    events_after as _events_after,
+)
+from coding_agent.web.sse import (
+    is_suspended as _is_suspended,
+)
+from coding_agent.web.sse import (
+    sse as _sse,
+)
+from coding_agent.web.sse import (
+    sse_with_id as _sse_with_id,
+)
 from coding_agent.web.transcripts import load_transcript
 from coding_agent.web.version import (
     MIN_API_VERSION,
@@ -135,196 +157,14 @@ from coding_agent.web.version import (
     WEB_API_VERSION,
 )
 
-STATIC_DIR = Path(__file__).parent / "static"
 _LOG = logging.getLogger(__name__)
 
-
-def resolve_frontend_dirs(
-    settings: Settings, desktop_mode: bool
-) -> tuple[bool, Path, Path]:
-    """解析前端托管开关与目录。
-
-    显式配置的目录或发布包缺文件时启动失败（fail-closed），避免独立部署
-    静默退回包内旧产物。未配置时保持包内 `web/static` 的原有行为。
-    """
-    frontend_raw = str(settings.web_frontend_dir or "").strip()
-    static_raw = str(settings.web_static_dir or "").strip()
-    frontend_dir = (
-        Path(frontend_raw).expanduser().resolve()
-        if frontend_raw
-        else STATIC_DIR
-    )
-    if static_raw:
-        static_dir = Path(static_raw).expanduser().resolve()
-    elif (frontend_dir / "static").is_dir() and (frontend_dir / "index.html").is_file():
-        # 发布包结构：<release>/index.html + <release>/static/*。
-        static_dir = frontend_dir / "static"
-    else:
-        # 包内结构：index.html 与 app.js 同目录。
-        static_dir = frontend_dir
-    # 桌面壳必须能加载页面，配置不能把它关掉。
-    serve = bool(settings.web_serve_frontend) or bool(desktop_mode)
-    if not serve:
-        return False, frontend_dir, static_dir
-    for label, directory in (
-        ("AGENT_WEB_FRONTEND_DIR", frontend_dir),
-        ("AGENT_WEB_STATIC_DIR", static_dir),
-    ):
-        if not directory.is_dir():
-            raise ValueError(f"{label} 指向的目录不存在：{directory}")
-    for name in ("index.html", "sw.js", "manifest.webmanifest"):
-        if not (frontend_dir / name).is_file():
-            raise ValueError(f"前端发布包缺少 {name}：{frontend_dir}")
-    return True, frontend_dir, static_dir
 
 WEB_APPROVAL_MODE = "ask"
 # 每个会话的重放缓冲上限；超出后丢最旧事件（序号仍连续）。
 _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
 # A2 周期探测 A3；A3 重启后状态自动从 unavailable 回到 ok。
 AGENT_PROBE_INTERVAL_S = 5.0
-
-
-@dataclass
-class StreamEntry:
-    """一次运行的事件缓冲；HTTP 连接只是订阅者，不再拥有运行本身。"""
-
-    key: tuple[str, str]
-    public_thread: str
-    runtime: Any
-    events: list[tuple[int, Event]] = field(default_factory=list)
-    chars: int = 0
-    seq: int = 0
-    done: bool = False
-    suspended: bool = False
-    updated: float = field(default_factory=time.monotonic)
-    task: Any = None
-    subscribers: list[asyncio.Queue] = field(default_factory=list)
-
-
-def _sse(event: Event) -> str:
-    """一条领域事件 → 一个 SSE 数据帧。事件本身就是 pydantic 模型，直接序列化。"""
-    return f"data: {event.model_dump_json()}\n\n"
-
-
-def _sse_with_id(event: Event, seq: int) -> str:
-    """缓冲模式帧：带事件序号，便于 `Last-Event-ID` 断线重放。"""
-    return f"id: {seq}\ndata: {event.model_dump_json()}\n\n"
-
-
-def _is_suspended(event: Event) -> bool:
-    return isinstance(event, ApprovalRequested) or (
-        isinstance(event, SteeringApplied) and event.action == "pause"
-    )
-
-
-def _events_after(
-    entry: StreamEntry, last: int
-) -> list[tuple[int, Event]]:
-    """只从缓冲尾部取 `seq > last` 的事件。
-
-    事件按 seq 单调追加，裁剪只发生在头部；从尾部反向扫描到游标即可，
-    稳态每次只处理新事件。旧实现每次循环都 `list(entry.events)` 全量
-    重扫，长会话下是 O(n²)。
-    """
-    fresh: list[tuple[int, Event]] = []
-    for seq, event in reversed(entry.events):
-        if seq <= last:
-            break
-        fresh.append((seq, event))
-    fresh.reverse()
-    return fresh
-
-
-def _event_key(user: str, public_thread: str) -> str:
-    """传输层 key 必须带用户，避免多租户 thread 撞车。"""
-    return f"{user}:{public_thread}"
-
-
-def _event_is_terminal(payload: str) -> bool:
-    """跨进程重放没有本地 StreamEntry，只能从事件载荷判断收尾。"""
-    try:
-        data = json.loads(payload)
-    except ValueError:
-        return False
-    kind = data.get("type")
-    if kind in {"run_finished", "run_failed", "approval_requested"}:
-        return True
-    return kind == "steering_applied" and data.get("action") == "pause"
-
-
-@dataclass(frozen=True)
-class _IdentityStores:
-    oidc_client: Any = None
-    oidc_states: Any = None
-    mfa_store: Any = None
-    mfa_challenges: Any = None
-    approval_store: Any = None
-
-
-def _build_identity_stores(
-    settings: Settings,
-    control_store: Any,
-    account_store: Any,
-    session_store: Any,
-) -> _IdentityStores:
-    """构造 RFC-0004 的身份/审批后端；前置条件不满足时显式失败。"""
-    oidc_client = None
-    oidc_states = None
-    mfa_store = None
-    mfa_challenges = None
-    approval_store = None
-    if settings.oidc_enabled:
-        if (
-            control_store is None
-            or account_store is None
-            or session_store is None
-        ):
-            raise RuntimeError(
-                "AGENT_OIDC_ENABLED=true 需要企业账号与控制面数据库"
-            )
-        from coding_agent.control.oidc import (
-            OidcClient,
-            OidcSettings,
-            OidcStateStore,
-        )
-
-        try:
-            oidc_client = OidcClient(OidcSettings.from_settings(settings))
-        except Exception as exc:  # noqa: BLE001 - 配置错误要显式失败
-            raise RuntimeError(f"OIDC 配置无效：{exc}") from exc
-        oidc_states = OidcStateStore(control_store.engine)
-    if settings.mfa_enabled:
-        if control_store is None or account_store is None:
-            raise RuntimeError(
-                "AGENT_MFA_ENABLED=true 需要企业账号与控制面数据库"
-            )
-        from coding_agent.control.mfa import (
-            MfaChallengeStore,
-            MfaStore,
-        )
-
-        try:
-            mfa_store = MfaStore.from_settings(
-                control_store.engine, settings
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"MFA 配置无效：{exc}") from exc
-        mfa_challenges = MfaChallengeStore(control_store.engine)
-    if settings.approval_four_eyes:
-        if control_store is None or account_store is None:
-            raise RuntimeError(
-                "AGENT_APPROVAL_FOUR_EYES=true 需要企业账号与控制面数据库"
-            )
-        from coding_agent.control.approvals import ApprovalStore
-
-        approval_store = ApprovalStore(control_store.engine)
-    return _IdentityStores(
-        oidc_client=oidc_client,
-        oidc_states=oidc_states,
-        mfa_store=mfa_store,
-        mfa_challenges=mfa_challenges,
-        approval_store=approval_store,
-    )
 
 
 def create_app(
@@ -1281,7 +1121,7 @@ def create_app(
             ],
             max_age=600,
         )
-    from coding_agent.observability import configure_tracing
+    from coding_agent.platform.observability import configure_tracing
 
     otel_tracer = configure_tracing(settings)
     if otel_tracer is not None:

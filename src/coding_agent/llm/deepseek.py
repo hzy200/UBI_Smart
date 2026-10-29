@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 from coding_agent.config import Settings
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
 from coding_agent.llm.router import ProviderRouter
-from coding_agent.secrets_store import SecretStore
+from coding_agent.platform.secrets_store import SecretStore
 
 
 class MissingApiKeyError(RuntimeError):

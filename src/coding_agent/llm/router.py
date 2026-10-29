@@ -12,8 +12,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from coding_agent.concurrency import ConcurrencyGovernor, ResourceTimeout
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER, RateLimitCoordinator
+from coding_agent.platform.concurrency import ConcurrencyGovernor, ResourceTimeout
 from coding_agent.recovery import TRANSIENT, classify_error
 
 

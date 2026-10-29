@@ -671,7 +671,7 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | `web/frontend/build-ui.mjs` | 模板/样式拼装脚本 |
 | `web/frontend/src/runtime-config.ts` | 运行时配置加载/校验、API 基址拼接 |
 | `web/errors.py` | problem+json 错误协议与 request id |
-| `request_context.py` | request id ContextVar（A2→A3 透传） |
+| `platform/request_context.py` | request id ContextVar（A2→A3 透传） |
 | `sse_stream.py` | SSE 心跳、注释帧与响应头（A2/A3 共用） |
 | `web/frontend/src/sse.ts` | SSE 解析、seq 去重 |
 | `web/frontend/src/main.ts` | 入口与 Alpine 启动 |

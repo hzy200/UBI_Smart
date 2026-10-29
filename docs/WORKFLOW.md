@@ -17,7 +17,7 @@ review_cadence: 拓扑或状态生命周期变动时
 
 | | 工作流 | 载体 | 回答的问题 |
 |---|---|---|---|
-| **A** | **运行工作流**（Agent 编排图） | `graph/` + `runtime.py` | 模型怎么从一句话走到完成任务 |
+| **A** | **运行工作流**（Agent 编排图） | `graph/` + `runtime/` | 模型怎么从一句话走到完成任务 |
 | B | 开发工作流 | conda env + `Makefile` + `.github/workflows/ci.yml` | 人怎么改、测、交付 |
 | C | 使用工作流 | `cli/` `tui/` `web/` | 用户怎么驱动与干预 |
 

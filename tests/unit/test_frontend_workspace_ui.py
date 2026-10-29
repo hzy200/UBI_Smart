@@ -830,7 +830,10 @@ def test_m9_session_unread_preview_and_batch_are_guarded() -> None:
         / "0008_session_unread_preview.py"
     )
     assert migration.is_file()
-    store = (root / "control" / "store.py").read_text(encoding="utf-8")
+    store = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((root / "control" / "store").glob("*.py"))
+    )
     assert '"unread"' in store
     assert '"last_message"' in store
 

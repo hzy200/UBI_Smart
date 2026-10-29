@@ -429,7 +429,7 @@ def _mechanism_unregistered_tool() -> dict[str, Any]:
 
 
 def _mechanism_path_guard() -> dict[str, Any]:
-    from coding_agent.paths import PathGuardError, ensure_inside
+    from coding_agent.platform.paths import PathGuardError, ensure_inside
 
     kept = ensure_inside("/home/u/ws/app/x.py", "/home/u/ws")
     try:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 
-from coding_agent.filelock import FileLock, NullLock, file_lock, lock_path_for
+from coding_agent.platform.filelock import FileLock, NullLock, file_lock, lock_path_for
 
 
 def test_filelock_serializes_threads(tmp_path) -> None:

@@ -41,7 +41,7 @@ LLM 拿不到操作系统句柄，只能产出结构化调用 `{tool, args}`；�
 └───────────────────────┬──────────────────────────────────┘
                         │ AsyncIterator[Event]
 ┌───────────────────────▼──────────────────────────────────┐
-│ runtime.py   AgentRuntime                                 │
+│ runtime/     AgentRuntime                                 │
 │   唯一编排入口：持有图、沙箱、安全策略、审计、快照存储        │
 │   把 LangGraph 的原始流翻译成领域事件                       │
 └───────────────────────┬──────────────────────────────────┘
@@ -101,7 +101,7 @@ Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性�
 
 | 路径 | 职责 | 不该做的事 |
 |---|---|---|
-| `runtime.py` | 编排、事件翻译、审计、生命周期 | 不含业务规则（分级在 policy） |
+| `runtime/` | 编排、事件翻译、审计、生命周期 | 不含业务规则（分级在 policy） |
 | `events.py` | 前端契约（领域事件） | 不含逻辑 |
 | `graph/state.py` | 跨节点传递的状态 | 不放能推导出来的派生值 |
 | `graph/nodes/` | 单个节点的纯函数 | 不直接 yield 事件（例外：`scheduler` 用 custom stream 发 worker 实时事件） |
@@ -391,7 +391,7 @@ START ─ route_entry ─┬─ direct → planner → act ...
   artifact 路径，主 agent 可按需回读；
 - `orchestrator/scheduling.py` / `merge_queue.py`：限流退避、token 预算与
   补丁合并队列从 scheduler 主循环中拆出，便于单测；
-- `concurrency.py`：worker / 工具 / WSL / LLM 共享的资源池；LLM 按
+- `platform/concurrency.py`：worker / 工具 / WSL / LLM 共享的资源池；LLM 按
   provider + 全局双层限流，并根据成功/429 做 AIMD；
 - `orchestrator/workflow.py`：规则优先；规则不确定时一次结构化调用同时返回
   workflow + 任务图，避免第二次规划往返。
@@ -576,7 +576,7 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
 2. 消费 `AsyncIterator[Event]`，不认识 LangGraph
 3. **不要导入 `tools/` 或 `sandbox/`**（架构测试会拦）
 
-参考 `tui/app.py` 的事件映射表，或 `web/app.py` 里 `model_dump_json()` 直接当 SSE 帧的写法。
+参考 `tui/app.py` 的事件映射表，或 `web/sse.py` 里 `model_dump_json()` 直接当 SSE 帧的写法。
 桌面 GUI（`desktop/`）只是 `web/` 的本地启动壳：随机 token、loopback、单实例锁；
 事件与审批仍由同一套 FastAPI/runtime 处理。新增接口必须同时考虑 Web 多用户授权。
 

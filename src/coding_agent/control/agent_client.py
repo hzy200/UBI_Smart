@@ -23,7 +23,7 @@ from coding_agent.agent_protocol import (
     AgentRunRequest,
     sign_context,
 )
-from coding_agent.request_context import REQUEST_ID_HEADER, current_request_id
+from coding_agent.platform.request_context import REQUEST_ID_HEADER, current_request_id
 
 
 class AgentClientError(RuntimeError):

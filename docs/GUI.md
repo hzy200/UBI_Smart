@@ -154,7 +154,7 @@ WSL 模式下端口由 server 自动分配并通过握手返回；`--port` 只�
 
 - `access.py`：模式常量与归一化；
 - `sandbox/policy.py::SessionPolicy`：按模式决定 auto/ask/deny；
-- `runtime.py`：只读时强制 `verify_enabled=False`、`orchestrator_enabled=False`；
+- `runtime/`：只读时强制 `verify_enabled=False`、`orchestrator_enabled=False`；
 - `graph/nodes/approve.py`：工具风险等级仍按原表，未登记工具继续 fail-closed。
 
 **只读的准确语义**：禁止模型意图执行项目命令（shell、测试、Git、依赖、

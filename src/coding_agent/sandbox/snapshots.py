@@ -171,7 +171,7 @@ class SnapshotStore:
         except Exception as exc:  # noqa: BLE001 - 清单写不出来不该让写入失败
             # 回滚仍可用（backups 已落盘），但这个回滚点**无法被索引与校验** ——
             # 必须留痕：否则会出现"看起来能回滚、实际找不到/校验不了"的假象。
-            from coding_agent.observability import note_silent_failure
+            from coding_agent.platform.observability import note_silent_failure
 
             note_silent_failure("snapshot_manifest_write")
             logging.getLogger(__name__).warning(

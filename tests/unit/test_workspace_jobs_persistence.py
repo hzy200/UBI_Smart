@@ -7,7 +7,7 @@ import os
 import threading
 import time
 
-from coding_agent.agent_server_routes.imports import (
+from coding_agent.agent_server_routes.workspace_import import (
     ImportDeps,
     _jobs_root,
     _load_jobs,

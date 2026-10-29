@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from coding_agent import __version__
 from coding_agent.config import Settings
-from coding_agent.observability import inc
+from coding_agent.platform.observability import inc
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.client_errors import append_client_error
@@ -104,7 +104,7 @@ def _readyz(app: FastAPI) -> Any:
 
 def _metrics(deps: SystemDeps, request: Request) -> PlainTextResponse:
     """`/metrics` 的实现：先认证，再刷新需要现算的 gauge。"""
-    from coding_agent.observability import render, set_gauge
+    from coding_agent.platform.observability import render, set_gauge
 
     token = str(deps.settings.metrics_token or "")
     if token:

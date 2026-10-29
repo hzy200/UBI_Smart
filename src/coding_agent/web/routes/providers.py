@@ -14,11 +14,11 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from coding_agent.config import Settings
+from coding_agent.platform.secrets_store import SecretStoreUnavailable
 from coding_agent.provider_profiles import (
     ProviderProfileStore,
     profile_from_payload,
 )
-from coding_agent.secrets_store import SecretStoreUnavailable
 from coding_agent.security.netguard import (
     OutboundBlocked,
     PinnedTarget,

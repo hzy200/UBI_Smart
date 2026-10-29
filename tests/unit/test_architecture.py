@@ -172,7 +172,7 @@ def test_agent_server_depends_on_neutral_protocol_not_a2() -> None:
 
 
 def test_agent_core_does_not_import_a2_or_web() -> None:
-    paths = [SRC / "runtime.py", *_modules("graph"), *_modules("orchestrator")]
+    paths = [*_modules("runtime"), *_modules("graph"), *_modules("orchestrator")]
     for path in paths:
         imported = _imported_modules(path)
         assert not _has_prefix(imported, "coding_agent.control"), path
@@ -340,8 +340,8 @@ def test_orchestrator_does_not_import_graph_build() -> None:
 # 冷启动必须有这条路径 —— 服务还没起来，走 HTTP 无门。
 _FROZEN_CLI_EDGES = {
     ("cli/admin.py", "coding_agent.control"),
-    ("cli/app.py", "coding_agent.web"),
-    ("cli/app.py", "coding_agent.tui"),
+    ("cli/commands/web.py", "coding_agent.web"),
+    ("cli/commands/desktop.py", "coding_agent.tui"),
 }
 
 

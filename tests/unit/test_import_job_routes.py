@@ -9,8 +9,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from coding_agent.agent_protocol import AgentContext
-from coding_agent.agent_server_routes import imports
-from coding_agent.agent_server_routes.imports import (
+from coding_agent.agent_server_routes import workspace_import as imports
+from coding_agent.agent_server_routes.workspace_import import (
     ImportDeps,
     register_import_routes,
 )

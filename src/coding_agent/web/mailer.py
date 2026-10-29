@@ -9,7 +9,7 @@ import logging
 import smtplib
 from email.message import EmailMessage
 
-from coding_agent.observability import note_silent_failure
+from coding_agent.platform.observability import note_silent_failure
 
 _LOG = logging.getLogger(__name__)
 

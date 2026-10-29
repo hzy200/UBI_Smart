@@ -94,7 +94,7 @@ items:
   - id: TD-032
     title: CLI 压平 A1/A2 边界
     status: 已偿还 2026-10-29（安全面）；余下两条是组装边，转入允许清单
-    where: cli/admin.py, cli/app.py（仅组装）
+    where: cli/admin.py, cli/commands/web.py, cli/commands/desktop.py（仅组装）
     why_now: |
       原状：CLI 直接 import 了控制面与 Web/TUI。`cli/admin.py` 拿着
       `control.store` 建账号 —— 手里有 store 句柄就能改角色、改密码、删账号，
@@ -109,7 +109,8 @@ items:
         `control.bootstrap.create_first_admin()`；该函数在租户下**已有任何账号**
         时拒绝，并提示走 A2 的 `/api/admin/users`。冷启动必须有这条路径 ——
         服务还没起来，走 HTTP 无门。
-      - **组装**：`cli/app.py` 仍 import `web` / `tui`，因为 `agent serve` 与
+      - **组装**：`cli/commands/web.py` 与 `cli/commands/desktop.py` 仍 import
+        `web` / `tui`，因为 `agent serve` 与
         `agent tui` 本来就是"一个进程里拉起另一层"。这是组装不是越权，
         保留在 `_FROZEN_CLI_EDGES` 里作为允许清单。
     debt_type: 安全
@@ -328,7 +329,7 @@ items:
   - id: TD-016
     title: 控制面 SQLite 跨进程计费的 cursor 首次插入竞态
     status: 已偿还 2026-10-29（验证为不会多记，并加了守路径的用例）
-    where: control/store.py::record_usage
+    where: control/store/usage.py::record_usage
     why_now: 日用量、配额预留、结算与过期清理已改成条件 UPDATE / 方言
       upsert / 删除后扣减，SQLite 单进程并发不再丢更新。
 
@@ -407,7 +408,7 @@ items:
 
   - id: TD-030
     title: 可观测性只有进程内指标/日志，没有直方图、OTel 与 SIEM 转发
-    where: observability.py, docs/OBSERVABILITY.md
+    where: platform/observability.py, docs/OBSERVABILITY.md
     why_now: 本轮补了 A2/A3 计数器、gauge、JSON 日志与 Prometheus 告警基线；
       分位数/直方图、OpenTelemetry trace、审计 SIEM 转发仍需要外部组件
     debt_type: 能力缺口
@@ -490,7 +491,7 @@ paid_off:
       UPDATE；结算/过期清理改为条件 DELETE 成功后再扣减；并发测试覆盖
       超额预留、重复结算、重复清理与用量累加。
     regression: tests/unit/test_quota_usage.py
-    see: src/coding_agent/control/store.py
+    see: src/coding_agent/control/store/usage.py
 
   - id: TD-024
     title: 租约续期依赖 SSE 事件，/cancel 不终止已卡住的同步工具
@@ -591,7 +592,7 @@ paid_off:
 
   - id: TD-010
     title: 多用户 API Key 已入库加密；仍依赖统一主密钥与 keyring 回退
-    where: control/credentials.py, secrets_store.py, web/app.py
+    where: control/credentials.py, platform/secrets_store.py, web/app.py
     why_now: 企业账号下 Key 写入 control_provider_keys（AES-256-GCM），
       可用 CredentialStore.rotate 重加密；未配置主密钥时回退本机 keyring，
       该回退不跨机器共享，也没有管理端轮换界面

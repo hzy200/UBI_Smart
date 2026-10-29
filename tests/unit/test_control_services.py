@@ -14,7 +14,7 @@ from coding_agent.control.transport import (
     MemoryEventTransport,
     RedisStreamEventTransport,
 )
-from coding_agent.secrets_store import SecretStoreUnavailable
+from coding_agent.platform.secrets_store import SecretStoreUnavailable
 
 
 def test_keyring_provider_delegates_to_store(monkeypatch) -> None:

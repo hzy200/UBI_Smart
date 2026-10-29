@@ -53,7 +53,7 @@ from coding_agent.agent_server_models import (
     WorkspaceRollbackBody,
 )
 from coding_agent.config import Settings
-from coding_agent.paths import (
+from coding_agent.platform.paths import (
     PathGuardError,
     ensure_inside,
     is_within,

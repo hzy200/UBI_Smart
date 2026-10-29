@@ -39,10 +39,6 @@ from coding_agent.agent_protocol import (
     AgentContext,
     verify_context,
 )
-from coding_agent.agent_server_routes.imports import (
-    ImportDeps,
-    register_import_routes,
-)
 from coding_agent.agent_server_routes.lifecycle import (
     LifecycleDeps,
     register_lifecycle_routes,
@@ -54,6 +50,10 @@ from coding_agent.agent_server_routes.state import (
 from coding_agent.agent_server_routes.workspace import (
     WorkspaceDeps,
     register_workspace_routes,
+)
+from coding_agent.agent_server_routes.workspace_import import (
+    ImportDeps,
+    register_import_routes,
 )
 from coding_agent.agent_server_support import (
     RunState,
@@ -74,7 +74,7 @@ from coding_agent.host_broker.transport import (
     ServerTlsConfig,
     certificate_fingerprint,
 )
-from coding_agent.paths import (
+from coding_agent.platform.paths import (
     PathGuardError,
     ensure_inside,
     looks_like_windows_path,
@@ -222,8 +222,8 @@ def create_agent_app(
         redoc_url=None,
         lifespan=_lifespan,
     )
-    from coding_agent.observability import configure_tracing
-    from coding_agent.tracing import TracingMiddleware
+    from coding_agent.platform.observability import configure_tracing
+    from coding_agent.platform.tracing import TracingMiddleware
 
     otel_tracer = configure_tracing(settings)
     if otel_tracer is not None:
@@ -592,7 +592,7 @@ def create_agent_app(
     async def metrics(request: Request) -> PlainTextResponse:
         """Prometheus 文本导出；需要内部 token（指标含运行与失败计数）。"""
         _require_token(request)
-        from coding_agent.observability import render
+        from coding_agent.platform.observability import render
 
         return PlainTextResponse(
             render(), media_type="text/plain; version=0.0.4; charset=utf-8"
@@ -741,7 +741,7 @@ def main() -> None:
         print("必须设置 AGENT_INTERNAL_TOKEN 或传 --token", file=sys.stderr)
         raise SystemExit(2)
     settings = get_settings()
-    from coding_agent.observability import configure_logging
+    from coding_agent.platform.observability import configure_logging
 
     configure_logging(
         level=args.log_level,

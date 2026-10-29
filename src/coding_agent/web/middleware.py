@@ -14,7 +14,7 @@ from collections import deque
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from coding_agent.request_context import (
+from coding_agent.platform.request_context import (
     REQUEST_ID_HEADER,
     reset_request_id,
     set_request_id,
@@ -138,7 +138,7 @@ class HttpMetricsMiddleware:
         try:
             await self.app(scope, receive, send_with_status)
         finally:
-            from coding_agent.observability import inc
+            from coding_agent.platform.observability import inc
 
             route = scope.get("route")
             template = str(getattr(route, "path", "") or "unmatched")

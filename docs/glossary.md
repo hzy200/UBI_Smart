@@ -167,10 +167,10 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 
 | 规范名 | 职责 | 当前锚点 |
 |---|---|---|
-| **A1 前端** | 渲染、SSE、审批交互、主题/字体、平台桥 | `src/coding_agent/web/static/`、`src/coding_agent/cli/app.py`、`src/coding_agent/tui/app.py` |
+| **A1 前端** | 渲染、SSE、审批交互、主题/字体、平台桥 | `src/coding_agent/web/static/`、`src/coding_agent/cli/`、`src/coding_agent/tui/app.py` |
 | **A2L 宿主能力代理** | 客户端 `host` 工作区、本地 grant/ZX、工具链能力、本地同意与审计；只外连 | 规划中：`src/coding_agent/host_broker/` |
 | **A2 控制面** | 认证、租户、会话目录、运行/审批索引、配额、Provider 档案、MySQL | `src/coding_agent/web/app.py`、`src/coding_agent/tenancy.py` |
-| **A3 编排面** | 图、LLM、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/coding_agent/runtime.py`、`src/coding_agent/graph/`、`src/coding_agent/orchestrator/` |
+| **A3 编排面** | 图、LLM、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/coding_agent/runtime/`、`src/coding_agent/graph/`、`src/coding_agent/orchestrator/` |
 | **A4 执行面** | shell、文件、Git、测试、快照、worktree、上传落盘；按 `target` 路由 host/sandbox | `src/coding_agent/tools/`、`src/coding_agent/sandbox/`、`src/coding_agent/execution/` |
 
 | 词 | 含义 |

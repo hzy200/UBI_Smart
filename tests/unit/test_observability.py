@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from coding_agent import observability, web
-from coding_agent.request_context import reset_request_id, set_request_id
+from coding_agent.platform.request_context import reset_request_id, set_request_id
 
 
 def test_counter_increments_and_renders() -> None:
@@ -203,7 +203,7 @@ def test_tracing_middleware_records_route_and_status() -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from coding_agent.tracing import TracingMiddleware
+    from coding_agent.platform.tracing import TracingMiddleware
 
     tracer = _Tracer()
     app = FastAPI()
