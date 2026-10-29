@@ -321,6 +321,20 @@
   `test_concurrent_first_cursor_insert_does_not_double_count` 守这条路径。
   SQLite 的残余限制回到它本身：高并发下等锁/超时表现为少记或报错，而不是多记。
 
+### CI（安装包编译演练）
+
+- **安装包进入 CI，但只做"编译演练"**：新增 `ci.yml::installer`（`windows-latest`），
+  装 Inno Setup 6 后用 stub 的 `dist/CodingAgent` 跑一次 `ISCC`。真包需要
+  WSL rootfs（`build_wsl_distro.py` 要跑 apt）与签名证书，托管 runner 做不了 ——
+  所以这里守住的是"脚本还能编译"，**不是**"这个包能发"。
+- **版本号不再写死**：`build_installer.ps1` 原来 `"/DAppVersion=0.1.0"`，
+  现在从 `coding_agent.__version__` 读；新增 `scripts/check_installer.py`
+  校验这条链路，并顺带守住三条容易出事的属性 —— 免提权安装
+  （`PrivilegesRequired=lowest`）、卸载不删 `%LOCALAPPDATA%`、`.iss` 引用的
+  文件与图标存在。7 条反向用例确认校验器不是空转。
+- 文档：`PHASE2.md` 补"CI 只做编译演练"的边界；`RELEASING.md` 新增
+  「安装包（Windows 桌面）」一节（真机构建步骤 + 签名现状）。
+
 ### CI（沙箱门禁不再空转）
 
 - **没有在线 runner 时显式跳过，而不是排队 24 小时**：`sandbox.yml` 增加

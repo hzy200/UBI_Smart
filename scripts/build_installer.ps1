@@ -45,8 +45,13 @@ if (-not $Iscc) {
   throw "未找到 Inno Setup 6（ISCC.exe）。请安装后再运行。"
 }
 
-Write-Host "==> 构建安装包"
-& $Iscc "/DAppVersion=0.1.0" "packaging\installer\CodingAgent.iss"
+# 版本只有一个来源：包自己的 __version__。写死在这里会让安装包与
+# CHANGELOG / 前端版本各走各的（scripts/check_installer.py 会拦住）。
+$Version = (& python -c "import coding_agent; print(coding_agent.__version__)").Trim()
+if (-not $Version) { throw "无法从 coding_agent.__version__ 读取版本" }
+
+Write-Host "==> 构建安装包（版本 $Version）"
+& $Iscc "/DAppVersion=$Version" "packaging\installer\CodingAgent.iss"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup 构建失败" }
 
 $Setup = Join-Path $Root "dist\CodingAgent-Setup.exe"

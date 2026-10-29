@@ -173,6 +173,50 @@ jobs:
         # 默认 addopts 是 `-n auto --dist loadfile`；Windows runner 上同样并行。
         run: pytest -m "not wsl and not wsl_env and not llm" -q
 
+  installer:
+    # 安装包脚本的**编译演练**：守住"还能编过 + 版本注入没坏"。
+    #
+    # 不产出可发布包 —— 真包需要 WSL rootfs（build_wsl_distro.py 要跑 apt）
+    # 与签名证书，只能在装有 WSL2 的 Windows 机器上做（docs/PHASE2.md）。
+    # 但版本写死、卸载删用户数据、引用路径改名这三类问题，静态就能拦。
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 静态校验（版本单一源 / 免提权 / 卸载保留数据 / 引用路径）
+        run: python scripts/check_installer.py --check
+      - name: 安装 Inno Setup 6
+        run: choco install innosetup --yes --no-progress
+      - name: 编译演练（stub 输入）
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\CodingAgent | Out-Null
+          Set-Content -Path dist\CodingAgent\CodingAgent.exe -Value "stub"
+          New-Item -ItemType Directory -Force -Path packaging\vendor | Out-Null
+          Set-Content -Path packaging\vendor\MicrosoftEdgeWebView2Setup.exe -Value "stub"
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe 未找到" }
+          & $iscc "/DAppVersion=9.9.9-ci" "packaging\installer\CodingAgent.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败" }
+          if (-not (Test-Path dist\CodingAgent-Setup.exe)) {
+            throw "没有产出 dist\CodingAgent-Setup.exe"
+          }
+          Write-Host "编译演练通过：$((Get-Item dist\CodingAgent-Setup.exe).Length) 字节"
+      - name: 上传演练产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-stub
+          path: dist/CodingAgent-Setup.exe
+          retention-days: 7
+          if-no-files-found: warn
+
   mysql:
     # 控制面 MySQL 契约：迁移、账号/密钥、配额、用量、备份恢复。
     # 默认被 skip 的 `-m mysql` 必须在真实实例上跑一次。

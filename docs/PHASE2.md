@@ -62,6 +62,25 @@ powershell -ExecutionPolicy Bypass -File scripts/build_installer.ps1
 `D:\InnoSetup\Inno Setup 6` 下查找；脚本已带上 `packaging/vendor` 与
 rootfs 的重复来源防护（`dist\CodingAgent\wsl` 只打包一次）。
 
+**版本号只有一个来源**：`src/coding_agent/__init__.py::__version__`。
+`build_installer.ps1` 读它并通过 `/DAppVersion=` 传给 ISCC，`.iss` 里只保留
+`{#AppVersion}` 占位符（`#ifndef` 的兜底值必须与之一致）。
+`scripts/check_installer.py` 会校验这条链路，写死版本会直接失败。
+
+### CI 只做编译演练，不出可发布包
+
+真包需要 WSL rootfs（`build_wsl_distro.py` 要跑 apt）与签名证书，只能在装有
+WSL2 的 Windows 机器上构建，托管 runner 做不了。`ci.yml` 的 `installer` job
+因此只做两件事：
+
+1. `python scripts/check_installer.py --check` —— 版本单一源、免提权安装、
+   卸载保留 `%LOCALAPPDATA%`、`.iss` 引用路径存在；
+2. 用 stub 的 `dist/CodingAgent/CodingAgent.exe` 与 WebView2 bootstrapper
+   跑一次 `ISCC`，确认脚本还能编译。
+
+它守住的是"脚本站不站得住"，**不是**"这个安装包能发"。发布前仍需在真机上
+按上面的命令完整构建一次并签名。
+
 ## 3. 首次启动
 
 安装包把 `CodingAgent-rootfs.tar` 放在 `{app}\wsl`。

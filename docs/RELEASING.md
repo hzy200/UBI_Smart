@@ -63,6 +63,11 @@ CI 的 `frontend` job 生成并校验该目录，上传为 `frontend-release` ar
 - API 版本由 `web/version.py` 的 `WEB_API_VERSION` 决定，当前 `v1`；
 - `MIN_API_VERSION`（当前 `v0`）表示仍在兼容窗口内的最旧 API 版本。
 
+**Windows 安装包也吃后端版本**：`build_installer.ps1` 从
+`coding_agent.__version__` 读出来传给 ISCC（`/DAppVersion=`），`.iss` 里只有
+`{#AppVersion}` 占位符。这条链路由 `scripts/check_installer.py` 守着 ——
+安装包版本与 `__version__` 漂移会直接让 CI 红。
+
 ## 3. 发版前检查
 
 ```bash
@@ -136,7 +141,35 @@ agent web --no-frontend
 此时 `/`、`/static`、`/sw.js`、`/manifest.webmanifest` 返回 404；
 `/healthz`、`/config.json` 与 `/api/*` 仍可用。
 
-## 5. 兼容矩阵
+## 5. 安装包（Windows 桌面）
+
+CI 只做**编译演练**，不产出可发布包：真包要 WSL rootfs（`build_wsl_distro.py`
+需要跑 apt）和签名证书，只能在装有 WSL2 的 Windows 机器上构建。发布前在真机执行：
+
+```powershell
+conda activate agent
+python scripts/build_wsl_distro.py
+python scripts/build_portable.py
+powershell -ExecutionPolicy Bypass -File scripts/build_installer.ps1
+
+# 可选签名（也支持 $env:CODESIGN_CERT / $env:CODESIGN_PASSWORD）
+```
+
+发版前先过静态校验（CI 里同一条命令）：
+
+```bash
+python scripts/check_installer.py
+```
+
+它检查：版本单一源（`AppVersion={#AppVersion}` + 兜底值等于 `__version__`）、
+构建脚本没有写死版本、`PrivilegesRequired=lowest`、卸载段不删
+`%LOCALAPPDATA%`、`.iss` 引用的文件与图标存在。
+
+产物是 `dist/CodingAgent-Setup.exe`。**没有 CI 签名链路**，只有本地
+`signtool`（在 PATH 上时才生效）；没有签名证书时明确当作"内部构建"发布，
+不要对外宣称已签名。
+
+## 6. 兼容矩阵
 
 | 项 | 规则 | 失败表现 |
 |---|---|---|
@@ -147,7 +180,7 @@ agent web --no-frontend
 | 认证 | 凭证模式与配置一致 | 401 / 403 / 登录跳转 |
 | 错误体 | 只依赖 `code`，不解析 `detail` | 文案变化不应影响 UI |
 
-## 6. 回滚
+## 7. 回滚
 
 优先顺序（从最轻到最重）：
 
@@ -165,7 +198,7 @@ agent web --no-frontend
 - 上传返回的 413/429 带 CORS 与 request_id；
 - 桌面桥仍只对本地 loopback 页面可用。
 
-## 7. 已知限制
+## 8. 已知限制
 
 - BFF 与对象存储直传由部署侧实现，本仓库只冻结前端契约；
 - 真实反向代理、跨域 SSE、上传扫描需要部署环境 E2E；

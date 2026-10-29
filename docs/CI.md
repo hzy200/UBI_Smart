@@ -60,6 +60,14 @@ review_cadence: 工作流文件变动时
 `pytest -m "not wsl and not wsl_env and not llm"`。它覆盖 Linux 上会被 skip 的 Windows
 路径（路径守卫、A2L host broker、desktop 启动链），不替代真实 WSL。
 
+`installer` job：`windows-latest`，先跑
+`python scripts/check_installer.py --check`（版本单一源、免提权安装、卸载保留
+`%LOCALAPPDATA%`、`.iss` 引用路径与图标存在），再用 stub 的
+`dist/CodingAgent` 与 WebView2 bootstrapper 跑一次 `ISCC` 编译。
+**它不产出可发布包**：真包需要 WSL rootfs（`build_wsl_distro.py` 要跑 apt）与
+签名证书，只能在装有 WSL2 的 Windows 机器上构建，步骤见
+[RELEASING.md](RELEASING.md) 的「安装包」一节。
+
 `mysql` job：`mysql:8.0` service container + `AGENT_TEST_MYSQL_URL`，跑
 `pytest -m mysql`。覆盖迁移、账号/scrypt、会话、AES-GCM 密钥、配额预留/
 结算、用量累计与备份恢复；测试库名必须包含 `test`，用例会清空该库。
