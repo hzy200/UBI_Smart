@@ -321,6 +321,19 @@
   `test_concurrent_first_cursor_insert_does_not_double_count` 守这条路径。
   SQLite 的残余限制回到它本身：高并发下等锁/超时表现为少记或报错，而不是多记。
 
+### 文档（验收台账校准）
+
+- **补 5 条漏登记的验收测试**：REQ-64（暂停后 cancel→resume_steering）、
+  REQ-66（A3 独立运行）、REQ-70（关窗优雅停止）、REQ-74（安装包脚本一致性）、
+  REQ-90（四层架构契约）—— 它们本来就有对应测试，只是台账没登记。
+- **给 4 条非自动化条目补 `note`**：REQ-67/72/89/95 分别由脚本、真机、前端
+  行为与 ADR 承担验收，现在写明。
+- **新增门禁** `scripts/check_acceptance.py`：每条要么有非空 `tests`，要么有
+  `note` 说明谁来验收，`status: planned` 豁免；「引用是否存在」仍由
+  `check_docs.py` 的验收锚点负责，两者不重复。已接入 `docs.yml`。
+- 现状：213 条 = **自动 207 / 已声明非自动 4 / planned 2 / 未声明 0**。
+- 文档：`ACCEPTANCE.md` 新增「机读台账与它的两道门禁」。
+
 ### CI（安装包编译演练）
 
 - **安装包进入 CI，但只做"编译演练"**：新增 `ci.yml::installer`（`windows-latest`），

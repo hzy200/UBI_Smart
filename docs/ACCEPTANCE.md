@@ -16,6 +16,34 @@ note: |
 
 逐条对照原始需求 → 实现落点 → 怎么验证。附**已知限制**（诚实列出，不藏）。
 
+## 0. 机读台账与它的两道门禁
+
+`docs/acceptance/acceptance-criteria.yaml` 是"这个需求做完了没有"的唯一机读来源
+（当前 213 条）。它由两道 CI 检查守着，各管一半：
+
+| 门禁 | 脚本 | 查什么 |
+|---|---|---|
+| 引用不漂移 | `scripts/check_docs.py`（"验收锚点"） | `tests:` 里写的文件与 `::test_name` 必须真实存在 |
+| 覆盖方式已声明 | `scripts/check_acceptance.py` | 每条要么有非空 `tests`，要么有 `note` 说明谁来验收；`status: planned` 豁免 |
+
+第二道补的是"静默缺失"：一条新增需求既没测试也没说明，读台账的人会以为有人
+守着，实际没有——这种腐烂不会报警，只能靠规则。
+
+当前口径（`python scripts/check_acceptance.py`）：
+
+```
+验收条目 213 条：自动 207 / 已声明非自动 4 / planned 2 / 未声明 0
+```
+
+- **自动 207**：`tests:` 指向真实用例；
+- **已声明非自动 4**：靠脚本（`phase0_wsl_smoke.py`）、真机（WSL 发行版构建）、
+  文档（ADR）承担，逐条写在 `note` 里；
+- **planned 2**：还没实现（A2L 断线降级、安全档不得虚报）。
+
+> 注意"自动"不等于"在默认门禁内"：`tests/integration/` 下的用例需要真实 WSL，
+> 由 `sandbox.yml` 在自托管 runner 上跑。没有注册 runner 时它会**显式跳过**并
+> 打 warning（见 [CI.md](CI.md)）——跳过不等于通过。
+
 ## 1. 原始需求逐条对照
 
 | 原始需求 | 实现落点 | 怎么验证 |

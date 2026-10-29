@@ -43,6 +43,15 @@ jobs:
         # STALE_DAYS / CONTEXT_BUDGETS / DOC_SOFT_LIMIT。
         run: python scripts/check_docs.py --strict
 
+      - name: 验收台账的覆盖方式已声明
+        # 上一条 check_docs 守的是"tests: 引用的文件/用例存在"；
+        # 这里补另一半：每条要么有 tests，要么有 note 说明谁来验收，
+        # planned 豁免。三者皆无 = 静默缺失，读台账的人会以为有人守着。
+        # 需要解析 YAML，所以单独装 pyyaml（check_docs 保持零依赖）。
+        run: |
+          pip install pyyaml
+          python scripts/check_acceptance.py --check
+
       - name: 复杂度文档没有过期
         # 本文曾出现"文档写 179 文件 / 43,789 行，实际 249 / 67,322"。
         # 手抄的数字一定会腐烂，所以让脚本反查文档里的关键数字。

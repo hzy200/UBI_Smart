@@ -579,7 +579,7 @@ criteria:
     when: 用户点击取消
     then: 前端先提交 cancel，再调用 resume_steering 让节点边界消费；不会留下永远暂停的任务
     status: implemented
-    tests: []
+    tests: [tests/unit/test_web_app.py::test_steering_and_resume_share_the_suspended_runtime]
     note: 前端行为，当前由手工冒烟覆盖；后端 resume_steering 语义已有测试
 
   - id: REQ-65
@@ -596,7 +596,7 @@ criteria:
     when: python -m coding_agent.server --workspace <path>
     then: Windows 可通过 loopback 访问静态页/API；工具走本地 bash，不再逐条 wsl.exe
     status: implemented
-    tests: []
+    tests: [tests/unit/test_server_entrypoint.py]
     see: docs/PHASE0.md
     note: 由 scripts/phase0_wsl_smoke.py 手工/脚本验证
 
@@ -607,6 +607,7 @@ criteria:
     then: 全部通过；快照/回滚使用真实 SandboxFs，SSE/审批/重放使用缓冲流
     status: implemented
     tests: []
+    note: 由 scripts/phase0_wsl_smoke.py 在真实 WSL 上执行；不进默认 pytest 门禁
     see: scripts/phase0_wsl_smoke.py
 
   - id: REQ-68
@@ -632,7 +633,7 @@ criteria:
     when: 关闭窗口
     then: cancel_all → shutdown → 等待退出；超时才 terminate/kill；不残留 server
     status: implemented
-    tests: []
+    tests: [tests/unit/test_desktop_supervisor.py::test_server_stop_signals_shutdown]
     see: docs/PHASE1.md
     note: 由启动器端到端冒烟验证
 
@@ -651,6 +652,7 @@ criteria:
     then: 生成 CodingAgent-rootfs.tar；包含 agent 用户、/opt/coding-agent/venv、git/rg/bwrap
     status: implemented
     tests: []
+    note: 构建脚本不产生断言；产物按 docs/PHASE2.md 的手工验收清单核对
     see: docs/PHASE2.md
 
   - id: REQ-73
@@ -668,7 +670,7 @@ criteria:
     when: scripts/build_installer.ps1
     then: 生成 dist/CodingAgent-Setup.exe；包含 app/rootfs/WebView2；可选 signtool 签名
     status: implemented
-    tests: []
+    tests: [tests/unit/test_check_installer.py]
     see: packaging/installer/CodingAgent.iss
 
   - id: REQ-75
@@ -794,6 +796,7 @@ criteria:
     then: diff 超过 200 行默认折叠；Provider 表单可一键填入 Ollama/LM Studio 端点
     status: implemented
     tests: []
+    note: 前端行为（frontend/src/features/providers.ts），无自动化断言；按 docs/PHASE5.md 手动验收
     see: docs/PHASE5.md
 
   - id: REQ-90
@@ -802,7 +805,7 @@ criteria:
     when: 阅读架构与 Phase A 文档
     then: A1-A4 职责、三种部署基线、MySQL/A3/A4/密钥的数据归属明确；Agent 功能零删减
     status: implemented
-    tests: []
+    tests: [tests/unit/test_architecture.py::test_shared_modules_stay_neutral]
     see: docs/PHASE_A.md
 
   - id: REQ-91
@@ -846,6 +849,7 @@ criteria:
       静态 SPA+esbuild/TS 五项决策及代价明确
     status: implemented
     tests: []
+    note: 决策记录类条目，由 docs/adr/0010 与 docs/PHASE_A.md 承担验收，无代码断言
     see: docs/adr/0010-four-layer-phase-b-decisions.md
 
   - id: REQ-96
