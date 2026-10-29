@@ -77,6 +77,9 @@ export interface ApprovalRow {
   decided_at: string;
   created_at: string;
   expires_at: string;
+  created_at_iso?: string;
+  decided_at_iso?: string;
+  expires_at_iso?: string;
 }
 
 export interface UsageRow extends UsageToday {
@@ -86,4 +89,59 @@ export interface UsageRow extends UsageToday {
 export interface UsageReport {
   rows: UsageRow[];
   totals: UsageToday;
+}
+
+export interface AuditRecord {
+  tenant: string;
+  thread_id: string;
+  ts: string;
+  kind: string;
+  tool: string;
+  level: string;
+  decision: string;
+  ok: boolean | null;
+  record_hash: string;
+}
+
+export interface AuditReport {
+  records: AuditRecord[];
+  total: number;
+  has_more: boolean;
+}
+
+export interface HealthReport {
+  ok: boolean;
+  time: string;
+  api_version: string;
+  database: { ok: boolean; error: string };
+  metrics: Record<string, number>;
+}
+
+export interface WorkspaceRow {
+  workspace_id: string;
+  tenant: string;
+  owner: string;
+  slug: string;
+  display_name: string;
+  source: string;
+  kind: string;
+  root_path?: string;
+  status: string;
+  access_mode: string;
+  quota_bytes: number;
+  used_bytes: number;
+  file_count: number;
+  acl_role: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceAcl {
+  id: string;
+  tenant: string;
+  workspace_id: string;
+  grantee: string;
+  permission: string;
+  granted_by: string;
+  created_at: string;
 }

@@ -6,17 +6,18 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import type { Notify } from '../components/Toasts';
 import { formatDate, initials } from '../lib/format';
+import { useAdminI18n } from '../i18n';
 import { UserDetail } from './UserDetail';
 
 type StatusFilter = 'all' | 'active' | 'disabled';
 type Role = 'admin' | 'approver' | 'auditor' | 'member';
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: '所有者',
-  admin: '管理员',
-  approver: '审批人',
-  auditor: '审计员',
-  member: '成员',
+const ROLE_KEYS: Record<string, string> = {
+  owner: 'roleOwner',
+  admin: 'roleAdmin',
+  approver: 'roleApprover',
+  auditor: 'roleAuditor',
+  member: 'roleMember',
 };
 
 export function Users({
@@ -26,6 +27,7 @@ export function Users({
   notify: Notify;
   readOnly?: boolean;
 }) {
+  const { t, locale } = useAdminI18n();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selected, setSelected] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,7 +80,7 @@ export function Users({
       await api.createUser(form);
       setForm({ username: '', email: '', role: 'member', password: '' });
       setCreateOpen(false);
-      notify('用户已创建');
+      notify(t('userCreated'));
       await load();
     } catch (err) {
       notify(String(err), 'error');
@@ -94,7 +96,11 @@ export function Users({
       await api.updateUser(pendingStatus.id, {
         status: pendingStatus.status === 'active' ? 'disabled' : 'active',
       });
-      notify(pendingStatus.status === 'active' ? '用户已禁用' : '用户已启用');
+      notify(
+        pendingStatus.status === 'active'
+          ? t('userDisabled')
+          : t('userEnabled'),
+      );
       setPendingStatus(null);
       await load();
     } catch (err) {
@@ -121,11 +127,11 @@ export function Users({
     <section className="page">
       <div className="page-head">
         <div>
-          <p className="hint">注册企业成员，分配上游模型 Key 与每日 token / 成本额度。</p>
+          <p className="hint">{t('usersHint')}</p>
         </div>
         {!readOnly && (
           <button className="btn primary" onClick={() => setCreateOpen(true)}>
-            <Icon name="plus" /> 新建用户
+            <Icon name="plus" /> {t('newUser')}
           </button>
         )}
       </div>
@@ -136,16 +142,16 @@ export function Users({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索用户名或邮箱"
-            aria-label="搜索用户"
+            placeholder={t('searchUsers')}
+            aria-label={t('searchUsers')}
           />
         </div>
-        <div className="segmented" role="group" aria-label="状态筛选">
+        <div className="segmented" role="group" aria-label={t('colStatus')}>
           {(
             [
-              ['all', '全部'],
-              ['active', '启用'],
-              ['disabled', '禁用'],
+              ['all', t('all')],
+              ['active', t('active')],
+              ['disabled', t('disabled')],
             ] as Array<[StatusFilter, string]>
           ).map(([key, label]) => (
             <button
@@ -160,24 +166,24 @@ export function Users({
         </div>
         <span className="spacer" />
         <button className="btn ghost small" onClick={() => void load()} disabled={loading}>
-          <Icon name="refresh" /> 刷新
+          <Icon name="refresh" /> {t('refresh')}
         </button>
       </div>
 
       {error && <p className="error" role="alert">{error}</p>}
 
       {loading ? (
-        <div className="table-skeleton" aria-label="加载中">
+        <div className="table-skeleton" aria-label={t('loadingLabel')}>
           {[0, 1, 2, 3].map((item) => <span key={item} className="skeleton-row" />)}
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState
-          title={users.length === 0 ? '还没有用户' : '没有匹配的用户'}
-          hint={users.length === 0 ? '创建第一个企业成员后即可分配额度。' : '调整搜索词或状态筛选。'}
+          title={users.length === 0 ? t('noUsers') : t('noMatchUsers')}
+          hint={users.length === 0 ? t('noUsersHint') : t('noMatchUsersHint')}
           action={
             users.length === 0 && !readOnly ? (
               <button className="btn primary" onClick={() => setCreateOpen(true)}>
-                <Icon name="plus" /> 新建用户
+                <Icon name="plus" /> {t('newUser')}
               </button>
             ) : undefined
           }
@@ -187,11 +193,11 @@ export function Users({
           <table className="table">
             <thead>
               <tr>
-                <th>用户</th>
-                <th>角色</th>
-                <th>状态</th>
-                <th>最近登录</th>
-                <th className="right">操作</th>
+                <th>{t('colUser')}</th>
+                <th>{t('colRole')}</th>
+                <th>{t('colStatus')}</th>
+                <th>{t('colLastLogin')}</th>
+                <th className="right">{t('colActions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -202,28 +208,28 @@ export function Users({
                       <span className="avatar" aria-hidden="true">{initials(user.username)}</span>
                       <div>
                         <strong>{user.username}</strong>
-                        <small>{user.email || '未设置邮箱'}</small>
+                        <small>{user.email || t('emailUnset')}</small>
                       </div>
                     </div>
                   </td>
                   <td>
                     <span className={`pill role-${user.role}`}>
-                      {ROLE_LABELS[user.role] || user.role}
+                      {t(ROLE_KEYS[user.role] || 'roleMember')}
                     </span>
                   </td>
                   <td>
                     <span className={`pill ${user.status === 'active' ? 'ok' : 'bad'}`}>
-                      {user.status === 'active' ? '启用' : '禁用'}
+                      {user.status === 'active' ? t('active') : t('disabled')}
                     </span>
                   </td>
-                  <td className="muted">{formatDate(user.last_login_at)}</td>
+                  <td className="muted">{formatDate(user.last_login_at, locale)}</td>
                   <td>
                     <div className="row-actions">
                       {!readOnly && (
                         <>
-                          <button className="btn small" onClick={() => setSelected(user)}>管理</button>
+                          <button className="btn small" onClick={() => setSelected(user)}>{t('manage')}</button>
                           <button className="btn small ghost" onClick={() => setPendingStatus(user)}>
-                            {user.status === 'active' ? '禁用' : '启用'}
+                            {user.status === 'active' ? t('disable') : t('enable')}
                           </button>
                         </>
                       )}
@@ -242,15 +248,15 @@ export function Users({
             className="modal modal-form"
             role="dialog"
             aria-modal="true"
-            aria-label="新建用户"
+            aria-label={t('newUser')}
             onSubmit={createUser}
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <h2>新建用户</h2>
-            <p className="hint">密码只在创建时提交，服务端只保存 scrypt 哈希。</p>
+            <h2>{t('newUser')}</h2>
+            <p className="hint">{t('createUserHint')}</p>
             <div className="form-grid two">
               <label>
-                用户名
+                {t('username')}
                 <input
                   value={form.username}
                   onChange={(event) => setForm({ ...form, username: event.target.value })}
@@ -260,7 +266,7 @@ export function Users({
                 />
               </label>
               <label>
-                邮箱
+                {t('email')}
                 <input
                   type="email"
                   value={form.email}
@@ -268,19 +274,19 @@ export function Users({
                 />
               </label>
               <label>
-                角色
+                {t('colRole')}
                 <select
                   value={form.role}
                   onChange={(event) => setForm({ ...form, role: event.target.value as Role })}
                 >
-                  <option value="member">成员</option>
-                  <option value="approver">审批人</option>
-                  <option value="auditor">审计员</option>
-                  <option value="admin">管理员</option>
+                  <option value="member">{t('roleMember')}</option>
+                  <option value="approver">{t('roleApprover')}</option>
+                  <option value="auditor">{t('roleAuditor')}</option>
+                  <option value="admin">{t('roleAdmin')}</option>
                 </select>
               </label>
               <label>
-                初始密码
+                {t('initialPassword')}
                 <input
                   type="password"
                   minLength={8}
@@ -291,9 +297,9 @@ export function Users({
               </label>
             </div>
             <div className="modal-actions">
-              <button className="btn ghost" type="button" onClick={() => setCreateOpen(false)}>取消</button>
+              <button className="btn ghost" type="button" onClick={() => setCreateOpen(false)}>{t('cancel')}</button>
               <button className="btn primary" type="submit" disabled={busy}>
-                {busy ? '创建中…' : '创建'}
+                {busy ? t('creating') : t('create')}
               </button>
             </div>
           </form>
@@ -302,13 +308,13 @@ export function Users({
 
       <ConfirmDialog
         open={Boolean(pendingStatus)}
-        title={pendingStatus?.status === 'active' ? '禁用用户' : '启用用户'}
+        title={pendingStatus?.status === 'active' ? t('disableUserTitle') : t('enableUserTitle')}
         message={
           pendingStatus?.status === 'active'
-            ? `禁用 ${pendingStatus?.username} 后，其现有会话会立即失效。`
-            : `启用 ${pendingStatus?.username} 后，该账号可以重新登录。`
+            ? t('disableUserMessage', { user: pendingStatus?.username })
+            : t('enableUserMessage', { user: pendingStatus?.username })
         }
-        confirmLabel={pendingStatus?.status === 'active' ? '禁用' : '启用'}
+        confirmLabel={pendingStatus?.status === 'active' ? t('disable') : t('enable')}
         danger={pendingStatus?.status === 'active'}
         busy={busy}
         onCancel={() => setPendingStatus(null)}

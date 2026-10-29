@@ -84,6 +84,12 @@ def _is_current_schema(url: str) -> bool:
         and has_table(url, "control_workspace_acl")
         and has_column(url, "control_users", "max_access_mode")
         and has_table(url, "control_password_resets")
+        and has_table(url, "control_notifications")
+        and has_table(url, "control_session_search")
+        and has_table(url, "control_push_subscriptions")
+        and has_table(url, "control_api_tokens")
+        and has_table(url, "control_webhooks")
+        and has_table(url, "control_share_links")
     )
 
 

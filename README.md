@@ -668,7 +668,9 @@ Web 在 runtime 被 TTL 清理或进程重启后，会从 per-user checkpoint �
 - CLI、TUI、Web 与管理端的成本显示统一按 `AGENT_COST_CURRENCY`（默认 CNY）
   换算；上游账单与运行时事件仍以 USD 为事实源；
 - 建库、迁移、保留策略与备份见 [docs/DATABASE.md](docs/DATABASE.md)，
-  决策见 [ADR-0021](docs/adr/0021-enterprise-mysql-account-store.md)。
+  决策见 [ADR-0021](docs/adr/0021-enterprise-mysql-account-store.md)；
+- A2 横向扩展（Redis 事件传输/限流、共享主密钥、A3 与文件系统约束）
+  见 [docs/MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md)。
 
 ```bash
 mysql -u root -p < packaging/mysql/init.sql

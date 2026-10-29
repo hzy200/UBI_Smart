@@ -376,3 +376,22 @@ summary:focus-visible,
     var(--shadow-md),
     0 0 0 1px color-mix(in srgb, var(--text) 4%, transparent);
 }
+
+/* 运行对比：并排用量与逐文件 diff。 */
+.modal-box.wide { max-width: min(1100px, 94vw); width: 94vw; }
+.compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.compare-col { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.compare-col h4 { margin: 0 0 4px; font-size: 12px; }
+.compare-file { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.compare-file-head { padding: 6px 10px; background: var(--panel-2); font-family: var(--mono); font-size: 11px; }
+.compare-diff-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.compare-diff-grid .diff-text {
+  margin: 0; padding: 10px; max-height: 280px; overflow: auto;
+  font-family: var(--mono); font-size: 11px; white-space: pre;
+  border-top: 1px solid var(--border);
+}
+.compare-diff-grid .diff-text + .diff-text { border-left: 1px solid var(--border); }
+@media (max-width: 760px) {
+  .compare-grid, .compare-diff-grid { grid-template-columns: 1fr; }
+  .compare-diff-grid .diff-text + .diff-text { border-left: 0; }
+}

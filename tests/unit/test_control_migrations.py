@@ -22,7 +22,7 @@ from coding_agent.control.migrate import (  # noqa: E402
 )
 from coding_agent.control.store import ControlStore  # noqa: E402
 
-REVISION = "0015_password_reset"
+REVISION = "0019_share_links"
 
 
 def _url(tmp_path: Path) -> str:
@@ -60,6 +60,12 @@ def test_upgrade_creates_schema_and_is_idempotent(tmp_path) -> None:
         "control_approvals",
         "control_workspace_acl",
         "control_password_resets",
+        "control_notifications",
+        "control_session_search",
+        "control_push_subscriptions",
+        "control_api_tokens",
+        "control_webhooks",
+        "control_share_links",
     ):
         assert has_table(url, table)
     assert current_revision(url) == REVISION

@@ -174,6 +174,31 @@ class SnapshotMixin:
             results.append(result)
         return results
 
+    def session_patch(self, thread_id: str) -> str:
+        """把某会话**本轮**的改动合成一份 unified diff（可直接 `git apply`）。
+
+        同一文件可能有多次写前快照，这里按路径只取**最早**的那份与当前内容
+        比较 —— 那才是"这一轮总共改了什么"。取最新快照会漏掉第一次改动，
+        全部拼接则会产生互相重叠、无法 apply 的补丁。
+
+        本轮起点用 `last_run_started_at`：没有 run_start 时退化为"全部快照"，
+        宁可给多了让人自己筛，也不要因为审计缺失就返回空补丁。
+        """
+        prefix = self.last_run_started_at(thread_id)
+        entries = [
+            entry
+            for entry in self.snapshots.list()
+            if not prefix or entry.snapshot_id > prefix
+        ]
+        earliest: dict[str, SnapshotEntry] = {}
+        for entry in sorted(entries, key=lambda item: item.snapshot_id):
+            earliest.setdefault(entry.path, entry)
+        chunks = [
+            self.diff_snapshot(snapshot_id=entry.snapshot_id)
+            for entry in earliest.values()
+        ]
+        return "\n".join(chunk for chunk in chunks if chunk.strip())
+
     def _audit_rollback(self, result: RestoreResult, requested_id: str) -> None:
         self._audit(
             AuditRecord(

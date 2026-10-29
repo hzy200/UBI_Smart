@@ -4,8 +4,10 @@ import type { ProviderKeyRow } from '../types';
 import { Icon } from '../components/Icons';
 import { EmptyState } from '../components/EmptyState';
 import type { Notify } from '../components/Toasts';
+import { useAdminI18n } from '../i18n';
 
 export function Providers({ notify }: { notify: Notify }) {
+  const { t } = useAdminI18n();
   const [rows, setRows] = useState<ProviderKeyRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,10 +28,7 @@ export function Providers({ notify }: { notify: Notify }) {
     <section className="page">
       <div className="page-head">
         <div>
-          <p className="hint">
-            Provider 列表来自部署环境（<code>AGENT_LLM_PROVIDERS</code>）；
-            每个用户的 Key 在“用户 → 管理”中单独配置。
-          </p>
+          <p className="hint">{t('providersHint')}</p>
         </div>
       </div>
 
@@ -38,7 +37,7 @@ export function Providers({ notify }: { notify: Notify }) {
           {[0, 1, 2].map((item) => <span key={item} className="skeleton-card" />)}
         </div>
       ) : rows.length === 0 ? (
-        <EmptyState title="部署未配置 provider" hint="在 AGENT_LLM_PROVIDERS 中配置后重启 Web 服务。" />
+        <EmptyState title={t('noProvidersTitle')} hint={t('noProvidersHint')} />
       ) : (
         <div className="card-grid">
           {rows.map((row) => (
@@ -47,17 +46,17 @@ export function Providers({ notify }: { notify: Notify }) {
                 <span className="provider-icon"><Icon name="provider" /></span>
                 <div>
                   <strong>{row.provider}</strong>
-                  <small>{row.model || '未指定模型'}</small>
+                  <small>{row.model || t('modelUnset')}</small>
                 </div>
               </div>
               <dl>
                 <div>
-                  <dt>Base URL</dt>
-                  <dd className="mono">{row.base_url || '环境默认'}</dd>
+                  <dt>{t('baseUrl')}</dt>
+                  <dd className="mono">{row.base_url || t('envDefault')}</dd>
                 </div>
                 <div>
-                  <dt>环境 Key</dt>
-                  <dd>{row.has_key ? '已配置' : '未配置'}</dd>
+                  <dt>{t('envKey')}</dt>
+                  <dd>{row.has_key ? t('configured') : t('unconfigured')}</dd>
                 </div>
               </dl>
             </div>

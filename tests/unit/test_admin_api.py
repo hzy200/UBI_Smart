@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import time
 from pathlib import Path
 
@@ -419,6 +420,12 @@ def test_admin_grants_workspace_read_acl(tmp_path) -> None:
     assert granted.status_code == 200, granted.text
     assert granted.json()["grant"]["grantee"] == "bob"
 
+    listed_ws = admin.get("/api/admin/workspaces").json()["workspaces"]
+    mine = [
+        row for row in listed_ws if row["workspace_id"] == workspace_id
+    ]
+    assert mine and mine[0]["acl_role"] == "admin"
+
     listed = admin.get(f"/api/admin/workspaces/{workspace_id}/acl")
     assert [item["grantee"] for item in listed.json()["grants"]] == ["bob"]
 
@@ -446,6 +453,11 @@ def test_admin_grants_workspace_read_acl(tmp_path) -> None:
     # 审计只读角色不能改 ACL。
     audit = TestClient(app)
     audit_csrf = _login(audit, "audit", "password-123")
+    audit_rows = audit.get("/api/admin/workspaces").json()["workspaces"]
+    audit_mine = [
+        row for row in audit_rows if row["workspace_id"] == workspace_id
+    ]
+    assert audit_mine and "root_path" not in audit_mine[0]
     denied = audit.put(
         f"/api/admin/workspaces/{workspace_id}/acl",
         headers={"X-CSRF-Token": audit_csrf},
@@ -479,3 +491,245 @@ def test_admin_sets_user_access_limit(tmp_path) -> None:
     )
     assert updated.status_code == 200
     assert updated.json()["user"]["max_access_mode"] == "write_ask"
+
+
+def test_admin_audit_query_and_health(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    _seed_admin(settings)
+    store = ControlStore(settings.control_db_url)
+    try:
+        store.index_audit(
+            "admin",
+            [
+                {
+                    "hash": "h1",
+                    "thread_id": "t1",
+                    "ts": "2026-10-29T10:00:00+00:00",
+                    "kind": "tool_call",
+                    "tool": "shell_exec",
+                    "level": "L0",
+                    "decision": "auto",
+                    "ok": True,
+                },
+                {
+                    "hash": "h2",
+                    "thread_id": "t1",
+                    "ts": "2026-10-29T11:00:00+00:00",
+                    "kind": "tool_call",
+                    "tool": "file_edit",
+                    "level": "L2",
+                    "decision": "ask",
+                    "ok": False,
+                },
+            ],
+        )
+    finally:
+        store.close()
+
+    client = TestClient(web_app.create_app(settings))
+    _login(client, "admin", "password-123")
+
+    data = client.get("/api/admin/audit?user=admin").json()
+    assert data["total"] == 2
+    assert [row["record_hash"] for row in data["records"]] == ["h2", "h1"]
+    assert data["records"][0]["tenant"] == "admin"
+
+    failed = client.get("/api/admin/audit?user=admin&ok=false").json()
+    assert failed["total"] == 1
+    assert failed["records"][0]["tool"] == "file_edit"
+
+    paged = client.get(
+        "/api/admin/audit?user=admin&limit=1&offset=1"
+    ).json()
+    assert paged["total"] == 2
+    assert [row["record_hash"] for row in paged["records"]] == ["h1"]
+    assert paged["has_more"] is False
+
+    health = client.get("/api/admin/health").json()
+    assert health["ok"] is True
+    assert health["database"]["ok"] is True
+    assert health["api_version"] == "v1"
+    assert isinstance(health["metrics"], dict)
+
+
+def test_approval_history_and_batch(tmp_path) -> None:
+    settings = _settings(tmp_path).model_copy(
+        update={"approval_four_eyes": True}
+    )
+    _seed_admin(settings)
+    app = web_app.create_app(settings)
+    admin = TestClient(app)
+    csrf = _login(admin, "admin", "password-123")
+    created = admin.post(
+        "/api/admin/users",
+        headers={"X-CSRF-Token": csrf},
+        json={"username": "bob", "password": "password-123"},
+    ).json()["user"]
+
+    control = ControlStore(settings.control_db_url)
+    try:
+        approvals = ApprovalStore(control.engine)
+        for call_id in ("c1", "c2"):
+            approvals.record_pending(
+                tenant="default",
+                thread_id="t1",
+                call_id=call_id,
+                tool="shell_exec",
+                command="ls",
+                level="L3",
+                level_int=3,
+                requested_by=created["username"],
+            )
+        approvals.record_pending(
+            tenant="default",
+            thread_id="t2",
+            call_id="self",
+            tool="shell_exec",
+            command="rm -rf build",
+            level="L3",
+            level_int=3,
+            requested_by="admin",
+        )
+    finally:
+        control.close()
+
+    history = admin.get(
+        "/api/admin/approvals/history?status=pending"
+    ).json()
+    assert history["enabled"] is True
+    assert history["total"] == 3
+    assert all(row["created_at_iso"] for row in history["records"])
+
+    ids = [
+        row["id"]
+        for row in history["records"]
+        if row["requested_by"] == "bob"
+    ]
+    batch = admin.post(
+        "/api/admin/approvals/batch",
+        headers={"X-CSRF-Token": csrf},
+        json={"ids": ids, "approved": True},
+    )
+    assert batch.status_code == 200, batch.text
+    assert batch.json()["updated"] == 2
+
+    self_row = next(
+        row for row in history["records"] if row["requested_by"] == "admin"
+    )
+    denied = admin.post(
+        "/api/admin/approvals/batch",
+        headers={"X-CSRF-Token": csrf},
+        json={"ids": [self_row["id"]], "approved": True},
+    )
+    assert denied.json()["updated"] == 0
+    assert denied.json()["results"][0]["ok"] is False
+
+    approved = admin.get(
+        "/api/admin/approvals/history?status=approved&user=bob"
+    ).json()
+    assert approved["total"] == 2
+    assert all(row["status"] == "approved" for row in approved["records"])
+
+
+def test_personal_access_token_scopes(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    _seed_admin(settings)
+    app = web_app.create_app(settings)
+    client = TestClient(app)
+    csrf = _login(client, "admin", "password-123")
+
+    created = client.post(
+        "/api/tokens",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "ci", "scopes": ["read"], "expires_in_days": 7},
+    )
+    assert created.status_code == 200, created.text
+    token = created.json()["token"]
+    assert token.startswith("ca_pat_")
+    listed = client.get("/api/tokens").json()
+    assert listed["enabled"] is True
+    assert token not in str(listed["tokens"])
+
+    read_pat = TestClient(
+        app, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert read_pat.get("/api/me").status_code == 200
+    assert (
+        read_pat.post(
+            "/api/sessions",
+            json={"thread_id": "t1", "workspace": "/tmp/ws"},
+        ).status_code
+        == 403
+    )
+    # PAT 不能管理 PAT/Webhook 或访问管理端。
+    assert read_pat.get("/api/tokens").status_code == 403
+    assert read_pat.get("/api/webhooks").status_code == 403
+    assert read_pat.get("/api/admin/users").status_code == 403
+
+    run_created = client.post(
+        "/api/tokens",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "runner", "scopes": ["run"], "expires_in_days": 1},
+    )
+    run_token = run_created.json()["token"]
+    run_pat = TestClient(
+        app, headers={"Authorization": f"Bearer {run_token}"}
+    )
+    session_response = run_pat.post(
+        "/api/sessions",
+        json={"thread_id": "t1", "workspace": "/tmp/ws"},
+    )
+    assert session_response.status_code != 403
+
+    audit_created = client.post(
+        "/api/tokens",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "audit", "scopes": ["audit"], "expires_in_days": 1},
+    )
+    audit_token = audit_created.json()["token"]
+    audit_pat = TestClient(
+        app, headers={"Authorization": f"Bearer {audit_token}"}
+    )
+    assert read_pat.get("/api/audit").status_code == 403
+    # audit scope 已通过授权；本地无 WSL 时下游可能 503，这里只验证不是 403。
+    assert audit_pat.get("/api/audit").status_code != 403
+
+    token_id = created.json()["record"]["id"]
+    revoked = client.delete(
+        f"/api/tokens/{token_id}",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert revoked.status_code == 200
+    assert read_pat.get("/api/me").status_code == 401
+
+
+def test_admin_reindex_search(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    _seed_admin(settings)
+    client = TestClient(web_app.create_app(settings))
+    csrf = _login(client, "admin", "password-123")
+    response = client.post(
+        "/api/admin/search/reindex",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["ok"] is True
+    assert response.json()["reindexed"] >= 0
+
+
+def test_approval_stream_disabled_sends_one_frame(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    _seed_admin(settings)
+    client = TestClient(web_app.create_app(settings))
+    _login(client, "admin", "password-123")
+    with client.stream("GET", "/api/admin/approvals/stream") as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith(
+            "text/event-stream"
+        )
+        frame = ""
+        for line in response.iter_lines():
+            if line.startswith("data:"):
+                frame = line[5:].strip()
+                break
+    assert json.loads(frame)["enabled"] is False

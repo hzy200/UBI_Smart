@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { useAdminI18n } from '../i18n';
 
 export type ToastKind = 'success' | 'error' | 'info';
 export type Notify = (text: string, kind?: ToastKind) => void;
@@ -35,6 +36,7 @@ export function ToastStack({
   toasts: ToastItem[];
   onDismiss: (id: number) => void;
 }) {
+  const { t } = useAdminI18n();
   return (
     <div className="toast-stack" role="status" aria-live="polite">
       {toasts.map((item) => (
@@ -42,7 +44,7 @@ export function ToastStack({
           key={item.id}
           className={`toast toast-${item.kind}`}
           onClick={() => onDismiss(item.id)}
-          title="点击关闭"
+          title={t('clickToClose')}
         >
           <span className="toast-dot" aria-hidden="true" />
           <span>{item.text}</span>

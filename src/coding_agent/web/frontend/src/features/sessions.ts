@@ -27,7 +27,12 @@ import {
 } from '../state/runtime';
 import { prependOlder } from '../ui/history';
 import { normalizeSessionImport } from '../ui/session-import';
-import { sessionMetaText, sessionPreviewText } from '../ui/sessions';
+import {
+  mergeSessionPayloads,
+  sessionMetaText,
+  sessionPayloadHasMore,
+  sessionPreviewText,
+} from '../ui/sessions';
 
 export const sessionsMixin = {
   async saveTranscript() {
@@ -189,12 +194,23 @@ export const sessionsMixin = {
       }
     }
     try {
-      const data = await cachedJson(
-        '/api/sessions?limit=50&include_archived=true',
-        '无法读取会话',
-        { ttlMs: 1500, force },
-      );
+      // 活跃与归档分两次取：归档会话再也不会挤占活跃列表的 limit。
+      const limit = Math.max(50, Number(this.sessionLimit) || 50);
+      const [active, archived] = await Promise.all([
+        cachedJson(
+          `/api/sessions?limit=${limit}&archived=false`,
+          '无法读取会话',
+          { ttlMs: 1500, force },
+        ),
+        cachedJson(
+          `/api/sessions?limit=${limit}&archived=true`,
+          '无法读取会话',
+          { ttlMs: 1500, force },
+        ),
+      ]);
+      const data = mergeSessionPayloads(active, archived);
       this.applySessionPayload(data);
+      this.sessionHasMore = sessionPayloadHasMore(active, archived);
       void writeCachedSessions(data);
     } catch (e) {
       if (usedCache) this.toastMessage(`会话列表刷新失败：${e}`);
@@ -202,6 +218,48 @@ export const sessionsMixin = {
     } finally {
       this.sessionsLoading = false;
     }
+  },
+
+  async loadMoreSessions() {
+    if (this.sessionsLoading || !this.sessionHasMore) return;
+    this.sessionLimit = Math.max(50, Number(this.sessionLimit) || 50) + 50;
+    await this.loadSessions(true);
+  },
+
+  async downloadSessionPatch(id) {
+    const threadId = String(id || '').trim();
+    if (!threadId) {
+      this.toastMessage(this.t('sidebar.openSessionFirst'));
+      return;
+    }
+    try {
+      const response = await authFetch(
+        `/api/sessions/${encodeURIComponent(threadId)}/patch`,
+      );
+      if (!response.ok) {
+        await readJson(response, '下载补丁失败');
+        return;
+      }
+      const text = await response.text();
+      if (!text.trim()) {
+        this.toastMessage(this.t('sidebar.patchEmpty'));
+        return;
+      }
+      const blob = new Blob([text], { type: 'text/x-patch;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${threadId.slice(0, 8)}.patch`;
+      link.click();
+      URL.revokeObjectURL(url);
+      this.toastMessage(this.t('sidebar.patchDownloaded'));
+    } catch (err) {
+      this.toastMessage(String(err));
+    }
+  },
+
+  downloadCurrentPatch() {
+    return this.downloadSessionPatch(this.threadId);
   },
 
   async openSplitSession(id) {
@@ -883,6 +941,7 @@ export const sessionsMixin = {
     await this.loadUploads();
     await this.loadApprovals();
     await this.loadSessions(true);
+    if (this.isMobileLayout()) this.setMobilePane('chat');
     this.syncUrlState();
   },
 

@@ -127,6 +127,21 @@ const BASE_STUBS: Record<string, any> = {
   '/api/recovery': { sessions: [] },
   '/api/workspaces': { workspaces: [] },
   '/api/uploads': { uploads: [] },
+  '/api/notifications': {
+    enabled: false,
+    notifications: [],
+    unread: 0,
+  },
+  '/api/sessions/search': {
+    enabled: true,
+    results: [
+      {
+        thread_id: 'thread-dom-test',
+        title: '未读会话',
+        snippet: '登录失败，检查 password 字段',
+      },
+    ],
+  },
   '/api/approvals': { approvals: [] },
   '/api/git': {
     is_repo: true,
@@ -167,6 +182,17 @@ const BASE_STUBS: Record<string, any> = {
 function jsonStub(pathname: string, search: URLSearchParams): any {
   // 前端按运行时 apiVersion 请求 /api/v1/*；测试桩统一按 /api/* 匹配。
   pathname = pathname.replace(/^\/api\/v\d+\//, '/api/');
+  if (pathname === '/api/sessions') {
+    const all = (BASE_STUBS['/api/sessions'] as any).sessions as any[];
+    const archived = search.get('archived');
+    const limit = Math.max(1, Number(search.get('limit') || 20) || 20);
+    const rows = archived === 'true'
+      ? all.filter((row) => row.archived)
+      : archived === 'false'
+        ? all.filter((row) => !row.archived)
+        : all;
+    return { sessions: rows.slice(0, limit), total: rows.length };
+  }
   if (pathname === '/api/files') {
     return { entries: TREE_FILES[search.get('path') || ''] || [] };
   }
@@ -231,9 +257,25 @@ function startServer() {
   });
 }
 
-function makeFetch() {
+function makeFetch(requests: string[]) {
   return async (input: any) => {
     const url = new URL(String(input), 'http://127.0.0.1/');
+    requests.push(`${url.pathname}${url.search}`);
+    if (url.pathname.endsWith('/patch')) {
+      return new Response('--- a.py\n+++ a.py\n-old\n+new\n', {
+        status: 200,
+        headers: { 'content-type': 'text/x-patch' },
+      });
+    }
+    if (url.pathname.endsWith('/notifications/stream')) {
+      return new Response(
+        'data: {"enabled": false, "notifications": [], "unread": 0}\n\n',
+        {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        },
+      );
+    }
     const body = jsonStub(url.pathname, url.searchParams);
     const payload = body === null ? {} : body;
     return new Response(JSON.stringify(payload), {
@@ -271,6 +313,8 @@ export async function startApp() {
   const server = await startServer();
   const port = server.address().port;
   const warnings: string[] = [];
+  const requests: string[] = [];
+  const downloads: Array<{ href: string; download: string }> = [];
   const dom = await JSDOM.fromURL(`http://127.0.0.1:${port}/`, {
     resources: 'usable',
     runScripts: 'dangerously',
@@ -283,12 +327,20 @@ export async function startApp() {
         // CSP 表达式错误在测试末尾统一断言，避免刷屏掩盖真实失败。
         if (!line.includes('unable to interpret')) originalWarn(...args);
       };
-      window.fetch = makeFetch();
+      window.fetch = makeFetch(requests);
       window.Headers = globalThis.Headers;
       window.Response = globalThis.Response;
       window.TextDecoder = globalThis.TextDecoder;
       window.TextEncoder = globalThis.TextEncoder;
       window.structuredClone = globalThis.structuredClone;
+      window.URL.createObjectURL = () => 'blob:jsdom-stub';
+      window.URL.revokeObjectURL = () => {};
+      window.HTMLAnchorElement.prototype.click = function () {
+        downloads.push({
+          href: String(this.href),
+          download: String(this.download),
+        });
+      };
       window.matchMedia = () => ({
         matches: false,
         media: '',
@@ -323,6 +375,8 @@ export async function startApp() {
     dom,
     data,
     warnings,
+    requests,
+    downloads,
     window: dom.window as any,
     document: dom.window.document,
     async close() {

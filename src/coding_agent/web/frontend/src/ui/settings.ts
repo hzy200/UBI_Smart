@@ -44,8 +44,9 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     key: 'advanced',
     label: '高级',
     keywords: [
-      '高级', '快捷键', '重置', '导入', '导出', '实验', 'advanced',
-      'shortcut', 'reset', 'import', 'export', 'experimental',
+      '高级', '快捷键', '重置', '导入', '导出', '实验', '集成', '令牌',
+      '访问令牌', 'webhook', 'pat', 'ci', 'advanced', 'shortcut', 'reset',
+      'import', 'export', 'experimental', 'integration', 'token',
     ],
   },
 ];

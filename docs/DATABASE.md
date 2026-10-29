@@ -29,6 +29,12 @@ A2 的结构化业务数据统一写入 `AGENT_CONTROL_DB_URL`。企业部署使
 | 四眼审批 | `control_approvals` | L3 审批命令、发起人、状态、管理员决定；按 `(tenant, thread, call)` 唯一 |
 | 工作区 ACL | `control_workspace_acl` | 只读共享授权：`(tenant, workspace_id, grantee)` 唯一；只存 read，不含执行权 |
 | 密码重置 | `control_password_resets` | 一次性 token 的 sha256、过期与使用时间；成功消费即失效 |
+| 站内通知 | `control_notifications` | 按用户（tenant=用户名）保存最近 200 条；`(tenant, dedupe_key)` 唯一；前端只做离线缓存 |
+| Web Push 订阅 | `control_push_subscriptions` | 按用户保存浏览器 endpoint（哈希唯一）、p256dh/auth；410/404 自动清理 |
+| 个人访问令牌 | `control_api_tokens` | 只存 token 的 sha256、展示前缀与 scope；明文仅创建时返回一次 |
+| 出站 Webhook | `control_webhooks` | HTTPS URL、事件订阅、HMAC 签名 secret、最近投递状态 |
+| 只读分享 | `control_share_links` | 已脱敏快照 payload、token 哈希、过期/撤销/浏览数 |
+| 会话搜索 | `control_session_search` | 标题 + transcript 正文（最多 20k 字符）；SQLite 另建 FTS5 trigram 虚表 |
 | 会话目录 | `control_sessions` | 标题、workspace 绑定、模型/provider、未读/置顶/归档 |
 | 运行索引 | `control_runs` | 状态、起止、错误、token/成本副本 |
 | 审计索引 | `control_audit_index` | 审计哈希引用，不重写 A3 哈希链 |
@@ -87,8 +93,14 @@ python -m coding_agent.control.migrate
 ```
 
 迁移条目在 `src/coding_agent/control/migrations/versions/`，当前 head 为
-`0015_password_reset`。`0015` 新增 `control_password_resets`（一次性重置
-token 哈希）；`0014` 只给 `control_users` 增加 `max_access_mode` 列；`0013`
+`0019_share_links`。`0019` 新增 `control_share_links`；`0018` 新增
+`control_api_tokens` 与 `control_webhooks`；`0017` 新增
+`control_push_subscriptions`；
+`0016` 新增 `control_notifications` 与 `control_session_search`，并在
+SQLite 上创建 `control_session_fts`（FTS5 trigram；MySQL 没有 FTS5，
+走普通索引行 + LIKE）。`0015` 新增
+`control_password_resets`（一次性重置 token 哈希）；`0014` 只给
+`control_users` 增加 `max_access_mode` 列；`0013`
 只新增 `control_workspace_acl` 表。三者对在线库幂等，降级都只回写版本号
 （授权/访问上限/重置 token 是策略事实，不删表/列）。`0012` 新增身份/OIDC/
 MFA/审批表；`0011` 补人民币额度列、认证事件表、多实例预留表以及带 user

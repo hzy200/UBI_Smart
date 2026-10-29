@@ -36,6 +36,9 @@ class AuthUser:
     user_id: str = ""
     tenant: str = "local"
     role: str = "user"
+    # 空 tuple = 普通会话（完整权限）；PAT 只带显式 scope。
+    scopes: tuple[str, ...] = ()
+    auth_via_pat: bool = False
 
 
 @dataclass(slots=True)
@@ -46,6 +49,7 @@ class AuthConfig:
     allow_anonymous_local: bool = True
     accounts: Any | None = None
     sessions: Any | None = None
+    api_tokens: Any | None = None
     cookie_secure: bool = False
     session_cookie: str = "ca_session"
     csrf_cookie: str = "ca_csrf"
@@ -114,11 +118,31 @@ class AuthConfig:
         if header.lower().startswith(_BEARER_PREFIX):
             token = header[len(_BEARER_PREFIX) :].strip()
         if token:
-            # Bearer 只匹配静态 token；认证失败直接 401，不降级到 Cookie。
+            # Bearer 先匹配静态 token，再匹配个人访问令牌；失败直接 401。
             if self.tokens:
                 user = self.authenticate(token)
                 if user is not None:
                     return AuthUser(user)
+            if (
+                self.api_tokens is not None
+                and self.accounts is not None
+                and token.startswith("ca_pat_")
+            ):
+                resolved = self.api_tokens.resolve(token)
+                if resolved is not None:
+                    row = self.accounts.get(
+                        str(resolved.get("user_id") or "")
+                    )
+                    if row is None or row.get("status") != "active":
+                        raise _unauthorized()
+                    return AuthUser(
+                        name=str(row.get("username") or ""),
+                        user_id=str(row.get("id") or ""),
+                        tenant=str(row.get("tenant") or "default"),
+                        role=str(row.get("role") or "member"),
+                        scopes=tuple(resolved.get("scopes") or ()),
+                        auth_via_pat=True,
+                    )
             raise _unauthorized()
 
         if self.sessions is not None:
@@ -146,6 +170,59 @@ class AuthConfig:
         if self.allow_anonymous_local and self.is_loopback(client):
             return AuthUser("local")
         raise _unauthorized()
+
+    @staticmethod
+    def _normalized_path(path: str) -> str:
+        text = str(path or "")
+        if text.startswith("/api/v1/"):
+            return "/api/" + text[len("/api/v1/") :]
+        if text == "/api/v1":
+            return "/api"
+        return text
+
+    def required_pat_scope(
+        self, method: str, path: str
+    ) -> str | None:
+        """PAT 的最小 scope；None = 该路径不允许 PAT 访问。"""
+        verb = str(method or "GET").upper()
+        target = self._normalized_path(path)
+        if target == "/api/admin" or target.startswith("/api/admin/"):
+            return None
+        if target.startswith("/api/tokens") or target.startswith(
+            "/api/webhooks"
+        ):
+            return None
+        if target.startswith("/api/push/subscriptions"):
+            return None
+        if target == "/api/audit":
+            return "audit" if verb in {"GET", "HEAD"} else None
+        run_prefixes = (
+            "/api/steer/",
+            "/api/resume",
+            "/api/context/",
+            "/api/fork/",
+            "/api/rewind/",
+        )
+        if verb not in {"GET", "HEAD", "OPTIONS"} and (
+            target == "/api/run"
+            or target == "/api/sessions"
+            or target.startswith(run_prefixes)
+        ):
+            return "run"
+        if verb in {"GET", "HEAD", "OPTIONS"} and target.startswith(
+            "/api/"
+        ):
+            return "read"
+        return None
+
+    def authorize_pat(self, request: Request, user: AuthUser) -> None:
+        if not user.auth_via_pat:
+            return
+        required = self.required_pat_scope(
+            request.method, request.url.path
+        )
+        if required is None or required not in user.scopes:
+            raise _forbidden("个人访问令牌权限不足")
 
     def require_csrf(self, request: Request) -> None:
         """Cookie 身份的非幂等请求必须带双提交 CSRF token。"""

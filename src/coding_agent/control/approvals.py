@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -31,6 +32,16 @@ def _now() -> str:
     return str(int(time.time()))
 
 
+def _iso(value: str) -> str:
+    """epoch 秒 → ISO；空串/非法值原样返回。"""
+    try:
+        return datetime.fromtimestamp(
+            int(str(value)), UTC
+        ).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OSError):
+        return str(value or "")
+
+
 def _public(row: ControlApproval) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -47,6 +58,10 @@ def _public(row: ControlApproval) -> dict[str, Any]:
         "decided_at": row.decided_at,
         "created_at": row.created_at,
         "expires_at": row.expires_at,
+        # 前端显示用；原 epoch 字段保留给旧调用方。
+        "created_at_iso": _iso(row.created_at),
+        "decided_at_iso": _iso(row.decided_at),
+        "expires_at_iso": _iso(row.expires_at),
     }
 
 
@@ -221,6 +236,57 @@ class ApprovalStore:
                 .limit(max(1, int(limit)))
             ).all()
             return [_public(row) for row in rows]
+
+    def history(
+        self,
+        tenant: str,
+        *,
+        status: str = "",
+        requested_by: str = "",
+        from_ts: str = "",
+        to_ts: str = "",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """审批历史；`from_ts`/`to_ts` 是 epoch 秒字符串。"""
+        conditions = [ControlApproval.tenant == str(tenant)]
+        if status:
+            conditions.append(ControlApproval.status == str(status))
+        if requested_by:
+            conditions.append(
+                ControlApproval.requested_by == str(requested_by)
+            )
+        if from_ts:
+            conditions.append(ControlApproval.created_at >= str(from_ts))
+        if to_ts:
+            conditions.append(ControlApproval.created_at <= str(to_ts))
+        size = max(1, min(500, int(limit)))
+        start = max(0, int(offset))
+        with Session(self.engine) as session:
+            total = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(ControlApproval)
+                    .where(*conditions)
+                )
+                or 0
+            )
+            rows = session.scalars(
+                select(ControlApproval)
+                .where(*conditions)
+                .order_by(
+                    ControlApproval.created_at.desc(),
+                    ControlApproval.id.desc(),
+                )
+                .offset(start)
+                .limit(size)
+            ).all()
+        records = [_public(row) for row in rows]
+        return {
+            "records": records,
+            "total": total,
+            "has_more": start + len(records) < total,
+        }
 
     def purge_expired(self) -> int:
         now = int(time.time())

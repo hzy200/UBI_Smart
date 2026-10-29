@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Icon } from './Icons';
+import { useAdminI18n } from '../i18n';
 
 export function ConfirmDialog({
   open,
@@ -20,6 +21,7 @@ export function ConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useAdminI18n();
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -50,14 +52,14 @@ export function ConfirmDialog({
         <p>{message}</p>
         <div className="modal-actions">
           <button ref={cancelRef} className="btn ghost" onClick={onCancel} disabled={busy}>
-            取消
+            {t('cancel')}
           </button>
           <button
             className={`btn ${danger ? 'danger-solid' : 'primary'}`}
             onClick={onConfirm}
             disabled={busy}
           >
-            {busy ? '处理中…' : confirmLabel}
+            {busy ? t('processing') : confirmLabel}
           </button>
         </div>
       </div>

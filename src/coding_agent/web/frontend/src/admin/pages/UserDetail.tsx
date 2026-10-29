@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { QuotaBar } from '../components/QuotaBar';
 import type { Notify } from '../components/Toasts';
 import { formatCost, formatDate, formatNumber, initials } from '../lib/format';
+import { useAdminI18n } from '../i18n';
 
 const EMPTY_USAGE: UsageToday = {
   day: '',
@@ -39,6 +40,7 @@ export function UserDetail({
   notify: Notify;
   onBack: () => void;
 }) {
+  const { t, locale } = useAdminI18n();
   const [quota, setQuota] = useState<Quota>({ daily_tokens: 0, daily_cost_cny: 0, enabled: false });
   const [usage, setUsage] = useState<UsageToday>(EMPTY_USAGE);
   const [providers, setProviders] = useState<ProviderKeyRow[]>([]);
@@ -75,7 +77,7 @@ export function UserDetail({
     try {
       const data = await api.saveQuota(user.id, quota);
       setQuota(data.quota);
-      notify('额度已保存');
+      notify(t('quotaSaved'));
       await loadAll();
     } catch (err) {
       notify(String(err), 'error');
@@ -95,7 +97,7 @@ export function UserDetail({
       setProviders((rows) => rows.map((row) => (
         row.provider === provider ? { ...row, has_key: true, last4: data.last4 } : row
       )));
-      notify(`${provider} 的 Key 已保存`);
+      notify(t('keySaved', { provider }));
     } catch (err) {
       notify(String(err), 'error');
     } finally {
@@ -111,7 +113,7 @@ export function UserDetail({
       setProviders((rows) => rows.map((row) => (
         row.provider === deleteTarget ? { ...row, has_key: false, last4: '' } : row
       )));
-      notify(`${deleteTarget} 的 Key 已删除`);
+      notify(t('keyDeleted', { provider: deleteTarget }));
       setDeleteTarget('');
     } catch (err) {
       notify(String(err), 'error');
@@ -126,7 +128,7 @@ export function UserDetail({
     try {
       await api.resetPassword(user.id, password);
       setPassword('');
-      notify('密码已重置，现有会话已失效');
+      notify(t('passwordReset'));
     } catch (err) {
       notify(String(err), 'error');
     } finally {
@@ -138,7 +140,7 @@ export function UserDetail({
     <section className="page">
       <div className="detail-head">
         <button className="btn ghost small" onClick={onBack}>
-          <Icon name="back" /> 返回用户列表
+          <Icon name="back" /> {t('detailBack')}
         </button>
         <div className="detail-identity">
           <span className="avatar large" aria-hidden="true">{initials(user.username)}</span>
@@ -146,20 +148,22 @@ export function UserDetail({
             <h2>{user.username}</h2>
             <p>
               <span className={`pill role-${user.role}`}>
-                {user.role === 'owner'
-                  ? '所有者'
-                  : user.role === 'admin'
-                    ? '管理员'
-                    : user.role === 'approver'
-                      ? '审批人'
-                      : user.role === 'auditor'
-                        ? '审计员'
-                        : '成员'}
+                {t(
+                  user.role === 'owner'
+                    ? 'roleOwner'
+                    : user.role === 'admin'
+                      ? 'roleAdmin'
+                      : user.role === 'approver'
+                        ? 'roleApprover'
+                        : user.role === 'auditor'
+                          ? 'roleAuditor'
+                          : 'roleMember',
+                )}
               </span>
               <span className={`pill ${user.status === 'active' ? 'ok' : 'bad'}`}>
-                {user.status === 'active' ? '启用' : '禁用'}
+                {user.status === 'active' ? t('active') : t('disabled')}
               </span>
-              <span className="muted">{user.email || '未设置邮箱'}</span>
+              <span className="muted">{user.email || t('emailUnset')}</span>
             </p>
           </div>
         </div>
@@ -169,36 +173,36 @@ export function UserDetail({
         <div className="card">
           <div className="card-head">
             <div>
-              <h3>今日用量</h3>
-              <p className="hint">{formatDate(usage.day)} · {usage.runs} 次运行</p>
+              <h3>{t('todayUsageTitle')}</h3>
+              <p className="hint">{formatDate(usage.day, locale)} · {t('runsCount', { count: usage.runs })}</p>
             </div>
-            <span className="pill">{formatNumber(usage.tokens)} tokens</span>
+            <span className="pill">{formatNumber(usage.tokens, locale)} tokens</span>
           </div>
           <QuotaBar
             label="Token"
             used={usage.tokens}
             limit={quota.enabled ? quota.daily_tokens : 0}
-            format={formatNumber}
+            format={(value: number) => formatNumber(value, locale)}
           />
           <QuotaBar
-            label="成本"
+            label={t('cost')}
             used={usage.cost_cny}
             limit={quota.enabled ? quota.daily_cost_cny : 0}
             format={formatCost}
           />
           <dl className="mini-stats">
-            <div><dt>输入</dt><dd>{formatNumber(usage.input_tokens)}</dd></div>
-            <div><dt>输出</dt><dd>{formatNumber(usage.output_tokens)}</dd></div>
-            <div><dt>Worker</dt><dd>{formatNumber(usage.worker_input_tokens + usage.worker_output_tokens)}</dd></div>
-            <div><dt>预留</dt><dd>{formatNumber(usage.reserved_tokens)}</dd></div>
+            <div><dt>{t('input')}</dt><dd>{formatNumber(usage.input_tokens, locale)}</dd></div>
+            <div><dt>{t('output')}</dt><dd>{formatNumber(usage.output_tokens, locale)}</dd></div>
+            <div><dt>{t('worker')}</dt><dd>{formatNumber(usage.worker_input_tokens + usage.worker_output_tokens, locale)}</dd></div>
+            <div><dt>{t('reserved')}</dt><dd>{formatNumber(usage.reserved_tokens, locale)}</dd></div>
           </dl>
         </div>
 
         <form className="card" onSubmit={saveQuota}>
           <div className="card-head">
             <div>
-              <h3>每日额度</h3>
-              <p className="hint">0 表示不限制；按 UTC 日结算。</p>
+              <h3>{t('dailyQuota')}</h3>
+              <p className="hint">{t('dailyQuotaHint')}</p>
             </div>
             <label className="switch">
               <input
@@ -206,11 +210,11 @@ export function UserDetail({
                 checked={quota.enabled}
                 onChange={(event) => setQuota({ ...quota, enabled: event.target.checked })}
               />
-              <span>启用</span>
+              <span>{t('enableQuota')}</span>
             </label>
           </div>
           <label>
-            每日 token 上限
+            {t('dailyTokens')}
             <input
               type="number"
               min={0}
@@ -219,7 +223,7 @@ export function UserDetail({
             />
           </label>
           <label>
-            每日成本上限（CNY）
+            {t('dailyCost')}
             <input
               type="number"
               min={0}
@@ -228,15 +232,15 @@ export function UserDetail({
               onChange={(event) => setQuota({ ...quota, daily_cost_cny: Number(event.target.value) })}
             />
           </label>
-          <button className="btn primary" type="submit" disabled={busy}>保存额度</button>
+          <button className="btn primary" type="submit" disabled={busy}>{t('saveQuota')}</button>
         </form>
       </div>
 
       <div className="card">
         <div className="card-head">
           <div>
-            <h3>上游模型 Key</h3>
-            <p className="hint">AES-256-GCM 加密保存，只显示后四位；用户端不会拿到明文。</p>
+            <h3>{t('providerKeys')}</h3>
+            <p className="hint">{t('providerKeysHint')}</p>
           </div>
           <Icon name="key" />
         </div>
@@ -245,9 +249,9 @@ export function UserDetail({
             <div className="key-row" key={row.provider}>
               <div className="key-info">
                 <strong>{row.provider}</strong>
-                <span className="muted">{row.model || '—'} · {row.base_url || '环境默认'}</span>
+                <span className="muted">{row.model || t('none')} · {row.base_url || t('envDefault')}</span>
                 <span className={`pill ${row.has_key ? 'ok' : ''}`}>
-                  {row.has_key ? `已配置 · …${row.last4 || '****'}` : '未配置'}
+                  {row.has_key ? t('keyConfigured', { last4: row.last4 || '****' }) : t('keyUnconfigured')}
                 </span>
               </div>
               <div className="key-actions">
@@ -255,34 +259,34 @@ export function UserDetail({
                   <input
                     type={visible[row.provider] ? 'text' : 'password'}
                     autoComplete="off"
-                    placeholder="粘贴新的 API Key"
+                    placeholder={t('keyPlaceholder')}
                     value={keys[row.provider] || ''}
                     onChange={(event) => setKeys({ ...keys, [row.provider]: event.target.value })}
                   />
                   <button
                     type="button"
                     className="password-toggle"
-                    aria-label={visible[row.provider] ? '隐藏 Key' : '显示 Key'}
+                    aria-label={visible[row.provider] ? t('hideKey') : t('showKey')}
                     onClick={() => setVisible({ ...visible, [row.provider]: !visible[row.provider] })}
                   >
                     <Icon name={visible[row.provider] ? 'eye-off' : 'eye'} />
                   </button>
                 </span>
                 <button className="btn small primary" onClick={() => void saveKey(row.provider)} disabled={busy}>
-                  保存
+                  {t('save')}
                 </button>
                 <button
                   className="btn small ghost"
                   disabled={!row.has_key || busy}
                   onClick={() => setDeleteTarget(row.provider)}
                 >
-                  删除
+                  {t('delete')}
                 </button>
               </div>
             </div>
           ))}
           {providers.length === 0 && (
-            <p className="muted">部署未配置任何上游 provider。</p>
+            <p className="muted">{t('noProviders')}</p>
           )}
         </div>
       </div>
@@ -290,8 +294,8 @@ export function UserDetail({
       <div className="card">
         <div className="card-head">
           <div>
-            <h3>登录安全事件</h3>
-            <p className="hint">登录成功、失败、登出与限流；不含密码或 token。</p>
+            <h3>{t('authEvents')}</h3>
+            <p className="hint">{t('authEventsHint')}</p>
           </div>
           <Icon name="shield" />
         </div>
@@ -299,43 +303,43 @@ export function UserDetail({
           {events.map((event) => (
             <div className="event-row" key={event.id}>
               <span className={`pill ${eventTone(event.event)}`}>
-                {eventLabel(event.event)}
+                {eventLabel(event.event, t)}
               </span>
-              <span className="mono muted">{formatDate(event.ts)}</span>
+              <span className="mono muted">{formatDate(event.ts, locale)}</span>
               <span className="muted">{event.ip || '—'}</span>
               <span className="muted mono event-req">{event.request_id || ''}</span>
             </div>
           ))}
-          {events.length === 0 && <p className="muted">还没有登录事件。</p>}
+          {events.length === 0 && <p className="muted">{t('noAuthEvents')}</p>}
         </div>
       </div>
 
       <form className="card narrow" onSubmit={resetPassword}>
         <div className="card-head">
           <div>
-            <h3>重置密码</h3>
-            <p className="hint">重置后该用户的所有现有会话立即失效。</p>
+            <h3>{t('resetPassword')}</h3>
+            <p className="hint">{t('resetPasswordHint')}</p>
           </div>
         </div>
         <label>
-          新密码
+          {t('newPassword')}
           <input
             type="password"
             minLength={8}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder="至少 8 位"
+            placeholder={t('loginPasswordPlaceholder')}
             required
           />
         </label>
-        <button className="btn" type="submit" disabled={busy}>重置密码</button>
+        <button className="btn" type="submit" disabled={busy}>{t('resetPasswordButton')}</button>
       </form>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
-        title="删除上游 Key"
-        message={`删除 ${deleteTarget} 的 Key 后，该用户将无法使用这个 provider 运行任务。`}
-        confirmLabel="删除"
+        title={t('deleteKeyTitle')}
+        message={t('deleteKeyMessage', { provider: deleteTarget })}
+        confirmLabel={t('delete')}
         danger
         busy={busy}
         onCancel={() => setDeleteTarget('')}
@@ -345,13 +349,16 @@ export function UserDetail({
   );
 }
 
-function eventLabel(event: string): string {
+function eventLabel(
+  event: string,
+  t: (key: string) => string,
+): string {
   return (
     {
-      login_ok: '登录成功',
-      login_failed: '登录失败',
-      login_rate_limited: '触发限流',
-      logout: '退出登录',
+      login_ok: t('loginOk'),
+      login_failed: t('loginFailed'),
+      login_rate_limited: t('loginRateLimited'),
+      logout: t('logoutEvent'),
     }[event] || event
   );
 }

@@ -1,16 +1,26 @@
-export function formatNumber(value: number): string {
-  return new Intl.NumberFormat('zh-CN').format(Number(value || 0));
+export function formatNumber(value: number, locale = 'zh-CN'): string {
+  return new Intl.NumberFormat(locale).format(Number(value || 0));
 }
 
 export function formatCost(value: number): string {
   return `¥${Number(value || 0).toFixed(4)}`;
 }
 
-export function formatDate(value: string): string {
+export function formatBytes(value: number): string {
+  const size = Number(value || 0);
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  if (size < 1024 * 1024 * 1024) {
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  }
+  return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+export function formatDate(value: string, locale = 'zh-CN'): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

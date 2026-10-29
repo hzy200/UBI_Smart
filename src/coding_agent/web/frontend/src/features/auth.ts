@@ -304,6 +304,8 @@ export const authMixin = {
     } catch (err) {
       // 服务端注销失败也要清掉本地凭证，避免界面继续显示已登录。
     }
+    // 在清 token 之前撤销本设备的推送订阅，避免下一个账号收到旧通知。
+    await this.removePushSubscription();
     setToken('');
     clearGetCache();
     void clearHistoryCache();

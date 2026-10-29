@@ -5,22 +5,32 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+import json
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from coding_agent.config import Settings
 from coding_agent.control.accounts import AccountError
 from coding_agent.control.approvals import SelfApprovalError
 from coding_agent.costs import CurrencyConfig
-from coding_agent.observability import inc
+from coding_agent.observability import inc, snapshot
 from coding_agent.secrets_store import SecretStoreUnavailable
+from coding_agent.sse_stream import sse_headers, with_heartbeat
 from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import AdminDep, ApproverDep, AuditorDep
+from coding_agent.web.dependencies import (
+    AdminDep,
+    ApprovalReadDep,
+    ApproverDep,
+    AuditorDep,
+)
+from coding_agent.web.version import WEB_API_VERSION
 
 
 class CreateUserRequest(BaseModel):
@@ -64,6 +74,11 @@ class ProviderKeyRequest(BaseModel):
 class ApprovalDecisionRequest(BaseModel):
     approved: bool
     reason: str = Field(default="", max_length=500)
+
+
+class BatchApprovalRequest(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=200)
+    approved: bool
 
 
 class WorkspaceAclRequest(BaseModel):
@@ -112,6 +127,27 @@ def _day(text: str, fallback: date) -> date:
         return datetime.strptime(str(text), "%Y-%m-%d").date()
     except (TypeError, ValueError):
         return fallback
+
+
+def _epoch(value: str, *, end_of_day: bool = False) -> str:
+    """日期/ISO → epoch 秒字符串；空或非法值返回空串（= 不过滤）。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        if len(text) == 10:
+            parsed = datetime.strptime(text, "%Y-%m-%d").replace(
+                tzinfo=UTC
+            )
+            if end_of_day:
+                parsed += timedelta(days=1, seconds=-1)
+            return str(int(parsed.timestamp()))
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return str(int(parsed.timestamp()))
+    except ValueError:
+        return ""
 
 
 def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
@@ -335,6 +371,80 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             )
         }
 
+    @app.get("/api/admin/audit")
+    async def audit(
+        admin: AuditorDep,
+        user: str = "",
+        thread_id: str = "",
+        kind: str = "",
+        tool: str = "",
+        ok: bool | None = None,
+        since: str = "",
+        until: str = "",
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+    ) -> dict:
+        """组织成员的审计索引；可信源仍是各租户的哈希链审计文件。"""
+        if deps.control_store is None:
+            raise HTTPException(status_code=503, detail="控制面数据库不可用")
+        names = (
+            [row["username"] for row in deps.accounts.list(admin.tenant)]
+            if deps.accounts is not None
+            else [admin.name]
+        )
+        if user and user not in names:
+            return {"records": [], "total": 0, "has_more": False}
+        return deps.control_store.list_audit(
+            names,
+            user=user.strip(),
+            thread_id=thread_id.strip(),
+            kind=kind.strip(),
+            tool=tool.strip(),
+            ok=ok,
+            since=since.strip(),
+            until=until.strip(),
+            limit=limit,
+            offset=offset,
+        )
+
+    @app.get("/api/admin/health")
+    async def health(admin: AuditorDep) -> dict:
+        """管理端健康摘要：数据库连通性 + 进程内计数/连接数。"""
+        database_ok = bool(
+            deps.control_store is not None and deps.control_store.ping()
+        )
+        metrics = snapshot()
+        return {
+            "ok": database_ok,
+            "time": datetime.now(UTC).isoformat(timespec="seconds"),
+            "api_version": WEB_API_VERSION,
+            "database": {
+                "ok": database_ok,
+                "error": "" if database_ok else "unavailable",
+            },
+            "metrics": metrics,
+        }
+
+    @app.post("/api/admin/search/reindex")
+    async def reindex_search(admin: AdminDep) -> dict:
+        """重建组织成员的会话搜索索引（标题/摘要）。
+
+        transcript 正文不在控制面，无法从这里反推；已有的正文索引会保留，
+        空正文用 `control_sessions.last_message` 兜底。完整正文在用户下次
+        保存轨迹时补齐。
+        """
+        if deps.control_store is None:
+            raise HTTPException(status_code=503, detail="控制面数据库不可用")
+        names = (
+            [row["username"] for row in deps.accounts.list(admin.tenant)]
+            if deps.accounts is not None
+            else [admin.name]
+        )
+        count = await asyncio.to_thread(
+            deps.control_store.rebuild_session_search, names
+        )
+        return {"ok": True, "reindexed": count}
+
     @app.get("/api/admin/usage")
     async def usage(
         admin: AuditorDep,
@@ -386,6 +496,40 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             # 不跨账号租户管理别人的工作区。
             raise HTTPException(status_code=404, detail="工作区不存在")
         return row
+
+    @app.get("/api/admin/workspaces")
+    async def list_workspaces(
+        admin: AuditorDep,
+        q: str = "",
+        kind: str = "",
+        limit: int = Query(200, ge=1, le=500),
+    ) -> dict:
+        """组织内可见的工作区；auditor 只拿到元数据，不含宿主路径。"""
+        store = _workspace_store()
+        rows = await asyncio.to_thread(
+            store.list_visible,
+            admin.tenant,
+            admin.name,
+            admin.role,
+            limit=limit,
+        )
+        query = q.strip().lower()
+        if query:
+            rows = [
+                row
+                for row in rows
+                if query in str(row.get("owner", "")).lower()
+                or query in str(row.get("display_name", "")).lower()
+                or query in str(row.get("root_path", "")).lower()
+                or query in str(row.get("workspace_id", "")).lower()
+            ]
+        if kind:
+            rows = [
+                row
+                for row in rows
+                if str(row.get("kind") or "") == kind
+            ]
+        return {"workspaces": rows}
 
     @app.get("/api/admin/workspaces/{workspace_id}/acl")
     async def list_workspace_acl(
@@ -463,6 +607,90 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             ),
         }
 
+    @app.get("/api/admin/approvals/history")
+    async def approval_history(
+        admin: ApprovalReadDep,
+        status: str = "",
+        user: str = "",
+        from_day: str = Query("", alias="from"),
+        to_day: str = Query("", alias="to"),
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+    ) -> dict:
+        if status and status not in {
+            "pending",
+            "approved",
+            "denied",
+            "expired",
+        }:
+            raise HTTPException(status_code=422, detail="未知审批状态")
+        if deps.approvals is None:
+            return {
+                "enabled": False,
+                "records": [],
+                "total": 0,
+                "has_more": False,
+            }
+        data = await asyncio.to_thread(
+            deps.approvals.history,
+            admin.tenant,
+            status=status.strip(),
+            requested_by=user.strip(),
+            from_ts=_epoch(from_day),
+            to_ts=_epoch(to_day, end_of_day=True),
+            limit=limit,
+            offset=offset,
+        )
+        data["enabled"] = True
+        return data
+
+    @app.get("/api/admin/approvals/stream")
+    async def approval_stream(
+        request: Request,
+        admin: ApproverDep,
+    ) -> StreamingResponse:
+        """审批队列 SSE：快照变化时推送，避免管理端每 5s 空轮询。
+
+        审批可能由另一个进程写入数据库，所以服务端仍以数据库为准做对比；
+        这里只降低前端延迟与无效请求，不改变审批事实源。
+        """
+
+        async def events() -> AsyncIterator[str]:
+            if deps.approvals is None:
+                yield 'data: {"enabled": false, "approvals": [], "count": 0}\n\n'
+                return
+            last = ""
+            while not await request.is_disconnected():
+                try:
+                    rows = await asyncio.to_thread(
+                        deps.approvals.pending, admin.tenant
+                    )
+                except Exception as exc:  # noqa: BLE001 - 用事件告知客户端
+                    yield (
+                        "event: error\n"
+                        f"data: {json.dumps({'error': str(exc)[:200]})}\n\n"
+                    )
+                    await asyncio.sleep(5)
+                    continue
+                payload = json.dumps(
+                    {
+                        "enabled": True,
+                        "approvals": rows,
+                        "count": len(rows),
+                    },
+                    ensure_ascii=False,
+                )
+                if payload != last:
+                    last = payload
+                    yield f"data: {payload}\n\n"
+                await asyncio.sleep(2)
+
+        return StreamingResponse(
+            with_heartbeat(events(), interval_s=15.0),
+            media_type="text/event-stream",
+            headers=sse_headers(),
+        )
+
     @app.post("/api/admin/approvals/{approval_id}/decide")
     async def decide_approval(
         approval_id: str,
@@ -503,3 +731,55 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             except Exception:  # noqa: BLE001
                 pass
         return {"ok": True, "approval": row}
+
+    @app.post("/api/admin/approvals/batch")
+    async def batch_approvals(
+        payload: BatchApprovalRequest,
+        admin: ApproverDep,
+    ) -> dict:
+        if deps.approvals is None:
+            raise HTTPException(status_code=503, detail="四眼审批未启用")
+        results: list[dict[str, Any]] = []
+        updated = 0
+        for approval_id in payload.ids:
+            try:
+                row = await asyncio.to_thread(
+                    deps.approvals.decide,
+                    tenant=admin.tenant,
+                    approval_id=approval_id,
+                    approver=admin.name,
+                    approved=payload.approved,
+                )
+            except SelfApprovalError as exc:
+                results.append(
+                    {"id": approval_id, "ok": False, "error": str(exc)}
+                )
+                continue
+            if row is None:
+                results.append(
+                    {
+                        "id": approval_id,
+                        "ok": False,
+                        "error": "审批不存在",
+                    }
+                )
+                continue
+            updated += 1
+            results.append(
+                {
+                    "id": approval_id,
+                    "ok": True,
+                    "status": row.get("status", ""),
+                }
+            )
+        if updated:
+            inc(
+                "agent_approvals_total",
+                {
+                    "decision": (
+                        "approved" if payload.approved else "denied"
+                    )
+                },
+                updated,
+            )
+        return {"ok": True, "updated": updated, "results": results}

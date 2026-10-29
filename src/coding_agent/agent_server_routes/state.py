@@ -15,6 +15,7 @@ from coding_agent.agent_server_models import MemoryBody
 from coding_agent.agent_server_support import _safe_tenant
 from coding_agent.audit.logger import audit_files_by_day, read_records_many
 from coding_agent.memory.sessions import SessionIndex
+from coding_agent.run_compare import build_runs, compare_runs
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,88 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
             return {
                 "prefix": runtime.last_run_started_at(thread_id)
             }
+        finally:
+            await deps.close_runtime(runtime)
+
+    @app.get("/v1/sessions/{thread_id}/patch")
+    async def session_patch(thread_id: str, request: Request) -> dict:
+        """本轮改动的合并补丁。返回文本而非文件：A2 决定怎么呈现（下载/预览）。"""
+        context = deps.context(request)
+        runtime = deps.new_runtime(context)
+        try:
+            return {"patch": runtime.session_patch(thread_id)}
+        finally:
+            await deps.close_runtime(runtime)
+
+    @app.get("/v1/sessions/{thread_id}/runs")
+    async def session_runs(
+        thread_id: str, request: Request, limit: int = 20
+    ) -> dict:
+        context = deps.context(request)
+        runtime = deps.new_runtime(context)
+        try:
+            records = read_records_many(
+                runtime.audit_files, thread_id=thread_id, limit=5000
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        finally:
+            await deps.close_runtime(runtime)
+        return {
+            "runs": build_runs(
+                [record.model_dump(mode="json") for record in records],
+                limit=max(1, min(50, int(limit))),
+            )
+        }
+
+    @app.get("/v1/sessions/{thread_id}/runs/compare")
+    async def compare_session_runs(
+        thread_id: str,
+        request: Request,
+        left: int,
+        right: int,
+        max_files: int = 30,
+    ) -> dict:
+        context = deps.context(request)
+        runtime = deps.new_runtime(context)
+        size = max(1, min(50, int(max_files)))
+        try:
+            records = read_records_many(
+                runtime.audit_files, thread_id=thread_id, limit=5000
+            )
+            try:
+                data = compare_runs(
+                    build_runs(
+                        [
+                            record.model_dump(mode="json")
+                            for record in records
+                        ],
+                        limit=1000,
+                    ),
+                    left,
+                    right,
+                )
+            except KeyError as exc:
+                raise HTTPException(
+                    status_code=404, detail=str(exc)
+                ) from exc
+            files = data["files"]
+            truncated = max(0, len(files) - size)
+            for item in files[:size]:
+                for side in ("left", "right"):
+                    info = item.get(side)
+                    if not info or not info.get("snapshot_id"):
+                        continue
+                    try:
+                        info["diff"] = runtime.diff_snapshot(
+                            path=item["path"],
+                            snapshot_id=info["snapshot_id"],
+                        )[:200_000]
+                    except Exception:  # noqa: BLE001
+                        info["diff"] = ""
+            data["files"] = files[:size]
+            data["truncated_files"] = truncated
+            return data
         finally:
             await deps.close_runtime(runtime)
 

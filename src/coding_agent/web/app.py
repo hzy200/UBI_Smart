@@ -41,12 +41,15 @@ from coding_agent.access import (
 )
 from coding_agent.concurrency import ConcurrencyGovernor
 from coding_agent.config import Settings, apply_security_profile, get_settings
+from coding_agent.control.webhooks import schedule_webhooks
 from coding_agent.events import (
     ApprovalRequested,
     Event,
     RunFailed,
+    RunFinished,
     SteeringApplied,
 )
+from coding_agent.observability import note_silent_failure
 from coding_agent.sse_stream import (
     SSE_HEARTBEAT_MS,
     sse_headers,
@@ -76,6 +79,7 @@ from coding_agent.web.middleware import (
 from coding_agent.web.models import (
     SessionConfig,
 )
+from coding_agent.web.push import PushService, schedule_push
 from coding_agent.web.routes.admin import AdminDeps, register_admin_routes
 from coding_agent.web.routes.auth import AuthRouteDeps, register_auth_routes
 from coding_agent.web.routes.compact import CompactDeps, register_compact_routes
@@ -83,21 +87,33 @@ from coding_agent.web.routes.desktop import (
     DesktopDeps,
     register_desktop_routes,
 )
+from coding_agent.web.routes.notifications import (
+    NotificationDeps,
+    notification_payload,
+    register_notification_routes,
+)
 from coding_agent.web.routes.ops import OpsDeps, register_ops_routes
 from coding_agent.web.routes.providers import ProviderDeps, register_provider_routes
+from coding_agent.web.routes.push import PushDeps, register_push_routes
 from coding_agent.web.routes.runs import RunDeps, register_run_routes
 from coding_agent.web.routes.sessions import (
     SessionDeps,
     register_session_routes,
 )
+from coding_agent.web.routes.shares import ShareDeps, register_share_routes
 from coding_agent.web.routes.snapshots import (
     SnapshotDeps,
     register_snapshot_routes,
 )
 from coding_agent.web.routes.system import SystemDeps, register_system_routes
+from coding_agent.web.routes.tokens import TokenDeps, register_token_routes
 from coding_agent.web.routes.uploads import (
     UploadDeps,
     register_upload_routes,
+)
+from coding_agent.web.routes.webhooks import (
+    WebhookDeps,
+    register_webhook_routes,
 )
 from coding_agent.web.routes.workspace import (
     WorkspaceDeps,
@@ -112,6 +128,7 @@ from coding_agent.web.services import (
     ProviderService,
     SessionCatalog,
 )
+from coding_agent.web.transcripts import load_transcript
 from coding_agent.web.version import (
     MIN_API_VERSION,
     MIN_FRONTEND_VERSION,
@@ -452,12 +469,25 @@ def create_app(
                 "控制面数据库不可用，进入只读降级：%s", exc
             )
 
+    api_token_store = None
+    webhook_store = None
+    webhook_service = None
+    share_store = None
     if control_store is not None:
         try:
             # 只清理过期预留；其他实例仍在运行的预留不能被误清零。
             control_store.purge_expired_reservations()
         except Exception:  # noqa: BLE001 - 清理失败不阻断启动
             _LOG.warning("清理配额预留失败", exc_info=True)
+        from coding_agent.control.shares import ShareStore
+        from coding_agent.control.webhooks import (
+            WebhookService,
+            WebhookStore,
+        )
+
+        webhook_store = WebhookStore(control_store.engine)
+        webhook_service = WebhookService(webhook_store)
+        share_store = ShareStore(control_store.engine)
 
     if settings.web_accounts_enabled:
         if not control_db_url:
@@ -512,6 +542,11 @@ def create_app(
             ttl_s=settings.web_password_reset_ttl_s,
         )
         auth.bind_accounts(account_store, session_store)
+        if account_store is not None:
+            from coding_agent.control.api_tokens import ApiTokenStore
+
+            api_token_store = ApiTokenStore(control_store.engine)
+            auth.api_tokens = api_token_store
         if settings.control_db_auto_create:
             _LOG.warning(
                 "企业账号已启用且 AGENT_CONTROL_DB_AUTO_CREATE=true；"
@@ -624,6 +659,16 @@ def create_app(
 
     owns_transport = event_transport is None
     transport = event_transport
+    if (
+        not stream_buffer
+        and transport is None
+        and str(settings.event_transport or "memory").strip().lower()
+        == "redis"
+    ):
+        raise ValueError(
+            "AGENT_EVENT_TRANSPORT=redis 需要 stream_buffer=True；"
+            "server/control/desktop 入口已默认开启"
+        )
     if stream_buffer and transport is None:
         from coding_agent.event_transport import build_event_transport
 
@@ -697,6 +742,33 @@ def create_app(
     limiter = _make_limiter(
         settings.web_rate_limit_per_min, "coding-agent:rate"
     )
+    event_backend = (
+        "redis"
+        if transport is not None
+        and type(transport).__name__ == "RedisStreamEventTransport"
+        else ("memory" if transport is not None else "none")
+    )
+    rate_backend = (
+        "redis"
+        if isinstance(limiter, RedisFixedWindowRateLimiter)
+        else "memory"
+    )
+    credential_backend = (
+        "db-encrypted"
+        if credential_store is not None
+        and bool(getattr(credential_store, "key", b""))
+        else ("keyring" if credential_store is None else "unconfigured")
+    )
+    app.state.collaboration = {
+        "event_transport": event_backend,
+        "rate_limit": rate_backend,
+        "credentials": credential_backend,
+        "shared_state": (
+            event_backend == "redis"
+            and rate_backend == "redis"
+            and credential_backend == "db-encrypted"
+        ),
+    }
     catalog = SessionCatalog(
         tenants=tenants,
         tenant=lambda user: _tenant(user),
@@ -751,6 +823,22 @@ def create_app(
                 "code": "auth.rate_limited",
                 "message": "登录尝试过于频繁，请稍后再试",
             },
+            headers={"Retry-After": str(retry)},
+        )
+
+    csp_limiter = _make_limiter(
+        settings.web_csp_report_rate_limit_per_min,
+        "coding-agent:csp-report",
+    )
+
+    def _csp_rate_limit(ip: str) -> None:
+        key = ip or "unknown"
+        if csp_limiter.allow(key):
+            return
+        retry = csp_limiter.retry_after(key)
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "csp.rate_limited"},
             headers={"Retry-After": str(retry)},
         )
 
@@ -844,6 +932,46 @@ def create_app(
             except asyncio.QueueFull:
                 pass
 
+    async def _record_event_notification(
+        user_name: str, public_thread: str, event: Event
+    ) -> None:
+        """本地 runtime 路径也写站内通知；代理路径由 runs.py 负责。"""
+        if control_store is None:
+            return
+        if not isinstance(event, (ApprovalRequested, RunFailed, RunFinished)):
+            return
+        notice = notification_payload(event.model_dump())
+        if notice is None:
+            return
+        kind, title, body, dedupe = notice
+        try:
+            row = await asyncio.to_thread(
+                control_store.add_notification,
+                user_name,
+                kind=kind,
+                title=title,
+                body=body,
+                thread_id=public_thread,
+                dedupe_key=dedupe,
+            )
+            if row:
+                schedule_push(push_service, user_name, row)
+                schedule_webhooks(
+                    webhook_service,
+                    user_name,
+                    str(getattr(event, "type", "") or ""),
+                    {
+                        "title": title,
+                        "body": body,
+                        "kind": kind,
+                        "thread_id": public_thread,
+                        "created_at": row.get("created_at", ""),
+                    },
+                )
+        except Exception as exc:  # noqa: BLE001 - 通知失败不打断运行
+            note_silent_failure("notification")
+            _LOG.warning("通知写入失败：%s", exc)
+
     async def _consume_stream(
         entry: StreamEntry, events: AsyncIterator[Event]
     ) -> None:
@@ -852,6 +980,9 @@ def create_app(
                 if _is_suspended(event):
                     entry.suspended = True
                 _append_stream_event(entry, event)
+                await _record_event_notification(
+                    entry.key[0], entry.public_thread, event
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - 错误以事件形式送达订阅者
@@ -1079,6 +1210,9 @@ def create_app(
                     if _is_suspended(event):
                         suspended = True
                     yield _sse(event)
+                    await _record_event_notification(
+                        key[0], public_thread, event
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - 错误以事件形式送到前端
@@ -1331,6 +1465,7 @@ def create_app(
             capabilities=_capabilities,
             default_access=default_access,
             desktop_mode=desktop_mode,
+            csp_rate_limit=_csp_rate_limit,
         ),
     )
 
@@ -1377,6 +1512,27 @@ def create_app(
             approvals=approval_store,
             mfa=mfa_store,
             workspace_store=workspace_store,
+        ),
+    )
+
+    push_service = PushService(settings, control_store)
+    register_push_routes(
+        app,
+        PushDeps(push=push_service, rate_limit=_rate_limit),
+    )
+    register_token_routes(
+        app,
+        TokenDeps(tokens=api_token_store, rate_limit=_rate_limit),
+    )
+    register_webhook_routes(
+        app,
+        WebhookDeps(service=webhook_service, rate_limit=_rate_limit),
+    )
+    register_notification_routes(
+        app,
+        NotificationDeps(
+            control_store=control_store,
+            rate_limit=_rate_limit,
         ),
     )
 
@@ -1518,6 +1674,7 @@ def create_app(
             deleted_sessions=deleted_sessions,
             runtimes=runtimes,
             access_limit=_access_limit,
+            control_store=control_store,
         ),
     )
 
@@ -1590,6 +1747,15 @@ def create_app(
             effective_access=_effective_access,
         ),
     )
+    register_share_routes(
+        app,
+        ShareDeps(
+            shares=share_store,
+            config_and_tenant=_config_and_tenant,
+            load_transcript=load_transcript,
+            rate_limit=_rate_limit,
+        ),
+    )
 
     register_run_routes(
         app,
@@ -1640,6 +1806,8 @@ def create_app(
             record_approval=(
                 _record_approval if approval_store is not None else None
             ),
+            push=push_service,
+            webhooks=webhook_service,
         ),
     )
 

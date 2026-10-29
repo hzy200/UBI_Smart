@@ -28,7 +28,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-CONTROL_SCHEMA_VERSION = "15"
+CONTROL_SCHEMA_VERSION = "19"
 
 
 class Base(DeclarativeBase):
@@ -624,4 +624,162 @@ class ControlApproval(Base):
             "status",
             "created_at",
         ),
+    )
+
+
+class ControlNotification(Base):
+    """用户站内通知；跨设备历史以这里为准，前端 localStorage 只做离线缓存。"""
+
+    __tablename__ = "control_notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # 与审计索引一致：这里的 tenant 是用户名，不是组织。
+    tenant: Mapped[str] = mapped_column(String(128), default="", index=True)
+    # NULL 表示不去重；审批用 call_id、运行用 thread + run 标识。
+    dedupe_key: Mapped[str | None] = mapped_column(
+        String(160), nullable=True, default=None
+    )
+    kind: Mapped[str] = mapped_column(String(24), default="info")
+    title: Mapped[str] = mapped_column(String(160), default="")
+    body: Mapped[str] = mapped_column(String(500), default="")
+    thread_id: Mapped[str] = mapped_column(String(64), default="")
+    path: Mapped[str] = mapped_column(String(512), default="")
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant", "dedupe_key", name="uq_notification_tenant_dedupe"
+        ),
+        Index(
+            "ix_control_notifications_tenant_created",
+            "tenant",
+            "created_at",
+        ),
+    )
+
+
+class ControlSessionSearch(Base):
+    """跨会话搜索索引（正文由 transcript 保存时写入）。"""
+
+    __tablename__ = "control_session_search"
+
+    tenant: Mapped[str] = mapped_column(String(128), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(160), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index(
+            "ix_control_session_search_tenant_updated",
+            "tenant",
+            "updated_at",
+        ),
+    )
+
+
+class ControlPushSubscription(Base):
+    """浏览器 Web Push 订阅；endpoint 可能很长，用哈希做唯一键。"""
+
+    __tablename__ = "control_push_subscriptions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # 与通知/审计一致：这里的 tenant 是用户名。
+    tenant: Mapped[str] = mapped_column(String(128), default="", index=True)
+    endpoint_hash: Mapped[str] = mapped_column(String(64), default="")
+    endpoint: Mapped[str] = mapped_column(Text, default="")
+    p256dh: Mapped[str] = mapped_column(String(255), default="")
+    auth: Mapped[str] = mapped_column(String(128), default="")
+    user_agent: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    updated_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant",
+            "endpoint_hash",
+            name="uq_push_tenant_endpoint",
+        ),
+    )
+
+
+class ControlApiToken(Base):
+    """个人访问令牌（PAT）；只存 sha256，明文只在创建时返回一次。"""
+
+    __tablename__ = "control_api_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # 用户名作用域（与通知/审计一致），不是组织 tenant。
+    tenant: Mapped[str] = mapped_column(String(128), default="", index=True)
+    user_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    name: Mapped[str] = mapped_column(String(64), default="")
+    token_hash: Mapped[str] = mapped_column(
+        String(64), default="", unique=True, index=True
+    )
+    # 只用于列表展示，例如 ca_pat_ab12…cd34。
+    prefix: Mapped[str] = mapped_column(String(32), default="")
+    # 逗号分隔：read,run,audit
+    scopes: Mapped[str] = mapped_column(String(128), default="read")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    last_used_at: Mapped[str] = mapped_column(String(32), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+    revoked_at: Mapped[str] = mapped_column(String(32), default="")
+
+    __table_args__ = (
+        Index("ix_control_api_tokens_tenant_active", "tenant", "revoked_at"),
+    )
+
+
+class ControlWebhook(Base):
+    """出站 Webhook；secret 用于 HMAC 签名，只在创建时返回一次。"""
+
+    __tablename__ = "control_webhooks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128), default="", index=True)
+    name: Mapped[str] = mapped_column(String(64), default="")
+    url: Mapped[str] = mapped_column(String(1024), default="")
+    # 签名密钥需要可逆保存才能签名；数据库访问本身就是信任边界。
+    secret: Mapped[str] = mapped_column(String(128), default="")
+    # 逗号分隔：run_finished,run_failed,approval_requested
+    events: Mapped[str] = mapped_column(String(128), default="run_finished")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    updated_at: Mapped[str] = mapped_column(String(32), default="")
+    last_sent_at: Mapped[str] = mapped_column(String(32), default="")
+    last_status: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(String(255), default="")
+
+    __table_args__ = (
+        Index("ix_control_webhooks_tenant_enabled", "tenant", "enabled"),
+    )
+
+
+class ControlShareLink(Base):
+    """只读分享链接；存已脱敏快照，token 只存哈希。"""
+
+    __tablename__ = "control_share_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(
+        String(64), default="", unique=True, index=True
+    )
+    tenant: Mapped[str] = mapped_column(String(128), default="", index=True)
+    thread_id: Mapped[str] = mapped_column(String(64), default="")
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    title: Mapped[str] = mapped_column(String(160), default="")
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[str] = mapped_column(String(32), default="")
+    expires_at: Mapped[str] = mapped_column(String(32), default="")
+    revoked_at: Mapped[str] = mapped_column(String(32), default="")
+    views: Mapped[int] = mapped_column(Integer, default=0)
+
+    __table_args__ = (
+        Index(
+            "ix_control_share_links_tenant_thread",
+            "tenant",
+            "thread_id",
+        ),
+        Index("ix_control_share_links_expires", "expires_at"),
     )

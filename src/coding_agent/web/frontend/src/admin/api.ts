@@ -7,13 +7,17 @@
 import type {
   AdminUser,
   ApprovalRow,
+  AuditReport,
   AuthEvent,
+  HealthReport,
   LoginResponse,
   Me,
   ProviderKeyRow,
   Quota,
   UsageReport,
   UsageToday,
+  WorkspaceAcl,
+  WorkspaceRow,
 } from './types';
 
 interface RuntimeConfig {
@@ -43,6 +47,11 @@ export class ApiError extends Error {
 function joinUrl(base: string, path: string): string {
   if (!base) return path;
   return `${base.replace(/\/$/, '')}${path}`;
+}
+
+/** SSE 需要自己读流，不能用 request() 的 JSON 路径。 */
+export function adminStreamUrl(path: string): string {
+  return joinUrl(runtime.apiBaseUrl || '', path);
 }
 
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
@@ -125,6 +134,35 @@ export const api = {
       `/api/admin/approvals/${encodeURIComponent(id)}/decide`,
       { method: 'POST', body: JSON.stringify({ approved }) },
     ),
+  batchApprovals: (ids: string[], approved: boolean) =>
+    request<{
+      ok: boolean;
+      updated: number;
+      results: Array<{ id: string; ok: boolean; error?: string }>;
+    }>('/api/admin/approvals/batch', {
+      method: 'POST',
+      body: JSON.stringify({ ids, approved }),
+    }),
+  approvalHistory: (params: {
+    status?: string;
+    user?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === '') continue;
+      search.set(key, String(value));
+    }
+    return request<{
+      enabled: boolean;
+      records: ApprovalRow[];
+      total: number;
+      has_more: boolean;
+    }>(`/api/admin/approvals/history?${search.toString()}`);
+  },
   resetUserMfa: (id: string) =>
     request<{ ok: boolean }>(
       `/api/admin/users/${encodeURIComponent(id)}/mfa-reset`,
@@ -189,4 +227,55 @@ export const api = {
     if (user) params.set('user', user);
     return request<UsageReport>(`/api/admin/usage?${params.toString()}`);
   },
+  audit: (params: {
+    user?: string;
+    thread_id?: string;
+    kind?: string;
+    tool?: string;
+    ok?: boolean;
+    since?: string;
+    until?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === '' || value === null) continue;
+      search.set(key, String(value));
+    }
+    return request<AuditReport>(`/api/admin/audit?${search.toString()}`);
+  },
+  adminWorkspaces: (q = '', kind = '') => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (kind) params.set('kind', kind);
+    return request<{ workspaces: WorkspaceRow[] }>(
+      `/api/admin/workspaces?${params.toString()}`,
+    );
+  },
+  workspaceAcl: (id: string) =>
+    request<{ workspace_id: string; grants: WorkspaceAcl[] }>(
+      `/api/admin/workspaces/${encodeURIComponent(id)}/acl`,
+    ),
+  grantWorkspaceAcl: (id: string, grantee: string) =>
+    request<{ ok: boolean; grant: WorkspaceAcl }>(
+      `/api/admin/workspaces/${encodeURIComponent(id)}/acl`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ grantee, permission: 'read' }),
+      },
+    ),
+  revokeWorkspaceAcl: (id: string, grantee: string) =>
+    request<{ ok: boolean; removed: boolean }>(
+      `/api/admin/workspaces/${encodeURIComponent(id)}/acl/` +
+        encodeURIComponent(grantee),
+      { method: 'DELETE' },
+    ),
+  health: () => request<HealthReport>('/api/admin/health'),
+  reindexSearch: () =>
+    request<{ ok: boolean; reindexed: number }>(
+      '/api/admin/search/reindex',
+      { method: 'POST' },
+    ),
+  approvalsStreamUrl: () => adminStreamUrl('/api/admin/approvals/stream'),
 };

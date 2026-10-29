@@ -74,6 +74,27 @@
   integrity="sha384-e8CG07Vu3gHPYbMUM0Xk939uX+8s2GCFFDO23/R7yLYmr2jNz2YtLSvMLKervpEu"
   crossorigin="anonymous"
 ></script>
+<nav class="mobile-nav" x-show="ready" x-cloak :aria-label="i18n.mobile.nav">
+  <button :class="mobilePaneClasses.sessions" data-action="mobile-pane"
+          data-pane="sessions" @click="onAction">
+    <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
+    <span x-text="i18n.mobile.sessions"></span>
+    <span class="mobile-badge" x-show="unreadSessionCount"
+          x-text="unreadSessionCount"></span>
+  </button>
+  <button :class="mobilePaneClasses.chat" data-action="mobile-pane"
+          data-pane="chat" @click="onAction">
+    <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
+    <span x-text="i18n.mobile.chat"></span>
+  </button>
+  <button :class="mobilePaneClasses.approvals" data-action="mobile-pane"
+          data-pane="approvals" @click="onAction">
+    <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+    <span x-text="i18n.mobile.approvals"></span>
+    <span class="mobile-badge" x-show="mobileApprovalCount"
+          x-text="mobileApprovalCount"></span>
+  </button>
+</nav>
 <script src="/static/app.js"></script>
 </body>
 </html>

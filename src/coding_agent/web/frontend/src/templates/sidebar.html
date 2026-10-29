@@ -163,6 +163,8 @@
                 <button data-action="session" data-op="unread" :data-id="s.thread_id" @click.stop="onAction"
                         x-text="s._unreadLabel"></button>
                 <button data-action="session" data-op="split" :data-id="s.thread_id" @click.stop="onAction">分屏</button>
+                <button data-action="session" data-op="compare" :data-id="s.thread_id" @click.stop="onAction">对比</button>
+                <button data-action="session" data-op="share" :data-id="s.thread_id" @click.stop="onAction">分享</button>
                 <button data-action="session" data-op="tags" :data-id="s.thread_id" @click.stop="onAction">标签</button>
                 <button data-action="session" data-op="rename" :data-id="s.thread_id" @click.stop="onAction">改名</button>
                 <button data-action="session" data-op="export" :data-id="s.thread_id" @click.stop="onAction">导出</button>
@@ -172,6 +174,8 @@
             </div>
           </div>
         </template>
+        <button class="session-more" x-show="sessionHasMore" @click="loadMoreSessions"
+                :disabled="sessionsLoading" x-text="i18n.sidebar.loadMore"></button>
         <div class="empty" x-show="noSessions">没有匹配的会话</div>
       </div>
     </div>
@@ -180,6 +184,7 @@
       <div class="panel-actions">
         <button @click="loadSnapshots">刷新快照</button>
         <button @click="restoreRun">回滚本轮</button>
+        <button @click="downloadCurrentPatch" x-text="i18n.sidebar.downloadPatch"></button>
         <button @click="loadCheckpoints">检查点</button>
       </div>
       <template x-for="c in checkpoints" :key="c.checkpoint_id">

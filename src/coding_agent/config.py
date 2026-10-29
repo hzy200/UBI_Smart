@@ -837,6 +837,10 @@ class Settings(BaseSettings):
     web_login_rate_limit_per_min: int = Field(
         default=10, alias="AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN"
     )
+    # 匿名 CSP 违规上报按来源 IP 限流；防止被当作写日志放大器。
+    web_csp_report_rate_limit_per_min: int = Field(
+        default=300, alias="AGENT_WEB_CSP_REPORT_RATE_LIMIT_PER_MIN"
+    )
     # memory = 单进程内存；redis = 多实例共享固定窗口。
     rate_limit_backend: str = Field(
         default="memory", alias="AGENT_RATE_LIMIT_BACKEND"
@@ -852,6 +856,19 @@ class Settings(BaseSettings):
     secret_master_key: str = Field(
         default="", alias="AGENT_SECRET_MASTER_KEY"
     )
+    # 浏览器 Web Push（VAPID）。公钥/私钥都配置且安装 pywebpush 才启用；
+    # 私钥只放服务端，绝不下发。
+    webpush_public_key: str = Field(
+        default="", alias="AGENT_WEBPUSH_PUBLIC_KEY"
+    )
+    webpush_private_key: str = Field(
+        default="", alias="AGENT_WEBPUSH_PRIVATE_KEY"
+    )
+    webpush_subject: str = Field(
+        default="mailto:admin@localhost",
+        alias="AGENT_WEBPUSH_SUBJECT",
+    )
+    webpush_ttl: int = Field(default=3600, alias="AGENT_WEBPUSH_TTL")
     secret_master_key_file: str = Field(
         default="", alias="AGENT_SECRET_MASTER_KEY_FILE"
     )

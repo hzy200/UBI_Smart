@@ -1,3 +1,5 @@
+import './approvals.test';
+import './audit.test';
 import './diff.test';
 import './drafts.test';
 import './error-boundary.test';
@@ -23,4 +25,5 @@ import './settings.test';
 import './theme.test';
 import './upload.test';
 import './url-state.test';
+import './usage.test';
 import './virtual.test';

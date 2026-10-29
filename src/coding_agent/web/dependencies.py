@@ -13,6 +13,7 @@ def current_user(request: Request) -> AuthUser:
     """从 app.state 读取认证配置，避免把 token 表放进依赖闭包。"""
     config: AuthConfig = request.app.state.auth
     user = config.user_from_request(request)
+    config.authorize_pat(request, user)
     config.require_csrf(request)
     return user
 
@@ -63,3 +64,21 @@ def current_auditor(user: UserDep) -> AuthUser:
 
 
 AuditorDep = Annotated[AuthUser, Depends(current_auditor)]
+
+
+def current_approval_reader(user: UserDep) -> AuthUser:
+    """审批历史只读：审批人和审计员都能看，写操作仍归 ApproverDep。"""
+    if user.role not in {"owner", "admin", "approver", "auditor"}:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "auth.forbidden",
+                "message": "需要审批或审计权限",
+            },
+        )
+    return user
+
+
+ApprovalReadDep = Annotated[
+    AuthUser, Depends(current_approval_reader)
+]

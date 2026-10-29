@@ -267,7 +267,8 @@
   </button>
 </div>
 
-<div id="app" x-show="ready" x-cloak :style="layoutStyle">
+<div id="app" x-show="ready" x-cloak
+     :style="layoutStyle" :class="mobilePaneClass">
 <nav class="activitybar" :aria-label="i18n.sidebar.mainNav">
   <div class="activity-group">
     <button class="activity-item" :class="viewClasses.sessions" data-action="view" data-view="sessions" @click="onAction"
@@ -433,6 +434,8 @@
                 <button data-action="session" data-op="unread" :data-id="s.thread_id" @click.stop="onAction"
                         x-text="s._unreadLabel"></button>
                 <button data-action="session" data-op="split" :data-id="s.thread_id" @click.stop="onAction">分屏</button>
+                <button data-action="session" data-op="compare" :data-id="s.thread_id" @click.stop="onAction">对比</button>
+                <button data-action="session" data-op="share" :data-id="s.thread_id" @click.stop="onAction">分享</button>
                 <button data-action="session" data-op="tags" :data-id="s.thread_id" @click.stop="onAction">标签</button>
                 <button data-action="session" data-op="rename" :data-id="s.thread_id" @click.stop="onAction">改名</button>
                 <button data-action="session" data-op="export" :data-id="s.thread_id" @click.stop="onAction">导出</button>
@@ -442,6 +445,8 @@
             </div>
           </div>
         </template>
+        <button class="session-more" x-show="sessionHasMore" @click="loadMoreSessions"
+                :disabled="sessionsLoading" x-text="i18n.sidebar.loadMore"></button>
         <div class="empty" x-show="noSessions">没有匹配的会话</div>
       </div>
     </div>
@@ -450,6 +455,7 @@
       <div class="panel-actions">
         <button @click="loadSnapshots">刷新快照</button>
         <button @click="restoreRun">回滚本轮</button>
+        <button @click="downloadCurrentPatch" x-text="i18n.sidebar.downloadPatch"></button>
         <button @click="loadCheckpoints">检查点</button>
       </div>
       <template x-for="c in checkpoints" :key="c.checkpoint_id">
@@ -1376,6 +1382,105 @@
             </div>
           </div>
 
+          <h4 x-text="i18n.settings.integrations"></h4>
+          <p class="note" x-text="i18n.settings.integrationsHint"></p>
+
+          <div class="note" x-show="tokensDisabled" x-text="i18n.settings.tokensUnavailable"></div>
+          <div x-show="tokensEnabled">
+            <h4 x-text="i18n.settings.tokens"></h4>
+            <template x-for="t in apiTokens" :key="t.id">
+              <div class="note">
+                <span x-text="t.name"></span>
+                <code class="mono" x-text="t.prefix"></code>
+                <span x-text="t._scopes"></span>
+                <span x-text="t._expires"></span>
+                <span x-text="t._lastUsed"></span>
+                <button class="danger" data-action="token" data-op="revoke"
+                        :data-id="t.id" @click="onAction"
+                        x-text="i18n.settings.revoke"></button>
+              </div>
+            </template>
+            <div class="empty" x-show="noApiTokens" x-text="i18n.settings.noTokens"></div>
+            <div class="row">
+              <input x-model="tokenName" :placeholder="i18n.settings.tokenName">
+              <input type="number" min="0" x-model="tokenDays"
+                     :placeholder="i18n.settings.tokenDays">
+              <button @click="createToken" :disabled="tokenBusy"
+                      x-text="i18n.settings.createToken"></button>
+            </div>
+            <div class="panel-actions">
+              <label>
+                <input type="checkbox" :checked="tokenScopes.read"
+                       data-action="token-scope" data-scope="read" @click="onAction">
+                <span x-text="i18n.settings.scopeRead"></span>
+              </label>
+              <label>
+                <input type="checkbox" :checked="tokenScopes.run"
+                       data-action="token-scope" data-scope="run" @click="onAction">
+                <span x-text="i18n.settings.scopeRun"></span>
+              </label>
+              <label>
+                <input type="checkbox" :checked="tokenScopes.audit"
+                       data-action="token-scope" data-scope="audit" @click="onAction">
+                <span x-text="i18n.settings.scopeAudit"></span>
+              </label>
+            </div>
+            <div x-show="newToken">
+              <div class="note" x-text="i18n.settings.tokenCreated"></div>
+              <code class="mono" x-text="newToken"></code>
+              <button data-action="copy-token" @click="onAction"
+                      x-text="i18n.settings.copy"></button>
+            </div>
+          </div>
+
+          <div class="note" x-show="webhooksDisabled" x-text="i18n.settings.webhooksUnavailable"></div>
+          <div x-show="webhooksEnabled">
+            <h4 x-text="i18n.settings.webhooks"></h4>
+            <p class="note" x-text="i18n.settings.webhookSignatureHint"></p>
+            <template x-for="w in webhooks" :key="w.id">
+              <div class="note">
+                <span x-text="w.name"></span>
+                <code class="mono" x-text="w.url"></code>
+                <span x-text="w._events"></span>
+                <span x-text="w._status"></span>
+                <span x-text="w._lastSent"></span>
+                <button class="danger" data-action="webhook" data-op="delete"
+                        :data-id="w.id" @click="onAction"
+                        x-text="i18n.settings.delete"></button>
+              </div>
+            </template>
+            <div class="empty" x-show="noWebhooks" x-text="i18n.settings.noWebhooks"></div>
+            <div class="row">
+              <input x-model="webhookName" :placeholder="i18n.settings.webhookName">
+              <input x-model="webhookUrl" :placeholder="i18n.settings.webhookUrl">
+              <button @click="createWebhook" :disabled="webhookBusy"
+                      x-text="i18n.settings.createWebhook"></button>
+            </div>
+            <div class="panel-actions">
+              <label>
+                <input type="checkbox" :checked="webhookEvents.run_finished"
+                       data-action="webhook-event" data-event="run_finished" @click="onAction">
+                <span x-text="i18n.settings.eventRunFinished"></span>
+              </label>
+              <label>
+                <input type="checkbox" :checked="webhookEvents.run_failed"
+                       data-action="webhook-event" data-event="run_failed" @click="onAction">
+                <span x-text="i18n.settings.eventRunFailed"></span>
+              </label>
+              <label>
+                <input type="checkbox" :checked="webhookEvents.approval_requested"
+                       data-action="webhook-event" data-event="approval_requested" @click="onAction">
+                <span x-text="i18n.settings.eventApprovalRequested"></span>
+              </label>
+            </div>
+            <div x-show="newWebhookSecret">
+              <div class="note" x-text="i18n.settings.webhookCreated"></div>
+              <code class="mono" x-text="newWebhookSecret"></code>
+              <button data-action="copy-webhook-secret" @click="onAction"
+                      x-text="i18n.settings.copy"></button>
+            </div>
+          </div>
+
           <h4 x-text="i18n.settings.maintenance"></h4>
           <div class="panel-actions">
             <button @click="releaseLease" :disabled="noThread" x-text="i18n.settings.releaseLease"></button>
@@ -1409,6 +1514,94 @@
     <div class="empty" x-show="noRecovery">没有需要恢复的会话</div>
     <div class="modal-actions">
       <button @click="closeRecovery">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal compare-modal" x-show="compareOpen" x-cloak
+     @click.self="closeCompare" role="dialog" aria-modal="true"
+     aria-labelledby="compare-title">
+  <div class="modal-box wide">
+    <h3 id="compare-title" x-text="i18n.compare.title"></h3>
+    <p class="note" x-text="i18n.compare.hint"></p>
+    <div class="panel-actions">
+      <select x-model="compareLeft" :aria-label="i18n.compare.left">
+        <template x-for="run in compareRuns" :key="run.index">
+          <option :value="run.index" x-text="run._label"></option>
+        </template>
+      </select>
+      <span>vs</span>
+      <select x-model="compareRight" :aria-label="i18n.compare.right">
+        <template x-for="run in compareRuns" :key="run.index">
+          <option :value="run.index" x-text="run._label"></option>
+        </template>
+      </select>
+      <button @click="runCompare" :disabled="compareLoading"
+              x-text="i18n.compare.run"></button>
+      <button @click="closeCompare" x-text="i18n.common.close"></button>
+    </div>
+    <p class="note" x-show="compareLoading" x-text="i18n.compare.loading"></p>
+    <p class="note note-bad" x-show="compareError" x-text="compareError"></p>
+    <div x-show="compareResult">
+      <div class="compare-grid">
+        <div class="compare-col">
+          <h4 x-text="compareLeftLabel"></h4>
+          <p class="note" x-text="compareLeftUsage"></p>
+        </div>
+        <div class="compare-col">
+          <h4 x-text="compareRightLabel"></h4>
+          <p class="note" x-text="compareRightUsage"></p>
+        </div>
+      </div>
+      <template x-for="file in compareResult.files" :key="file.path">
+        <div class="compare-file">
+          <div class="compare-file-head" x-text="file.path"></div>
+          <div class="compare-diff-grid">
+            <pre class="diff-text" x-text="file._left"></pre>
+            <pre class="diff-text" x-text="file._right"></pre>
+          </div>
+        </div>
+      </template>
+      <p class="note" x-show="compareTruncatedText" x-text="compareTruncatedText"></p>
+    </div>
+  </div>
+</div>
+
+<div class="modal share-modal" x-show="showShare" x-cloak
+     @click.self="closeShare" role="dialog" aria-modal="true"
+     aria-labelledby="share-title">
+  <div class="modal-box">
+    <h3 id="share-title" x-text="i18n.share.title"></h3>
+    <p class="note" x-text="i18n.share.hint"></p>
+    <div class="panel-actions">
+      <select x-model="shareDays" :aria-label="i18n.share.expiry">
+        <option value="1" x-text="i18n.share.oneDay"></option>
+        <option value="7" x-text="i18n.share.sevenDays"></option>
+        <option value="30" x-text="i18n.share.thirtyDays"></option>
+      </select>
+      <button @click="createShare" :disabled="shareBusy"
+              x-text="i18n.share.create"></button>
+    </div>
+    <p class="note note-bad" x-show="shareError" x-text="shareError"></p>
+    <div x-show="shareUrl">
+      <div class="note" x-text="i18n.share.urlHint"></div>
+      <code class="mono" x-text="shareUrl"></code>
+      <button data-action="copy-share" @click="onAction"
+              x-text="i18n.share.copy"></button>
+    </div>
+    <template x-for="s in shares" :key="s.id">
+      <div class="note">
+        <span x-text="s._created"></span>
+        <span x-text="s._expires"></span>
+        <span x-text="s._views"></span>
+        <button class="danger" data-action="share" data-op="revoke"
+                :data-id="s.id" @click="onAction"
+                x-text="i18n.share.revoke"></button>
+      </div>
+    </template>
+    <div class="empty" x-show="noShares" x-text="i18n.share.empty"></div>
+    <div class="modal-actions">
+      <button @click="closeShare" x-text="i18n.common.close"></button>
     </div>
   </div>
 </div>
@@ -1489,6 +1682,27 @@
   integrity="sha384-e8CG07Vu3gHPYbMUM0Xk939uX+8s2GCFFDO23/R7yLYmr2jNz2YtLSvMLKervpEu"
   crossorigin="anonymous"
 ></script>
+<nav class="mobile-nav" x-show="ready" x-cloak :aria-label="i18n.mobile.nav">
+  <button :class="mobilePaneClasses.sessions" data-action="mobile-pane"
+          data-pane="sessions" @click="onAction">
+    <svg class="icon" aria-hidden="true"><use href="#i-files"></use></svg>
+    <span x-text="i18n.mobile.sessions"></span>
+    <span class="mobile-badge" x-show="unreadSessionCount"
+          x-text="unreadSessionCount"></span>
+  </button>
+  <button :class="mobilePaneClasses.chat" data-action="mobile-pane"
+          data-pane="chat" @click="onAction">
+    <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg>
+    <span x-text="i18n.mobile.chat"></span>
+  </button>
+  <button :class="mobilePaneClasses.approvals" data-action="mobile-pane"
+          data-pane="approvals" @click="onAction">
+    <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+    <span x-text="i18n.mobile.approvals"></span>
+    <span class="mobile-badge" x-show="mobileApprovalCount"
+          x-text="mobileApprovalCount"></span>
+  </button>
+</nav>
 <script src="/static/app.js"></script>
 </body>
 </html>

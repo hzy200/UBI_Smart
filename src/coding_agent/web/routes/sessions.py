@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
@@ -16,6 +18,7 @@ from coding_agent.access import (
     normalize_access_mode,
 )
 from coding_agent.memory.sessions import SessionIndex
+from coding_agent.observability import note_silent_failure
 from coding_agent.tenancy import TenantError, WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
@@ -33,6 +36,8 @@ from coding_agent.web.transcripts import (
     save_transcript,
 )
 from coding_agent.web.validation import check_thread_id
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,8 @@ class SessionDeps:
     runtimes: Any
     # 管理员为账号设置的访问上限；返回 read_only/write_ask/write_auto。
     access_limit: Callable[[AuthUser], str] = lambda _user: ACCESS_WRITE_AUTO
+    # 跨会话搜索索引；None = 控制面数据库未启用。
+    control_store: Any | None = None
 
 
 def _row(config: Any, tenant: WebTenant, deps: SessionDeps, **extra: Any) -> dict:
@@ -91,7 +98,14 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         limit: int = 20,
         q: str = "",
         include_archived: bool = False,
+        archived: bool | None = None,
     ) -> dict:
+        """会话列表。
+
+        `archived` 是比 `include_archived` 更精确的过滤：前端分别取活跃与归档，
+        避免归档会话占满 `limit` 后把活跃会话挤出列表。`total` 是过滤后的总数，
+        前端据此决定是否还能"加载更多"。
+        """
         await deps.sweep_expired()
         tenant = deps.tenant(user)
         rows: list[dict[str, Any]] = []
@@ -196,7 +210,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                     config,
                     tenant,
                     deps,
-                    last_active="",
+                    # 刚创建、索引尚未收录的会话要能排到前面，否则会被 limit 截掉。
+                    last_active=datetime.now(UTC).isoformat(timespec="seconds"),
                     prompts=0,
                     tool_calls=0,
                     run_count=0,
@@ -204,7 +219,11 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 )
             )
 
-        if not include_archived:
+        if archived is not None:
+            rows = [
+                row for row in rows if bool(row.get("archived")) == archived
+            ]
+        elif not include_archived:
             rows = [row for row in rows if not row.get("archived")]
         query = q.strip().lower()
         if query:
@@ -217,9 +236,28 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
                 or query in str(row.get("last_message", "")).lower()
                 or query in " ".join(row.get("tags") or []).lower()
             ]
-        # 稳定排序：置顶优先，其余保持最近活跃顺序。
+        # 先按最近活跃降序，再稳定地把置顶浮动到最前；截断时保留最近会话。
+        rows.sort(key=lambda row: str(row.get("last_active") or ""), reverse=True)
         rows.sort(key=lambda row: 0 if row.get("pinned") else 1)
-        return {"sessions": rows[: max(1, limit)]}
+        total = len(rows)
+        return {"sessions": rows[: max(1, limit)], "total": total}
+
+    @app.get("/api/sessions/search")
+    async def search_sessions(
+        user: UserDep,
+        q: str = "",
+        limit: int = 20,
+    ) -> dict:
+        """跨会话搜索标题与 transcript 正文；没有控制面时返回 disabled。"""
+        store = deps.control_store
+        if store is None:
+            return {"enabled": False, "results": []}
+        return await asyncio.to_thread(
+            store.search_sessions,
+            user.name,
+            q,
+            limit=max(1, min(50, int(limit))),
+        )
 
     @app.post("/api/sessions")
     async def create_session(
@@ -439,6 +477,17 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             raise HTTPException(status_code=404, detail="会话不存在")
         config.title = " ".join(request.title.split())[:120]
         await asyncio.to_thread(deps.set_config, user, tenant, config)
+        if deps.control_store is not None:
+            try:
+                await asyncio.to_thread(
+                    deps.control_store.index_session_text,
+                    user.name,
+                    public_thread,
+                    title=config.title,
+                )
+            except Exception as exc:  # noqa: BLE001 - 索引失败不影响改名
+                note_silent_failure("search_index")
+                _LOG.warning("会话搜索索引更新失败：%s", exc)
         return {
             "ok": True,
             "thread_id": public_thread,

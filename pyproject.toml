@@ -71,6 +71,10 @@ db = [
 events = [
     "redis>=5",
 ]
+# 浏览器 Web Push（VAPID + payload 加密）；未安装时自动降级为站内通知
+webpush = [
+    "pywebpush>=2.0",
+]
 embeddings = [
     "fastembed>=0.3",
 ]

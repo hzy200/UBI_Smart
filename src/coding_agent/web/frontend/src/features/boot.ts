@@ -194,6 +194,11 @@ export const bootMixin = {
       this.loadProfiles(),
     ]);
     this.ready = true;
+    // 交互先放行；通知历史与推送在后台补齐，失败时退回本地通知。
+    void this.loadServerNotifications();
+    void this.connectNotificationStream();
+    void this.setupPush();
+    void this.loadIntegrations();
     // 链接里的 session/split 优先于空白新会话；失败不能阻塞启动。
     try {
       await this.applyUrlState();

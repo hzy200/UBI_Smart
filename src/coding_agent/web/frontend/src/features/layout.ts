@@ -210,7 +210,10 @@ export const layoutMixin = {
     this.commandIndex = 0;
     this.fileSearchResults = [];
     this.fileSearchLoading = false;
+    this.remoteSessionResults = [];
+    this.sessionSearchLoading = false;
     this._searchSeq += 1;
+    this._sessionSearchSeq += 1;
     if (this._searchTimer) clearTimeout(this._searchTimer);
     this.$nextTick(() => {
       const input = this.$refs.commandInput;
@@ -224,7 +227,10 @@ export const layoutMixin = {
     this.commandIndex = 0;
     this.fileSearchResults = [];
     this.fileSearchLoading = false;
+    this.remoteSessionResults = [];
+    this.sessionSearchLoading = false;
     this._searchSeq += 1;
+    this._sessionSearchSeq += 1;
     if (this._searchTimer) clearTimeout(this._searchTimer);
     this.$nextTick(() => this.restoreModalFocus());
   },
@@ -233,7 +239,10 @@ export const layoutMixin = {
     this.commandIndex = 0;
     this.fileSearchResults = [];
     this.fileSearchLoading = false;
+    this.remoteSessionResults = [];
+    this.sessionSearchLoading = false;
     this._searchSeq += 1;
+    this._sessionSearchSeq += 1;
     if (this._searchTimer) clearTimeout(this._searchTimer);
     const parsed = parseCommandQuery(this.commandQuery);
     if (!this.threadId) return;
@@ -243,10 +252,53 @@ export const layoutMixin = {
       }, 180);
       return;
     }
+    if (parsed.kind === 'session' && parsed.query.length >= 2) {
+      this._searchTimer = setTimeout(() => {
+        void this.searchSessionsRemote(parsed.query);
+      }, 200);
+      return;
+    }
     if (parsed.kind === 'all' && parsed.query.length >= 2) {
       this._searchTimer = setTimeout(() => {
         void this.searchFiles(parsed.query);
       }, 220);
+    }
+  },
+
+  async searchSessionsRemote(query: string) {
+    const seq = ++this._sessionSearchSeq;
+    this.sessionSearchLoading = true;
+    this.fileSearchLoading = true;
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        limit: '20',
+      });
+      const response = await authFetch(
+        `/api/sessions/search?${params.toString()}`,
+      );
+      const data = await readJson(response, '搜索会话失败');
+      if (seq !== this._sessionSearchSeq) return;
+      if (data.enabled === false) {
+        this.remoteSessionResults = [];
+        return;
+      }
+      this.remoteSessionResults = (data.results || []).map(
+        (row, index) => ({
+          thread_id: String(row.thread_id || ''),
+          title: String(row.title || row.thread_id || ''),
+          snippet: String(row.snippet || ''),
+          _key: `${row.thread_id}:${index}`,
+        }),
+      );
+    } catch (err) {
+      if (seq !== this._sessionSearchSeq) return;
+      this.remoteSessionResults = [];
+    } finally {
+      if (seq === this._sessionSearchSeq) {
+        this.sessionSearchLoading = false;
+        this.fileSearchLoading = false;
+      }
     }
   },
 
@@ -296,6 +348,8 @@ export const layoutMixin = {
       { id: 'shortcuts', title: '查看快捷键', hint: '帮助', run: () => this.openShortcuts() },
       { id: 'search-conversation', title: '搜索当前对话', hint: '导航', shortcut: 'Ctrl+Shift+F', run: () => { this.showChat(); this.openMessageSearch(); } },
       { id: 'split-session', title: '当前会话分屏', hint: '视图', run: () => this.openSplitSession(this.threadId) },
+      { id: 'compare-runs', title: '运行对比', hint: '会话', run: () => this.openCompare(this.threadId) },
+      { id: 'share-session', title: '分享当前会话（只读）', hint: '会话', run: () => this.openShare(this.threadId) },
       { id: 'jump-latest', title: '跳到最新消息', hint: '导航', run: () => this.scrollBottom(true) },
       { id: 'toggle-sidebar', title: '切换侧栏', hint: '布局', run: () => this.toggleSidebar() },
       { id: 'toggle-inspector', title: '切换右侧检查器', hint: '布局', run: () => this.toggleInspector() },
@@ -380,9 +434,25 @@ export const layoutMixin = {
         },
       );
     }
-    const sessions = (this.sessions || []).slice(0, 20).map((session) => ({
+    const parsedQuery = parseCommandQuery(this.commandQuery);
+    const remote = (
+      parsedQuery.kind === 'session' && parsedQuery.query
+    ) ? this.remoteSessionResults : [];
+    const sessionRows = remote.length
+      ? remote.map((row) => ({
+          thread_id: row.thread_id,
+          title: row.title,
+          detail: row.snippet,
+        }))
+      : (this.sessions || []).slice(0, 20).map((session) => ({
+          thread_id: session.thread_id,
+          title: session.title || session.thread_id,
+          detail: '',
+        }));
+    const sessions = sessionRows.map((session) => ({
       id: `session:${session.thread_id}`,
-      title: session.title || session.thread_id,
+      title: session.title,
+      detail: session.detail,
       hint: this.t('commands.groups.session'),
       kind: 'session',
       group: this.t('commands.groups.session'),

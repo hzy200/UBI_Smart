@@ -1265,6 +1265,80 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       data.resetSessionViews();
     });
 
+    await t.test('会话列表分离活跃与归档并支持加载更多', async () => {
+      // 启动时活跃与归档各取一次，归档不再占用活跃列表的 limit。
+      assert.equal(
+        app.requests.some(
+          (url) => url.includes('/sessions')
+            && url.includes('archived=false'),
+        ),
+        true,
+      );
+      assert.equal(
+        app.requests.some(
+          (url) => url.includes('/sessions')
+            && url.includes('archived=true'),
+        ),
+        true,
+      );
+
+      data.sessionHasMore = true;
+      data.sessionLimit = 50;
+      await data.loadMoreSessions();
+      assert.equal(data.sessionLimit, 100);
+      assert.equal(
+        app.requests.some(
+          (url) => url.includes('/sessions')
+            && url.includes('limit=100')
+            && url.includes('archived=false'),
+        ),
+        true,
+      );
+    });
+
+    await t.test('命令面板跨会话搜索走服务端索引', async () => {
+      data.threadId = 'thread-dom-test';
+      data.openCommandPalette();
+      data.commandQuery = '@登录';
+      data.onCommandQuery();
+      await waitFor(
+        () => data.remoteSessionResults.length === 1,
+        '远程会话搜索',
+      );
+      assert.equal(
+        data.remoteSessionResults[0].thread_id,
+        'thread-dom-test',
+      );
+      const items = data
+        .filteredCommands()
+        .filter((item: any) => item.kind === 'session');
+      assert.equal(items[0].detail, '登录失败，检查 password 字段');
+      data.closeCommandPalette();
+      assert.equal(data.remoteSessionResults.length, 0);
+    });
+
+    await t.test('下载本轮补丁', async () => {
+      data.activateSessionView('thread-dom-test');
+      data.setView('files');
+      const before = app.downloads.length;
+      await data.downloadCurrentPatch();
+      assert.equal(app.downloads.length, before + 1);
+      assert.equal(app.downloads[before].download, 'thread-d.patch');
+      assert.equal(app.downloads[before].href, 'blob:jsdom-stub');
+    });
+
+    await t.test('通知持久化保留与内存相同的上限', () => {
+      data.notifications = [];
+      data._notificationSeq = 0;
+      for (let index = 0; index < 60; index += 1) {
+        data.pushNotification('info', `通知 ${index}`);
+      }
+      const stored = JSON.parse(
+        window.localStorage.getItem('codingagent.notifications') || '[]',
+      );
+      assert.equal(stored.length, 60);
+    });
+
     await t.test('没有 Alpine CSP 表达式错误', () => {
       const errors = app.warnings.filter(
         (line) => line.includes('unable to interpret'),

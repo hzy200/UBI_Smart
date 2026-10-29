@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
@@ -35,8 +36,11 @@ from coding_agent.control.schema import (
     Base,
     ControlAuditIndex,
     ControlMeta,
+    ControlNotification,
+    ControlPushSubscription,
     ControlQuotaReservation,
     ControlSession,
+    ControlSessionSearch,
     ControlUsageCursor,
     ControlUsageEvent,
     ControlUserQuota,
@@ -158,6 +162,7 @@ class ControlStore:
     def ensure_schema(self) -> None:
         """首次建表；只创建缺失表，不做列迁移。"""
         Base.metadata.create_all(self.engine)
+        self._ensure_search_fts()
         with Session(self.engine) as session, session.begin():
             if session.get(ControlMeta, "schema_version") is None:
                 session.add(
@@ -165,6 +170,23 @@ class ControlStore:
                         key="schema_version", value=CONTROL_SCHEMA_VERSION
                     )
                 )
+
+    def _ensure_search_fts(self) -> None:
+        """SQLite 上补建 FTS5 虚表；MySQL/旧 SQLite 回退 LIKE。"""
+        if self.engine.dialect.name != "sqlite":
+            return
+        try:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "CREATE VIRTUAL TABLE IF NOT EXISTS "
+                        "control_session_fts USING fts5("
+                        "tenant UNINDEXED, thread_id UNINDEXED, title, body, "
+                        "tokenize='trigram')"
+                    )
+                )
+        except Exception:  # noqa: BLE001 - FTS 不可用不影响搜索功能
+            _LOG.warning("FTS5 不可用，跨会话搜索回退 LIKE", exc_info=True)
 
     def load_sessions(
         self, tenant: str
@@ -354,6 +376,602 @@ class ControlStore:
             except Exception:  # noqa: BLE001 - 计量失败不阻断审计
                 _LOG.warning("用量累加失败", exc_info=True)
         return added
+
+    def list_audit(
+        self,
+        tenants: list[str],
+        *,
+        user: str = "",
+        thread_id: str = "",
+        kind: str = "",
+        tool: str = "",
+        ok: bool | None = None,
+        since: str = "",
+        until: str = "",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """按组织成员查询审计索引。
+
+        索引里的 `tenant` 是用户名（与会话/用量作用域一致）；调用方必须先
+        用组织成员列表收窄范围，不能把任意用户名传进来。
+        """
+        scope = sorted({str(item) for item in tenants if str(item)})
+        if user:
+            scope = [str(user)] if str(user) in scope else []
+        if not scope:
+            return {"records": [], "total": 0, "has_more": False}
+        query = select(ControlAuditIndex).where(
+            ControlAuditIndex.tenant.in_(scope)
+        )
+        if thread_id:
+            query = query.where(ControlAuditIndex.thread_id == str(thread_id))
+        if kind:
+            query = query.where(ControlAuditIndex.kind == str(kind))
+        if tool:
+            query = query.where(ControlAuditIndex.tool == str(tool))
+        if ok is not None:
+            query = query.where(ControlAuditIndex.ok.is_(bool(ok)))
+        if since:
+            query = query.where(ControlAuditIndex.ts >= str(since))
+        if until:
+            query = query.where(ControlAuditIndex.ts <= str(until))
+        with Session(self.engine) as session:
+            total = int(
+                session.scalar(
+                    select(func.count()).select_from(query.subquery())
+                )
+                or 0
+            )
+            rows = session.scalars(
+                query.order_by(
+                    ControlAuditIndex.ts.desc(),
+                    ControlAuditIndex.id.desc(),
+                )
+                .offset(max(0, int(offset)))
+                .limit(max(1, int(limit)))
+            ).all()
+        records = [
+            {
+                "tenant": row.tenant,
+                "thread_id": row.thread_id,
+                "ts": row.ts,
+                "kind": row.kind,
+                "tool": row.tool,
+                "level": row.level,
+                "decision": row.decision,
+                "ok": row.ok,
+                "record_hash": row.record_hash,
+            }
+            for row in rows
+        ]
+        return {
+            "records": records,
+            "total": total,
+            "has_more": int(offset) + len(records) < total,
+        }
+
+    @staticmethod
+    def _notification_row(row: ControlNotification) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "kind": row.kind,
+            "title": row.title,
+            "body": row.body,
+            "thread_id": row.thread_id,
+            "path": row.path,
+            "read": bool(row.read),
+            "created_at": row.created_at,
+        }
+
+    def add_notification(
+        self,
+        tenant: str,
+        *,
+        kind: str,
+        title: str,
+        body: str = "",
+        thread_id: str = "",
+        path: str = "",
+        dedupe_key: str = "",
+        created_at: str = "",
+    ) -> dict[str, Any] | None:
+        """写入一条站内通知；同一 dedupe_key 只保留第一次。"""
+        scope = str(tenant or "")
+        title = str(title or "").strip()[:160]
+        if not scope or not title:
+            return None
+        dedupe = str(dedupe_key or "").strip()[:160] or None
+        now = created_at or datetime.now(UTC).isoformat(timespec="seconds")
+        with Session(self.engine) as session, session.begin():
+            if dedupe:
+                existing = session.scalar(
+                    select(ControlNotification).where(
+                        ControlNotification.tenant == scope,
+                        ControlNotification.dedupe_key == dedupe,
+                    )
+                )
+                if existing is not None:
+                    return self._notification_row(existing)
+            row = ControlNotification(
+                id=uuid4().hex,
+                tenant=scope,
+                dedupe_key=dedupe,
+                kind=str(kind or "info")[:24],
+                title=title,
+                body=str(body or "")[:500],
+                thread_id=str(thread_id or "")[:64],
+                path=str(path or "")[:512],
+                read=False,
+                created_at=now,
+            )
+            session.add(row)
+            session.flush()
+            stale = session.scalars(
+                select(ControlNotification.id)
+                .where(ControlNotification.tenant == scope)
+                .order_by(
+                    ControlNotification.created_at.desc(),
+                    ControlNotification.id.desc(),
+                )
+                .offset(200)
+            ).all()
+            if stale:
+                session.execute(
+                    delete(ControlNotification).where(
+                        ControlNotification.id.in_(list(stale))
+                    )
+                )
+            return self._notification_row(row)
+
+    def list_notifications(
+        self, tenant: str, *, limit: int = 100
+    ) -> dict[str, Any]:
+        scope = str(tenant or "")
+        if not scope:
+            return {"notifications": [], "unread": 0, "enabled": True}
+        with Session(self.engine) as session:
+            rows = session.scalars(
+                select(ControlNotification)
+                .where(ControlNotification.tenant == scope)
+                .order_by(
+                    ControlNotification.created_at.desc(),
+                    ControlNotification.id.desc(),
+                )
+                .limit(max(1, min(200, int(limit))))
+            ).all()
+            unread = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(ControlNotification)
+                    .where(
+                        ControlNotification.tenant == scope,
+                        ControlNotification.read.is_(False),
+                    )
+                )
+                or 0
+            )
+        return {
+            "notifications": [self._notification_row(row) for row in rows],
+            "unread": unread,
+            "enabled": True,
+        }
+
+    def mark_notifications_read(
+        self,
+        tenant: str,
+        *,
+        ids: list[str] | None = None,
+        all_: bool = False,
+    ) -> int:
+        scope = str(tenant or "")
+        if not scope:
+            return 0
+        targets = [str(item) for item in (ids or []) if str(item)][:500]
+        if not all_ and not targets:
+            return 0
+        with Session(self.engine) as session, session.begin():
+            query = update(ControlNotification).where(
+                ControlNotification.tenant == scope,
+                ControlNotification.read.is_(False),
+            )
+            if not all_:
+                query = query.where(ControlNotification.id.in_(targets))
+            return int(
+                session.execute(query.values(read=True)).rowcount or 0
+            )
+
+    def clear_notifications(self, tenant: str) -> int:
+        scope = str(tenant or "")
+        if not scope:
+            return 0
+        with Session(self.engine) as session, session.begin():
+            return int(
+                session.execute(
+                    delete(ControlNotification).where(
+                        ControlNotification.tenant == scope
+                    )
+                ).rowcount
+                or 0
+            )
+
+    @staticmethod
+    def _push_row(row: ControlPushSubscription) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "tenant": row.tenant,
+            "endpoint": row.endpoint,
+            "p256dh": row.p256dh,
+            "auth": row.auth,
+            "user_agent": row.user_agent,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def add_push_subscription(
+        self,
+        tenant: str,
+        *,
+        endpoint: str,
+        p256dh: str,
+        auth: str,
+        user_agent: str = "",
+    ) -> dict[str, Any] | None:
+        scope = str(tenant or "")
+        target = str(endpoint or "").strip()
+        if not scope or not target:
+            return None
+        digest = hashlib.sha256(target.encode("utf-8")).hexdigest()
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        with Session(self.engine) as session, session.begin():
+            row = session.scalar(
+                select(ControlPushSubscription).where(
+                    ControlPushSubscription.tenant == scope,
+                    ControlPushSubscription.endpoint_hash == digest,
+                )
+            )
+            if row is not None:
+                row.p256dh = str(p256dh or "")[:255]
+                row.auth = str(auth or "")[:128]
+                row.user_agent = str(user_agent or "")[:255]
+                row.updated_at = now
+                return self._push_row(row)
+            row = ControlPushSubscription(
+                id=uuid4().hex,
+                tenant=scope,
+                endpoint_hash=digest,
+                endpoint=target,
+                p256dh=str(p256dh or "")[:255],
+                auth=str(auth or "")[:128],
+                user_agent=str(user_agent or "")[:255],
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(row)
+            return self._push_row(row)
+
+    def list_push_subscriptions(
+        self, tenant: str
+    ) -> list[dict[str, Any]]:
+        scope = str(tenant or "")
+        if not scope:
+            return []
+        with Session(self.engine) as session:
+            rows = session.scalars(
+                select(ControlPushSubscription)
+                .where(ControlPushSubscription.tenant == scope)
+                .order_by(ControlPushSubscription.updated_at.desc())
+            ).all()
+            return [self._push_row(row) for row in rows]
+
+    def remove_push_subscription(
+        self,
+        tenant: str,
+        *,
+        endpoint: str = "",
+        endpoint_hash: str = "",
+    ) -> bool:
+        scope = str(tenant or "")
+        target = str(endpoint or "").strip()
+        digest = str(endpoint_hash or "").strip()
+        if not scope or (not target and not digest):
+            return False
+        if not digest and target:
+            digest = hashlib.sha256(target.encode("utf-8")).hexdigest()
+        with Session(self.engine) as session, session.begin():
+            result = session.execute(
+                delete(ControlPushSubscription).where(
+                    ControlPushSubscription.tenant == scope,
+                    ControlPushSubscription.endpoint_hash == digest,
+                )
+            )
+            return bool(result.rowcount)
+
+    @staticmethod
+    def _search_row(
+        thread_id: str, title: str, body: str, query: str
+    ) -> dict[str, Any]:
+        text_body = str(body or "")
+        needle = str(query or "")
+        index = text_body.lower().find(needle.lower()) if needle else -1
+        if index < 0:
+            snippet = text_body[:160]
+        else:
+            start = max(0, index - 40)
+            end = min(len(text_body), index + len(needle) + 80)
+            snippet = (
+                ("…" if start else "")
+                + text_body[start:end]
+                + ("…" if end < len(text_body) else "")
+            )
+        return {
+            "thread_id": thread_id,
+            "title": title or "",
+            "snippet": snippet,
+        }
+
+    def index_session_text(
+        self,
+        tenant: str,
+        thread_id: str,
+        *,
+        title: str = "",
+        body: str = "",
+    ) -> None:
+        """写入/更新跨会话搜索索引；SQLite 同步维护 FTS5。"""
+        scope = str(tenant or "")
+        thread = str(thread_id or "")
+        if not scope or not thread:
+            return
+        clean_title = str(title or "")[:160]
+        clean_body = str(body or "")[:20000]
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        final_title = clean_title
+        final_body = clean_body
+        with Session(self.engine) as session, session.begin():
+            row = session.get(ControlSessionSearch, (scope, thread))
+            if row is None:
+                row = ControlSessionSearch(
+                    tenant=scope,
+                    thread_id=thread,
+                    title=clean_title,
+                    body=clean_body,
+                    updated_at=now,
+                )
+                session.add(row)
+            else:
+                if clean_title:
+                    row.title = clean_title
+                if clean_body:
+                    row.body = clean_body
+                row.updated_at = now
+                # 只改标题时正文保持不变；FTS 也必须同步最终值。
+                final_title = row.title
+                final_body = row.body
+        if self.engine.dialect.name != "sqlite":
+            return
+        try:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "DELETE FROM control_session_fts "
+                        "WHERE tenant = :tenant AND thread_id = :thread"
+                    ),
+                    {"tenant": scope, "thread": thread},
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO control_session_fts"
+                        "(tenant, thread_id, title, body) "
+                        "VALUES (:tenant, :thread, :title, :body)"
+                    ),
+                    {
+                        "tenant": scope,
+                        "thread": thread,
+                        "title": final_title,
+                        "body": final_body,
+                    },
+                )
+        except Exception:  # noqa: BLE001 - FTS 不可用时仍可 LIKE 搜索
+            _LOG.warning("FTS 索引写入失败，回退 LIKE 搜索", exc_info=True)
+
+    def search_sessions(
+        self, tenant: str, query: str, *, limit: int = 20
+    ) -> dict[str, Any]:
+        scope = str(tenant or "")
+        needle = str(query or "").strip()
+        if not scope or not needle:
+            return {"results": [], "enabled": True}
+        size = max(1, min(100, int(limit)))
+        merged: dict[str, dict[str, Any]] = {}
+        order: list[str] = []
+
+        def add(
+            thread_id: str,
+            title: str,
+            snippet: str,
+            match: str,
+        ) -> None:
+            thread = str(thread_id or "")
+            if not thread or thread in merged:
+                return
+            merged[thread] = {
+                "thread_id": thread,
+                "title": str(title or ""),
+                "snippet": str(snippet or ""),
+                "match": match,
+            }
+            order.append(thread)
+
+        # 1) transcript 正文（FTS5/LIKE）
+        fts_rows: list[Any] = []
+        if self.engine.dialect.name == "sqlite" and len(needle) >= 3:
+            fts_query = '"' + needle.replace('"', '""') + '"'
+            try:
+                with self.engine.connect() as connection:
+                    fts_rows = connection.execute(
+                        text(
+                            "SELECT thread_id, title, body "
+                            "FROM control_session_fts "
+                            "WHERE tenant = :tenant "
+                            "AND control_session_fts MATCH :query "
+                            "ORDER BY rank LIMIT :limit"
+                        ),
+                        {
+                            "tenant": scope,
+                            "query": fts_query,
+                            "limit": size,
+                        },
+                    ).all()
+            except Exception:  # noqa: BLE001 - FTS 缺失/语法不支持时回退
+                fts_rows = []
+        if not fts_rows:
+            pattern = f"%{needle}%"
+            with Session(self.engine) as session:
+                indexed = session.scalars(
+                    select(ControlSessionSearch)
+                    .where(ControlSessionSearch.tenant == scope)
+                    .where(
+                        or_(
+                            ControlSessionSearch.title.like(pattern),
+                            ControlSessionSearch.body.like(pattern),
+                        )
+                    )
+                    .order_by(ControlSessionSearch.updated_at.desc())
+                    .limit(size)
+                ).all()
+            fts_rows = [
+                (row.thread_id, row.title, row.body) for row in indexed
+            ]
+        for row in fts_rows:
+            thread_id, title, body = row[0], row[1], row[2]
+            item = self._search_row(
+                str(thread_id), str(title), str(body), needle
+            )
+            add(
+                item["thread_id"],
+                item["title"],
+                item["snippet"],
+                "transcript",
+            )
+
+        pattern = f"%{needle}%"
+        # 2) 会话目录：标题 + 最后消息（覆盖没有 transcript 的旧会话）
+        with Session(self.engine) as session:
+            sessions = session.scalars(
+                select(ControlSession)
+                .where(
+                    ControlSession.tenant == scope,
+                    ControlSession.deleted.is_(False),
+                    or_(
+                        ControlSession.title.like(pattern),
+                        ControlSession.last_message.like(pattern),
+                    ),
+                )
+                .order_by(ControlSession.updated_at.desc())
+                .limit(size)
+            ).all()
+            for row in sessions:
+                match_text = (
+                    row.last_message
+                    if needle.lower() in str(row.last_message).lower()
+                    else row.title
+                )
+                snippet = self._search_row(
+                    row.thread_id, row.title, match_text, needle
+                )["snippet"]
+                add(
+                    row.thread_id,
+                    row.title or row.thread_id,
+                    snippet,
+                    "title",
+                )
+
+            # 3) 审计索引：kind/tool/level/decision/thread_id
+            audit_rows = session.scalars(
+                select(ControlAuditIndex)
+                .where(
+                    ControlAuditIndex.tenant == scope,
+                    or_(
+                        ControlAuditIndex.thread_id.like(pattern),
+                        ControlAuditIndex.kind.like(pattern),
+                        ControlAuditIndex.tool.like(pattern),
+                        ControlAuditIndex.level.like(pattern),
+                        ControlAuditIndex.decision.like(pattern),
+                    ),
+                )
+                .order_by(ControlAuditIndex.ts.desc())
+                .limit(size * 4)
+            ).all()
+            missing = [
+                row.thread_id
+                for row in audit_rows
+                if row.thread_id and row.thread_id not in merged
+            ]
+            titles: dict[str, str] = {}
+            if missing:
+                for session_row in session.scalars(
+                    select(ControlSession).where(
+                        ControlSession.tenant == scope,
+                        ControlSession.thread_id.in_(sorted(set(missing))),
+                    )
+                ).all():
+                    titles[session_row.thread_id] = (
+                        session_row.title or ""
+                    )
+            for row in audit_rows:
+                snippet = "审计：" + " ".join(
+                    part
+                    for part in (
+                        row.kind,
+                        row.tool,
+                        row.level,
+                        row.decision,
+                    )
+                    if part
+                )
+                add(
+                    row.thread_id,
+                    titles.get(row.thread_id, ""),
+                    snippet,
+                    "audit",
+                )
+
+        results = [merged[thread] for thread in order][:size]
+        return {"results": results, "enabled": True}
+
+    def rebuild_session_search(
+        self, tenants: list[str] | None = None
+    ) -> int:
+        """从会话目录重建标题/摘要索引。
+
+        transcript 正文无法从控制面反推；已有的正文会保留，空正文用
+        `control_sessions.last_message` 兜底。完整正文在下次保存轨迹时补齐。
+        """
+        scope = [str(item) for item in (tenants or []) if str(item)]
+        query = select(ControlSession)
+        if scope:
+            query = query.where(ControlSession.tenant.in_(scope))
+        search_query = select(ControlSessionSearch)
+        if scope:
+            search_query = search_query.where(
+                ControlSessionSearch.tenant.in_(scope)
+            )
+        with Session(self.engine) as session:
+            sessions = session.scalars(query).all()
+            existing = {
+                (row.tenant, row.thread_id): row.body
+                for row in session.scalars(search_query).all()
+            }
+        for item in sessions:
+            body = existing.get((item.tenant, item.thread_id), "")
+            self.index_session_text(
+                item.tenant,
+                item.thread_id,
+                title=item.title,
+                body=body or item.last_message,
+            )
+        return len(sessions)
 
     def count_sessions(self, tenant: str) -> int:
         with Session(self.engine) as session:

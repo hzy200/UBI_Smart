@@ -37,6 +37,279 @@
       unknown: "\u672A\u77E5",
       newSession: "\u65B0\u4F1A\u8BDD"
     },
+    admin: {
+      brand: "\u4F01\u4E1A\u63A7\u5236\u53F0",
+      loading: "\u6B63\u5728\u52A0\u8F7D\u7BA1\u7406\u63A7\u5236\u53F0\u2026",
+      reload: "\u91CD\u65B0\u52A0\u8F7D",
+      noAccess: "\u5F53\u524D\u8D26\u53F7\uFF08{user}\uFF09\u6CA1\u6709\u63A7\u5236\u53F0\u6743\u9650\u3002",
+      logout: "\u9000\u51FA\u767B\u5F55",
+      language: "\u8BED\u8A00",
+      languageZh: "\u7B80\u4F53\u4E2D\u6587",
+      languageEn: "English",
+      storageTitle: "\u6570\u636E\u5B58\u50A8",
+      storageHint: "\u8D26\u53F7\u3001\u989D\u5EA6\u3001\u7528\u91CF\u4E0E\u4E0A\u6E38 Key \u5747\u5199\u5165\u63A7\u5236\u9762\u6570\u636E\u5E93\u3002",
+      todayUsage: "\u5F53\u524D\u7BA1\u7406\u5458\u4ECA\u65E5\u7528\u91CF",
+      quotaLabel: "\u9650\u989D {value}",
+      navUsers: "\u7528\u6237",
+      navWorkspaces: "\u5DE5\u4F5C\u533A",
+      navUsage: "\u7528\u91CF",
+      navAudit: "\u5BA1\u8BA1",
+      navHealth: "\u7CFB\u7EDF",
+      navProviders: "Provider",
+      navApprovals: "\u5BA1\u6279",
+      hintUsers: "\u8D26\u53F7\u3001\u989D\u5EA6\u4E0E\u4E0A\u6E38 Key",
+      hintWorkspaces: "\u5F52\u5C5E\u3001\u7528\u91CF\u4E0E\u53EA\u8BFB\u5171\u4EAB",
+      hintUsage: "\u6309\u7528\u6237\u4E0E\u65E5\u671F\u6C47\u603B",
+      hintAudit: "\u7EC4\u7EC7\u6210\u5458\u7684\u8FD0\u884C\u4E0E\u5DE5\u5177\u8BB0\u5F55",
+      hintHealth: "\u6570\u636E\u5E93\u3001\u8FDE\u63A5\u4E0E\u8FDB\u7A0B\u5185\u6307\u6807",
+      hintProviders: "\u90E8\u7F72\u53EF\u7528\u7684\u6A21\u578B\u4F9B\u5E94\u5546",
+      hintApprovals: "\u56DB\u773C\u5BA1\u6279\u961F\u5217\uFF08L3\uFF09",
+      roleOwner: "\u6240\u6709\u8005",
+      roleAdmin: "\u7BA1\u7406\u5458",
+      roleApprover: "\u5BA1\u6279\u4EBA",
+      roleAuditor: "\u5BA1\u8BA1\u5458",
+      roleMember: "\u6210\u5458",
+      refresh: "\u5237\u65B0",
+      search: "\u67E5\u8BE2",
+      cancel: "\u53D6\u6D88",
+      close: "\u5173\u95ED",
+      save: "\u4FDD\u5B58",
+      delete: "\u5220\u9664",
+      manage: "\u7BA1\u7406",
+      back: "\u8FD4\u56DE",
+      copy: "\u590D\u5236",
+      create: "\u521B\u5EFA",
+      creating: "\u521B\u5EFA\u4E2D\u2026",
+      query: "\u67E5\u8BE2",
+      querying: "\u67E5\u8BE2\u4E2D\u2026",
+      from: "\u4ECE",
+      to: "\u5230",
+      user: "\u7528\u6237",
+      all: "\u5168\u90E8",
+      active: "\u542F\u7528",
+      disabled: "\u7981\u7528",
+      loadingLabel: "\u52A0\u8F7D\u4E2D",
+      none: "\u2014",
+      openNav: "\u6253\u5F00\u5BFC\u822A",
+      closeNav: "\u5173\u95ED\u5BFC\u822A",
+      processing: "\u5904\u7406\u4E2D\u2026",
+      unlimited: "\u4E0D\u9650\u5236",
+      usedPercent: "\u5DF2\u7528 {percent}%",
+      remaining: "\u5269\u4F59 {value}",
+      clickToClose: "\u70B9\u51FB\u5173\u95ED",
+      loginLead: "\u4F7F\u7528\u4F01\u4E1A\u7BA1\u7406\u5458\u5206\u914D\u7684\u8D26\u53F7\u767B\u5F55\u3002",
+      loginMfaLead: "\u8BF7\u8F93\u5165\u52A8\u6001\u7801\u6216\u6062\u590D\u7801\u3002",
+      loginMfaCode: "\u52A8\u6001\u7801",
+      loginMfaPlaceholder: "6 \u4F4D\u52A8\u6001\u7801\u6216\u6062\u590D\u7801",
+      loginUsername: "\u7528\u6237\u540D",
+      loginUsernamePlaceholder: "\u4F8B\u5982 admin",
+      loginPassword: "\u5BC6\u7801",
+      loginPasswordPlaceholder: "\u81F3\u5C11 8 \u4F4D",
+      loginShowPassword: "\u663E\u793A\u5BC6\u7801",
+      loginHidePassword: "\u9690\u85CF\u5BC6\u7801",
+      loginProcessing: "\u5904\u7406\u4E2D\u2026",
+      loginSubmit: "\u767B\u5F55",
+      loginVerify: "\u9A8C\u8BC1\u5E76\u767B\u5F55",
+      loginSso: "\u4F7F\u7528 SSO \u767B\u5F55",
+      loginForgot: "\u5FD8\u8BB0\u5BC6\u7801\u8BF7\u8054\u7CFB\u4F01\u4E1A\u7BA1\u7406\u5458\u91CD\u7F6E\u3002",
+      loginSsoEmpty: "SSO \u767B\u5F55\u5730\u5740\u4E3A\u7A7A",
+      usersHint: "\u6CE8\u518C\u4F01\u4E1A\u6210\u5458\uFF0C\u5206\u914D\u4E0A\u6E38\u6A21\u578B Key \u4E0E\u6BCF\u65E5 token / \u6210\u672C\u989D\u5EA6\u3002",
+      newUser: "\u65B0\u5EFA\u7528\u6237",
+      searchUsers: "\u641C\u7D22\u7528\u6237\u540D\u6216\u90AE\u7BB1",
+      emailUnset: "\u672A\u8BBE\u7F6E\u90AE\u7BB1",
+      colUser: "\u7528\u6237",
+      colRole: "\u89D2\u8272",
+      colStatus: "\u72B6\u6001",
+      colLastLogin: "\u6700\u8FD1\u767B\u5F55",
+      colActions: "\u64CD\u4F5C",
+      noUsers: "\u8FD8\u6CA1\u6709\u7528\u6237",
+      noUsersHint: "\u521B\u5EFA\u7B2C\u4E00\u4E2A\u4F01\u4E1A\u6210\u5458\u540E\u5373\u53EF\u5206\u914D\u989D\u5EA6\u3002",
+      noMatchUsers: "\u6CA1\u6709\u5339\u914D\u7684\u7528\u6237",
+      noMatchUsersHint: "\u8C03\u6574\u641C\u7D22\u8BCD\u6216\u72B6\u6001\u7B5B\u9009\u3002",
+      disable: "\u7981\u7528",
+      enable: "\u542F\u7528",
+      disableUserTitle: "\u7981\u7528\u7528\u6237",
+      enableUserTitle: "\u542F\u7528\u7528\u6237",
+      disableUserMessage: "\u7981\u7528 {user} \u540E\uFF0C\u5176\u73B0\u6709\u4F1A\u8BDD\u4F1A\u7ACB\u5373\u5931\u6548\u3002",
+      enableUserMessage: "\u542F\u7528 {user} \u540E\uFF0C\u8BE5\u8D26\u53F7\u53EF\u4EE5\u91CD\u65B0\u767B\u5F55\u3002",
+      createUserHint: "\u5BC6\u7801\u53EA\u5728\u521B\u5EFA\u65F6\u63D0\u4EA4\uFF0C\u670D\u52A1\u7AEF\u53EA\u4FDD\u5B58 scrypt \u54C8\u5E0C\u3002",
+      username: "\u7528\u6237\u540D",
+      email: "\u90AE\u7BB1",
+      initialPassword: "\u521D\u59CB\u5BC6\u7801",
+      userCreated: "\u7528\u6237\u5DF2\u521B\u5EFA",
+      userDisabled: "\u7528\u6237\u5DF2\u7981\u7528",
+      userEnabled: "\u7528\u6237\u5DF2\u542F\u7528",
+      detailBack: "\u8FD4\u56DE\u7528\u6237\u5217\u8868",
+      todayUsageTitle: "\u4ECA\u65E5\u7528\u91CF",
+      runsCount: "{count} \u6B21\u8FD0\u884C",
+      input: "\u8F93\u5165",
+      output: "\u8F93\u51FA",
+      worker: "Worker",
+      reserved: "\u9884\u7559",
+      dailyQuota: "\u6BCF\u65E5\u989D\u5EA6",
+      dailyQuotaHint: "0 \u8868\u793A\u4E0D\u9650\u5236\uFF1B\u6309 UTC \u65E5\u7ED3\u7B97\u3002",
+      enableQuota: "\u542F\u7528",
+      dailyTokens: "\u6BCF\u65E5 token \u4E0A\u9650",
+      dailyCost: "\u6BCF\u65E5\u6210\u672C\u4E0A\u9650\uFF08CNY\uFF09",
+      saveQuota: "\u4FDD\u5B58\u989D\u5EA6",
+      quotaSaved: "\u989D\u5EA6\u5DF2\u4FDD\u5B58",
+      providerKeys: "\u4E0A\u6E38\u6A21\u578B Key",
+      providerKeysHint: "AES-256-GCM \u52A0\u5BC6\u4FDD\u5B58\uFF0C\u53EA\u663E\u793A\u540E\u56DB\u4F4D\uFF1B\u7528\u6237\u7AEF\u4E0D\u4F1A\u62FF\u5230\u660E\u6587\u3002",
+      envDefault: "\u73AF\u5883\u9ED8\u8BA4",
+      keyConfigured: "\u5DF2\u914D\u7F6E \xB7 \u2026{last4}",
+      keyUnconfigured: "\u672A\u914D\u7F6E",
+      keyPlaceholder: "\u7C98\u8D34\u65B0\u7684 API Key",
+      showKey: "\u663E\u793A Key",
+      hideKey: "\u9690\u85CF Key",
+      keySaved: "{provider} \u7684 Key \u5DF2\u4FDD\u5B58",
+      keyDeleted: "{provider} \u7684 Key \u5DF2\u5220\u9664",
+      deleteKeyTitle: "\u5220\u9664\u4E0A\u6E38 Key",
+      deleteKeyMessage: "\u5220\u9664 {provider} \u7684 Key \u540E\uFF0C\u8BE5\u7528\u6237\u5C06\u65E0\u6CD5\u4F7F\u7528\u8FD9\u4E2A provider \u8FD0\u884C\u4EFB\u52A1\u3002",
+      noProviders: "\u90E8\u7F72\u672A\u914D\u7F6E\u4EFB\u4F55\u4E0A\u6E38 provider\u3002",
+      authEvents: "\u767B\u5F55\u5B89\u5168\u4E8B\u4EF6",
+      authEventsHint: "\u767B\u5F55\u6210\u529F\u3001\u5931\u8D25\u3001\u767B\u51FA\u4E0E\u9650\u6D41\uFF1B\u4E0D\u542B\u5BC6\u7801\u6216 token\u3002",
+      noAuthEvents: "\u8FD8\u6CA1\u6709\u767B\u5F55\u4E8B\u4EF6\u3002",
+      resetPassword: "\u91CD\u7F6E\u5BC6\u7801",
+      resetPasswordHint: "\u91CD\u7F6E\u540E\u8BE5\u7528\u6237\u7684\u6240\u6709\u73B0\u6709\u4F1A\u8BDD\u7ACB\u5373\u5931\u6548\u3002",
+      newPassword: "\u65B0\u5BC6\u7801",
+      resetPasswordButton: "\u91CD\u7F6E\u5BC6\u7801",
+      passwordReset: "\u5BC6\u7801\u5DF2\u91CD\u7F6E\uFF0C\u73B0\u6709\u4F1A\u8BDD\u5DF2\u5931\u6548",
+      loginOk: "\u767B\u5F55\u6210\u529F",
+      loginFailed: "\u767B\u5F55\u5931\u8D25",
+      loginRateLimited: "\u89E6\u53D1\u9650\u6D41",
+      logoutEvent: "\u9000\u51FA\u767B\u5F55",
+      usageHint: "\u6210\u672C\u6309\u4EBA\u6C11\u5E01\u5C55\u793A\uFF1B\u4E0A\u6E38\u4EF7\u683C\u4ECD\u4EE5 USD \u8BB0\u8D26\uFF0C\u6309\u914D\u7F6E\u6C47\u7387\u6362\u7B97\u3002",
+      preset7: "\u8FD1 7 \u5929",
+      preset30: "\u8FD1 30 \u5929",
+      preset90: "\u8FD1 90 \u5929",
+      usageUserPlaceholder: "\u7559\u7A7A\u8868\u793A\u5168\u90E8",
+      totalTokens: "\u603B tokens",
+      cost: "\u6210\u672C",
+      runs: "\u8FD0\u884C\u6B21\u6570",
+      reservedTokens: "\u9884\u7559 tokens",
+      chartCost: "\u6BCF\u65E5\u6210\u672C\uFF08CNY\uFF09",
+      chartTokens: "\u6BCF\u65E5 tokens",
+      exportCsv: "\u5BFC\u51FA CSV",
+      noUsage: "\u8BE5\u533A\u95F4\u6CA1\u6709\u7528\u91CF",
+      noUsageHint: "\u8FD0\u884C\u4EFB\u52A1\u540E\uFF0Ctoken \u4E0E\u6210\u672C\u4F1A\u6309\u7528\u6237\u3001\u6309\u5929\u6C47\u603B\u5230\u8FD9\u91CC\u3002",
+      colDate: "\u65E5\u671F",
+      colInput: "\u8F93\u5165",
+      colOutput: "\u8F93\u51FA",
+      colWorker: "Worker",
+      colCost: "\u6210\u672C",
+      colRuns: "\u8FD0\u884C",
+      auditHint: "\u5BA1\u8BA1\u7D22\u5F15\u6765\u81EA\u5404\u7528\u6237\u8FD0\u884C\u7ED3\u675F\u540E\u56DE\u5199\u7684\u54C8\u5E0C\u94FE\uFF1B\u8FD9\u91CC\u53EA\u8BFB\uFF0C\u53EF\u4FE1\u6E90\u4ECD\u5728\u5BA1\u8BA1\u6587\u4EF6\u3002",
+      auditTotal: "\u5171 {count} \u6761",
+      auditThread: "\u7EBF\u7A0B",
+      auditKind: "\u7C7B\u578B",
+      auditTool: "\u5DE5\u5177",
+      auditResult: "\u7ED3\u679C",
+      auditReset: "\u91CD\u7F6E",
+      auditExport: "\u5BFC\u51FA CSV",
+      auditExporting: "\u5BFC\u51FA\u4E2D\u2026",
+      auditExported: "\u5DF2\u5BFC\u51FA {count} \u6761\u8BB0\u5F55",
+      auditExportedTruncated: "\u5DF2\u5BFC\u51FA\u524D {count} \u6761\u8BB0\u5F55\uFF08\u53EF\u80FD\u622A\u65AD\uFF09",
+      auditNoExport: "\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u5BA1\u8BA1\u8BB0\u5F55",
+      auditEmpty: "\u6CA1\u6709\u5BA1\u8BA1\u8BB0\u5F55",
+      auditEmptyHint: "\u8C03\u6574\u7B5B\u9009\u6761\u4EF6\uFF0C\u6216\u7B49\u5F85\u7528\u6237\u5B8C\u6210\u4E00\u6B21\u8FD0\u884C\u3002",
+      colTime: "\u65F6\u95F4",
+      colKind: "\u7C7B\u578B",
+      colTool: "\u5DE5\u5177",
+      colLevel: "\u7B49\u7EA7",
+      colDecision: "\u51B3\u5B9A",
+      colResult: "\u7ED3\u679C",
+      colThread: "\u7EBF\u7A0B",
+      resultSuccess: "\u6210\u529F",
+      resultFailure: "\u5931\u8D25",
+      colCreated: "\u521B\u5EFA\u65F6\u95F4",
+      colApprover: "\u5BA1\u6279\u4EBA",
+      colDecidedAt: "\u51B3\u5B9A\u65F6\u95F4",
+      workspacesHint: "\u5DE5\u4F5C\u533A\u5F52\u5C5E\u4E0E\u53EA\u8BFB\u5171\u4EAB\uFF1B\u6267\u884C/\u5199\u5165\u4ECD\u53EA\u5F52\u5DE5\u4F5C\u533A\u6240\u6709\u8005\uFF0CACL \u4E0D\u4F1A\u95F4\u63A5\u6388\u4E88\u8FD0\u884C\u6743\u9650\u3002",
+      workspaceSearch: "\u641C\u7D22\u6240\u6709\u8005\u3001\u540D\u79F0\u6216\u8DEF\u5F84",
+      kindAll: "\u5168\u90E8",
+      kindSandbox: "Sandbox",
+      kindHost: "\u672C\u673A",
+      colWorkspace: "\u5DE5\u4F5C\u533A",
+      colOwner: "\u6240\u6709\u8005",
+      colType: "\u7C7B\u578B",
+      colUsage: "\u7528\u91CF",
+      filesCount: "{count} \u4E2A\u6587\u4EF6",
+      manageShares: "\u7BA1\u7406\u5171\u4EAB",
+      noWorkspaces: "\u8FD8\u6CA1\u6709\u5DE5\u4F5C\u533A",
+      noWorkspacesHint: "\u7528\u6237\u6CE8\u518C\u672C\u673A\u5DE5\u4F5C\u533A\u540E\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002",
+      noMatchWorkspaces: "\u6CA1\u6709\u5339\u914D\u7684\u5DE5\u4F5C\u533A",
+      noMatchWorkspacesHint: "\u8C03\u6574\u641C\u7D22\u8BCD\u6216\u7C7B\u578B\u7B5B\u9009\u3002",
+      shareTitle: "\u53EA\u8BFB\u5171\u4EAB\uFF1A{name}",
+      shareOwner: "\u6240\u6709\u8005 {owner}",
+      member: "\u6210\u5458",
+      selectMember: "\u9009\u62E9\u6210\u5458\u2026",
+      grantRead: "\u6388\u4E88\u53EA\u8BFB",
+      noSharesYet: "\u8FD8\u6CA1\u6709\u53EA\u8BFB\u5171\u4EAB\u3002",
+      grantee: "\u88AB\u6388\u6743\u4EBA",
+      grantedBy: "\u6388\u6743\u4EBA",
+      time: "\u65F6\u95F4",
+      revoke: "\u64A4\u9500",
+      grantedToast: "\u5DF2\u6388\u4E88 {user} \u53EA\u8BFB\u8BBF\u95EE",
+      revokedToast: "\u5DF2\u64A4\u9500 {user} \u7684\u53EA\u8BFB\u8BBF\u95EE",
+      shareReadOnlyNote: "\u53EA\u8BFB\u6388\u6743\u53EA\u5F71\u54CD\u53EF\u89C1\u6027\uFF1B\u6267\u884C/\u5199\u5165\u4ECD\u53EA\u5F52\u5DE5\u4F5C\u533A\u6240\u6709\u8005\u3002",
+      approvalsHint: "\u53D1\u8D77\u4EBA\u4E0D\u80FD\u6279\u51C6\u81EA\u5DF1\u7684 L3 \u64CD\u4F5C\uFF1B\u6279\u51C6\u540E\u8BF7\u8BA9\u53D1\u8D77\u4EBA\u5728\u4F1A\u8BDD\u91CC\u70B9\u51FB\u201C\u5237\u65B0\u5E76\u7EE7\u7EED\u201D\u3002",
+      pending: "\u5F85\u5BA1\u6279",
+      history: "\u5386\u53F2",
+      live: "\u5B9E\u65F6",
+      polling: "\u8F6E\u8BE2\uFF08SSE \u4E0D\u53EF\u7528\uFF09",
+      connecting: "\u8FDE\u63A5\u4E2D\u2026",
+      selected: "\u5DF2\u9009 {count} \u6761",
+      approveSelected: "\u6279\u51C6\u9009\u4E2D",
+      rejectSelected: "\u62D2\u7EDD\u9009\u4E2D",
+      clearSelection: "\u53D6\u6D88",
+      noPending: "\u6CA1\u6709\u5F85\u5BA1\u6279\u8BF7\u6C42",
+      noPendingHint: "\u65B0\u7684 L3 \u5BA1\u6279\u4F1A\u81EA\u52A8\u51FA\u73B0\u5728\u8FD9\u91CC\u3002",
+      selectAll: "\u5168\u9009",
+      selectOne: "\u9009\u62E9 {user} \u7684\u5BA1\u6279",
+      approve: "\u6279\u51C6",
+      reject: "\u62D2\u7EDD",
+      historyStatus: "\u72B6\u6001",
+      historyRequester: "\u53D1\u8D77\u4EBA",
+      historyEmpty: "\u6CA1\u6709\u5BA1\u6279\u8BB0\u5F55",
+      historyEmptyHint: "\u8C03\u6574\u7B5B\u9009\u6761\u4EF6\uFF0C\u6216\u7B49\u5F85\u4E0B\u4E00\u6B21 L3 \u5BA1\u6279\u3002",
+      exportedApprovals: "\u5DF2\u5BFC\u51FA {count} \u6761\u8BB0\u5F55",
+      exportedApprovalsTruncated: "\u5DF2\u5BFC\u51FA\u524D {count} \u6761\u8BB0\u5F55\uFF08\u53EF\u80FD\u622A\u65AD\uFF09",
+      noApprovalExport: "\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u5BA1\u6279\u8BB0\u5F55",
+      batchResult: "\u5DF2\u5904\u7406 {updated} \u6761",
+      batchResultFailed: "\u5DF2\u5904\u7406 {updated} \u6761\uFF0C\u5931\u8D25 {failed} \u6761",
+      approvalDisabled: "\u56DB\u773C\u5BA1\u6279\u672A\u542F\u7528",
+      approvalDisabledHint: "\u8BBE\u7F6E AGENT_APPROVAL_FOUR_EYES=true \u540E\uFF0CL3 \u5BA1\u6279\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002",
+      statusPending: "\u5F85\u5BA1\u6279",
+      statusApproved: "\u5DF2\u6279\u51C6",
+      statusDenied: "\u5DF2\u62D2\u7EDD",
+      statusExpired: "\u5DF2\u8FC7\u671F",
+      healthHint: "\u8FDB\u7A0B\u5185\u6307\u6807\u6BCF 10 \u79D2\u5237\u65B0\uFF1B\u8FD9\u91CC\u53EA\u8BFB\uFF0C\u4E0D\u89E6\u53D1\u4EFB\u4F55\u8FD0\u884C\u6216\u6E05\u7406\u52A8\u4F5C\u3002",
+      database: "\u63A7\u5236\u9762\u6570\u636E\u5E93",
+      normal: "\u6B63\u5E38",
+      unavailable: "\u4E0D\u53EF\u7528",
+      activeRuns: "\u6D3B\u8DC3\u8FD0\u884C",
+      sseConnections: "SSE \u8FDE\u63A5",
+      pendingApprovals: "\u5F85\u5BA1\u6279",
+      auditFailures: "\u5BA1\u8BA1\u5199\u5931\u8D25",
+      llmErrors: "LLM \u9519\u8BEF",
+      httpRequests: "HTTP \u8BF7\u6C42",
+      completedRuns: "\u5B8C\u6210\u8FD0\u884C",
+      snapshotAt: "\u5FEB\u7167\u65F6\u95F4\uFF1A{time}",
+      rebuildSearch: "\u91CD\u5EFA\u641C\u7D22\u7D22\u5F15",
+      rebuilding: "\u91CD\u5EFA\u4E2D\u2026",
+      reindexed: "\u5DF2\u91CD\u5EFA {count} \u4E2A\u4F1A\u8BDD\u7684\u641C\u7D22\u7D22\u5F15",
+      reindexConfirm: "\u91CD\u5EFA\u6240\u6709\u6210\u5458\u7684\u4F1A\u8BDD\u641C\u7D22\u7D22\u5F15\uFF1F\u5DF2\u6709\u7684 transcript \u6B63\u6587\u7D22\u5F15\u4F1A\u4FDD\u7559\u3002",
+      metricName: "\u6307\u6807",
+      metricValue: "\u503C",
+      providersHint: "Provider \u5217\u8868\u6765\u81EA\u90E8\u7F72\u73AF\u5883\uFF08AGENT_LLM_PROVIDERS\uFF09\uFF1B\u6BCF\u4E2A\u7528\u6237\u7684 Key \u5728\u201C\u7528\u6237 \u2192 \u7BA1\u7406\u201D\u4E2D\u5355\u72EC\u914D\u7F6E\u3002",
+      noProvidersTitle: "\u90E8\u7F72\u672A\u914D\u7F6E provider",
+      noProvidersHint: "\u5728 AGENT_LLM_PROVIDERS \u4E2D\u914D\u7F6E\u540E\u91CD\u542F Web \u670D\u52A1\u3002",
+      modelUnset: "\u672A\u6307\u5B9A\u6A21\u578B",
+      baseUrl: "Base URL",
+      envKey: "\u73AF\u5883 Key",
+      configured: "\u5DF2\u914D\u7F6E",
+      unconfigured: "\u672A\u914D\u7F6E"
+    },
     header: {
       toggleSidebar: "\u5207\u6362\u4FA7\u680F",
       toggleSidebarHint: "\u5207\u6362\u4FA7\u680F\uFF08Ctrl+B\uFF09",
@@ -94,7 +367,12 @@
       all: "\u5168\u90E8",
       pinned: "\u7F6E\u9876",
       archived: "\u5F52\u6863",
-      selected: "{count} \u6761\u5DF2\u9009"
+      selected: "{count} \u6761\u5DF2\u9009",
+      loadMore: "\u52A0\u8F7D\u66F4\u591A",
+      downloadPatch: "\u4E0B\u8F7D\u672C\u8F6E\u8865\u4E01",
+      patchEmpty: "\u672C\u8F6E\u6CA1\u6709\u6587\u4EF6\u6539\u52A8",
+      patchDownloaded: "\u8865\u4E01\u5DF2\u4E0B\u8F7D",
+      openSessionFirst: "\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A\u4F1A\u8BDD"
     },
     composer: {
       placeholder: "\u8F93\u5165\u4EFB\u52A1\uFF0CEnter \u53D1\u9001\uFF0CShift+Enter \u6362\u884C",
@@ -247,6 +525,44 @@
       revokeOthers: "\u767B\u51FA\u5176\u4ED6\u4F1A\u8BDD",
       sessionCurrent: "\u5F53\u524D\u4F1A\u8BDD",
       sessionsRevoked: "\u5DF2\u767B\u51FA {count} \u4E2A\u5176\u4ED6\u4F1A\u8BDD",
+      integrations: "\u96C6\u6210\uFF08CI / \u5916\u90E8\uFF09",
+      integrationsHint: "\u4E2A\u4EBA\u8BBF\u95EE\u4EE4\u724C\u4F9B CI \u8C03\u7528\uFF1BWebhook \u5728\u8FD0\u884C\u5B8C\u6210/\u5931\u8D25\u6216\u5BA1\u6279\u8BF7\u6C42\u65F6\u56DE\u8C03\u3002",
+      tokens: "\u4E2A\u4EBA\u8BBF\u95EE\u4EE4\u724C",
+      tokensUnavailable: "\u9700\u8981\u4F01\u4E1A\u8D26\u53F7\u4E0E\u63A7\u5236\u9762\u6570\u636E\u5E93\u3002",
+      tokenName: "\u4EE4\u724C\u540D\u79F0",
+      tokenNeverExpires: "\u6C38\u4E45",
+      tokenDays: "\u6709\u6548\u5929\u6570\uFF080 = \u6C38\u4E45\uFF09",
+      tokenScopeRequired: "\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A scope",
+      scopeRead: "\u53EA\u8BFB\u72B6\u6001",
+      scopeRun: "\u89E6\u53D1\u8FD0\u884C",
+      scopeAudit: "\u8BFB\u53D6\u5BA1\u8BA1",
+      createToken: "\u521B\u5EFA\u4EE4\u724C",
+      tokenCreated: "\u4EE4\u724C\u660E\u6587\u53EA\u663E\u793A\u4E00\u6B21\uFF0C\u8BF7\u7ACB\u5373\u4FDD\u5B58\uFF1A",
+      tokenCreatedToast: "\u8BBF\u95EE\u4EE4\u724C\u5DF2\u521B\u5EFA\uFF0C\u660E\u6587\u53EA\u663E\u793A\u4E00\u6B21",
+      noTokens: "\u8FD8\u6CA1\u6709\u8BBF\u95EE\u4EE4\u724C",
+      tokenRevokeConfirm: "\u64A4\u9500\u8BE5\u8BBF\u95EE\u4EE4\u724C\uFF1F\u4F7F\u7528\u5B83\u7684 CI \u4F1A\u7ACB\u5373\u5931\u6548\u3002",
+      tokenRevoked: "\u8BBF\u95EE\u4EE4\u724C\u5DF2\u64A4\u9500",
+      revoke: "\u64A4\u9500",
+      copy: "\u590D\u5236",
+      webhooks: "Webhook",
+      webhooksUnavailable: "\u9700\u8981\u63A7\u5236\u9762\u6570\u636E\u5E93\u3002",
+      webhookName: "\u540D\u79F0",
+      webhookUrl: "HTTPS \u5730\u5740",
+      webhookEvents: "\u4E8B\u4EF6",
+      eventRunFinished: "\u8FD0\u884C\u5B8C\u6210",
+      eventRunFailed: "\u8FD0\u884C\u5931\u8D25",
+      eventApprovalRequested: "\u5BA1\u6279\u8BF7\u6C42",
+      createWebhook: "\u521B\u5EFA Webhook",
+      webhookCreated: "\u7B7E\u540D\u5BC6\u94A5\u53EA\u663E\u793A\u4E00\u6B21\uFF0C\u8BF7\u7ACB\u5373\u4FDD\u5B58\uFF1A",
+      webhookCreatedToast: "Webhook \u5DF2\u521B\u5EFA\uFF0C\u7B7E\u540D\u5BC6\u94A5\u53EA\u663E\u793A\u4E00\u6B21",
+      webhookEventRequired: "\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u4E8B\u4EF6",
+      webhookUrlRequired: "\u8BF7\u586B\u5199 Webhook \u5730\u5740",
+      noWebhooks: "\u8FD8\u6CA1\u6709 Webhook",
+      webhookDeleteConfirm: "\u5220\u9664\u8BE5 Webhook\uFF1F",
+      webhookDeleted: "Webhook \u5DF2\u5220\u9664",
+      webhookSignatureHint: "\u8BF7\u6C42\u5934\uFF1AX-CodingAgent-Signature: sha256=...\uFF1B\u4E8B\u4EF6\uFF1AX-CodingAgent-Event\u3002",
+      webhookNeverSent: "\u672A\u6295\u9012",
+      lastDelivery: "\u6700\u8FD1\u6295\u9012",
       maintenance: "\u8FD0\u7EF4\u7EF4\u62A4",
       releaseLease: "\u91CA\u653E\u5F53\u524D\u4F1A\u8BDD\u79DF\u7EA6",
       purgeMaintenance: "\u6E05\u7406\u8FC7\u671F\u79DF\u7EA6/\u5E42\u7B49\u952E",
@@ -387,6 +703,45 @@
       rejectAll: "\u5168\u90E8\u62D2\u7EDD",
       remaining: "\u8FD8\u5269 {count} \u6761\u5F85\u786E\u8BA4"
     },
+    compare: {
+      title: "\u8FD0\u884C\u5BF9\u6BD4",
+      hint: "\u9009\u62E9\u540C\u4E00\u4F1A\u8BDD\u7684\u4E24\u6B21\u8FD0\u884C\uFF0C\u5E76\u6392\u67E5\u770B\u7528\u91CF\u4E0E\u9010\u6587\u4EF6 diff\u3002",
+      left: "\u5DE6\u4FA7\u8FD0\u884C",
+      right: "\u53F3\u4FA7\u8FD0\u884C",
+      run: "\u5BF9\u6BD4",
+      loading: "\u5BF9\u6BD4\u4E2D\u2026",
+      ok: "\u6210\u529F",
+      failed: "\u5931\u8D25",
+      interrupted: "\u4E2D\u65AD",
+      noDiff: "\uFF08\u65E0\u5DEE\u5F02\uFF09",
+      notTouched: "\uFF08\u8BE5\u4FA7\u672A\u6539\u52A8\u6B64\u6587\u4EF6\uFF09",
+      needSession: "\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A\u4F1A\u8BDD"
+    },
+    mobile: {
+      nav: "\u79FB\u52A8\u7AEF\u4E3B\u5BFC\u822A",
+      sessions: "\u4F1A\u8BDD",
+      chat: "\u5BF9\u8BDD",
+      approvals: "\u5BA1\u6279",
+      noApprovals: "\u5F53\u524D\u6CA1\u6709\u5F85\u5BA1\u6279\u8BF7\u6C42"
+    },
+    share: {
+      title: "\u53EA\u8BFB\u5206\u4EAB",
+      hint: "\u521B\u5EFA\u65F6\u8131\u654F\u5E76\u51BB\u7ED3\u5FEB\u7167\uFF1B\u94FE\u63A5\u5230\u671F\u6216\u64A4\u9500\u540E\u7ACB\u5373\u5931\u6548\u3002",
+      expiry: "\u6709\u6548\u671F",
+      oneDay: "1 \u5929",
+      sevenDays: "7 \u5929",
+      thirtyDays: "30 \u5929",
+      create: "\u521B\u5EFA\u94FE\u63A5",
+      urlHint: "\u94FE\u63A5\u53EA\u5728\u521B\u5EFA\u54CD\u5E94\u91CC\u51FA\u73B0\u4E00\u6B21\uFF1B\u53EF\u968F\u65F6\u590D\u5236\u3002",
+      copy: "\u590D\u5236",
+      revoke: "\u64A4\u9500",
+      empty: "\u8FD8\u6CA1\u6709\u5206\u4EAB\u94FE\u63A5",
+      views: "\u6D4F\u89C8 {count}",
+      created: "\u5206\u4EAB\u94FE\u63A5\u5DF2\u521B\u5EFA",
+      revoked: "\u5206\u4EAB\u94FE\u63A5\u5DF2\u64A4\u9500",
+      revokeConfirm: "\u64A4\u9500\u8BE5\u5206\u4EAB\u94FE\u63A5\uFF1F",
+      needSession: "\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A\u4F1A\u8BDD"
+    },
     notifications: {
       title: "\u901A\u77E5",
       markAllRead: "\u5168\u90E8\u5DF2\u8BFB",
@@ -406,6 +761,279 @@
       close: "Close",
       unknown: "Unknown",
       newSession: "New session"
+    },
+    admin: {
+      brand: "Enterprise console",
+      loading: "Loading admin console\u2026",
+      reload: "Reload",
+      noAccess: "Account ({user}) has no console access.",
+      logout: "Sign out",
+      language: "Language",
+      languageZh: "\u7B80\u4F53\u4E2D\u6587",
+      languageEn: "English",
+      storageTitle: "Data storage",
+      storageHint: "Accounts, quotas, usage and upstream keys are stored in the control database.",
+      todayUsage: "Today's usage for this admin",
+      quotaLabel: "Limit {value}",
+      navUsers: "Users",
+      navWorkspaces: "Workspaces",
+      navUsage: "Usage",
+      navAudit: "Audit",
+      navHealth: "System",
+      navProviders: "Providers",
+      navApprovals: "Approvals",
+      hintUsers: "Accounts, quotas and upstream keys",
+      hintWorkspaces: "Ownership, usage and read-only sharing",
+      hintUsage: "Aggregated by user and day",
+      hintAudit: "Runs and tool records for the organization",
+      hintHealth: "Database, connections and in-process metrics",
+      hintProviders: "Model providers available in this deployment",
+      hintApprovals: "Four-eyes approval queue (L3)",
+      roleOwner: "Owner",
+      roleAdmin: "Admin",
+      roleApprover: "Approver",
+      roleAuditor: "Auditor",
+      roleMember: "Member",
+      refresh: "Refresh",
+      search: "Search",
+      cancel: "Cancel",
+      close: "Close",
+      save: "Save",
+      delete: "Delete",
+      manage: "Manage",
+      back: "Back",
+      copy: "Copy",
+      create: "Create",
+      creating: "Creating\u2026",
+      query: "Query",
+      querying: "Querying\u2026",
+      from: "From",
+      to: "To",
+      user: "User",
+      all: "All",
+      active: "Active",
+      disabled: "Disabled",
+      loadingLabel: "Loading",
+      none: "\u2014",
+      openNav: "Open navigation",
+      closeNav: "Close navigation",
+      processing: "Working\u2026",
+      unlimited: "Unlimited",
+      usedPercent: "{percent}% used",
+      remaining: "{value} remaining",
+      clickToClose: "Click to close",
+      loginLead: "Sign in with the account assigned by your admin.",
+      loginMfaLead: "Enter a one-time code or recovery code.",
+      loginMfaCode: "One-time code",
+      loginMfaPlaceholder: "6-digit code or recovery code",
+      loginUsername: "Username",
+      loginUsernamePlaceholder: "e.g. admin",
+      loginPassword: "Password",
+      loginPasswordPlaceholder: "At least 8 characters",
+      loginShowPassword: "Show password",
+      loginHidePassword: "Hide password",
+      loginProcessing: "Working\u2026",
+      loginSubmit: "Sign in",
+      loginVerify: "Verify and sign in",
+      loginSso: "Sign in with SSO",
+      loginForgot: "Contact your admin to reset the password.",
+      loginSsoEmpty: "SSO sign-in URL is empty",
+      usersHint: "Register members and assign upstream model keys and daily token / cost quotas.",
+      newUser: "New user",
+      searchUsers: "Search username or email",
+      emailUnset: "No email",
+      colUser: "User",
+      colRole: "Role",
+      colStatus: "Status",
+      colLastLogin: "Last sign-in",
+      colActions: "Actions",
+      noUsers: "No users yet",
+      noUsersHint: "Create the first member to assign quotas.",
+      noMatchUsers: "No matching users",
+      noMatchUsersHint: "Adjust the search or status filter.",
+      disable: "Disable",
+      enable: "Enable",
+      disableUserTitle: "Disable user",
+      enableUserTitle: "Enable user",
+      disableUserMessage: "Disabling {user} invalidates their existing sessions immediately.",
+      enableUserMessage: "Enabling {user} lets the account sign in again.",
+      createUserHint: "The password is submitted once; only the scrypt hash is stored.",
+      username: "Username",
+      email: "Email",
+      initialPassword: "Initial password",
+      userCreated: "User created",
+      userDisabled: "User disabled",
+      userEnabled: "User enabled",
+      detailBack: "Back to users",
+      todayUsageTitle: "Today's usage",
+      runsCount: "{count} runs",
+      input: "Input",
+      output: "Output",
+      worker: "Worker",
+      reserved: "Reserved",
+      dailyQuota: "Daily quota",
+      dailyQuotaHint: "0 means unlimited; settled by UTC day.",
+      enableQuota: "Enable",
+      dailyTokens: "Daily token limit",
+      dailyCost: "Daily cost limit (CNY)",
+      saveQuota: "Save quota",
+      quotaSaved: "Quota saved",
+      providerKeys: "Upstream model keys",
+      providerKeysHint: "Encrypted with AES-256-GCM; only the last four digits are shown and the frontend never receives plaintext.",
+      envDefault: "environment default",
+      keyConfigured: "Configured \xB7 \u2026{last4}",
+      keyUnconfigured: "Not configured",
+      keyPlaceholder: "Paste a new API key",
+      showKey: "Show key",
+      hideKey: "Hide key",
+      keySaved: "Key for {provider} saved",
+      keyDeleted: "Key for {provider} deleted",
+      deleteKeyTitle: "Delete upstream key",
+      deleteKeyMessage: "After deleting the {provider} key this user cannot run tasks with that provider.",
+      noProviders: "No upstream providers configured in this deployment.",
+      authEvents: "Sign-in security events",
+      authEventsHint: "Successful/failed sign-ins, sign-outs and rate limits; no passwords or tokens.",
+      noAuthEvents: "No sign-in events yet.",
+      resetPassword: "Reset password",
+      resetPasswordHint: "Resetting invalidates all existing sessions for this user.",
+      newPassword: "New password",
+      resetPasswordButton: "Reset password",
+      passwordReset: "Password reset; existing sessions are invalid",
+      loginOk: "Signed in",
+      loginFailed: "Sign-in failed",
+      loginRateLimited: "Rate limited",
+      logoutEvent: "Signed out",
+      usageHint: "Costs are shown in CNY; upstream prices are recorded in USD and converted with the configured rate.",
+      preset7: "Last 7 days",
+      preset30: "Last 30 days",
+      preset90: "Last 90 days",
+      usageUserPlaceholder: "Blank means all",
+      totalTokens: "Total tokens",
+      cost: "Cost",
+      runs: "Runs",
+      reservedTokens: "Reserved tokens",
+      chartCost: "Daily cost (CNY)",
+      chartTokens: "Daily tokens",
+      exportCsv: "Export CSV",
+      noUsage: "No usage in this range",
+      noUsageHint: "After runs complete, tokens and costs are aggregated here by user and day.",
+      colDate: "Date",
+      colInput: "Input",
+      colOutput: "Output",
+      colWorker: "Worker",
+      colCost: "Cost",
+      colRuns: "Runs",
+      auditHint: "The audit index is written from each run's hash chain; this view is read-only and the audit files remain the source of truth.",
+      auditTotal: "{count} records",
+      auditThread: "Thread",
+      auditKind: "Kind",
+      auditTool: "Tool",
+      auditResult: "Result",
+      auditReset: "Reset",
+      auditExport: "Export CSV",
+      auditExporting: "Exporting\u2026",
+      auditExported: "Exported {count} records",
+      auditExportedTruncated: "Exported the first {count} records (possibly truncated)",
+      auditNoExport: "No audit records to export",
+      auditEmpty: "No audit records",
+      auditEmptyHint: "Adjust the filters, or wait for a user to finish a run.",
+      colTime: "Time",
+      colKind: "Kind",
+      colTool: "Tool",
+      colLevel: "Level",
+      colDecision: "Decision",
+      colResult: "Result",
+      colThread: "Thread",
+      resultSuccess: "Success",
+      resultFailure: "Failure",
+      colCreated: "Created",
+      colApprover: "Approver",
+      colDecidedAt: "Decided",
+      workspacesHint: "Workspace ownership and read-only sharing; execution/writes still belong to the owner only.",
+      workspaceSearch: "Search owner, name or path",
+      kindAll: "All",
+      kindSandbox: "Sandbox",
+      kindHost: "Local",
+      colWorkspace: "Workspace",
+      colOwner: "Owner",
+      colType: "Type",
+      colUsage: "Usage",
+      filesCount: "{count} files",
+      manageShares: "Manage sharing",
+      noWorkspaces: "No workspaces yet",
+      noWorkspacesHint: "Workspaces registered by users appear here.",
+      noMatchWorkspaces: "No matching workspaces",
+      noMatchWorkspacesHint: "Adjust the search or kind filter.",
+      shareTitle: "Read-only sharing: {name}",
+      shareOwner: "Owner {owner}",
+      member: "Member",
+      selectMember: "Select a member\u2026",
+      grantRead: "Grant read",
+      noSharesYet: "No read-only shares yet.",
+      grantee: "Grantee",
+      grantedBy: "Granted by",
+      time: "Time",
+      revoke: "Revoke",
+      grantedToast: "Granted read access to {user}",
+      revokedToast: "Revoked read access from {user}",
+      shareReadOnlyNote: "Read grants only affect visibility; execution/writes still belong to the owner.",
+      approvalsHint: 'Requesters cannot approve their own L3 actions; after approval, ask them to click "refresh and continue" in the session.',
+      pending: "Pending",
+      history: "History",
+      live: "Live",
+      polling: "Polling (SSE unavailable)",
+      connecting: "Connecting\u2026",
+      selected: "{count} selected",
+      approveSelected: "Approve selected",
+      rejectSelected: "Reject selected",
+      clearSelection: "Clear",
+      noPending: "No pending approvals",
+      noPendingHint: "New L3 approvals appear here automatically.",
+      selectAll: "Select all",
+      selectOne: "Select {user}'s approval",
+      approve: "Approve",
+      reject: "Reject",
+      historyStatus: "Status",
+      historyRequester: "Requester",
+      historyEmpty: "No approval history",
+      historyEmptyHint: "Adjust the filters, or wait for the next L3 approval.",
+      exportedApprovals: "Exported {count} records",
+      exportedApprovalsTruncated: "Exported the first {count} records (possibly truncated)",
+      noApprovalExport: "No approvals to export",
+      batchResult: "Processed {updated}",
+      batchResultFailed: "Processed {updated}, failed {failed}",
+      approvalDisabled: "Four-eyes approval is disabled",
+      approvalDisabledHint: "Set AGENT_APPROVAL_FOUR_EYES=true to see L3 approvals here.",
+      statusPending: "Pending",
+      statusApproved: "Approved",
+      statusDenied: "Denied",
+      statusExpired: "Expired",
+      healthHint: "In-process metrics refresh every 10 seconds; this view is read-only.",
+      database: "Control database",
+      normal: "OK",
+      unavailable: "Unavailable",
+      activeRuns: "Active runs",
+      sseConnections: "SSE connections",
+      pendingApprovals: "Pending approvals",
+      auditFailures: "Audit write failures",
+      llmErrors: "LLM errors",
+      httpRequests: "HTTP requests",
+      completedRuns: "Completed runs",
+      snapshotAt: "Snapshot: {time}",
+      rebuildSearch: "Rebuild search index",
+      rebuilding: "Rebuilding\u2026",
+      reindexed: "Rebuilt the search index for {count} sessions",
+      reindexConfirm: "Rebuild the session search index for all members? Existing transcript body indexes are kept.",
+      metricName: "Metric",
+      metricValue: "Value",
+      providersHint: "Providers come from AGENT_LLM_PROVIDERS; per-user keys are configured under Users \u2192 Manage.",
+      noProvidersTitle: "No providers configured",
+      noProvidersHint: "Configure AGENT_LLM_PROVIDERS and restart the web service.",
+      modelUnset: "No model",
+      baseUrl: "Base URL",
+      envKey: "Environment key",
+      configured: "Configured",
+      unconfigured: "Not configured"
     },
     header: {
       toggleSidebar: "Toggle sidebar",
@@ -464,7 +1092,12 @@
       all: "All",
       pinned: "Pinned",
       archived: "Archived",
-      selected: "{count} selected"
+      selected: "{count} selected",
+      loadMore: "Load more",
+      downloadPatch: "Download this run's patch",
+      patchEmpty: "No file changes in this run",
+      patchDownloaded: "Patch downloaded",
+      openSessionFirst: "Open a session first"
     },
     composer: {
       placeholder: "Enter a task. Enter to send, Shift+Enter for a new line",
@@ -617,6 +1250,44 @@
       revokeOthers: "Sign out other sessions",
       sessionCurrent: "Current session",
       sessionsRevoked: "Signed out {count} other sessions",
+      integrations: "Integrations (CI / external)",
+      integrationsHint: "Personal access tokens let CI call the API; webhooks fire when runs finish/fail or approvals are requested.",
+      tokens: "Personal access tokens",
+      tokensUnavailable: "Requires enterprise accounts and the control database.",
+      tokenName: "Token name",
+      tokenNeverExpires: "Never expires",
+      tokenDays: "Valid days (0 = never expires)",
+      tokenScopeRequired: "Select at least one scope",
+      scopeRead: "Read state",
+      scopeRun: "Trigger runs",
+      scopeAudit: "Read audit",
+      createToken: "Create token",
+      tokenCreated: "The token is shown only once. Save it now:",
+      tokenCreatedToast: "Token created; the plaintext is shown only once",
+      noTokens: "No access tokens yet",
+      tokenRevokeConfirm: "Revoke this token? CI using it will stop working immediately.",
+      tokenRevoked: "Token revoked",
+      revoke: "Revoke",
+      copy: "Copy",
+      webhooks: "Webhooks",
+      webhooksUnavailable: "Requires the control database.",
+      webhookName: "Name",
+      webhookUrl: "HTTPS URL",
+      webhookEvents: "Events",
+      eventRunFinished: "Run finished",
+      eventRunFailed: "Run failed",
+      eventApprovalRequested: "Approval requested",
+      createWebhook: "Create webhook",
+      webhookCreated: "The signing secret is shown only once. Save it now:",
+      webhookCreatedToast: "Webhook created; the secret is shown only once",
+      webhookEventRequired: "Select at least one event",
+      webhookUrlRequired: "Enter the webhook URL",
+      noWebhooks: "No webhooks yet",
+      webhookDeleteConfirm: "Delete this webhook?",
+      webhookDeleted: "Webhook deleted",
+      webhookSignatureHint: "Headers: X-CodingAgent-Signature: sha256=...; X-CodingAgent-Event.",
+      webhookNeverSent: "Never delivered",
+      lastDelivery: "Last delivery",
       maintenance: "Maintenance",
       releaseLease: "Release current session lease",
       purgeMaintenance: "Purge expired leases/idempotency keys",
@@ -756,6 +1427,45 @@
       deny: "Deny (n)",
       rejectAll: "Reject all",
       remaining: "{count} more pending"
+    },
+    compare: {
+      title: "Run comparison",
+      hint: "Pick two runs of this session and compare usage and per-file diffs side by side.",
+      left: "Left run",
+      right: "Right run",
+      run: "Compare",
+      loading: "Comparing\u2026",
+      ok: "Succeeded",
+      failed: "Failed",
+      interrupted: "Interrupted",
+      noDiff: "(no diff)",
+      notTouched: "(not changed on this side)",
+      needSession: "Open a session first"
+    },
+    mobile: {
+      nav: "Mobile navigation",
+      sessions: "Sessions",
+      chat: "Chat",
+      approvals: "Approvals",
+      noApprovals: "No pending approvals"
+    },
+    share: {
+      title: "Read-only share",
+      hint: "The snapshot is redacted and frozen at creation; the link stops working on expiry or revoke.",
+      expiry: "Expiry",
+      oneDay: "1 day",
+      sevenDays: "7 days",
+      thirtyDays: "30 days",
+      create: "Create link",
+      urlHint: "The link is returned once; you can copy it at any time.",
+      copy: "Copy",
+      revoke: "Revoke",
+      empty: "No share links yet",
+      views: "{count} views",
+      created: "Share link created",
+      revoked: "Share link revoked",
+      revokeConfirm: "Revoke this share link?",
+      needSession: "Open a session first"
     },
     notifications: {
       title: "Notifications",
@@ -1511,6 +2221,10 @@
         this.loadProfiles()
       ]);
       this.ready = true;
+      void this.loadServerNotifications();
+      void this.connectNotificationStream();
+      void this.setupPush();
+      void this.loadIntegrations();
       try {
         await this.applyUrlState();
       } catch (err) {
@@ -2131,6 +2845,7 @@
         }
       } catch (err) {
       }
+      await this.removePushSubscription();
       setToken("");
       clearGetCache();
       void clearHistoryCache();
@@ -3354,6 +4069,32 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
     const max = Math.max(1, Number(limit) || 90);
     return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
   }
+  function sessionRows(payload) {
+    if (!payload || typeof payload !== "object") return [];
+    const items = payload.sessions;
+    return Array.isArray(items) ? items : [];
+  }
+  function mergeSessionPayloads(active, archived) {
+    const rows = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const payload of [active, archived]) {
+      for (const item of sessionRows(payload)) {
+        const id = item && String(item.thread_id || "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        rows.push(item);
+      }
+    }
+    return { sessions: rows };
+  }
+  function sessionPayloadHasMore(active, archived) {
+    return [active, archived].some((payload) => {
+      if (!payload || typeof payload !== "object") return false;
+      const loaded = sessionRows(payload).length;
+      const total = Number(payload.total);
+      return Number.isFinite(total) && total > loaded;
+    });
+  }
   function sessionMetaText(row) {
     const parts = [];
     const when = String(row && row.last_active || "").replace("T", " ").slice(0, 16);
@@ -3506,12 +4247,22 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         }
       }
       try {
-        const data = await cachedJson(
-          "/api/sessions?limit=50&include_archived=true",
-          "\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD",
-          { ttlMs: 1500, force }
-        );
+        const limit = Math.max(50, Number(this.sessionLimit) || 50);
+        const [active, archived] = await Promise.all([
+          cachedJson(
+            `/api/sessions?limit=${limit}&archived=false`,
+            "\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD",
+            { ttlMs: 1500, force }
+          ),
+          cachedJson(
+            `/api/sessions?limit=${limit}&archived=true`,
+            "\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD",
+            { ttlMs: 1500, force }
+          )
+        ]);
+        const data = mergeSessionPayloads(active, archived);
         this.applySessionPayload(data);
+        this.sessionHasMore = sessionPayloadHasMore(active, archived);
         void writeCachedSessions(data);
       } catch (e) {
         if (usedCache) this.toastMessage(`\u4F1A\u8BDD\u5217\u8868\u5237\u65B0\u5931\u8D25\uFF1A${e}`);
@@ -3519,6 +4270,45 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       } finally {
         this.sessionsLoading = false;
       }
+    },
+    async loadMoreSessions() {
+      if (this.sessionsLoading || !this.sessionHasMore) return;
+      this.sessionLimit = Math.max(50, Number(this.sessionLimit) || 50) + 50;
+      await this.loadSessions(true);
+    },
+    async downloadSessionPatch(id) {
+      const threadId = String(id || "").trim();
+      if (!threadId) {
+        this.toastMessage(this.t("sidebar.openSessionFirst"));
+        return;
+      }
+      try {
+        const response = await authFetch(
+          `/api/sessions/${encodeURIComponent(threadId)}/patch`
+        );
+        if (!response.ok) {
+          await readJson(response, "\u4E0B\u8F7D\u8865\u4E01\u5931\u8D25");
+          return;
+        }
+        const text = await response.text();
+        if (!text.trim()) {
+          this.toastMessage(this.t("sidebar.patchEmpty"));
+          return;
+        }
+        const blob = new Blob([text], { type: "text/x-patch;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${threadId.slice(0, 8)}.patch`;
+        link.click();
+        URL.revokeObjectURL(url);
+        this.toastMessage(this.t("sidebar.patchDownloaded"));
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    downloadCurrentPatch() {
+      return this.downloadSessionPatch(this.threadId);
     },
     async openSplitSession(id) {
       if (!id) return;
@@ -4137,6 +4927,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
       await this.loadUploads();
       await this.loadApprovals();
       await this.loadSessions(true);
+      if (this.isMobileLayout()) this.setMobilePane("chat");
       this.syncUrlState();
     },
     applyHistoryPayload(data) {
@@ -7511,6 +8302,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           if (permission !== "granted") {
             this.notifyEnabled = false;
             this.toastMessage("\u6D4F\u89C8\u5668\u672A\u6388\u4E88\u901A\u77E5\u6743\u9650");
+          } else {
+            void this.setupPush();
           }
         } catch (err) {
           this.notifyEnabled = false;
@@ -8059,7 +8852,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.commandIndex = 0;
       this.fileSearchResults = [];
       this.fileSearchLoading = false;
+      this.remoteSessionResults = [];
+      this.sessionSearchLoading = false;
       this._searchSeq += 1;
+      this._sessionSearchSeq += 1;
       if (this._searchTimer) clearTimeout(this._searchTimer);
       this.$nextTick(() => {
         const input = this.$refs.commandInput;
@@ -8072,7 +8868,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.commandIndex = 0;
       this.fileSearchResults = [];
       this.fileSearchLoading = false;
+      this.remoteSessionResults = [];
+      this.sessionSearchLoading = false;
       this._searchSeq += 1;
+      this._sessionSearchSeq += 1;
       if (this._searchTimer) clearTimeout(this._searchTimer);
       this.$nextTick(() => this.restoreModalFocus());
     },
@@ -8080,7 +8879,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.commandIndex = 0;
       this.fileSearchResults = [];
       this.fileSearchLoading = false;
+      this.remoteSessionResults = [];
+      this.sessionSearchLoading = false;
       this._searchSeq += 1;
+      this._sessionSearchSeq += 1;
       if (this._searchTimer) clearTimeout(this._searchTimer);
       const parsed = parseCommandQuery(this.commandQuery);
       if (!this.threadId) return;
@@ -8090,10 +8892,52 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         }, 180);
         return;
       }
+      if (parsed.kind === "session" && parsed.query.length >= 2) {
+        this._searchTimer = setTimeout(() => {
+          void this.searchSessionsRemote(parsed.query);
+        }, 200);
+        return;
+      }
       if (parsed.kind === "all" && parsed.query.length >= 2) {
         this._searchTimer = setTimeout(() => {
           void this.searchFiles(parsed.query);
         }, 220);
+      }
+    },
+    async searchSessionsRemote(query) {
+      const seq = ++this._sessionSearchSeq;
+      this.sessionSearchLoading = true;
+      this.fileSearchLoading = true;
+      try {
+        const params = new URLSearchParams({
+          q: query,
+          limit: "20"
+        });
+        const response = await authFetch(
+          `/api/sessions/search?${params.toString()}`
+        );
+        const data = await readJson(response, "\u641C\u7D22\u4F1A\u8BDD\u5931\u8D25");
+        if (seq !== this._sessionSearchSeq) return;
+        if (data.enabled === false) {
+          this.remoteSessionResults = [];
+          return;
+        }
+        this.remoteSessionResults = (data.results || []).map(
+          (row, index) => ({
+            thread_id: String(row.thread_id || ""),
+            title: String(row.title || row.thread_id || ""),
+            snippet: String(row.snippet || ""),
+            _key: `${row.thread_id}:${index}`
+          })
+        );
+      } catch (err) {
+        if (seq !== this._sessionSearchSeq) return;
+        this.remoteSessionResults = [];
+      } finally {
+        if (seq === this._sessionSearchSeq) {
+          this.sessionSearchLoading = false;
+          this.fileSearchLoading = false;
+        }
       }
     },
     async searchFiles(query) {
@@ -8141,6 +8985,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           this.openMessageSearch();
         } },
         { id: "split-session", title: "\u5F53\u524D\u4F1A\u8BDD\u5206\u5C4F", hint: "\u89C6\u56FE", run: () => this.openSplitSession(this.threadId) },
+        { id: "compare-runs", title: "\u8FD0\u884C\u5BF9\u6BD4", hint: "\u4F1A\u8BDD", run: () => this.openCompare(this.threadId) },
+        { id: "share-session", title: "\u5206\u4EAB\u5F53\u524D\u4F1A\u8BDD\uFF08\u53EA\u8BFB\uFF09", hint: "\u4F1A\u8BDD", run: () => this.openShare(this.threadId) },
         { id: "jump-latest", title: "\u8DF3\u5230\u6700\u65B0\u6D88\u606F", hint: "\u5BFC\u822A", run: () => this.scrollBottom(true) },
         { id: "toggle-sidebar", title: "\u5207\u6362\u4FA7\u680F", hint: "\u5E03\u5C40", run: () => this.toggleSidebar() },
         { id: "toggle-inspector", title: "\u5207\u6362\u53F3\u4FA7\u68C0\u67E5\u5668", hint: "\u5E03\u5C40", run: () => this.toggleInspector() },
@@ -8225,9 +9071,21 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           }
         );
       }
-      const sessions = (this.sessions || []).slice(0, 20).map((session) => ({
-        id: `session:${session.thread_id}`,
+      const parsedQuery = parseCommandQuery(this.commandQuery);
+      const remote = parsedQuery.kind === "session" && parsedQuery.query ? this.remoteSessionResults : [];
+      const sessionRows2 = remote.length ? remote.map((row) => ({
+        thread_id: row.thread_id,
+        title: row.title,
+        detail: row.snippet
+      })) : (this.sessions || []).slice(0, 20).map((session) => ({
+        thread_id: session.thread_id,
         title: session.title || session.thread_id,
+        detail: ""
+      }));
+      const sessions = sessionRows2.map((session) => ({
+        id: `session:${session.thread_id}`,
+        title: session.title,
+        detail: session.detail,
         hint: this.t("commands.groups.session"),
         kind: "session",
         group: this.t("commands.groups.session"),
@@ -8323,20 +9181,20 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
         if (!Array.isArray(saved)) return;
         this.notifications = saved.filter((item) => item && item.title).slice(0, MAX_NOTIFICATIONS).map((item) => ({
-          id: Number(item.id) || ++this._notificationSeq,
+          id: item.id ?? ++this._notificationSeq,
           kind: String(item.kind || "info"),
           title: String(item.title || ""),
           body: String(item.body || ""),
           time: String(item.time || ""),
+          read: Boolean(item.read),
           _sessionId: String(item._sessionId || ""),
           _path: String(item._path || ""),
           _clickable: Boolean(item._sessionId || item._path),
-          _cls: `notif-${item.kind || "info"}`
+          _cls: `notif-${item.kind || "info"}`,
+          _server: Boolean(item._server)
         }));
-        this._notificationSeq = this.notifications.reduce(
-          (max, item) => Math.max(max, Number(item.id) || 0),
-          0
-        );
+        const numeric = this.notifications.map((item) => Number(item.id)).filter((value) => Number.isFinite(value));
+        this._notificationSeq = numeric.length ? Math.max(...numeric) : 0;
         this.unreadNotifications = 0;
       } catch (err) {
         this.notifications = [];
@@ -8344,14 +9202,16 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     persistNotifications() {
       try {
-        const rows = this.notifications.slice(0, 50).map((item) => ({
+        const rows = this.notifications.slice(0, MAX_NOTIFICATIONS).map((item) => ({
           id: item.id,
           kind: item.kind,
           title: item.title,
           body: item.body,
           time: item.time,
+          read: Boolean(item.read),
           _sessionId: item._sessionId || "",
-          _path: item._path || ""
+          _path: item._path || "",
+          _server: Boolean(item._server)
         }));
         localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
       } catch (err) {
@@ -8383,9 +9243,175 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         unread: this.unreadNotifications
       });
     },
+    notificationTime(value) {
+      const text = String(value || "");
+      if (!text) return "";
+      const parsed = Date.parse(text);
+      if (!Number.isFinite(parsed)) return text.slice(0, 16).replace("T", " ");
+      return new Date(parsed).toLocaleTimeString();
+    },
+    serverNotificationItem(item) {
+      const threadId = String(item && item.thread_id || "");
+      const path = String(item && item.path || "");
+      const kind = String(item && item.kind || "info");
+      return {
+        id: String(item && item.id || ""),
+        kind,
+        title: String(item && item.title || ""),
+        body: String(item && item.body || ""),
+        time: this.notificationTime(item && item.created_at),
+        read: Boolean(item && item.read),
+        _sessionId: threadId,
+        _path: path,
+        _clickable: Boolean(threadId || path),
+        _cls: `notif-${kind}`,
+        _server: true
+      };
+    },
+    /** 服务端快照是事实源；本地即时通知会被同一条服务端记录替换。 */
+    applyServerNotifications(data) {
+      if (!data || data.enabled === false) {
+        this.notificationsServer = false;
+        this._notificationStreamDisabled = true;
+        return;
+      }
+      this.notificationsServer = true;
+      this.notifications = (Array.isArray(data.notifications) ? data.notifications : []).map((item) => this.serverNotificationItem(item)).slice(0, MAX_NOTIFICATIONS);
+      this.unreadNotifications = Number(data.unread || 0);
+      this.persistNotifications();
+    },
+    async loadServerNotifications() {
+      try {
+        const response = await authFetch("/api/notifications?limit=100");
+        const data = await readJson(response, "\u8BFB\u53D6\u901A\u77E5\u5931\u8D25");
+        this.applyServerNotifications(data);
+      } catch (err) {
+        this.notificationsServer = false;
+      }
+    },
+    async connectNotificationStream() {
+      if (this._notificationStreamDisabled || this._notificationStreamAbort) {
+        return;
+      }
+      const controller = new AbortController();
+      this._notificationStreamAbort = controller;
+      try {
+        const response = await authFetch("/api/notifications/stream", {
+          signal: controller.signal
+        });
+        await consumeSse(response, (frame) => {
+          if (frame.event && typeof frame.event === "object") {
+            this.applyServerNotifications(frame.event);
+          }
+        });
+      } catch (err) {
+      } finally {
+        if (this._notificationStreamAbort === controller) {
+          this._notificationStreamAbort = null;
+        }
+        if (!this._notificationStreamDisabled) {
+          this._notificationRetry = setTimeout(
+            () => void this.connectNotificationStream(),
+            3e4
+          );
+        }
+      }
+    },
+    urlBase64ToUint8Array(value) {
+      const padding = "=".repeat((4 - String(value).length % 4) % 4);
+      const base64 = (String(value) + padding).replace(/-/g, "+").replace(/_/g, "/");
+      const raw = atob(base64);
+      const output = new Uint8Array(raw.length);
+      for (let index = 0; index < raw.length; index += 1) {
+        output[index] = raw.charCodeAt(index);
+      }
+      return output;
+    },
+    async syncPushSubscription(subscription) {
+      const payload = subscription && subscription.toJSON ? subscription.toJSON() : subscription;
+      if (!payload || !payload.endpoint) return;
+      const response = await authFetch("/api/push/subscriptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: payload.endpoint,
+          keys: {
+            p256dh: payload.keys && payload.keys.p256dh || "",
+            auth: payload.keys && payload.keys.auth || ""
+          },
+          user_agent: String(navigator.userAgent || "").slice(0, 250)
+        })
+      });
+      await readJson(response, "\u4FDD\u5B58\u63A8\u9001\u8BA2\u9605\u5931\u8D25");
+    },
+    /** 用户已授予通知权限时订阅 Web Push；否则等用户在设置里开启。 */
+    async setupPush() {
+      if (typeof navigator === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window) || Notification.permission !== "granted") {
+        return;
+      }
+      try {
+        const response = await authFetch("/api/push/config");
+        const data = await readJson(response, "\u8BFB\u53D6\u63A8\u9001\u914D\u7F6E\u5931\u8D25");
+        if (!data.enabled || !data.public_key) return;
+        const registration = await navigator.serviceWorker.ready;
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: this.urlBase64ToUint8Array(
+              data.public_key
+            )
+          });
+        }
+        await this.syncPushSubscription(subscription);
+      } catch (err) {
+      }
+    },
+    async removePushSubscription() {
+      if (typeof navigator === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+        return;
+      }
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (!subscription) return;
+        const payload = subscription.toJSON ? subscription.toJSON() : subscription;
+        if (payload && payload.endpoint) {
+          await authFetch("/api/push/subscriptions", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: payload.endpoint })
+          });
+        }
+        await subscription.unsubscribe();
+      } catch (err) {
+      }
+    },
+    async syncNotificationRead(payload) {
+      try {
+        const response = await authFetch("/api/notifications/read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        await readJson(response, "\u540C\u6B65\u901A\u77E5\u5DF2\u8BFB\u5931\u8D25");
+      } catch (err) {
+      }
+    },
+    async syncNotificationClear() {
+      try {
+        const response = await authFetch("/api/notifications", {
+          method: "DELETE"
+        });
+        await readJson(response, "\u6E05\u7A7A\u901A\u77E5\u5931\u8D25");
+      } catch (err) {
+      }
+    },
     openNotification(event) {
-      const id = Number(event.currentTarget.dataset.id);
-      const item = this.notifications.find((row) => row.id === id);
+      const id = String(event.currentTarget.dataset.id || "");
+      const item = this.notifications.find(
+        (row) => String(row.id) === id
+      );
       this.closeNotifications();
       if (!item) return;
       if (item._sessionId) {
@@ -8403,17 +9429,421 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     markNotificationsRead() {
       this.unreadNotifications = 0;
+      this.notifications = this.notifications.map((item) => ({
+        ...item,
+        read: true
+      }));
       this.persistNotifications();
       this.broadcastNotifications();
+      if (this.notificationsServer) {
+        void this.syncNotificationRead({ all: true });
+      }
     },
     clearNotifications() {
       this.notifications = [];
       this.unreadNotifications = 0;
       this.persistNotifications();
       this.broadcastNotifications();
+      if (this.notificationsServer) void this.syncNotificationClear();
     },
     notificationClass(item) {
       return `notif-${item && item.kind ? item.kind : "info"}`;
+    }
+  };
+
+  // src/features/integrations.ts
+  var integrationsMixin = {
+    async loadIntegrations() {
+      try {
+        const response = await authFetch("/api/tokens");
+        const data = await readJson(response, "\u8BFB\u53D6\u8BBF\u95EE\u4EE4\u724C\u5931\u8D25");
+        this.tokensEnabled = data.enabled !== false;
+        this.apiTokens = (data.tokens || []).map((item) => ({
+          ...item,
+          _scopes: (item.scopes || []).map((scope) => this.tokenScopeLabel(scope)).join(" \xB7 "),
+          _expires: item.expires_at ? String(item.expires_at).slice(0, 10) : this.t("settings.tokenNeverExpires"),
+          _lastUsed: item.last_used_at ? String(item.last_used_at).slice(0, 16).replace("T", " ") : "\u2014"
+        }));
+      } catch (err) {
+        this.tokensEnabled = false;
+      }
+      try {
+        const response = await authFetch("/api/webhooks");
+        const data = await readJson(response, "\u8BFB\u53D6 Webhook \u5931\u8D25");
+        this.webhooksEnabled = data.enabled !== false;
+        this.webhooks = (data.webhooks || []).map((item) => ({
+          ...item,
+          _events: (item.events || []).map((event) => this.webhookEventLabel(event)).join(" \xB7 "),
+          _status: item.last_status ? `HTTP ${item.last_status}` : this.t("settings.webhookNeverSent"),
+          _lastSent: item.last_sent_at ? String(item.last_sent_at).slice(0, 16).replace("T", " ") : "\u2014"
+        }));
+      } catch (err) {
+        this.webhooksEnabled = false;
+      }
+    },
+    tokenScopeLabel(scope) {
+      const keys = {
+        read: "scopeRead",
+        run: "scopeRun",
+        audit: "scopeAudit"
+      };
+      const key = keys[scope];
+      return key ? this.t(`settings.${key}`) : scope;
+    },
+    webhookEventLabel(event) {
+      const keys = {
+        run_finished: "eventRunFinished",
+        run_failed: "eventRunFailed",
+        approval_requested: "eventApprovalRequested"
+      };
+      const key = keys[event];
+      return key ? this.t(`settings.${key}`) : event;
+    },
+    toggleTokenScope(scope) {
+      if (!scope) return;
+      this.tokenScopes = {
+        ...this.tokenScopes,
+        [scope]: !this.tokenScopes[scope]
+      };
+    },
+    toggleWebhookEvent(event) {
+      if (!event) return;
+      this.webhookEvents = {
+        ...this.webhookEvents,
+        [event]: !this.webhookEvents[event]
+      };
+    },
+    onTokenAction(op, id) {
+      if (op === "revoke") void this.revokeToken(id);
+    },
+    onWebhookAction(op, id) {
+      if (op === "delete") void this.deleteWebhook(id);
+    },
+    async createToken() {
+      if (this.tokenBusy) return;
+      const scopes = ["read", "run", "audit"].filter(
+        (scope) => this.tokenScopes[scope]
+      );
+      if (!scopes.length) {
+        this.toastMessage(this.t("settings.tokenScopeRequired"));
+        return;
+      }
+      this.tokenBusy = true;
+      try {
+        const response = await authFetch("/api/tokens", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: String(this.tokenName || "").trim() || "CI token",
+            scopes,
+            expires_in_days: Math.max(0, Number(this.tokenDays) || 0)
+          })
+        });
+        const data = await readJson(response, "\u521B\u5EFA\u8BBF\u95EE\u4EE4\u724C\u5931\u8D25");
+        this.newToken = String(data.token || "");
+        this.tokenName = "";
+        this.toastMessage(this.t("settings.tokenCreatedToast"));
+        await this.loadIntegrations();
+      } catch (err) {
+        this.toastMessage(String(err));
+      } finally {
+        this.tokenBusy = false;
+      }
+    },
+    async revokeToken(id) {
+      if (!id) return;
+      if (!window.confirm(this.t("settings.tokenRevokeConfirm"))) return;
+      try {
+        const response = await authFetch(
+          `/api/tokens/${encodeURIComponent(id)}`,
+          { method: "DELETE" }
+        );
+        await readJson(response, "\u64A4\u9500\u8BBF\u95EE\u4EE4\u724C\u5931\u8D25");
+        if (this.newToken) this.newToken = "";
+        this.toastMessage(this.t("settings.tokenRevoked"));
+        await this.loadIntegrations();
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    async createWebhook() {
+      if (this.webhookBusy) return;
+      const events = ["run_finished", "run_failed", "approval_requested"].filter(
+        (event) => this.webhookEvents[event]
+      );
+      if (!events.length) {
+        this.toastMessage(this.t("settings.webhookEventRequired"));
+        return;
+      }
+      if (!String(this.webhookUrl || "").trim()) {
+        this.toastMessage(this.t("settings.webhookUrlRequired"));
+        return;
+      }
+      this.webhookBusy = true;
+      try {
+        const response = await authFetch("/api/webhooks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: String(this.webhookName || "").trim() || "Webhook",
+            url: String(this.webhookUrl || "").trim(),
+            events
+          })
+        });
+        const data = await readJson(response, "\u521B\u5EFA Webhook \u5931\u8D25");
+        this.newWebhookSecret = String(data.secret || "");
+        this.webhookUrl = "";
+        this.webhookName = "";
+        this.toastMessage(this.t("settings.webhookCreatedToast"));
+        await this.loadIntegrations();
+      } catch (err) {
+        this.toastMessage(String(err));
+      } finally {
+        this.webhookBusy = false;
+      }
+    },
+    async deleteWebhook(id) {
+      if (!id) return;
+      if (!window.confirm(this.t("settings.webhookDeleteConfirm"))) return;
+      try {
+        const response = await authFetch(
+          `/api/webhooks/${encodeURIComponent(id)}`,
+          { method: "DELETE" }
+        );
+        await readJson(response, "\u5220\u9664 Webhook \u5931\u8D25");
+        if (this.newWebhookSecret) this.newWebhookSecret = "";
+        this.toastMessage(this.t("settings.webhookDeleted"));
+        await this.loadIntegrations();
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    }
+  };
+
+  // src/features/compare.ts
+  var compareMixin = {
+    async openCompare(id) {
+      const threadId = String(id || this.threadId || "");
+      if (!threadId) {
+        this.toastMessage(this.t("compare.needSession"));
+        return;
+      }
+      this.compareOpen = true;
+      this.compareThreadId = threadId;
+      this.compareRuns = [];
+      this.compareResult = null;
+      this.compareError = "";
+      await this.loadCompareRuns();
+    },
+    closeCompare() {
+      this.compareOpen = false;
+    },
+    async loadCompareRuns() {
+      if (!this.compareThreadId) return;
+      this.compareLoading = true;
+      this.compareError = "";
+      try {
+        const response = await authFetch(
+          `/api/sessions/${encodeURIComponent(this.compareThreadId)}/runs?limit=20`
+        );
+        const data = await readJson(response, "\u8BFB\u53D6\u8FD0\u884C\u8BB0\u5F55\u5931\u8D25");
+        this.compareRuns = (data.runs || []).map((run) => ({
+          ...run,
+          _label: this.compareRunLabel(run)
+        }));
+        if (this.compareRuns.length >= 2) {
+          this.compareLeft = this.compareRuns[this.compareRuns.length - 2].index;
+          this.compareRight = this.compareRuns[this.compareRuns.length - 1].index;
+        } else if (this.compareRuns.length === 1) {
+          this.compareLeft = this.compareRuns[0].index;
+          this.compareRight = this.compareRuns[0].index;
+        } else {
+          this.compareLeft = 0;
+          this.compareRight = 0;
+        }
+      } catch (err) {
+        this.compareError = String(err);
+      } finally {
+        this.compareLoading = false;
+      }
+    },
+    compareRunLabel(run) {
+      if (!run) return "";
+      const when = String(run.started_at || "").replace("T", " ").slice(0, 16);
+      const status = run.status === "ok" ? this.t("compare.ok") : run.status === "failed" ? this.t("compare.failed") : this.t("compare.interrupted");
+      return `#${run.index} \xB7 ${when} \xB7 ${status} \xB7 ${Number(run.total_tokens || 0)} tokens`;
+    },
+    async runCompare() {
+      const left = Number(this.compareLeft || 0);
+      const right = Number(this.compareRight || 0);
+      if (!this.compareThreadId || !left || !right) return;
+      this.compareLoading = true;
+      this.compareError = "";
+      try {
+        const response = await authFetch(
+          `/api/sessions/${encodeURIComponent(this.compareThreadId)}/runs/compare?left=${left}&right=${right}&max_files=30`
+        );
+        const data = await readJson(response, "\u8FD0\u884C\u5BF9\u6BD4\u5931\u8D25");
+        const noDiff = this.t("compare.noDiff");
+        const untouched = this.t("compare.notTouched");
+        data._leftLabel = this.compareRunLabel(data.left);
+        data._rightLabel = this.compareRunLabel(data.right);
+        data.files = (data.files || []).map((file) => ({
+          ...file,
+          _left: file.left ? file.left.diff || noDiff : untouched,
+          _right: file.right ? file.right.diff || noDiff : untouched
+        }));
+        this.compareResult = data;
+      } catch (err) {
+        this.compareResult = null;
+        this.compareError = String(err);
+      } finally {
+        this.compareLoading = false;
+      }
+    },
+    formatCompareCost(value) {
+      return `$${Number(value || 0).toFixed(4)}`;
+    }
+  };
+
+  // src/features/share.ts
+  var shareMixin = {
+    async openShare(id) {
+      const threadId = String(id || this.threadId || "");
+      if (!threadId) {
+        this.toastMessage(this.t("share.needSession"));
+        return;
+      }
+      this.showShare = true;
+      this.shareThreadId = threadId;
+      this.shareUrl = "";
+      this.shareError = "";
+      this.shareDays = 7;
+      await this.loadShares();
+    },
+    closeShare() {
+      this.showShare = false;
+    },
+    async loadShares() {
+      if (!this.shareThreadId) return;
+      try {
+        const response = await authFetch(
+          `/api/sessions/${encodeURIComponent(this.shareThreadId)}/shares`
+        );
+        const data = await readJson(response, "\u8BFB\u53D6\u5206\u4EAB\u94FE\u63A5\u5931\u8D25");
+        this.shares = (data.shares || []).map((item) => ({
+          ...item,
+          _created: String(item.created_at || "").slice(0, 16).replace("T", " "),
+          _expires: String(item.expires_at || "").slice(0, 10),
+          _views: this.t("share.views", { count: Number(item.views || 0) })
+        }));
+      } catch (err) {
+        this.shareError = String(err);
+      }
+    },
+    async createShare() {
+      if (this.shareBusy) return;
+      this.shareBusy = true;
+      this.shareError = "";
+      try {
+        const response = await authFetch(
+          `/api/sessions/${encodeURIComponent(this.shareThreadId)}/shares`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              expires_in_days: Math.max(1, Number(this.shareDays) || 7)
+            })
+          }
+        );
+        const data = await readJson(response, "\u521B\u5EFA\u5206\u4EAB\u94FE\u63A5\u5931\u8D25");
+        const path = String(data.path || "");
+        this.shareUrl = path ? `${window.location.origin}${path}` : "";
+        this.toastMessage(this.t("share.created"));
+        await this.loadShares();
+      } catch (err) {
+        this.shareError = String(err);
+      } finally {
+        this.shareBusy = false;
+      }
+    },
+    onShareAction(op, id) {
+      if (op === "revoke") void this.revokeShare(id);
+    },
+    async revokeShare(id) {
+      if (!id) return;
+      if (!window.confirm(this.t("share.revokeConfirm"))) return;
+      try {
+        const response = await authFetch(
+          `/api/shares/${encodeURIComponent(id)}`,
+          { method: "DELETE" }
+        );
+        await readJson(response, "\u64A4\u9500\u5206\u4EAB\u94FE\u63A5\u5931\u8D25");
+        this.toastMessage(this.t("share.revoked"));
+        await this.loadShares();
+      } catch (err) {
+        this.shareError = String(err);
+      }
+    }
+  };
+
+  // src/features/mobile.ts
+  var mobileMixin = {
+    isMobileLayout() {
+      try {
+        return window.matchMedia("(max-width: 760px)").matches;
+      } catch (err) {
+        return false;
+      }
+    },
+    setMobilePane(pane) {
+      const next = ["sessions", "chat", "approvals"].includes(pane) ? pane : "chat";
+      this.mobilePane = next === "approvals" ? "chat" : next;
+      this.mobilePaneClasses = {
+        sessions: next === "sessions" ? "active" : "",
+        chat: next === "chat" ? "active" : "",
+        approvals: next === "approvals" ? "active" : ""
+      };
+      if (next === "sessions") {
+        this.setView("sessions");
+        this.sidebarVisible = true;
+        return;
+      }
+      this.sidebarVisible = false;
+      if (next === "chat") {
+        this.showChat();
+        return;
+      }
+      const views = Object.values(this.sessionViews || {});
+      const pending = views.find(
+        (view2) => view2 && view2.approvals && view2.approvals.length
+      );
+      if (pending) {
+        if (pending.threadId && pending.threadId !== this.threadId) {
+          this.activateSessionView(pending.threadId);
+        }
+        this.showNextApproval(pending);
+        return;
+      }
+      const view = this.activeView;
+      if (view && view.approvals.length) {
+        this.showNextApproval(view);
+      } else {
+        this.toastMessage(this.t("mobile.noApprovals"));
+      }
+    },
+    get mobilePaneClass() {
+      return `mobile-pane-${this.mobilePane}`;
+    },
+    get unreadSessionCount() {
+      return this.sessions.filter((row) => row.unread).length;
+    },
+    get mobileApprovalCount() {
+      const views = Object.values(this.sessionViews || {});
+      return views.reduce(
+        (sum, view) => sum + (view && view.approvals ? view.approvals.length : 0),
+        0
+      );
     }
   };
 
@@ -8563,12 +9993,20 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         "\u5BFC\u5165",
         "\u5BFC\u51FA",
         "\u5B9E\u9A8C",
+        "\u96C6\u6210",
+        "\u4EE4\u724C",
+        "\u8BBF\u95EE\u4EE4\u724C",
+        "webhook",
+        "pat",
+        "ci",
         "advanced",
         "shortcut",
         "reset",
         "import",
         "export",
-        "experimental"
+        "experimental",
+        "integration",
+        "token"
       ]
     }
   ];
@@ -8638,6 +10076,33 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           break;
         case "session-batch":
           this.batchSessionAction(data.op);
+          break;
+        case "token":
+          this.onTokenAction(data.op, data.id);
+          break;
+        case "token-scope":
+          this.toggleTokenScope(data.scope);
+          break;
+        case "webhook":
+          this.onWebhookAction(data.op, data.id);
+          break;
+        case "webhook-event":
+          this.toggleWebhookEvent(data.event);
+          break;
+        case "copy-token":
+          this.copyText(this.newToken);
+          break;
+        case "copy-webhook-secret":
+          this.copyText(this.newWebhookSecret);
+          break;
+        case "mobile-pane":
+          this.setMobilePane(data.pane);
+          break;
+        case "share":
+          this.onShareAction(data.op, data.id);
+          break;
+        case "copy-share":
+          this.copyText(this.shareUrl);
           break;
         case "editor-tab":
           this.onEditorTabAction(data.op, data.id);
@@ -8728,6 +10193,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (op === "tags") this.editSessionTags(row);
       if (op === "unread") this.toggleSessionUnread(row);
       if (op === "split") this.openSplitSession(row.thread_id);
+      if (op === "compare") this.openCompare(row.thread_id);
+      if (op === "share") this.openShare(row.thread_id);
     },
     onEditorTabAction(op, id) {
       if (op === "activate") this.activateEditorTab(id);
@@ -9143,6 +10610,43 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     get noNotifications() {
       return this.notifications.length === 0;
+    },
+    get noApiTokens() {
+      return this.apiTokens.length === 0;
+    },
+    get noWebhooks() {
+      return this.webhooks.length === 0;
+    },
+    get tokensDisabled() {
+      return !this.tokensEnabled;
+    },
+    get webhooksDisabled() {
+      return !this.webhooksEnabled;
+    },
+    get noShares() {
+      return this.shares.length === 0;
+    },
+    get compareLeftUsage() {
+      const usage = this.compareResult && this.compareResult.usage && this.compareResult.usage.left;
+      if (!usage) return "";
+      return `${usage.tokens} tokens \xB7 ${this.formatCompareCost(usage.cost_usd)} \xB7 ${usage.tool_calls} tools \xB7 ${usage.failed_tools} failed`;
+    },
+    get compareRightUsage() {
+      const usage = this.compareResult && this.compareResult.usage && this.compareResult.usage.right;
+      if (!usage) return "";
+      return `${usage.tokens} tokens \xB7 ${this.formatCompareCost(usage.cost_usd)} \xB7 ${usage.tool_calls} tools \xB7 ${usage.failed_tools} failed`;
+    },
+    get compareLeftLabel() {
+      return this.compareResult && this.compareResult._leftLabel || "";
+    },
+    get compareRightLabel() {
+      return this.compareResult && this.compareResult._rightLabel || "";
+    },
+    get compareTruncatedText() {
+      const count = Number(
+        this.compareResult && this.compareResult.truncated_files || 0
+      );
+      return count ? `\u8FD8\u6709 ${count} \u4E2A\u6587\u4EF6\u672A\u5C55\u793A` : "";
     },
     get hasReasoning() {
       return this.showReasoning && this.reasoningBlocks.length > 0;
@@ -9780,6 +11284,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       audit: [],
       sessions: [],
       sessionRows: [],
+      sessionLimit: 50,
+      sessionHasMore: false,
       sessionQuery: "",
       sessionFilter: "all",
       sessionFilterClasses: { all: "active", pinned: "", archived: "" },
@@ -9792,6 +11298,21 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       splitInput: "",
       splitLoading: false,
       splitError: "",
+      compareOpen: false,
+      compareThreadId: "",
+      compareRuns: [],
+      compareLeft: 0,
+      compareRight: 0,
+      compareResult: null,
+      compareLoading: false,
+      compareError: "",
+      showShare: false,
+      shareThreadId: "",
+      shareDays: 7,
+      shares: [],
+      shareBusy: false,
+      shareUrl: "",
+      shareError: "",
       treeChildren: {},
       treeExpanded: {},
       treeLoadingMap: {},
@@ -9832,6 +11353,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       settingsTabClasses: { appearance: "active", models: "", workspace: "", diagnostics: "", advanced: "" },
       tabFlags: { plan: true, tools: false, timeline: false },
       _problemSeq: 0,
+      mobilePane: "sessions",
+      mobilePaneClasses: { sessions: "active", chat: "", approvals: "" },
       sidebarWidth: 280,
       inspectorWidth: 340,
       splitWidth: 480,
@@ -9847,15 +11370,40 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       notifications: [],
       notificationsOpen: false,
       unreadNotifications: 0,
+      notificationsServer: false,
       _notificationSeq: 0,
+      _notificationStreamAbort: null,
+      _notificationStreamDisabled: false,
+      _notificationRetry: null,
       fileSearchResults: [],
       fileSearchLoading: false,
+      remoteSessionResults: [],
+      sessionSearchLoading: false,
       _searchTimer: null,
       _searchSeq: 0,
+      _sessionSearchSeq: 0,
       _resizing: "",
       showSettings: false,
       settingsTab: "appearance",
       settingsQuery: "",
+      tokensEnabled: false,
+      apiTokens: [],
+      tokenName: "",
+      tokenScopes: { read: true, run: false, audit: false },
+      tokenDays: 90,
+      tokenBusy: false,
+      newToken: "",
+      webhooksEnabled: false,
+      webhooks: [],
+      webhookName: "",
+      webhookUrl: "",
+      webhookEvents: {
+        run_finished: true,
+        run_failed: true,
+        approval_requested: true
+      },
+      webhookBusy: false,
+      newWebhookSecret: "",
       sessionsLoading: false,
       uploadBusy: false,
       uploadPercent: 0,
@@ -9923,6 +11471,10 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       errorsMixin,
       layoutMixin,
       notificationsMixin,
+      integrationsMixin,
+      compareMixin,
+      shareMixin,
+      mobileMixin,
       cspMixin
     ];
     for (const mixin2 of mixins) {

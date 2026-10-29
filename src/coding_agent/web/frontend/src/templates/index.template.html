@@ -3,7 +3,8 @@
 
 {{> header.html}}
 
-<div id="app" x-show="ready" x-cloak :style="layoutStyle">
+<div id="app" x-show="ready" x-cloak
+     :style="layoutStyle" :class="mobilePaneClass">
 {{> sidebar.html}}
 
 {{> main.html}}

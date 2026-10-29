@@ -30,6 +30,17 @@ export const cspMixin = {
       case 'session': this.onSessionAction(data.op, data.id); break;
       case 'session-select': this.toggleSessionSelected(data.id); break;
       case 'session-batch': this.batchSessionAction(data.op); break;
+      case 'token': this.onTokenAction(data.op, data.id); break;
+      case 'token-scope': this.toggleTokenScope(data.scope); break;
+      case 'webhook': this.onWebhookAction(data.op, data.id); break;
+      case 'webhook-event': this.toggleWebhookEvent(data.event); break;
+      case 'copy-token': this.copyText(this.newToken); break;
+      case 'copy-webhook-secret':
+        this.copyText(this.newWebhookSecret);
+        break;
+      case 'mobile-pane': this.setMobilePane(data.pane); break;
+      case 'share': this.onShareAction(data.op, data.id); break;
+      case 'copy-share': this.copyText(this.shareUrl); break;
       case 'editor-tab': this.onEditorTabAction(data.op, data.id); break;
       case 'file': this.onFileAction(data.op, data.key, data.snapshot, data.path); break;
       case 'checkpoint': this.onCheckpointAction(data.op, data.id); break;
@@ -66,6 +77,8 @@ export const cspMixin = {
     if (op === 'tags') this.editSessionTags(row);
     if (op === 'unread') this.toggleSessionUnread(row);
     if (op === 'split') this.openSplitSession(row.thread_id);
+    if (op === 'compare') this.openCompare(row.thread_id);
+    if (op === 'share') this.openShare(row.thread_id);
   },
 
   onEditorTabAction(op, id) {
@@ -421,6 +434,37 @@ export const cspMixin = {
   },
   get noRecovery() { return this.recoveryItems.length === 0; },
   get noNotifications() { return this.notifications.length === 0; },
+  get noApiTokens() { return this.apiTokens.length === 0; },
+  get noWebhooks() { return this.webhooks.length === 0; },
+  get tokensDisabled() { return !this.tokensEnabled; },
+  get webhooksDisabled() { return !this.webhooksEnabled; },
+  get noShares() { return this.shares.length === 0; },
+  get compareLeftUsage() {
+    const usage = this.compareResult
+      && this.compareResult.usage
+      && this.compareResult.usage.left;
+    if (!usage) return '';
+    return `${usage.tokens} tokens · ${this.formatCompareCost(usage.cost_usd)} · ${usage.tool_calls} tools · ${usage.failed_tools} failed`;
+  },
+  get compareRightUsage() {
+    const usage = this.compareResult
+      && this.compareResult.usage
+      && this.compareResult.usage.right;
+    if (!usage) return '';
+    return `${usage.tokens} tokens · ${this.formatCompareCost(usage.cost_usd)} · ${usage.tool_calls} tools · ${usage.failed_tools} failed`;
+  },
+  get compareLeftLabel() {
+    return (this.compareResult && this.compareResult._leftLabel) || '';
+  },
+  get compareRightLabel() {
+    return (this.compareResult && this.compareResult._rightLabel) || '';
+  },
+  get compareTruncatedText() {
+    const count = Number(
+      (this.compareResult && this.compareResult.truncated_files) || 0,
+    );
+    return count ? `还有 ${count} 个文件未展示` : '';
+  },
   get hasReasoning() {
     return this.showReasoning && this.reasoningBlocks.length > 0;
   },

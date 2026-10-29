@@ -315,6 +315,8 @@ def test_m7_session_management_is_guarded() -> None:
         'data-op="tags"',
         "session-pin",
         "session-tag",
+        "session-more",
+        "downloadCurrentPatch",
     ):
         assert marker in html, marker
 
@@ -325,12 +327,15 @@ def test_m7_session_management_is_guarded() -> None:
         "toggleSessionArchive",
         "editSessionTags",
         "sessionFilterClass",
-        "include_archived=true",
+        "archived=false",
+        "archived=true",
+        "loadMoreSessions",
+        "downloadSessionPatch",
     ):
         assert marker in app, marker
 
     css = (STATIC / "style.css").read_text(encoding="utf-8")
-    for marker in (".session-filters", ".session-pin", ".session-tag"):
+    for marker in (".session-filters", ".session-pin", ".session-tag", ".session-more"):
         assert marker in css, marker
 
 

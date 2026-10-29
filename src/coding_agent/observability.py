@@ -99,6 +99,12 @@ _METRIC_SPEC: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
         "",
         ("kind",),
     ),
+    "agent_csp_reports_total": (
+        "counter",
+        "浏览器 CSP 违规上报次数",
+        "",
+        ("disposition",),
+    ),
     "agent_approvals_pending": (
         "gauge",
         "待管理员决定的四眼审批数",

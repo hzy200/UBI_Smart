@@ -77,6 +77,14 @@
   color: var(--accent);
   background: var(--accent-soft);
 }
+.session-more {
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--muted);
+}
 .session-actions { display: none; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 .session-item:hover .session-actions,
 .session-item.active .session-actions { display: flex; }

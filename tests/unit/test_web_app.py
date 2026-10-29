@@ -275,7 +275,10 @@ def test_sessions_are_listed(settings, tmp_path) -> None:
 
 
 def test_sessions_empty(settings) -> None:
-    assert TestClient(web.create_app(settings)).get("/api/sessions").json() == {"sessions": []}
+    assert TestClient(web.create_app(settings)).get("/api/sessions").json() == {
+        "sessions": [],
+        "total": 0,
+    }
 
 
 def test_sessions_respects_limit(settings, monkeypatch) -> None:
@@ -288,6 +291,30 @@ def test_sessions_respects_limit(settings, monkeypatch) -> None:
 
     data = TestClient(web.create_app(settings)).get("/api/sessions?limit=2").json()
     assert [s["thread_id"] for s in data["sessions"]] == ["t4", "t3"]
+    assert data["total"] == 5
+
+
+def test_sessions_archive_filter_is_independent_of_limit(monkeypatch, settings) -> None:
+    """归档会话不能占用活跃列表的 limit；total 让前端知道还有多少。"""
+    client = _client(monkeypatch, settings)
+    for tid in ("t0", "t1", "t2"):
+        assert client.post(
+            "/api/sessions", json={"thread_id": tid, "workspace": "/tmp/ws"}
+        ).status_code == 200
+    assert client.post(
+        "/api/sessions/t0/meta", json={"archived": True}
+    ).status_code == 200
+
+    active = client.get("/api/sessions?archived=false&limit=50").json()
+    archived = client.get("/api/sessions?archived=true&limit=50").json()
+    assert {s["thread_id"] for s in active["sessions"]} == {"t1", "t2"}
+    assert {s["thread_id"] for s in archived["sessions"]} == {"t0"}
+    assert active["total"] == 2
+    assert archived["total"] == 1
+
+    limited = client.get("/api/sessions?archived=false&limit=1").json()
+    assert len(limited["sessions"]) == 1
+    assert limited["total"] == 2
 
 
 # ---------------- 流式执行 ----------------
@@ -839,6 +866,34 @@ def test_importing_the_module_does_not_build_an_app() -> None:
     import coding_agent.web.app as module
 
     assert not hasattr(module, "app"), "模块级不该有 app 对象（用 create_app 自己建）"
+
+
+def test_local_run_writes_server_notification(monkeypatch, tmp_path) -> None:
+    """本地 runtime 路径也要写通知，不能只在 A2→A3 代理路径生效。"""
+    from coding_agent.control.store import ControlStore
+
+    settings = Settings(
+        _env_file=None,
+        audit_dir=str(tmp_path / "audit"),
+        checkpoint_path=":memory:",
+        deepseek_api_key="sk-test",
+        wsl_workspace="/tmp/ws",
+        web_data_root=str(tmp_path / "web-data"),
+        control_db_url=f"sqlite:///{tmp_path / 'control.db'}",
+        control_db_auto_create=True,
+    )
+    client = _client(monkeypatch, settings)
+    response = client.post("/api/run", json={"prompt": "看看目录"})
+    assert response.status_code == 200
+
+    store = ControlStore(settings.control_db_url)
+    try:
+        data = store.list_notifications("local")
+    finally:
+        store.close()
+    assert any(
+        item["title"] == "运行完成" for item in data["notifications"]
+    )
 
 
 def test_openapi_is_opt_in(settings) -> None:

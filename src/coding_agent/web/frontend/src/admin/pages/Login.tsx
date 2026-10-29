@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Icon } from '../components/Icons';
+import { useAdminI18n } from '../i18n';
 
 export function Login({ onSuccess }: { onSuccess: () => void | Promise<void> }) {
+  const { t, locale, setLocale } = useAdminI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [visible, setVisible] = useState(false);
@@ -57,7 +59,7 @@ export function Login({ onSuccess }: { onSuccess: () => void | Promise<void> }) 
     setError('');
     try {
       const data = await api.oidcStart('/admin');
-      if (!data.authorization_url) throw new Error('SSO 登录地址为空');
+      if (!data.authorization_url) throw new Error(t('loginSsoEmpty'));
       window.location.assign(data.authorization_url);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -76,53 +78,71 @@ export function Login({ onSuccess }: { onSuccess: () => void | Promise<void> }) 
           </span>
           <div>
             <strong>CodingAgent</strong>
-            <small>企业控制台</small>
+            <small>{t('brand')}</small>
+          </div>
+          <div className="segmented" role="group" aria-label={t('language')}>
+            <button
+              type="button"
+              className={locale === 'zh-CN' ? 'active' : ''}
+              onClick={() => setLocale('zh-CN')}
+              aria-pressed={locale === 'zh-CN'}
+            >
+              中文
+            </button>
+            <button
+              type="button"
+              className={locale === 'en-US' ? 'active' : ''}
+              onClick={() => setLocale('en-US')}
+              aria-pressed={locale === 'en-US'}
+            >
+              EN
+            </button>
           </div>
         </div>
         {mfaToken ? (
           <>
-            <p className="login-lead">请输入动态码或恢复码。</p>
+            <p className="login-lead">{t('loginMfaLead')}</p>
             <label>
-              动态码
+              {t('loginMfaCode')}
               <input
                 autoFocus
                 autoComplete="one-time-code"
                 value={mfaCode}
                 onChange={(event) => setMfaCode(event.target.value)}
-                placeholder="6 位动态码或恢复码"
+                placeholder={t('loginMfaPlaceholder')}
                 required
               />
             </label>
           </>
         ) : (
           <>
-            <p className="login-lead">使用企业管理员分配的账号登录。</p>
+            <p className="login-lead">{t('loginLead')}</p>
             <label>
-              用户名
+              {t('loginUsername')}
               <input
                 autoFocus
                 autoComplete="username"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="例如 admin"
+                placeholder={t('loginUsernamePlaceholder')}
                 required
               />
             </label>
             <label>
-              密码
+              {t('loginPassword')}
               <span className="password-wrap">
                 <input
                   type={visible ? 'text' : 'password'}
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="至少 8 位"
+                  placeholder={t('loginPasswordPlaceholder')}
                   required
                 />
                 <button
                   type="button"
                   className="password-toggle"
-                  aria-label={visible ? '隐藏密码' : '显示密码'}
+                  aria-label={visible ? t('loginHidePassword') : t('loginShowPassword')}
                   onClick={() => setVisible((value) => !value)}
                 >
                   <Icon name={visible ? 'eye-off' : 'eye'} />
@@ -133,7 +153,7 @@ export function Login({ onSuccess }: { onSuccess: () => void | Promise<void> }) 
         )}
         {error && <p className="error" role="alert">{error}</p>}
         <button className="btn primary login-submit" type="submit" disabled={busy}>
-          {busy ? '处理中…' : mfaToken ? '验证并登录' : '登录'}
+          {busy ? t('loginProcessing') : mfaToken ? t('loginVerify') : t('loginSubmit')}
         </button>
         {!mfaToken && oidcEnabled && (
           <button
@@ -141,10 +161,10 @@ export function Login({ onSuccess }: { onSuccess: () => void | Promise<void> }) 
             className="btn login-submit"
             onClick={() => void startSso()}
           >
-            使用 SSO 登录
+            {t('loginSso')}
           </button>
         )}
-        <p className="hint">忘记密码请联系企业管理员重置。</p>
+        <p className="hint">{t('loginForgot')}</p>
       </form>
     </div>
   );

@@ -661,7 +661,9 @@ class WorkspaceStore:
         for item in rows:
             if item["tenant"] == who or item["owner"] == who:
                 acl_role = "owner"
-            elif role == "admin":
+            elif role in {"owner", "admin"}:
+                # owner 账号对本组织全部工作区有管理可见性，不能显示成
+                # 被授权者的 read。
                 acl_role = "admin"
             elif role == "auditor":
                 acl_role = "auditor"

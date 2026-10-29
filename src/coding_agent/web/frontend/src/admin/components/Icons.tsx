@@ -14,6 +14,8 @@ interface IconProps {
     | 'eye'
     | 'eye-off'
     | 'back'
+    | 'download'
+    | 'folder'
     | 'shield'
     | 'database'
     | 'menu';
@@ -53,6 +55,10 @@ const PATHS: Record<IconProps['name'], string[]> = {
     'M6.1 6.1C3.5 8 2 12 2 12s3.5 7 10 7c1.4 0 2.7-.3 3.9-.8',
   ],
   back: ['M19 12H5', 'm12 19-7-7 7-7'],
+  download: ['M12 3v12', 'm7 10 5 5 5-5', 'M5 21h14'],
+  folder: [
+    'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z',
+  ],
   shield: ['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z', 'm9 12 2 2 4-4'],
   database: [
     'M12 8c5 0 9-1.3 9-3s-4-3-9-3-9 1.3-9 3 4 3 9 3Z',

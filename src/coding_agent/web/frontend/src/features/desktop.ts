@@ -111,6 +111,9 @@ export const desktopMixin = {
         if (permission !== 'granted') {
           this.notifyEnabled = false;
           this.toastMessage('浏览器未授予通知权限');
+        } else {
+          // 用户刚授权：立即建立 Web Push 订阅。
+          void this.setupPush();
         }
       } catch (err) {
         this.notifyEnabled = false;

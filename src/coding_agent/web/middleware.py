@@ -65,7 +65,9 @@ _CSP = (
     "img-src 'self' data:; "
     "frame-ancestors 'none'; "
     "base-uri 'none'; "
-    "form-action 'self'"
+    "form-action 'self'; "
+    "report-uri /api/client-errors; "
+    "report-to csp-endpoint"
 )
 
 
@@ -259,6 +261,10 @@ class SecurityHeadersMiddleware:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers.setdefault("Content-Security-Policy", _CSP)
+                headers.setdefault(
+                    "Reporting-Endpoints",
+                    'csp-endpoint="/api/client-errors"',
+                )
                 headers.setdefault("X-Content-Type-Options", "nosniff")
                 headers.setdefault("X-Frame-Options", "DENY")
                 headers.setdefault("Referrer-Policy", "no-referrer")

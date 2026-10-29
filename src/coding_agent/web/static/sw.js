@@ -4,7 +4,7 @@
  * 避免把认证数据或事件流写进缓存。
  */
 
-const CACHE = 'codingagent-shell-v2';
+const CACHE = 'codingagent-shell-v3';
 const SHELL = [
   '/',
   '/static/index.html',
@@ -92,4 +92,49 @@ self.addEventListener('fetch', (event) => {
       });
     }),
   );
+});
+
+// Web Push：审批待办、运行完成/失败。payload 是服务端 JSON。
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (err) {
+    payload = { title: 'CodingAgent', body: '' };
+  }
+  const title = String(payload.title || 'CodingAgent');
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: String(payload.body || ''),
+      tag: String(payload.tag || 'codingagent'),
+      icon: '/static/icon-192.png',
+      badge: '/static/favicon-32.png',
+      data: {
+        thread_id: String(payload.thread_id || ''),
+        path: String(payload.path || ''),
+      },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const params = new URLSearchParams();
+  if (data.thread_id) params.set('session', data.thread_id);
+  const target = params.toString() ? `/?${params.toString()}` : '/';
+  event.waitUntil((async () => {
+    const clientsList = await clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true,
+    });
+    for (const client of clientsList) {
+      if ('focus' in client) {
+        client.navigate(target);
+        return client.focus();
+      }
+    }
+    if (clients.openWindow) return clients.openWindow(target);
+    return undefined;
+  })());
 });

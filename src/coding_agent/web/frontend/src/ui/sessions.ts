@@ -7,6 +7,43 @@ export function sessionPreviewText(message: unknown, limit = 90): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+function sessionRows(payload: unknown): any[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const items = (payload as { sessions?: unknown }).sessions;
+  return Array.isArray(items) ? items : [];
+}
+
+/** 合并“活跃 + 归档”两次列表响应；按 thread_id 去重，活跃优先。 */
+export function mergeSessionPayloads(
+  active: unknown,
+  archived: unknown,
+): { sessions: any[] } {
+  const rows: any[] = [];
+  const seen = new Set<string>();
+  for (const payload of [active, archived]) {
+    for (const item of sessionRows(payload)) {
+      const id = item && String(item.thread_id || '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      rows.push(item);
+    }
+  }
+  return { sessions: rows };
+}
+
+/** 任一来源的 total 大于已加载条数时，说明还能继续加载。 */
+export function sessionPayloadHasMore(
+  active: unknown,
+  archived: unknown,
+): boolean {
+  return [active, archived].some((payload) => {
+    if (!payload || typeof payload !== 'object') return false;
+    const loaded = sessionRows(payload).length;
+    const total = Number((payload as { total?: unknown }).total);
+    return Number.isFinite(total) && total > loaded;
+  });
+}
+
 export function sessionMetaText(row: any): string {
   const parts: string[] = [];
   const when = String((row && row.last_active) || '')

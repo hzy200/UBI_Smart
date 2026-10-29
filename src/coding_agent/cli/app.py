@@ -1110,6 +1110,29 @@ def diff(
     console.print(_diff_text(text))
 
 
+@app.command()
+def patch(
+    thread_id: str = typer.Argument(..., help="会话 id（用 agent sessions 查）"),
+    workspace: str = _WORKSPACE_OPTION,
+    out: str = typer.Option("", "--out", "-o", help="写到文件而不是打印"),
+) -> None:
+    """把某个会话本轮的改动导出成一份补丁（`git apply` 可直接用）。
+
+    与 `agent diff` 的区别：那个看的是"某一个快照"，这里看的是"这次运行
+    总共改了什么"，同一文件只算一次（取最早那份快照与当前内容比较）。
+    """
+    runtime = AgentRuntime(get_settings(), workspace=workspace or None)
+    text = runtime.session_patch(thread_id)
+    if not text:
+        console.print("[dim]这个会话没有可导出的改动。[/]")
+        return
+    if out:
+        Path(out).write_text(text, encoding="utf-8")
+        console.print(f"[green]已写入 {out}[/]")
+        return
+    console.print(_diff_text(text))
+
+
 def _diff_text(raw: str) -> Text:
     """给 diff 上色：加行绿、删行红、文件头加粗。"""
     styled = Text()

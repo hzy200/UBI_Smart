@@ -17,11 +17,14 @@ from coding_agent.agent_protocol import AgentRunRequest
 from coding_agent.config import Settings
 from coding_agent.control.idempotency import IdempotencyInFlight
 from coding_agent.control.leases import LeaseHeartbeat
+from coding_agent.control.webhooks import schedule_webhooks
 from coding_agent.observability import inc_gauge, note_silent_failure
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.models import ResumeRequest, RunRequest, SteerRequest
+from coding_agent.web.push import schedule_push
+from coding_agent.web.routes.notifications import notification_payload
 from coding_agent.web.transcripts import (
     clean_transcript,
     load_transcript,
@@ -88,6 +91,10 @@ class RunDeps:
     approvals: Any | None = None
     four_eyes_min_level: int = 0
     record_approval: Callable[..., None] | None = None
+    # 浏览器 Web Push；None = 未启用。
+    push: Any | None = None
+    # 出站 Webhook；None = 未启用。
+    webhooks: Any | None = None
 
 
 def _lease_key(user: AuthUser, public_thread: str) -> str:
@@ -355,6 +362,43 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             min_level=int(deps.four_eyes_min_level),
         )
 
+    async def _write_notification(
+        user: AuthUser, public_thread: str, payload: dict[str, Any]
+    ) -> None:
+        store = deps.control_store
+        if store is None:
+            return
+        notice = notification_payload(payload)
+        if notice is None:
+            return
+        kind, title, body, dedupe = notice
+        try:
+            row = await asyncio.to_thread(
+                store.add_notification,
+                user.name,
+                kind=kind,
+                title=title,
+                body=body,
+                thread_id=public_thread,
+                dedupe_key=dedupe,
+            )
+            if row:
+                schedule_push(deps.push, user.name, row)
+                schedule_webhooks(
+                    deps.webhooks,
+                    user.name,
+                    str(payload.get("type") or ""),
+                    {
+                        "title": title,
+                        "body": body,
+                        "kind": kind,
+                        "thread_id": public_thread,
+                        "created_at": row.get("created_at", ""),
+                    },
+                )
+        except Exception as exc:  # noqa: BLE001 - 通知失败不打断运行
+            _swallow("notification", exc)
+
     async def _proxy_agent_stream(
         user: AuthUser,
         public_thread: str,
@@ -370,6 +414,7 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
         heartbeat: LeaseHeartbeat | None = None
 
         async def _on_event(payload: dict[str, Any]) -> None:
+            await _write_notification(user, public_thread, payload)
             if payload.get("type") != "approval_requested":
                 return
             recorder = deps.record_approval
@@ -381,8 +426,11 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
 
         event_hook = (
             _on_event
-            if deps.record_approval is not None
-            and deps.four_eyes_min_level > 0
+            if deps.control_store is not None
+            or (
+                deps.record_approval is not None
+                and deps.four_eyes_min_level > 0
+            )
             else None
         )
         try:
@@ -965,4 +1013,22 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
             if isinstance(payload.get("unread"), bool):
                 config.unread = bool(payload.get("unread"))
             await asyncio.to_thread(deps.set_config, user, tenant, config)
+        store = deps.control_store
+        if store is not None:
+            body = "\n".join(
+                " ".join(str(item.get("text") or "").split())
+                for item in messages
+                if item.get("kind") != "tool"
+                and str(item.get("text") or "").strip()
+            )[:20000]
+            try:
+                await asyncio.to_thread(
+                    store.index_session_text,
+                    user.name,
+                    public_thread,
+                    title=(config.title if config else ""),
+                    body=body,
+                )
+            except Exception as exc:  # noqa: BLE001 - 搜索索引不阻断保存
+                _swallow("search_index", exc)
         return {"ok": True, "count": len(messages)}

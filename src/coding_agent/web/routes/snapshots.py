@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
+from coding_agent.audit.logger import read_records_many
+from coding_agent.run_compare import build_runs, compare_runs
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
@@ -147,6 +150,147 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
         finally:
             await runtime.aclose()
         return {"prefix": prefix}
+
+    @app.get("/api/sessions/{thread_id}/patch")
+    async def session_patch(
+        thread_id: str,
+        user: UserDep,
+    ) -> Response:
+        """下载本会话本轮改动的合并补丁（`git apply` 可直接用）。
+
+        为什么按 thread 而不是按 snapshot：用户的心智模型是"这次运行改了什么"，
+        不是"第 37 号快照"。合成逻辑在 `runtime.session_patch`。
+        """
+        public_thread = check_thread_id(thread_id)
+        tenant, config = deps.config_and_tenant(user, public_thread)
+        if deps.agent_client is not None:
+            payload = await deps.agent_json(
+                user, tenant, config, "GET",
+                f"/v1/sessions/{public_thread}/patch",
+            )
+            text = str(payload.get("patch") or "")
+        else:
+            runtime = deps.ops_runtime(tenant, config)
+            try:
+                text = runtime.session_patch(tenant.thread_id(public_thread))
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"{type(exc).__name__}: {exc}",
+                ) from exc
+            finally:
+                await runtime.aclose()
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        return Response(
+            content=text,
+            media_type="text/x-patch",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{public_thread[:8]}-{stamp}.patch"'
+                )
+            },
+        )
+
+    @app.get("/api/sessions/{thread_id}/runs")
+    async def session_runs(
+        thread_id: str,
+        user: UserDep,
+        limit: int = 20,
+    ) -> dict:
+        """按审计 RUN_START/END 切分运行，供并排对比选择。"""
+        public_thread = check_thread_id(thread_id)
+        tenant, config = deps.config_and_tenant(user, public_thread)
+        size = max(1, min(50, int(limit)))
+        if deps.agent_client is not None:
+            return await deps.agent_json(
+                user,
+                tenant,
+                config,
+                "GET",
+                f"/v1/sessions/{public_thread}/runs",
+                params={"limit": size},
+            )
+        runtime = deps.ops_runtime(tenant, config)
+        try:
+            records = read_records_many(
+                runtime.audit_files,
+                thread_id=tenant.thread_id(public_thread),
+                limit=5000,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=503,
+                detail=f"{type(exc).__name__}: {exc}",
+            ) from exc
+        finally:
+            await runtime.aclose()
+        return {
+            "runs": build_runs(
+                [record.model_dump(mode="json") for record in records],
+                limit=size,
+            )
+        }
+
+    @app.get("/api/sessions/{thread_id}/runs/compare")
+    async def compare_session_runs(
+        thread_id: str,
+        user: UserDep,
+        left: int,
+        right: int,
+        max_files: int = 30,
+    ) -> dict:
+        public_thread = check_thread_id(thread_id)
+        tenant, config = deps.config_and_tenant(user, public_thread)
+        size = max(1, min(50, int(max_files)))
+        if deps.agent_client is not None:
+            return await deps.agent_json(
+                user,
+                tenant,
+                config,
+                "GET",
+                f"/v1/sessions/{public_thread}/runs/compare",
+                params={
+                    "left": int(left),
+                    "right": int(right),
+                    "max_files": size,
+                },
+            )
+        runtime = deps.ops_runtime(tenant, config)
+        try:
+            records = read_records_many(
+                runtime.audit_files,
+                thread_id=tenant.thread_id(public_thread),
+                limit=5000,
+            )
+            runs = build_runs(
+                [record.model_dump(mode="json") for record in records],
+                limit=1000,
+            )
+            try:
+                data = compare_runs(runs, left, right)
+            except KeyError as exc:
+                raise HTTPException(
+                    status_code=404, detail=str(exc)
+                ) from exc
+            files = data["files"]
+            truncated = max(0, len(files) - size)
+            for item in files[:size]:
+                for side in ("left", "right"):
+                    info = item.get(side)
+                    if not info or not info.get("snapshot_id"):
+                        continue
+                    try:
+                        info["diff"] = runtime.diff_snapshot(
+                            path=item["path"],
+                            snapshot_id=info["snapshot_id"],
+                        )[:200_000]
+                    except Exception:  # noqa: BLE001 - 单文件 diff 失败不整体失败
+                        info["diff"] = ""
+            data["files"] = files[:size]
+            data["truncated_files"] = truncated
+            return data
+        finally:
+            await runtime.aclose()
 
     @app.get("/api/checkpoints/{thread_id}")
     async def checkpoints(

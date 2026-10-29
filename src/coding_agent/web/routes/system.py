@@ -9,16 +9,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from coding_agent import __version__
 from coding_agent.config import Settings
+from coding_agent.observability import inc
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.client_errors import append_client_error
-from coding_agent.web.dependencies import UserDep
+from coding_agent.web.dependencies import UserDep, current_user
 from coding_agent.web.models import ClientErrorReport
 from coding_agent.web.validation import check_thread_id
 from coding_agent.web.version import (
@@ -42,6 +44,8 @@ class SystemDeps:
     capabilities: Callable[[Any], dict[str, Any]]
     default_access: str | None
     desktop_mode: bool
+    # 匿名 CSP 上报按来源 IP 限流；默认允许（测试桩不传）。
+    csp_rate_limit: Callable[[str], None] = lambda _ip: None
 
 
 def _readyz(app: FastAPI) -> Any:
@@ -57,6 +61,24 @@ def _readyz(app: FastAPI) -> Any:
         )
     )
     checks: dict[str, str] = {"control_db": db_state, "agent": agent_state}
+    collaboration = getattr(app.state, "collaboration", None)
+    if isinstance(collaboration, dict):
+        # 多实例就绪信息：只报后端类型，不暴露连接串或密钥。
+        for key in (
+            "event_transport",
+            "rate_limit",
+            "credentials",
+            "shared_state",
+        ):
+            value = collaboration.get(key)
+            if value is not None:
+                checks[key] = (
+                    "true"
+                    if value is True
+                    else "false"
+                    if value is False
+                    else str(value)
+                )
 
     store = getattr(app.state, "control_store", None)
     if store is not None:
@@ -115,20 +137,128 @@ def _metrics(deps: SystemDeps, request: Request) -> PlainTextResponse:
     )
 
 
+def _clip(value: Any, limit: int) -> str:
+    return str(value or "")[:limit]
+
+
+def _safe_url(value: Any) -> str:
+    """只保留 scheme/host/path，丢掉 query/fragment（可能含敏感信息）。"""
+    text = str(value or "")
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return text.split("?", 1)[0].split("#", 1)[0][:500]
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"[:500]
+    return text.split("?", 1)[0].split("#", 1)[0][:500]
+
+
+def _csp_body(body: Any) -> dict[str, Any] | None:
+    if isinstance(body, dict) and isinstance(body.get("csp-report"), dict):
+        return body["csp-report"]
+    if isinstance(body, dict) and body.get("type") == "csp-violation":
+        item = body.get("body")
+        return item if isinstance(item, dict) else None
+    if isinstance(body, list):
+        for item in body:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "csp-violation":
+                continue
+            payload = item.get("body")
+            if isinstance(payload, dict):
+                return payload
+    return None
+
+
+def _csp_record(report: dict[str, Any]) -> dict[str, Any]:
+    directive = _clip(
+        report.get("effective-directive")
+        or report.get("violated-directive"),
+        200,
+    )
+    blocked = _safe_url(report.get("blocked-uri"))
+    disclosure = _clip(report.get("disposition"), 16)
+    return {
+        "ts": datetime.now(UTC).isoformat(timespec="seconds"),
+        "user": "anonymous",
+        "kind": "csp",
+        "message": f"{directive or 'csp'} blocked {blocked or '?'}"[:500],
+        "url": _safe_url(
+            report.get("document-uri") or report.get("source-file")
+        ),
+        "version": "",
+        "locale": "",
+        "client_at": "",
+        "csp": {
+            "document_uri": _safe_url(report.get("document-uri")),
+            "violated_directive": _clip(
+                report.get("violated-directive"), 200
+            ),
+            "effective_directive": _clip(
+                report.get("effective-directive"), 200
+            ),
+            "blocked_uri": blocked,
+            "source_file": _safe_url(report.get("source-file")),
+            "line_number": _clip(report.get("line-number"), 16),
+            "column_number": _clip(report.get("column-number"), 16),
+            "disposition": disclosure,
+            "script_sample": _clip(report.get("script-sample"), 200),
+        },
+    }
+
+
 def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
     @app.post("/api/client-errors")
-    async def client_errors(
-        payload: ClientErrorReport,
-        user: UserDep,
-    ) -> dict:
-        """接收前端错误摘要；默认由客户端设置决定是否发送。"""
+    async def client_errors(request: Request) -> dict:
+        """前端错误摘要 + 浏览器 CSP 违规上报。
+
+        CSP 报告在 Bearer 模式下不会带 Authorization，因此对
+        `csp-report` / `reports+json` 形状的请求允许匿名，并按来源 IP 限流；
+        普通前端错误仍然必须通过认证。两类记录都只落有界摘要。
+        """
+        try:
+            body = await request.json()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=400, detail="请求体不是 JSON"
+            ) from exc
+
+        csp_report = _csp_body(body)
+        if csp_report is not None:
+            client = request.client.host if request.client else "unknown"
+            deps.csp_rate_limit(client or "unknown")
+            record = _csp_record(csp_report)
+            append_client_error(
+                Path(deps.settings.resolved_audit_dir)
+                / "client-errors.jsonl",
+                record,
+            )
+            inc(
+                "agent_csp_reports_total",
+                {
+                    "disposition": (
+                        _clip(csp_report.get("disposition"), 16)
+                        or "enforce"
+                    )
+                },
+            )
+            return {"ok": True}
+
+        user = current_user(request)
+        try:
+            payload = ClientErrorReport.model_validate(body)
+        except Exception as exc:  # noqa: BLE001 - 不回显校验输入
+            raise HTTPException(
+                status_code=422, detail="错误摘要格式不合法"
+            ) from exc
         record = {
             "ts": datetime.now(UTC).isoformat(timespec="seconds"),
             "user": user.name,
             "kind": payload.kind,
             "message": payload.message,
             "stack": payload.stack,
-            "url": payload.url,
+            "url": _safe_url(payload.url),
             "version": payload.version,
             "locale": payload.locale,
             "client_at": payload.at,

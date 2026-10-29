@@ -32,6 +32,7 @@ A2 与 A3 都暴露 Prometheus text exposition：
 | `agent_auth_events_total` | counter | `kind` | 登录/MFA/OIDC 事件 |
 | `agent_approvals_total` | counter | `decision` | 四眼审批决定 |
 | `agent_approvals_pending` | gauge | `tenant` | 待管理员决定的审批数（抓取时刷新） |
+| `agent_csp_reports_total` | counter | `disposition` | 浏览器 CSP 违规上报（enforce/report） |
 | `agent_silent_failures_total` | counter | `site` | best-effort 吞掉的异常 |
 | `agent_audit_write_failures_total` | counter | — | 审计写入失败（承重不变量） |
 | `agent_runs_total` / `agent_tool_calls_total` | counter | 有界枚举 | A3 运行/工具调用 |
