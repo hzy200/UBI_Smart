@@ -16,9 +16,9 @@ from langchain_core.runnables import RunnableConfig
 
 from coding_agent.config import Settings
 from coding_agent.graph.state import AgentState
-from coding_agent.messages import text_of
 from coding_agent.orchestrator.artifacts import ArtifactStore, make_run_id
 from coding_agent.orchestrator.graph import mark_blocked
+from coding_agent.protocol.messages import text_of
 from coding_agent.sandbox.wsl_exec import WslSandbox
 
 _FANIN_STATUS_ORDER = {

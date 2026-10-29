@@ -29,7 +29,7 @@ from coding_agent.events import (
 from coding_agent.graph.build import estimate_recursion_limit
 from coding_agent.llm.billing import fetch_billing
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
-from coding_agent.messages import unanswered_tool_calls
+from coding_agent.protocol.messages import unanswered_tool_calls
 
 from .common import _swallow_audit
 

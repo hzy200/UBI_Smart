@@ -27,8 +27,8 @@ from coding_agent.execution.context import tool_execution_context
 from coding_agent.graph.nodes.approve import tool_level
 from coding_agent.graph.plan import EXPLORE, current_step_kind
 from coding_agent.graph.state import AgentState
-from coding_agent.messages import last_human_text
 from coding_agent.platform.concurrency import ConcurrencyGovernor
+from coding_agent.protocol.messages import last_human_text
 from coding_agent.sandbox.policy import APPROVED, AUTO, DENIED, DENY, CommandLevel
 from coding_agent.tool_journal import (
     ToolJournal,

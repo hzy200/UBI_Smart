@@ -39,10 +39,10 @@ from coding_agent.llm.prompts import (
     IMPLEMENT_WORKER_PROMPT,
     format_verification_feedback,
 )
-from coding_agent.messages import text_of
 from coding_agent.orchestrator.contracts import WorkerResult
 from coding_agent.orchestrator.retry import format_retry_context
 from coding_agent.platform.read_cache import ReadCache
+from coding_agent.protocol.messages import text_of
 from coding_agent.recovery import retry_async
 from coding_agent.sandbox.fs import SandboxFs
 from coding_agent.sandbox.wsl_exec import WslSandbox

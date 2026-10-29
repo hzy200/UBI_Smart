@@ -70,7 +70,7 @@ src/coding_agent/
   platform/         基础设施：paths / filelock / read_cache / request_context / concurrency / observability / tracing / secrets_store
   events.py         前端契约（领域事件）★ 改它要重生成契约
   agent_protocol.py A2↔A3 共享 DTO / 版本与能力协议
-  event_transport.py 共享 SSE 事件传输（内存 / Redis）
+  protocol/         协议与文本：event_transport / sse_stream / messages / diffing / terminal_text
   workspace/        只读工作区浏览（A2/A3 共用）
   config.py         配置（构造函数参数 > .env > 环境变量 > 默认值）★
   graph/            主图：state / routing（纯函数）/ build / nodes/

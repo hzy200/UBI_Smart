@@ -24,10 +24,10 @@ note: |
 
 | 项 | 值 |
 | --- | --- |
-| 源文件 | **315** |
-| 源码行数 | **78,025** |
+| 源文件 | **310** |
+| 源码行数 | **77,925** |
 | 函数/方法 | **2,960** |
-| 测试文件 / 行数 | **297 / 72,006** |
+| 测试文件 / 行数 | **297 / 72,011** |
 | 测试:源码 | **0.92 : 1** |
 | 快反馈用例 | **3,110**（`pytest -m "not wsl and not wsl_env and not llm"`；本机 1 条 skip，其余通过） |
 | 覆盖率 | **83.34%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
@@ -88,7 +88,7 @@ P2 拆分后的关键分发函数：
 | `agent_server_routes/workspace_import.py` | 1,375 | A3 的工作区导入路由（上传/校验/落盘） |
 | `config.py` | 1,234 | 配置模型与校验 |
 | `sandbox/wsl_exec.py` | 1,171 | WSL 执行、并发槽位、取消与环境探测 |
-| `tools/files.py` | 1,150 | 文件工具 |
+| `tools/files.py` | 1,049 | 文件工具；输入模型与纯辅助已拆到 `file_models.py` / `file_support.py` |
 | `control/workspaces.py` | 1,045 | 控制面工作区存储与注册表 |
 | `web/routes/runs.py` | 1,034 | A2 运行/SSE 路由 |
 | `web/routes/workspaces.py` | 1,010 | A2 工作区注册表路由 |

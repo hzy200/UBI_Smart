@@ -12,7 +12,8 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import observability, web
+from coding_agent import web
+from coding_agent.platform import observability
 from coding_agent.platform.request_context import reset_request_id, set_request_id
 
 

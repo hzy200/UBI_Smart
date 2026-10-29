@@ -65,7 +65,7 @@ note: |
 | Git 操作 | `tools/git.py`（status/diff/log/add/commit） | `test_git_tools.py` |
 | 依赖管理 | `tools/deps.py`（uv/poetry/pnpm/yarn/npm/pip 自动识别） | `test_deps_tools.py` |
 | 失败修复 | `graph/nodes/repair.py` + `routing.make_route_after_verify` | `test_repair.py` |
-| diff 生成 | `diffing.py`；CLI/TUI 着色渲染 | `agent diff` |
+| diff 生成 | `protocol/diffing.py`；CLI/TUI 着色渲染 | `agent diff` |
 | 命令分级审批 | `sandbox/policy.py` + `graph/nodes/approve.py` + `interrupt()` | 场景 2 演示 |
 | 审计日志 | `audit/`；由 runtime 写，任何前端绕不过 | `agent audit` |
 | 企业身份（OIDC/TOTP） | `control/oidc.py`、`control/mfa.py`、`web/routes/auth.py` | `test_oidc.py`、`test_mfa.py` |

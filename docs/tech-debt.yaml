@@ -577,7 +577,7 @@ paid_off:
 
   - id: TD-009
     title: 共享事件传输默认内存；多实例需显式切到 Redis
-    where: event_transport.py, web/app.py
+    where: protocol/event_transport.py, web/app.py
     why_now: 已实现 Redis Streams 适配器、`Last-Event-ID` 重放与 `/readyz`
       后端报告；默认仍是 memory，单机零配置。Redis 故障时 fail closed，
       超出 MAXLEN/TTL 的旧事件无法重放

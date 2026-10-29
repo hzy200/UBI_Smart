@@ -2,9 +2,9 @@
   "schema": 1,
   "tests": 3142,
   "coverage": {
-    "statements": 35285,
-    "missing": 5427,
-    "percent": 84.62,
+    "statements": 35266,
+    "missing": 5405,
+    "percent": 84.67,
     "modules": {
       "agent_server_routes/workspace_import.py": 88.13,
       "control/accounts.py": 87.25,
@@ -28,7 +28,7 @@
       "sandbox/policy.py": 92.01,
       "sandbox/snapshots.py": 76.79,
       "tools/code_intel.py": 98.86,
-      "tools/files.py": 89.35,
+      "tools/files.py": 88.5,
       "tools/git.py": 96.0,
       "web/routes/admin.py": 83.38,
       "web/routes/auth.py": 100.0,
@@ -126,7 +126,7 @@
       "floor": 97.9
     },
     "tools/files.py": {
-      "actual": 89.35,
+      "actual": 88.5,
       "floor": 88.3
     },
     "tools/git.py": {

@@ -17,12 +17,11 @@ from collections.abc import MutableMapping
 from typing import Any
 
 from langchain_core.tools import BaseTool, StructuredTool
-from pydantic import BaseModel, Field
 
 from coding_agent.config import Settings
-from coding_agent.diffing import count_changes, unified_diff
 from coding_agent.execution.file_access import FileAccess, SandboxFileAccess
 from coding_agent.platform.observability import note_silent_failure
+from coding_agent.protocol.diffing import count_changes, unified_diff
 from coding_agent.sandbox.fs import SandboxFs, SandboxFsError, SandboxFsTooLarge
 from coding_agent.sandbox.pathguard import SandboxPathError
 from coding_agent.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
@@ -31,6 +30,23 @@ from coding_agent.security.read_policy import protected_read_reason
 from coding_agent.security.secrets import redact_secrets
 from coding_agent.security.write_policy import protected_write_reason
 from coding_agent.tools.artifacts import CallArtifact, FileArtifact, pack
+from coding_agent.tools.file_models import (
+    DEFAULT_READ_LINES,
+    CopyInput,
+    DeleteInput,
+    EditInput,
+    EditManyInput,
+    ListDirInput,
+    MkdirInput,
+    MoveInput,
+    ReadInput,
+    RestoreInput,
+    WriteInput,
+)
+from coding_agent.tools.file_support import (
+    _changed_since_read as _changed_since_read,
+)
+from coding_agent.tools.file_support import _relpath
 
 READ_TOOL_NAME = "file_read"
 WRITE_TOOL_NAME = "file_write"
@@ -48,23 +64,6 @@ _STALE_READ_MESSAGE = (
     "请先用 file_read 重新读取，再基于最新内容提交修改。"
 )
 
-
-def _changed_since_read(cached: bytes | None, current: str | None) -> bool:
-    """模型读到写之间文件是否被外部改过。
-
-    只用**模型自己读过的缓存**做比较；没有读取记录就不猜。
-    这不是安全边界，而是防止 `file_write` 静默覆盖编辑器/构建工具的改动。
-    """
-    if current is None or cached is None:
-        return False
-    return current.encode("utf-8") != cached
-
-DEFAULT_READ_LINES = 400
-
-# limit 只有下界时，模型传 `limit=100000` 就能把整个文件（上限 2MB）一次性灌进
-# 上下文 —— 而上下文裁剪**不碰最近 keep_recent 条**，任何裁剪都拦不住它。
-# 这里是一道理智闸门；真正的上下文保证在 `llm/context.py` 的单条消息上限。
-MAX_READ_LINES = 2_000
 
 READ_DESCRIPTION = """\
 读取工作区内某个文本文件的内容，返回带行号的文本。
@@ -103,106 +102,6 @@ RESTORE_DESCRIPTION = """\
 留底时它并不存在，还原成空文件只是留下一堆删不掉的垃圾。
 删除前同样会留底，所以这次删除也可以再回滚。
 """
-
-
-class ReadInput(BaseModel):
-    path: str = Field(description="文件路径，工作区内相对路径或绝对路径")
-    reason: str = Field(description="读取这个文件的意图，一句话说明")
-    offset: int | None = Field(default=None, description="起始行号（从 1 开始），省略则从头读")
-    limit: int | None = Field(
-        default=None,
-        ge=1,
-        le=MAX_READ_LINES,
-        description=f"最多读取行数（{DEFAULT_READ_LINES} 以内效果最好，上限 {MAX_READ_LINES}）",
-    )
-
-
-class WriteInput(BaseModel):
-    path: str = Field(description="文件路径，工作区内相对路径或绝对路径")
-    content: str = Field(description="写入的完整内容")
-    reason: str = Field(description="写这个文件的意图，一句话说明")
-
-
-class EditInput(BaseModel):
-    path: str = Field(description="文件路径，工作区内相对路径或绝对路径")
-    old_string: str = Field(
-        min_length=1,
-        description="要被替换掉的原文，**不能为空**，必须与文件内容逐字符一致且唯一",
-    )
-    new_string: str = Field(description="替换成的新内容；传空字符串表示删除这段")
-    reason: str = Field(description="这次修改的意图，一句话说明")
-    replace_all: bool = Field(default=False, description="old_string 出现多次时是否全部替换")
-
-
-class EditSpec(BaseModel):
-    path: str = Field(description="文件路径")
-    old_string: str = Field(
-        min_length=1, description="要替换的原文，必须在当前文件中唯一"
-    )
-    new_string: str = Field(description="替换后的内容")
-    replace_all: bool = Field(
-        default=False, description="old_string 出现多次时是否全部替换"
-    )
-
-
-class EditManyInput(BaseModel):
-    edits: list[EditSpec] = Field(
-        min_length=1,
-        max_length=20,
-        description="按顺序应用的编辑；同一文件可以有多条",
-    )
-    reason: str = Field(description="批量修改的意图，一句话说明")
-
-
-class RestoreInput(BaseModel):
-    path: str | None = Field(
-        default=None, description="要回滚的文件；省略则回滚最近一次文件改动"
-    )
-    snapshot_id: str | None = Field(
-        default=None, description="指定快照 id；省略则用该文件最近一次留底"
-    )
-    reason: str = Field(description="回滚的意图，一句话说明")
-
-
-class MoveInput(BaseModel):
-    source: str = Field(description="要移动的文件路径")
-    destination: str = Field(description="目标路径（可改名或换目录）")
-    reason: str = Field(description="移动的意图，一句话说明")
-    overwrite: bool = Field(
-        default=False, description="目标已存在时是否覆盖（覆盖前会留底）"
-    )
-
-
-class CopyInput(BaseModel):
-    source: str = Field(description="要复制的文件路径")
-    destination: str = Field(description="目标路径")
-    reason: str = Field(description="复制的意图，一句话说明")
-    overwrite: bool = Field(
-        default=False, description="目标已存在时是否覆盖（覆盖前会留底）"
-    )
-
-
-class DeleteInput(BaseModel):
-    path: str = Field(description="要删除的文件路径（只支持普通文件）")
-    reason: str = Field(description="删除的意图，一句话说明")
-
-
-class MkdirInput(BaseModel):
-    path: str = Field(description="要创建的目录路径（会自动创建父目录）")
-    reason: str = Field(description="创建目录的意图，一句话说明")
-
-
-class ListDirInput(BaseModel):
-    path: str = Field(default=".", description="目录路径，默认工作区根目录")
-    max_depth: int = Field(default=1, ge=1, le=5, description="递归深度")
-    limit: int = Field(default=200, ge=1, le=1000, description="最多返回多少项")
-    reason: str = Field(description="列目录的意图，一句话说明")
-
-
-def _relpath(path: str, root: str) -> str:
-    """展示用的工作区相对路径。"""
-    prefix = root.rstrip("/") + "/"
-    return path[len(prefix) :] if path.startswith(prefix) else path
 
 
 def build_file_tools(

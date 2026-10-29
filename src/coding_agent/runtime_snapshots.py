@@ -30,7 +30,7 @@ from coding_agent.audit.logger import (
     read_records_many,
     truncate,
 )
-from coding_agent.diffing import unified_diff
+from coding_agent.protocol.diffing import unified_diff
 from coding_agent.sandbox.fs import SandboxFs
 from coding_agent.sandbox.snapshots import (
     ACTION_RESTORE,

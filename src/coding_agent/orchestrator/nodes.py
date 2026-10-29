@@ -21,7 +21,6 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from coding_agent.config import Settings
-from coding_agent.messages import last_human_text
 from coding_agent.orchestrator.fanin import make_synthesize_node
 from coding_agent.orchestrator.graph import validate_proposals
 from coding_agent.orchestrator.merge import (
@@ -41,6 +40,7 @@ from coding_agent.orchestrator.routing import route_after_select, route_entry
 from coding_agent.orchestrator.scheduler import make_scheduler_node
 from coding_agent.orchestrator.survey import make_survey_node
 from coding_agent.orchestrator.workers import WorkerRunner
+from coding_agent.protocol.messages import last_human_text
 from coding_agent.sandbox.wsl_exec import WslSandbox
 from coding_agent.steering import SteeringController
 

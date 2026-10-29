@@ -28,7 +28,7 @@ from coding_agent.llm.prompts import (
     RESPOND_PROMPT,
     format_memory_note,
 )
-from coding_agent.messages import text_of
+from coding_agent.protocol.messages import text_of
 from coding_agent.recovery import retry_async
 
 VERIFICATION_FAILED_NOTE = (

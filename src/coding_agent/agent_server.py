@@ -63,7 +63,6 @@ from coding_agent.agent_server_support import (
     _terminal_payload,
 )
 from coding_agent.config import Settings, get_settings
-from coding_agent.event_transport import build_event_transport
 from coding_agent.events import (
     Event,
     RunFailed,
@@ -79,8 +78,9 @@ from coding_agent.platform.paths import (
     ensure_inside,
     looks_like_windows_path,
 )
+from coding_agent.protocol.event_transport import build_event_transport
+from coding_agent.protocol.sse_stream import sse_headers
 from coding_agent.runtime import AgentRuntime
-from coding_agent.sse_stream import sse_headers
 
 _STREAM_BUFFER_MAX_CHARS = 8 * 1024 * 1024
 _STREAM_BUFFER_MAX_EVENTS = 5_000

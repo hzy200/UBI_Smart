@@ -57,11 +57,11 @@ from coding_agent.graph.build import build_graph
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
 from coding_agent.memory.checkpointer import CheckpointStore
 from coding_agent.memory.semantic import SemanticMemory
-from coding_agent.messages import (
-    recover_dangling_tool_calls,
-)
 from coding_agent.platform.concurrency import ConcurrencyGovernor
 from coding_agent.platform.secrets_store import SecretStore
+from coding_agent.protocol.messages import (
+    recover_dangling_tool_calls,
+)
 from coding_agent.runtime.audit_bridge import AuditMixin
 from coding_agent.runtime.common import _swallow_audit
 from coding_agent.runtime.event_map import EventMapMixin

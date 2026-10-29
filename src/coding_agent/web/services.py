@@ -21,11 +21,11 @@ from coding_agent.config import Settings
 from coding_agent.control.agent_client import AgentClientError
 from coding_agent.memory.sessions import SessionIndex
 from coding_agent.platform.secrets_store import SecretStore
+from coding_agent.protocol.sse_stream import sse_headers, with_heartbeat_bytes
 from coding_agent.provider_profiles import (
     ProviderProfileStore,
     merge_provider_items,
 )
-from coding_agent.sse_stream import sse_headers, with_heartbeat_bytes
 from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.models import SessionConfig

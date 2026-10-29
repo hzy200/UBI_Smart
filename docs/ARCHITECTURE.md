@@ -75,7 +75,7 @@ LLM 拿不到操作系统句柄，只能产出结构化调用 `{tool, args}`；�
 │ sandbox/ wsl_exec fs snapshots policy pathguard limits    │
 │   WSL2 进程、路径校验、命令分级、资源上限                   │
 └──────────────────────────────────────────────────────────┘
-        events.py  config.py  messages.py  diffing.py  audit/  memory/
+        events.py  config.py  protocol/  audit/  memory/
                           （横向：各层都可依赖）
 ```
 

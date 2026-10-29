@@ -288,7 +288,7 @@ def test_syslog_export_and_invalid_address(tmp_path, monkeypatch) -> None:
 
 def test_webhook_delivery_and_failure_count(tmp_path, monkeypatch) -> None:
     import coding_agent.audit.logger as audit_logger
-    from coding_agent import observability
+    from coding_agent.platform import observability
 
     seen = {}
 

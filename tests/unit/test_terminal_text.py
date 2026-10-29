@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.terminal_text import sanitize_terminal_text
+from coding_agent.protocol.terminal_text import sanitize_terminal_text
 
 
 def test_plain_text_is_unchanged() -> None:

@@ -17,8 +17,8 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from coding_agent.diffing import count_changes, unified_diff
 from coding_agent.host_broker.paths import HostPathPolicy
+from coding_agent.protocol.diffing import count_changes, unified_diff
 from coding_agent.sandbox.snapshots import (
     ABSENT_SUFFIX,
     RestoreResult,

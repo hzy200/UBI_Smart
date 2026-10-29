@@ -16,8 +16,8 @@ from coding_agent.audit import models as audit_models
 from coding_agent.audit.logger import now_iso, truncate
 from coding_agent.llm.context import summarize_messages
 from coding_agent.memory.sessions import SessionIndex
-from coding_agent.messages import text_of
 from coding_agent.orchestrator.merge_journal import MergeJournal
+from coding_agent.protocol.messages import text_of
 
 
 @dataclass(frozen=True, slots=True)

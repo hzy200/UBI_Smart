@@ -54,8 +54,8 @@ from coding_agent.events import (
     WorkflowRevised,
     WorkflowSelected,
 )
+from coding_agent.protocol.terminal_text import sanitize_terminal_text
 from coding_agent.runtime import AgentRuntime
-from coding_agent.terminal_text import sanitize_terminal_text
 
 HELP_TEXT = """\
 /help              显示本帮助

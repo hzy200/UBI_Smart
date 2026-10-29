@@ -182,11 +182,9 @@ CodingAgent/
 │  ├─ runtime/                 # 唯一编排入口：core + event_map + stream + 会话/记忆/审计 mixin
 │  ├─ events.py                # 前端契约：领域事件
 │  ├─ config.py                # 配置（.env > 环境变量 > 默认值）
-│  ├─ messages.py              # 消息文本提取
-│  ├─ diffing.py               # unified diff 生成与统计
+│  ├─ protocol/                # 事件传输 / SSE / 消息提取 / diff / 终端文本
 │  ├─ steering.py              # 按 thread 隔离的运行中指令队列
 │  ├─ agent_protocol.py        # A2↔A3 DTO / 版本与能力协议
-│  ├─ event_transport.py       # 共享 SSE 事件传输（内存 / Redis）
 │  ├─ control_server.py        # A2 独立进程入口：认证 / 代理 / 降级
 │  ├─ agent_server.py          # A3 独立进程入口：仅装配
 │  ├─ agent_server_routes/     # A3 领域路由（lifecycle / workspace / state）

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from coding_agent.diffing import count_changes, unified_diff
+from coding_agent.protocol.diffing import count_changes, unified_diff
 from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
 from coding_agent.sandbox.pathguard import SandboxPathError
 from coding_agent.sandbox.wsl_exec import WslSandbox

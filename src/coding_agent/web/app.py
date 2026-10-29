@@ -48,7 +48,7 @@ from coding_agent.events import (
 from coding_agent.platform.concurrency import ConcurrencyGovernor
 from coding_agent.platform.observability import note_silent_failure
 from coding_agent.platform.tracing import TracingMiddleware
-from coding_agent.sse_stream import (
+from coding_agent.protocol.sse_stream import (
     SSE_HEARTBEAT_MS,
     sse_headers,
     with_heartbeat,
@@ -510,7 +510,7 @@ def create_app(
             "server/control/desktop 入口已默认开启"
         )
     if stream_buffer and transport is None:
-        from coding_agent.event_transport import build_event_transport
+        from coding_agent.protocol.event_transport import build_event_transport
 
         transport = build_event_transport(settings)
 

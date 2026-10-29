@@ -36,7 +36,7 @@ from coding_agent.events import (
     WorkerStarted,
     WorkflowSelected,
 )
-from coding_agent.terminal_text import sanitize_terminal_text
+from coding_agent.protocol.terminal_text import sanitize_terminal_text
 
 
 def _safe(value: object) -> str:

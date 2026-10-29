@@ -230,7 +230,7 @@ def test_shared_modules_stay_neutral() -> None:
         "coding_agent.tools",
         "coding_agent.sandbox",
     )
-    for rel in ("agent_protocol.py", "event_transport.py", "workspace/browse.py"):
+    for rel in ("agent_protocol.py", "protocol/event_transport.py", "workspace/browse.py"):
         imported = _imported_modules(SRC / rel)
         assert not any(_has_prefix(imported, item) for item in forbidden), rel
 

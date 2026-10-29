@@ -233,6 +233,10 @@ def test_list_dir_success_empty_and_errors() -> None:
 
     fs.raises["list_dir"] = SandboxFsError("boom")
     assert "boom" in tools["file_list"].invoke({"path": "src", "reason": "看"})
+    fs.raises["list_dir"] = RuntimeError("unexpected")
+    assert "unexpected" in tools["file_list"].invoke(
+        {"path": "src", "reason": "看"}
+    )
 
 
 # ---------------- write ----------------

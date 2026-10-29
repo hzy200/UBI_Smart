@@ -32,7 +32,7 @@ from coding_agent.llm.prompts import (
     PLANNER_PROMPT,
     format_memory_note,
 )
-from coding_agent.messages import last_human_text
+from coding_agent.protocol.messages import last_human_text
 from coding_agent.recovery import retry_async
 
 

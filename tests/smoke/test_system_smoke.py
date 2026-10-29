@@ -25,7 +25,7 @@ CORE_MODULES = (
     "coding_agent.config",
     "coding_agent.events",
     "coding_agent.agent_protocol",
-    "coding_agent.event_transport",
+    "coding_agent.protocol.event_transport",
     "coding_agent.runtime",
     "coding_agent.graph.build",
     "coding_agent.orchestrator.graph",

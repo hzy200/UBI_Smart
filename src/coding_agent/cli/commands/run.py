@@ -23,10 +23,10 @@ from coding_agent.config import (
 from coding_agent.events import ApprovalRequested, Event
 from coding_agent.llm.deepseek import build_llm
 from coding_agent.llm.prompts import SYSTEM_PROMPT
-from coding_agent.messages import text_of
+from coding_agent.protocol.messages import text_of
+from coding_agent.protocol.terminal_text import sanitize_terminal_text
 from coding_agent.runtime import submit_steering_command
 from coding_agent.steering import SteeringCommand
-from coding_agent.terminal_text import sanitize_terminal_text
 
 
 def _emit(text: str) -> None:

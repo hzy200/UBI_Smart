@@ -41,7 +41,7 @@ from coding_agent.events import (
     WorkflowSelected,
 )
 from coding_agent.graph.nodes.approve import tool_level
-from coding_agent.messages import reasoning_of, text_of
+from coding_agent.protocol.messages import reasoning_of, text_of
 from coding_agent.sandbox.policy import classify
 from coding_agent.sandbox.snapshots import ACTION_RESTORE
 from coding_agent.tools.artifacts import (

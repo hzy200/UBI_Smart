@@ -17,7 +17,7 @@ from typing import Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 
-from coding_agent.messages import last_human_text
+from coding_agent.protocol.messages import last_human_text
 
 
 class OrchestratorState(TypedDict, total=False):
