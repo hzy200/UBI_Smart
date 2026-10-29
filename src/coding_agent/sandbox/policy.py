@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
 
-from coding_agent.access import (
+from coding_agent.identity.access import (
     ACCESS_READ_ONLY,
     ACCESS_WRITE_ASK,
     ACCESS_WRITE_AUTO,

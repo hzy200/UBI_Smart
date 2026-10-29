@@ -19,7 +19,7 @@ from coding_agent.audit import AuditLogger, AuditRecord, read_records
 from coding_agent.cli import app as cli_app
 from coding_agent.config import Settings
 from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
-from coding_agent.steering import SteeringController
+from coding_agent.session.steering import SteeringController
 
 runner = CliRunner()
 

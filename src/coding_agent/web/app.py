@@ -15,7 +15,6 @@ import logging
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import Any
 
@@ -26,34 +25,23 @@ from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     JSONResponse,
-    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from coding_agent.access import (
+from coding_agent.config import Settings, apply_security_profile, get_settings
+from coding_agent.identity.access import (
     ACCESS_READ_ONLY,
     ACCESS_WRITE_AUTO,
     clamp_access_mode,
     normalize_access_mode,
 )
-from coding_agent.config import Settings, apply_security_profile, get_settings
-from coding_agent.control.webhooks import schedule_webhooks
-from coding_agent.events import (
-    ApprovalRequested,
-    Event,
-    RunFailed,
-    RunFinished,
-)
+from coding_agent.identity.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.platform.concurrency import ConcurrencyGovernor
-from coding_agent.platform.observability import note_silent_failure
 from coding_agent.platform.tracing import TracingMiddleware
 from coding_agent.protocol.sse_stream import (
     SSE_HEARTBEAT_MS,
-    sse_headers,
-    with_heartbeat,
 )
-from coding_agent.tenancy import TenantError, TenantManager, WebTenant
 from coding_agent.web.assets import resolve_frontend_dirs
 from coding_agent.web.auth import AuthConfig, AuthUser
 from coding_agent.web.cors import StrictCORSMiddleware, parse_allowed_origins
@@ -80,7 +68,7 @@ from coding_agent.web.middleware import (
 from coding_agent.web.models import (
     SessionConfig,
 )
-from coding_agent.web.push import PushService, schedule_push
+from coding_agent.web.push import PushService
 from coding_agent.web.routes.admin import AdminDeps, register_admin_routes
 from coding_agent.web.routes.auth import AuthRouteDeps, register_auth_routes
 from coding_agent.web.routes.compact import CompactDeps, register_compact_routes
@@ -90,7 +78,6 @@ from coding_agent.web.routes.desktop import (
 )
 from coding_agent.web.routes.notifications import (
     NotificationDeps,
-    notification_payload,
     register_notification_routes,
 )
 from coding_agent.web.routes.ops import OpsDeps, register_ops_routes
@@ -130,26 +117,9 @@ from coding_agent.web.services import (
     SessionCatalog,
 )
 from coding_agent.web.sse import (
-    StreamEntry,
-)
-from coding_agent.web.sse import (
-    event_is_terminal as _event_is_terminal,
-)
-from coding_agent.web.sse import (
     event_key as _event_key,
 )
-from coding_agent.web.sse import (
-    events_after as _events_after,
-)
-from coding_agent.web.sse import (
-    is_suspended as _is_suspended,
-)
-from coding_agent.web.sse import (
-    sse as _sse,
-)
-from coding_agent.web.sse import (
-    sse_with_id as _sse_with_id,
-)
+from coding_agent.web.streaming import StreamManager
 from coding_agent.web.transcripts import load_transcript
 from coding_agent.web.version import (
     MIN_API_VERSION,
@@ -546,7 +516,6 @@ def create_app(
         effective_access=runtimes.effective_access,
         allow_write=allow_write,
     )
-    streams: dict[tuple[str, str], StreamEntry] = {}
     session_configs: dict[tuple[str, str], SessionConfig] = {}
     # 删除是 tombstone：不再出现在列表里，但审计/checkpoint 保留供追责。
     deleted_sessions: set[tuple[str, str]] = set()
@@ -688,9 +657,9 @@ def create_app(
         # 内存被已完成会话无限占用。
         stream_ttl = 300.0
         with registry_lock:
-            for key, stream_entry in list(streams.items()):
+            for key, stream_entry in list(stream_manager.streams.items()):
                 if stream_entry.done and now - stream_entry.updated > stream_ttl:
-                    streams.pop(key, None)
+                    stream_manager.streams.pop(key, None)
         await runtimes.sweep(now=now)
 
     def _access_limit(user: AuthUser) -> str:
@@ -744,246 +713,6 @@ def create_app(
     async def _drop_runtime(key: tuple[str, str], runtime: Any) -> None:
         await runtimes.drop(key, runtime)
 
-    def _append_stream_event(entry: StreamEntry, event: Event) -> None:
-        entry.seq += 1
-        entry.events.append((entry.seq, event))
-        entry.chars += len(event.model_dump_json())
-        while entry.chars > _STREAM_BUFFER_MAX_CHARS and len(entry.events) > 1:
-            _, old = entry.events.pop(0)
-            entry.chars -= len(old.model_dump_json())
-        if len(entry.events) > 5_000:
-            dropped = entry.events[: len(entry.events) - 5_000]
-            del entry.events[: len(entry.events) - 5_000]
-            for _, old in dropped:
-                entry.chars -= len(old.model_dump_json())
-        entry.updated = time.monotonic()
-        if transport is not None:
-            try:
-                transport.publish(
-                    _event_key(entry.key[0], entry.public_thread),
-                    entry.seq,
-                    event.model_dump_json(),
-                )
-            except Exception:  # noqa: BLE001 - 传输故障不能中断运行
-                _LOG.warning("事件传输发布失败", exc_info=True)
-        for queue in list(entry.subscribers):
-            try:
-                queue.put_nowait((entry.seq, event))
-            except asyncio.QueueFull:
-                pass
-
-    async def _record_event_notification(
-        user_name: str, public_thread: str, event: Event
-    ) -> None:
-        """本地 runtime 路径也写站内通知；代理路径由 runs.py 负责。"""
-        if control_store is None:
-            return
-        if not isinstance(event, (ApprovalRequested, RunFailed, RunFinished)):
-            return
-        notice = notification_payload(event.model_dump())
-        if notice is None:
-            return
-        kind, title, body, dedupe = notice
-        try:
-            row = await asyncio.to_thread(
-                control_store.add_notification,
-                user_name,
-                kind=kind,
-                title=title,
-                body=body,
-                thread_id=public_thread,
-                dedupe_key=dedupe,
-            )
-            if row:
-                schedule_push(push_service, user_name, row)
-                schedule_webhooks(
-                    webhook_service,
-                    user_name,
-                    str(getattr(event, "type", "") or ""),
-                    {
-                        "title": title,
-                        "body": body,
-                        "kind": kind,
-                        "thread_id": public_thread,
-                        "created_at": row.get("created_at", ""),
-                    },
-                )
-        except Exception as exc:  # noqa: BLE001 - 通知失败不打断运行
-            note_silent_failure("notification")
-            _LOG.warning("通知写入失败：%s", exc)
-
-    async def _consume_stream(
-        entry: StreamEntry, events: AsyncIterator[Event]
-    ) -> None:
-        try:
-            async for event in events:
-                if _is_suspended(event):
-                    entry.suspended = True
-                _append_stream_event(entry, event)
-                await _record_event_notification(
-                    entry.key[0], entry.public_thread, event
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - 错误以事件形式送达订阅者
-            failed = RunFailed(message=f"{type(exc).__name__}: {exc}")
-            _append_stream_event(entry, failed)
-        finally:
-            if not entry.suspended:
-                await _drop_runtime(entry.key, entry.runtime)
-            entry.done = True
-            entry.updated = time.monotonic()
-            for queue in list(entry.subscribers):
-                try:
-                    queue.put_nowait(None)
-                except asyncio.QueueFull:
-                    pass
-
-    def _stream_guard(
-        key: tuple[str, str], *, require_suspended: bool = False
-    ) -> None:
-        """拒绝在 active 流上再启动 resume；跨进程 resume 没有流时放行。"""
-        old = streams.get(key)
-        if old is None:
-            return
-        if not old.done:
-            raise HTTPException(
-                status_code=409,
-                detail="该会话已有运行中的事件流；请等待或先取消",
-            )
-        if require_suspended and not old.suspended:
-            raise HTTPException(
-                status_code=409,
-                detail="该会话没有待审批的挂起",
-            )
-
-    def _start_stream(
-        key: tuple[str, str],
-        public_thread: str,
-        runtime: Any,
-        events: AsyncIterator[Event],
-    ) -> StreamEntry:
-        old = streams.pop(key, None)
-        # 序号跨 resume/进程重启保持单调；传输层可能保留旧进程的事件。
-        base_seq = old.seq if old is not None else 0
-        if transport is not None:
-            try:
-                base_seq = max(
-                    base_seq,
-                    transport.latest_seq(_event_key(key[0], public_thread)),
-                )
-            except Exception:  # noqa: BLE001
-                _LOG.warning("读取事件传输序号失败", exc_info=True)
-        # 每个用户只保留最近 8 个已完成流，避免长跑服务被重放缓冲撑爆。
-        with registry_lock:
-            owned = [
-                (other_key, other)
-                for other_key, other in streams.items()
-                if other_key[0] == key[0] and other.done
-            ]
-            if len(owned) >= 8:
-                owned.sort(key=lambda item: item[1].updated)
-                for other_key, _ in owned[: len(owned) - 7]:
-                    streams.pop(other_key, None)
-        entry = StreamEntry(
-            key=key,
-            public_thread=public_thread,
-            runtime=runtime,
-            seq=base_seq,
-        )
-        entry.task = asyncio.create_task(_consume_stream(entry, events))
-        streams[key] = entry
-        return entry
-
-    def _buffered_sse(
-        entry: StreamEntry, *, after: int = 0
-    ) -> StreamingResponse:
-        async def stream() -> AsyncIterator[str]:
-            last = max(0, int(after))
-            queue: asyncio.Queue = asyncio.Queue(maxsize=2_000)
-            entry.subscribers.append(queue)
-            try:
-                while True:
-                    for seq, event in _events_after(entry, last):
-                        last = seq
-                        yield _sse_with_id(event, seq)
-                    if entry.done and last >= entry.seq:
-                        break
-                    try:
-                        item = await asyncio.wait_for(queue.get(), timeout=15)
-                    except TimeoutError:
-                        yield ": keepalive\n\n"
-                        continue
-                    if item is None:
-                        # 先把 done 前最后一批事件发完，再退出。
-                        for seq, event in _events_after(entry, last):
-                            last = seq
-                            yield _sse_with_id(event, seq)
-                        break
-                    seq, event = item
-                    if seq <= last:
-                        continue
-                    last = seq
-                    yield _sse_with_id(event, seq)
-            finally:
-                try:
-                    entry.subscribers.remove(queue)
-                except ValueError:
-                    pass
-
-        return StreamingResponse(
-            stream(),
-            media_type="text/event-stream",
-            headers=sse_headers(entry.public_thread),
-        )
-
-    def _transport_sse(
-        event_key: str, public_thread: str, *, after: int = 0
-    ) -> StreamingResponse:
-        """没有本地 StreamEntry 时，从共享传输按 seq 重放并继续轮询。"""
-
-        async def stream() -> AsyncIterator[str]:
-            last = max(0, int(after))
-            idle = 0.0
-            silent = 0.0
-            while transport is not None:
-                try:
-                    rows = await asyncio.to_thread(
-                        transport.replay, event_key, last
-                    )
-                except Exception:  # noqa: BLE001 - 传输故障不伪造事件
-                    _LOG.warning("事件传输重放失败", exc_info=True)
-                    return
-                for seq, payload in rows:
-                    if seq <= last:
-                        continue
-                    last = seq
-                    idle = silent = 0.0
-                    yield f"id: {seq}\ndata: {payload}\n\n"
-                    if _event_is_terminal(payload):
-                        return
-                await asyncio.sleep(0.5)
-                idle += 0.5
-                silent += 0.5
-                if idle >= 15:
-                    yield ": keepalive\n\n"
-                    idle = 0.0
-                if silent >= 300:
-                    return
-
-        return StreamingResponse(
-            stream(),
-            media_type="text/event-stream",
-            headers=sse_headers(public_thread),
-        )
-
-    def _get_entry(user: str, public_thread: str) -> RuntimeEntry | None:
-        with registry_lock:
-            entry = runtimes.get((user, public_thread))
-        if entry is not None:
-            entry.last_active = time.monotonic()
-        return entry
-
     def _capabilities(config: SessionConfig | None) -> dict[str, Any]:
         access = _effective_access(config)
         read_only = access == ACCESS_READ_ONLY
@@ -1018,58 +747,6 @@ def create_app(
                 settings.web_max_upload_total_bytes
             ),
         }
-
-    async def _runtime_for_resume(
-        user: AuthUser, public_thread: str
-    ) -> tuple[tuple[str, str], Any]:
-        key = (user.name, public_thread)
-        entry = _get_entry(*key)
-        if entry is not None:
-            return key, entry.runtime
-        # 进程重启/TTL 清理后，从 per-user checkpoint 重建。
-        tenant = _tenant(user)
-        # 进程重启后首次恢复可能触发控制面读取；不要在事件循环线程里做 DB I/O。
-        config = await asyncio.to_thread(
-            _config_for, user, tenant, public_thread
-        )
-        runtime = _new_runtime(tenant, config)
-        with registry_lock:
-            runtimes.put(key, runtime)
-        return key, runtime
-
-    def _sse_response(
-        key: tuple[str, str],
-        public_thread: str,
-        runtime: Any,
-        events: AsyncIterator[Event],
-    ) -> StreamingResponse:
-        async def stream() -> AsyncIterator[str]:
-            suspended = False
-            try:
-                async for event in events:
-                    if _is_suspended(event):
-                        suspended = True
-                    yield _sse(event)
-                    await _record_event_notification(
-                        key[0], public_thread, event
-                    )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - 错误以事件形式送到前端
-                yield _sse(RunFailed(message=f"{type(exc).__name__}: {exc}"))
-            finally:
-                if suspended:
-                    entry = _get_entry(*key)
-                    if entry is not None:
-                        entry.last_active = time.monotonic()
-                else:
-                    await _drop_runtime(key, runtime)
-
-        return StreamingResponse(
-            with_heartbeat(stream()),
-            media_type="text/event-stream",
-            headers=sse_headers(public_thread),
-        )
 
     # 最内层：把 /api/v1/* 重写为 /api/*，路由只注册一份。
     app.add_middleware(
@@ -1309,7 +986,7 @@ def create_app(
         ),
     )
 
-    from coding_agent.costs import CurrencyConfig
+    from coding_agent.session.costs import CurrencyConfig
 
     currency = CurrencyConfig.from_settings(settings)
     register_auth_routes(
@@ -1356,6 +1033,45 @@ def create_app(
     )
 
     push_service = PushService(settings, control_store)
+
+    def _lookup_runtime(
+        user: str, public_thread: str
+    ) -> RuntimeEntry | None:
+        with registry_lock:
+            return runtimes.get((user, public_thread))
+
+    stream_manager = StreamManager(
+        transport=transport,
+        control_store=control_store,
+        push_service=push_service,
+        webhook_service=webhook_service,
+        lookup_runtime=_lookup_runtime,
+        drop_runtime=_drop_runtime,
+    )
+    _stream_guard = stream_manager.guard
+    _start_stream = stream_manager.start
+    _buffered_sse = stream_manager.buffered_sse
+    _transport_sse = stream_manager.transport_sse
+    _get_entry = stream_manager.get_entry
+    _sse_response = stream_manager.sse_response
+
+    async def _runtime_for_resume(
+        user: AuthUser, public_thread: str
+    ) -> tuple[tuple[str, str], Any]:
+        key = (user.name, public_thread)
+        entry = _get_entry(*key)
+        if entry is not None:
+            return key, entry.runtime
+        # 进程重启/TTL 清理后，从 per-user checkpoint 重建。
+        tenant = _tenant(user)
+        # 进程重启后首次恢复可能触发控制面读取；不要在事件循环线程里做 DB I/O。
+        config = await asyncio.to_thread(
+            _config_for, user, tenant, public_thread
+        )
+        runtime = _new_runtime(tenant, config)
+        with registry_lock:
+            runtimes.put(key, runtime)
+        return key, runtime
     register_push_routes(
         app,
         PushDeps(push=push_service, rate_limit=_rate_limit),
@@ -1604,7 +1320,7 @@ def create_app(
             client_source=client_source,
             stream_buffer=stream_buffer,
             transport=transport,
-            streams=streams,
+            streams=stream_manager.streams,
             registry_lock=registry_lock,
             runtimes=runtimes,
             rate_limit=_rate_limit,

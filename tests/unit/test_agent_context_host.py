@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from coding_agent.access import ACCESS_WRITE_AUTO
 from coding_agent.agent_context import AgentRuntimeFactory
 from coding_agent.agent_protocol import AgentContext
 from coding_agent.config import Settings
+from coding_agent.identity.access import ACCESS_WRITE_AUTO
 
 
 class FakeCaller:

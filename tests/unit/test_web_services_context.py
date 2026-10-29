@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 
 from coding_agent.config import Settings
-from coding_agent.tenancy import WebTenant
+from coding_agent.identity.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.models import SessionConfig
 from coding_agent.web.services import (

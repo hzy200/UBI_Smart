@@ -19,7 +19,7 @@ from coding_agent.graph.state import AgentState
 from coding_agent.llm.deepseek import with_json_output
 from coding_agent.orchestrator.contracts import TaskSpec, WorkflowDecision
 from coding_agent.orchestrator.state import request_of
-from coding_agent.recovery import retry_async
+from coding_agent.session.recovery import retry_async
 
 
 class WorkflowPlan(BaseModel):

@@ -16,7 +16,7 @@ from langchain_core.runnables import RunnableConfig
 
 from coding_agent.agents.explore import DelegateRunner
 from coding_agent.config import Settings
-from coding_agent.instructions import load_project_instructions
+from coding_agent.identity.instructions import load_project_instructions
 from coding_agent.memory.longterm import (
     LayeredMemory,
     LongTermMemory,

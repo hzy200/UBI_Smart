@@ -20,10 +20,10 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 
 | 指标 | 值 |
 | --- | --- |
-| 快反馈用例 | **3,142** |
-| 覆盖率 | **84.67%** |
-| 总语句 | **35,266** |
-| 未覆盖 | **5,405** |
+| 快反馈用例 | **3,143** |
+| 覆盖率 | **84.71%** |
+| 总语句 | **35,319** |
+| 未覆盖 | **5,399** |
 | 承重模块目标 | **85%** |
 
 ## 承重模块
@@ -42,7 +42,11 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 | `control/store/notifications.py` | 89.6% | 88.6% | 85% |
 | `control/store/search.py` | 88.8% | 87.8% | 85% |
 | `control/store/sessions.py` | 100.0% | 99.0% | 85% |
-| `control/store/usage.py` | 87.9% | 86.9% | 85% |
+| `control/store/usage.py` | 100.0% | 99.0% | 85% |
+| `control/store/usage_common.py` | 100.0% | 99.0% | 85% |
+| `control/store/usage_record.py` | 83.3% | 82.3% | 85% |
+| `control/store/usage_report.py` | 97.7% | 96.7% | 85% |
+| `control/store/usage_reserve.py` | 90.5% | 89.5% | 85% |
 | `execution/service.py` | 92.0% | 91.0% | 85% |
 | `graph/nodes/approve.py` | 100.0% | 99.0% | 85% |
 | `host_broker/consent.py` | 96.9% | 95.9% | 85% |

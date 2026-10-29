@@ -341,7 +341,7 @@ def test_concurrent_first_cursor_insert_does_not_double_count(
     import time
 
     from coding_agent.control import store as store_module
-    from coding_agent.control.store import usage as usage_module
+    from coding_agent.control.store import usage_record as usage_module
 
     monkeypatch.setattr(usage_module, "_USAGE_LOCK", contextlib.nullcontext())
     original_daily_add = store_module.ControlStore._daily_add

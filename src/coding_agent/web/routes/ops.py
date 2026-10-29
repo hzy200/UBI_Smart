@@ -12,8 +12,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from coding_agent.audit import read_records_many
+from coding_agent.identity.tenancy import WebTenant
 from coding_agent.memory.sessions import SessionIndex
-from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.validation import check_thread_id

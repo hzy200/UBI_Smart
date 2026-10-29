@@ -11,7 +11,7 @@ from rich.markup import escape
 from coding_agent.cli.context import console, get_settings
 from coding_agent.cli.options import _WORKSPACE_OPTION
 from coding_agent.config import apply_security_profile
-from coding_agent.workspace_lock import WorkspaceLock
+from coding_agent.session.workspace_lock import WorkspaceLock
 
 
 def _is_loopback_bind(host: str) -> bool:

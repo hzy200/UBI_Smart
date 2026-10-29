@@ -20,12 +20,18 @@ from coding_agent.events import (
     RunStarted,
     SteeringApplied,
 )
-from coding_agent.web.app import (
-    _STREAM_BUFFER_MAX_CHARS,
-    SessionConfig,
-    _is_suspended,
-    _sse,
-    _sse_with_id,
+from coding_agent.web.models import SessionConfig
+from coding_agent.web.sse import (
+    is_suspended as _is_suspended,
+)
+from coding_agent.web.sse import (
+    sse as _sse,
+)
+from coding_agent.web.sse import (
+    sse_with_id as _sse_with_id,
+)
+from coding_agent.web.streaming import (
+    STREAM_BUFFER_MAX_CHARS as _STREAM_BUFFER_MAX_CHARS,
 )
 
 # A2 对外的控制路由；A1 只通过这些入口驱动/观察运行。

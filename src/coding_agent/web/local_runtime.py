@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
-from coding_agent.access import ACCESS_READ_ONLY
-from coding_agent.tenancy import WebTenant
+from coding_agent.identity.access import ACCESS_READ_ONLY
+from coding_agent.identity.tenancy import WebTenant
 
 if TYPE_CHECKING:  # 只用于类型标注：拆分模式下 A2 不应导入 A3 runtime
     from coding_agent.runtime import AgentRuntime

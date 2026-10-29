@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.tool_journal import (
+from coding_agent.session.tool_journal import (
     ToolJournal,
     replayed_artifact,
     unknown_result_artifact,

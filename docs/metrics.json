@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "tests": 3142,
+  "tests": 3143,
   "coverage": {
-    "statements": 35266,
-    "missing": 5405,
-    "percent": 84.67,
+    "statements": 35319,
+    "missing": 5399,
+    "percent": 84.71,
     "modules": {
       "agent_server_routes/workspace_import.py": 88.13,
       "control/accounts.py": 87.25,
@@ -18,7 +18,11 @@
       "control/store/notifications.py": 89.58,
       "control/store/search.py": 88.79,
       "control/store/sessions.py": 100.0,
-      "control/store/usage.py": 87.91,
+      "control/store/usage.py": 100.0,
+      "control/store/usage_common.py": 100.0,
+      "control/store/usage_record.py": 83.33,
+      "control/store/usage_report.py": 97.67,
+      "control/store/usage_reserve.py": 90.52,
       "execution/service.py": 92.01,
       "graph/nodes/approve.py": 100.0,
       "host_broker/consent.py": 96.89,
@@ -86,8 +90,24 @@
       "floor": 99.0
     },
     "control/store/usage.py": {
-      "actual": 87.91,
-      "floor": 86.9
+      "actual": 100.0,
+      "floor": 99.0
+    },
+    "control/store/usage_common.py": {
+      "actual": 100.0,
+      "floor": 99.0
+    },
+    "control/store/usage_record.py": {
+      "actual": 83.33,
+      "floor": 82.3
+    },
+    "control/store/usage_report.py": {
+      "actual": 97.67,
+      "floor": 96.7
+    },
+    "control/store/usage_reserve.py": {
+      "actual": 90.52,
+      "floor": 89.5
     },
     "execution/service.py": {
       "actual": 92.01,

@@ -44,7 +44,7 @@ from coding_agent.llm.prompts import (
     REVIEW_REPORT_PROMPT,
 )
 from coding_agent.protocol.messages import text_of
-from coding_agent.recovery import retry_async
+from coding_agent.session.recovery import retry_async
 from coding_agent.tools.artifacts import SubAgentArtifact, unpack
 from coding_agent.tools.delegate import EXPLORE_TOOL_NAMES
 

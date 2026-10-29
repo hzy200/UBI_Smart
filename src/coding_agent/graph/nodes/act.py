@@ -46,7 +46,7 @@ from coding_agent.llm.prompts import (
     format_review_feedback,
     format_verification_feedback,
 )
-from coding_agent.recovery import retry_async
+from coding_agent.session.recovery import retry_async
 
 BUDGET_EXHAUSTED_TEMPLATE = "（本步骤已达到工具调用上限 {limit} 轮，停止继续尝试。）"
 

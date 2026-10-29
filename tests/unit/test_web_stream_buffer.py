@@ -161,7 +161,9 @@ def test_buffer_evicts_old_events_by_size(settings, monkeypatch) -> None:
             yield AssistantToken(node="act", text="y" * 300)
             yield RunFinished(thread_id=thread_id, answer="done")
 
-    monkeypatch.setattr(web.app, "_STREAM_BUFFER_MAX_CHARS", 500)
+    from coding_agent.web import streaming
+
+    monkeypatch.setattr(streaming, "STREAM_BUFFER_MAX_CHARS", 500)
     monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: BigRuntime())
     client = TestClient(web.create_app(settings, stream_buffer=True))
     client.post("/api/run", json={"prompt": "hi", "thread_id": "t"})
@@ -174,7 +176,8 @@ def test_buffer_evicts_old_events_by_size(settings, monkeypatch) -> None:
 
 def test_events_after_only_scans_from_the_tail() -> None:
     from coding_agent.events import AssistantToken
-    from coding_agent.web.app import StreamEntry, _events_after
+    from coding_agent.web.sse import StreamEntry
+    from coding_agent.web.sse import events_after as _events_after
 
     class CountingList(list):
         reads = 0

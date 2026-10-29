@@ -15,18 +15,18 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
-from coding_agent.access import normalize_access_mode
 from coding_agent.agent_protocol import AgentContext
 from coding_agent.config import Settings
 from coding_agent.control.agent_client import AgentClientError
-from coding_agent.memory.sessions import SessionIndex
-from coding_agent.platform.secrets_store import SecretStore
-from coding_agent.protocol.sse_stream import sse_headers, with_heartbeat_bytes
-from coding_agent.provider_profiles import (
+from coding_agent.identity.access import normalize_access_mode
+from coding_agent.identity.provider_profiles import (
     ProviderProfileStore,
     merge_provider_items,
 )
-from coding_agent.tenancy import WebTenant
+from coding_agent.identity.tenancy import WebTenant
+from coding_agent.memory.sessions import SessionIndex
+from coding_agent.platform.secrets_store import SecretStore
+from coding_agent.protocol.sse_stream import sse_headers, with_heartbeat_bytes
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.models import SessionConfig
 

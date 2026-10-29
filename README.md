@@ -183,11 +183,12 @@ CodingAgent/
 │  ├─ events.py                # 前端契约：领域事件
 │  ├─ config.py                # 配置（.env > 环境变量 > 默认值）
 │  ├─ protocol/                # 事件传输 / SSE / 消息提取 / diff / 终端文本
-│  ├─ steering.py              # 按 thread 隔离的运行中指令队列
+│  ├─ identity/                # 身份/租户：access / tenancy / provider_profiles / 项目环境
+│  ├─ session/                 # 会话支撑：steering / 摘要 / 锁 / 恢复 / 日志 / 成本
 │  ├─ agent_protocol.py        # A2↔A3 DTO / 版本与能力协议
 │  ├─ control_server.py        # A2 独立进程入口：认证 / 代理 / 降级
 │  ├─ agent_server.py          # A3 独立进程入口：仅装配
-│  ├─ agent_server_routes/     # A3 领域路由（lifecycle / workspace / state）
+│  ├─ agent_server_routes/     # A3 领域路由（lifecycle / workspace / workspace_import / state）
 │  ├─ control/                 # A2 控制面：schema / store / 迁移 / 备份
 │  │  ├─ accounts.py           #   企业账号、scrypt 密码、登录会话
 │  │  ├─ credentials.py        #   上游 Key 的 AES-GCM 加密存储

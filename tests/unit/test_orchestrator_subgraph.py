@@ -15,7 +15,7 @@ from coding_agent.orchestrator.contracts import (
 from coding_agent.orchestrator.subgraph import build_orchestrator_subgraph
 from coding_agent.orchestrator.workflow import WorkflowPlan
 from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.steering import SteeringController
+from coding_agent.session.steering import SteeringController
 
 
 class _Structured:

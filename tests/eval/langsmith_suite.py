@@ -72,7 +72,7 @@ from coding_agent.sandbox.policy import (  # noqa: E402
 )
 from coding_agent.sandbox.wsl_exec import WslSandbox  # noqa: E402
 from coding_agent.security.write_policy import protected_write_reason  # noqa: E402
-from coding_agent.steering import SteeringCommand, SteeringController  # noqa: E402
+from coding_agent.session.steering import SteeringCommand, SteeringController  # noqa: E402
 
 DEFAULT_DATASET = "coding-agent-full-v1"
 

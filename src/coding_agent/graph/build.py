@@ -32,7 +32,6 @@ from typing import Any
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.access import ACCESS_READ_ONLY
 from coding_agent.agents.explore import make_explore_runner, make_review_runner
 from coding_agent.config import (
     PRODUCTION_PROFILES,
@@ -80,6 +79,7 @@ from coding_agent.graph.routing import (
     route_after_synthesize,
 )
 from coding_agent.graph.state import AgentState
+from coding_agent.identity.access import ACCESS_READ_ONLY
 from coding_agent.llm.deepseek import build_llm
 from coding_agent.memory.longterm import (
     resolve_global_memory_root,
@@ -93,8 +93,8 @@ from coding_agent.platform.read_cache import ReadCache
 from coding_agent.sandbox.backend import build_sandbox
 from coding_agent.sandbox.policy import SessionPolicy, parse_allow_rules
 from coding_agent.sandbox.wsl_exec import resolve_workspace
-from coding_agent.steering import SteeringController
-from coding_agent.tool_journal import ToolJournal
+from coding_agent.session.steering import SteeringController
+from coding_agent.session.tool_journal import ToolJournal
 from coding_agent.tools.delegate import EXPLORE_TOOL_NAMES, build_delegate_tool
 from coding_agent.tools.registry import build_tools
 

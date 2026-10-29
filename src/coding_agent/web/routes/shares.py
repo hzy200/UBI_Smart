@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from coding_agent.tenancy import WebTenant
+from coding_agent.identity.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.shares import build_share_payload, render_share_html

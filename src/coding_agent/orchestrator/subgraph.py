@@ -44,7 +44,7 @@ from coding_agent.orchestrator.write_gate import (
 )
 from coding_agent.platform.concurrency import ConcurrencyGovernor
 from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.steering import SteeringController
+from coding_agent.session.steering import SteeringController
 
 
 def _route_after_scheduler_gate(state: OrchestratorState) -> str:

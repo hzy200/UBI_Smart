@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from coding_agent.session_brief import build_session_brief
+from coding_agent.session.session_brief import build_session_brief
 
 
 def test_only_human_and_assistant_text_is_kept() -> None:

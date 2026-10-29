@@ -15,7 +15,7 @@ from coding_agent.llm.deepseek import with_json_output
 from coding_agent.orchestrator.contracts import TaskGraph
 from coding_agent.orchestrator.graph import validate_tasks
 from coding_agent.orchestrator.state import request_of
-from coding_agent.recovery import retry_async
+from coding_agent.session.recovery import retry_async
 
 
 def _default_write_task(

@@ -11,8 +11,8 @@ from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
 from coding_agent.audit.logger import read_records_many
-from coding_agent.run_compare import build_runs, compare_runs
-from coding_agent.tenancy import WebTenant
+from coding_agent.identity.tenancy import WebTenant
+from coding_agent.session.run_compare import build_runs, compare_runs
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.models import SessionConfig

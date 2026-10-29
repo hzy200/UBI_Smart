@@ -30,7 +30,7 @@ from coding_agent.platform.concurrency import (
     ConcurrencyGovernor,
 )
 from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.steering import SteeringController
+from coding_agent.session.steering import SteeringController
 
 SCHEDULER = "scheduler"
 

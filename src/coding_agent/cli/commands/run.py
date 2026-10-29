@@ -26,7 +26,7 @@ from coding_agent.llm.prompts import SYSTEM_PROMPT
 from coding_agent.protocol.messages import text_of
 from coding_agent.protocol.terminal_text import sanitize_terminal_text
 from coding_agent.runtime import submit_steering_command
-from coding_agent.steering import SteeringCommand
+from coding_agent.session.steering import SteeringCommand
 
 
 def _emit(text: str) -> None:
@@ -89,7 +89,7 @@ def _make_renderer() -> Callable[[Event], None]:
 
     具体映射在 `cli/renderer.py` 的表驱动实现里；TUI / Web 各写一份自己的。
     """
-    from coding_agent.costs import CurrencyConfig
+    from coding_agent.session.costs import CurrencyConfig
 
     return CliRenderer(
         console,

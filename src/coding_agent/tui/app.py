@@ -24,7 +24,6 @@ from textual.widgets import Footer, Header, Input, RichLog, Static, TextArea
 
 from coding_agent.audit import read_records_many
 from coding_agent.config import Settings, get_settings
-from coding_agent.costs import CurrencyConfig
 from coding_agent.events import (
     ApprovalRequested,
     AssistantToken,
@@ -56,6 +55,7 @@ from coding_agent.events import (
 )
 from coding_agent.protocol.terminal_text import sanitize_terminal_text
 from coding_agent.runtime import AgentRuntime
+from coding_agent.session.costs import CurrencyConfig
 
 HELP_TEXT = """\
 /help              显示本帮助

@@ -35,7 +35,7 @@ from coding_agent.desktop.supervisor import (
 )
 from coding_agent.desktop.watchdog import WatchTarget, supervise_many
 from coding_agent.desktop.wsl import distro_exists, import_distro, to_wsl_path
-from coding_agent.workspace_lock import WorkspaceLock
+from coding_agent.session.workspace_lock import WorkspaceLock
 
 _LOG = logging.getLogger("coding_agent.desktop")
 

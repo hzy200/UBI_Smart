@@ -10,7 +10,7 @@ from coding_agent.graph.nodes.act import BUDGET_EXHAUSTED_TEMPLATE, make_act_nod
 from coding_agent.graph.nodes.advance import advance
 from coding_agent.graph.nodes.tools import make_tools_node
 from coding_agent.llm.prompts import compose_system_prompt
-from coding_agent.tool_journal import ToolJournal
+from coding_agent.session.tool_journal import ToolJournal
 from coding_agent.tools.artifacts import FileArtifact, ShellArtifact, pack
 
 

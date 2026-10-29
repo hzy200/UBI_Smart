@@ -13,7 +13,7 @@ from coding_agent.llm.ratelimit import GLOBAL_LIMITER
 from coding_agent.orchestrator import scheduler_run as scheduler_runtime
 from coding_agent.orchestrator.contracts import WorkerResult
 from coding_agent.orchestrator.scheduler import make_scheduler_node
-from coding_agent.steering import SteeringController
+from coding_agent.session.steering import SteeringController
 
 
 @pytest.fixture(autouse=True)

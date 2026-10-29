@@ -36,7 +36,7 @@ from coding_agent.graph.state import AgentState
 from coding_agent.orchestrator.contracts import TaskGraph, TaskSpec, WorkerResult
 from coding_agent.orchestrator.nodes import make_dispatch_node, make_plan_tasks_node
 from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.steering import SteeringCommand, SteeringController
+from coding_agent.session.steering import SteeringCommand, SteeringController
 
 
 def _settings(**overrides: Any) -> Settings:

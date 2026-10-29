@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from coding_agent import __version__
 from coding_agent.config import Settings
 from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
-from coding_agent.tenancy import WebTenant
+from coding_agent.identity.tenancy import WebTenant
 from coding_agent.web import app as web_app
 from coding_agent.web import local_runtime
 from coding_agent.web.auth import AuthConfig

@@ -235,6 +235,33 @@ def test_shared_modules_stay_neutral() -> None:
         assert not any(_has_prefix(imported, item) for item in forbidden), rel
 
 
+# 根目录只允许入口/契约文件；其他模块必须放进有名字的子包。
+# 新增根目录 .py 时先问：它属于哪个包？答不上来才考虑加白名单。
+_ROOT_ALLOWED = {
+    "__init__.py",
+    "agent_protocol.py",      # A2↔A3 契约
+    "agent_server.py",        # A3 入口
+    "agent_server_models.py",  # A3 HTTP 模型
+    "agent_server_support.py",  # A3 RunState/SSE 原语
+    "agent_context.py",       # A3 租户目录与 runtime 构造
+    "config.py",              # 配置契约源
+    "control_server.py",      # A2 入口
+    "events.py",              # 领域事件契约源
+    "runtime_snapshots.py",   # AgentRuntime 快照 mixin
+    "server.py",              # 本地开发入口
+}
+
+
+def test_root_modules_are_allowlisted() -> None:
+    actual = {path.name for path in SRC.glob("*.py")}
+    unexpected = actual - _ROOT_ALLOWED
+    assert not unexpected, (
+        f"根目录新增了未登记的模块：{sorted(unexpected)}。"
+        "请把它放进对应子包（platform/ protocol/ identity/ session/ 等）；"
+        "确属入口/契约文件时，再更新本测试的白名单并写清理由。"
+    )
+
+
 # ---------------- 依赖形状：环与跨层边 ----------------
 #
 # `docs/COMPLEXITY.md` 曾写「依赖无环」，而同一文档的依赖图里就画着

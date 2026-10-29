@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from coding_agent.access import ACCESS_READ_ONLY
 from coding_agent.config import Settings, get_settings
 from coding_agent.desktop.http import local_open, wait_health
+from coding_agent.identity.access import ACCESS_READ_ONLY
+from coding_agent.session.workspace_lock import WorkspaceLock
 from coding_agent.web import create_app
 from coding_agent.web.auth import AuthConfig
-from coding_agent.workspace_lock import WorkspaceLock
 
 _LOCAL_USER = "local"
 

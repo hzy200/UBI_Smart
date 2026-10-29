@@ -15,7 +15,7 @@ from coding_agent.agent_server_models import MemoryBody
 from coding_agent.agent_server_support import _safe_tenant
 from coding_agent.audit.logger import audit_files_by_day, read_records_many
 from coding_agent.memory.sessions import SessionIndex
-from coding_agent.run_compare import build_runs, compare_runs
+from coding_agent.session.run_compare import build_runs, compare_runs
 
 
 @dataclass(frozen=True)

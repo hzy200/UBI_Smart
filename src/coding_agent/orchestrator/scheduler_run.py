@@ -42,7 +42,7 @@ from coding_agent.platform.concurrency import (
     ResourceTimeout,
 )
 from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.steering import SteeringController
+from coding_agent.session.steering import SteeringController
 
 
 class SchedulerRun:

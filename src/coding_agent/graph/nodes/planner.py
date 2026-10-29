@@ -33,7 +33,7 @@ from coding_agent.llm.prompts import (
     format_memory_note,
 )
 from coding_agent.protocol.messages import last_human_text
-from coding_agent.recovery import retry_async
+from coding_agent.session.recovery import retry_async
 
 
 class TaskPlan(BaseModel):

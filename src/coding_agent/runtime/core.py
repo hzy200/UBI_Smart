@@ -18,12 +18,6 @@ from uuid import uuid4
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
-from coding_agent.access import (
-    ACCESS_READ_ONLY,
-    ACCESS_WRITE_ASK,
-    ACCESS_WRITE_AUTO,
-    normalize_access_mode,
-)
 from coding_agent.agents.policy import (
     RepoProfile,
     delegation_policy,
@@ -54,6 +48,12 @@ from coding_agent.execution import (
     SandboxExecutionBackend,
 )
 from coding_agent.graph.build import build_graph
+from coding_agent.identity.access import (
+    ACCESS_READ_ONLY,
+    ACCESS_WRITE_ASK,
+    ACCESS_WRITE_AUTO,
+    normalize_access_mode,
+)
 from coding_agent.llm.ratelimit import GLOBAL_LIMITER
 from coding_agent.memory.checkpointer import CheckpointStore
 from coding_agent.memory.semantic import SemanticMemory
@@ -80,10 +80,10 @@ from coding_agent.sandbox.snapshots import (
     SnapshotStore,
 )
 from coding_agent.sandbox.wsl_exec import resolve_workspace
-from coding_agent.session_brief import build_session_brief
-from coding_agent.steering import SteeringCommand, SteeringController
+from coding_agent.session.session_brief import build_session_brief
+from coding_agent.session.steering import SteeringCommand, SteeringController
+from coding_agent.session.workspace_lock import WorkspaceLock
 from coding_agent.workspace.model import normalize_workspace_kind
-from coding_agent.workspace_lock import WorkspaceLock
 
 # 只有这几个 action 才真正改动了文件，read 与空回滚不发 FileChanged
 
@@ -535,7 +535,7 @@ class AgentRuntime(
             and self.workspace_kind != "host"
         ):
             try:
-                from coding_agent.instructions import load_project_instructions
+                from coding_agent.identity.instructions import load_project_instructions
 
                 instructions = load_project_instructions(
                     self._sandbox,

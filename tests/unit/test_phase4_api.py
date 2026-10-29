@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from coding_agent import web
 from coding_agent.audit import AuditLogger, AuditRecord
 from coding_agent.config import Settings
-from coding_agent.provider_profiles import (
+from coding_agent.identity.provider_profiles import (
     ProviderProfile,
     ProviderProfileStore,
     merge_provider_items,
@@ -144,7 +144,7 @@ def test_uploads_can_be_listed_and_deleted(
 ) -> None:
     # 单用户解析会做 Windows→/mnt 转换；这里直接用宿主机路径测文件操作。
     monkeypatch.setattr(
-        "coding_agent.tenancy.normalize_root", lambda value: str(value)
+        "coding_agent.identity.tenancy.normalize_root", lambda value: str(value)
     )
     workspace = tmp_path / "ws"
     workspace.mkdir()

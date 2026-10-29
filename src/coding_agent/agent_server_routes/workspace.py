@@ -16,7 +16,7 @@ from coding_agent.agent_protocol import AgentContext
 from coding_agent.agent_server_models import DeleteUploadBody, RestoreBody
 from coding_agent.config import Settings
 from coding_agent.execution.host_file_access import HostFileAccess
-from coding_agent.project_env import probe_project
+from coding_agent.identity.project_env import probe_project
 from coding_agent.workspace.browse import (
     MAX_READ_BYTES,
     BrowseError,

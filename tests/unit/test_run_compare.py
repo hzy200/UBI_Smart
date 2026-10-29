@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.run_compare import build_runs, compare_runs
+from coding_agent.session.run_compare import build_runs, compare_runs
 
 
 def _record(kind: str, ts: str, **fields) -> dict:

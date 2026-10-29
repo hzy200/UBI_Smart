@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from coding_agent.tenancy import WebTenant
+from coding_agent.identity.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.models import CompactRequest, SessionConfig

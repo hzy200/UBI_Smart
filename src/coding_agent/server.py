@@ -15,8 +15,8 @@ import sys
 
 import uvicorn
 
-from coding_agent.access import ACCESS_READ_ONLY
 from coding_agent.config import get_settings
+from coding_agent.identity.access import ACCESS_READ_ONLY
 from coding_agent.web import create_app
 from coding_agent.web.auth import AuthConfig
 

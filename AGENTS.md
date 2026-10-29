@@ -72,6 +72,8 @@ src/coding_agent/
   agent_protocol.py A2↔A3 共享 DTO / 版本与能力协议
   protocol/         协议与文本：event_transport / sse_stream / messages / diffing / terminal_text
   workspace/        只读工作区浏览（A2/A3 共用）
+  identity/         身份/租户：access / tenancy / provider_profiles / project_env / instructions
+  session/          会话支撑：steering / session_brief / workspace_lock / recovery / tool_journal / costs / run_compare
   config.py         配置（构造函数参数 > .env > 环境变量 > 默认值）★
   graph/            主图：state / routing（纯函数）/ build / nodes/
   orchestrator/     独立 harness 子图：survey → plan → scheduler ⇄ steering → fan_in
@@ -87,6 +89,7 @@ src/coding_agent/
   control_server.py A2 独立进程入口：认证 / 会话目录 / 代理 / 降级
   web/routes/       A2 领域路由（system/providers/sessions/workspace/uploads/ops/snapshots/runs/desktop/compact）
   web/services.py   A2 会话目录 / Provider / Agent 代理服务
+  web/streaming.py  运行事件流缓冲/重放；web/sse.py 帧原语
   web/dependencies.py 认证依赖；web/validation.py thread_id 校验
   agents/           explore / review 子智能体循环
   llm/              DeepSeek 客户端 · 提示词 · 上下文裁剪 · provider 路由

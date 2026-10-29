@@ -21,7 +21,7 @@ from coding_agent.events import (
     ToolCallStarted,
 )
 from coding_agent.runtime import AgentRuntime
-from coding_agent.tool_journal import unknown_result_artifact
+from coding_agent.session.tool_journal import unknown_result_artifact
 from coding_agent.tools.artifacts import (
     CallArtifact,
     FileArtifact,

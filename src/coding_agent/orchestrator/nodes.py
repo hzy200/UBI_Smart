@@ -42,7 +42,7 @@ from coding_agent.orchestrator.survey import make_survey_node
 from coding_agent.orchestrator.workers import WorkerRunner
 from coding_agent.protocol.messages import last_human_text
 from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.steering import SteeringController
+from coding_agent.session.steering import SteeringController
 
 __all__ = [
     "_IMPLEMENT_ROLE_NOTES",

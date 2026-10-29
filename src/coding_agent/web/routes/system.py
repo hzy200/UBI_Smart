@@ -16,8 +16,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from coding_agent import __version__
 from coding_agent.config import Settings
+from coding_agent.identity.tenancy import WebTenant
 from coding_agent.platform.observability import inc
-from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.client_errors import append_client_error
 from coding_agent.web.dependencies import UserDep, current_user

@@ -12,7 +12,6 @@ from typing import Any
 from rich.console import Console
 from rich.markup import escape
 
-from coding_agent.costs import CurrencyConfig
 from coding_agent.events import (
     AssistantToken,
     CostReport,
@@ -37,6 +36,7 @@ from coding_agent.events import (
     WorkflowSelected,
 )
 from coding_agent.protocol.terminal_text import sanitize_terminal_text
+from coding_agent.session.costs import CurrencyConfig
 
 
 def _safe(value: object) -> str:

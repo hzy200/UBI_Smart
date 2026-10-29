@@ -10,10 +10,10 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from coding_agent.access import ACCESS_READ_ONLY
 from coding_agent.agent_protocol import AgentContext
-from coding_agent.project_env import probe_project
-from coding_agent.tenancy import TenantError, WebTenant
+from coding_agent.identity.access import ACCESS_READ_ONLY
+from coding_agent.identity.project_env import probe_project
+from coding_agent.identity.tenancy import TenantError, WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.validation import check_thread_id

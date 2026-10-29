@@ -18,8 +18,8 @@ from coding_agent.config import Settings
 from coding_agent.control.idempotency import IdempotencyInFlight
 from coding_agent.control.leases import LeaseHeartbeat
 from coding_agent.control.webhooks import schedule_webhooks
+from coding_agent.identity.tenancy import WebTenant
 from coding_agent.platform.observability import inc_gauge, note_silent_failure
-from coding_agent.tenancy import WebTenant
 from coding_agent.web.auth import AuthUser
 from coding_agent.web.dependencies import UserDep
 from coding_agent.web.models import ResumeRequest, RunRequest, SteerRequest
