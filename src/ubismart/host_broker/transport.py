@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlparse
 
-from coding_agent.host_broker.protocol import MAX_FRAME_BYTES
+from ubismart.host_broker.protocol import MAX_FRAME_BYTES
 
 
 class Transport(Protocol):

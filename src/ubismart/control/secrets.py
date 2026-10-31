@@ -16,8 +16,8 @@ import os
 from pathlib import Path
 from typing import Protocol
 
-from coding_agent.config import Settings
-from coding_agent.platform.secrets_store import SecretStore, SecretStoreUnavailable
+from ubismart.config import Settings
+from ubismart.platform.secrets_store import SecretStore, SecretStoreUnavailable
 
 
 class SecretProvider(Protocol):

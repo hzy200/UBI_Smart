@@ -17,13 +17,13 @@ from urllib.parse import quote
 
 import httpx
 
-from coding_agent.agent_protocol import (
+from ubismart.agent_protocol import (
     AgentContext,
     AgentMeta,
     AgentRunRequest,
     sign_context,
 )
-from coding_agent.platform.request_context import REQUEST_ID_HEADER, current_request_id
+from ubismart.platform.request_context import REQUEST_ID_HEADER, current_request_id
 
 
 class AgentClientError(RuntimeError):
@@ -109,6 +109,15 @@ class AgentClient(Protocol):
         params: dict | None = None,
         json: dict | None = None,
     ) -> dict: ...
+    async def raw_request(
+        self,
+        context: AgentContext,
+        path: str,
+        *,
+        params: dict | None = None,
+        range_header: str = "",
+        if_none_match: str = "",
+    ) -> tuple[int, dict[str, str], bytes]: ...
     async def register_host_workspace(
         self, context: AgentContext
     ) -> dict: ...
@@ -388,6 +397,30 @@ class HttpAgentClient:
         return await self._json(
             method.upper(), path, context, params=params, json=json
         )
+
+    async def raw_request(
+        self,
+        context: AgentContext,
+        path: str,
+        *,
+        params: dict | None = None,
+        range_header: str = "",
+        if_none_match: str = "",
+    ) -> tuple[int, dict[str, str], bytes]:
+        headers = self._headers(context)
+        if range_header:
+            headers["Range"] = range_header
+        if if_none_match:
+            headers["If-None-Match"] = if_none_match
+        async with self._client() as client:
+            response = await client.get(path, headers=headers, params=params)
+            if response.status_code >= 400:
+                raise AgentClientError(response.status_code, response.text)
+            return (
+                int(response.status_code),
+                dict(response.headers),
+                response.content,
+            )
 
     async def register_host_workspace(
         self, context: AgentContext

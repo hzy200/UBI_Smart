@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.protocol import (
     DENIED_SCOPE,
     DENIED_VERB,
     DENIED_ZX,

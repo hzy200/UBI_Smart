@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.config import Settings
-from coding_agent.control.accounts import AccountError, UserStore
-from coding_agent.control.store import ControlStore
+from ubismart.config import Settings
+from ubismart.control.accounts import AccountError, UserStore
+from ubismart.control.store import ControlStore
 
 
 def create_first_admin(

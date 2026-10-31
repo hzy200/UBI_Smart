@@ -271,7 +271,7 @@ def probe_tpm() -> tuple[bool, str]:
     """尝试创建并删除一个临时 CNG/TPM 密钥；不留下持久状态。"""
     if os.name != "nt":
         return False, "仅 Windows"
-    name = f"CodingAgentProbe-{uuid.uuid4().hex[:8]}"
+    name = f"UBISmartProbe-{uuid.uuid4().hex[:8]}"
     script = f"""$ErrorActionPreference='Stop'
 $name={json.dumps(name)}
 $ok=$false

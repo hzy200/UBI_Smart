@@ -16,10 +16,10 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.paths import HostPathError, HostPathPolicy
-from coding_agent.host_broker.policy import GrantStore, HostPolicy
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.paths import HostPathError, HostPathPolicy
+from ubismart.host_broker.policy import GrantStore, HostPolicy
+from ubismart.host_broker.protocol import (
     CONFLICT,
     DENIED_SCOPE,
     DENIED_VERB,
@@ -38,14 +38,14 @@ from coding_agent.host_broker.protocol import (
     Frame,
     make_response,
 )
-from coding_agent.host_broker.snapshots import (
+from ubismart.host_broker.snapshots import (
     HostSnapshotError,
     HostSnapshotStore,
     atomic_write,
 )
-from coding_agent.host_broker.toolchain import ToolchainRegistry
-from coding_agent.host_broker.workspace_registry import WorkspaceRegistrar
-from coding_agent.security.secrets import redact_secrets
+from ubismart.host_broker.toolchain import ToolchainRegistry
+from ubismart.host_broker.workspace_registry import WorkspaceRegistrar
+from ubismart.security.secrets import redact_secrets
 
 _SENSITIVE_ENV = re.compile(
     r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE|SESSION",
@@ -864,7 +864,7 @@ class HostReadOnlyOps:
             raise BrokerOpError(
                 TOOLCHAIN_UNAVAILABLE, f"未注册工具链：{toolchain_id}"
             )
-        from coding_agent.host_broker.exec import run_host_exec
+        from ubismart.host_broker.exec import run_host_exec
 
         output_roots: list[str] = []
         for relative in ref.output_roots:

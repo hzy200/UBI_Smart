@@ -20,7 +20,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, pool, text
 
-from coding_agent.control.schema import Base
+from ubismart.control.schema import Base
 
 _LOG = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ def upgrade(
         raise ValueError("control DB URL 为空")
     existing = has_table(url, "control_meta")
     if backup and existing:
-        from coding_agent.control.backup import backup as backup_db
+        from ubismart.control.backup import backup as backup_db
 
         backup_db(url, backup_dir)
         _LOG.info("迁移前已备份控制面数据库")
@@ -176,7 +176,7 @@ def downgrade(
             "该库没有被 alembic 纳管（缺少 alembic_version），无法确定当前版本"
         )
     if backup:
-        from coding_agent.control.backup import backup as backup_db
+        from ubismart.control.backup import backup as backup_db
 
         backup_db(url, backup_dir)
         _LOG.info("降级前已备份控制面数据库")
@@ -196,7 +196,7 @@ def _main() -> int:
     import argparse
     import json
 
-    from coding_agent.config import get_settings
+    from ubismart.config import get_settings
 
     parser = argparse.ArgumentParser(description="迁移控制面数据库")
     parser.add_argument(

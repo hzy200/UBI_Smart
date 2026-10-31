@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import (
+from ubismart.control.schema import (
     ControlAuditIndex,
     ControlSession,
     ControlSessionSearch,

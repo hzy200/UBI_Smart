@@ -29,14 +29,14 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import (
+from ubismart.control.schema import (
     ControlSession,
     ControlUser,
     ControlWorkspaceAcl,
     Workspace,
     WorkspaceRevision,
 )
-from coding_agent.platform.paths import (
+from ubismart.platform.paths import (
     PathGuardError,
     ensure_inside,
     is_within,

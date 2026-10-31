@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from coding_agent.host_broker.win_ctypes import (
+from ubismart.host_broker.win_ctypes import (
     IS_WINDOWS,
     IsolationError,
     assign_job,
@@ -110,7 +110,7 @@ class AppContainerRunner:
         if not IS_WINDOWS:
             raise IsolationError("AppContainer 仅支持 Windows")
         self.profile_name = profile_name or (
-            "CodingAgentRead_" + uuid.uuid4().hex[:12]
+            "UBISmartRead_" + uuid.uuid4().hex[:12]
         )
         self.powershell_exe = str(
             Path(os.environ.get("SystemRoot", r"C:\Windows"))
@@ -134,7 +134,7 @@ class AppContainerRunner:
                 os.environ.get("LOCALAPPDATA")
                 or tempfile.gettempdir()
             )
-            / "CodingAgent"
+            / "UBISmart"
             / "appcontainer-out"
         ) / self.profile_name
         self._out_dir.mkdir(parents=True, exist_ok=True)

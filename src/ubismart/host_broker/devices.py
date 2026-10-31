@@ -417,7 +417,7 @@ class DeviceRegistry:
     ) -> DeviceDecision:
         if not record.public_key:
             return DeviceDecision(allowed=True, record=record)
-        from coding_agent.host_broker.attestation import (
+        from ubismart.host_broker.attestation import (
             AttestationError,
             verify_evidence,
         )
@@ -473,7 +473,7 @@ def _print_devices(records: list[DeviceRecord], *, as_json: bool) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="CodingAgent A2L 设备台账"
+        description="UBISmart A2L 设备台账"
     )
     parser.add_argument(
         "--registry",

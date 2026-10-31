@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlAuditIndex
+from ubismart.control.schema import ControlAuditIndex
 
 from .base import _LOG
 

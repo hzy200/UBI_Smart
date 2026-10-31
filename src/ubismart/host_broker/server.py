@@ -10,16 +10,16 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from coding_agent.host_broker.consent import ConsentProvider
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.op_journal import (
+from ubismart.host_broker.consent import ConsentProvider
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.op_journal import (
     OP_CANCELLED,
     OP_FAILED,
     OP_FINISHED,
     OpJournal,
 )
-from coding_agent.host_broker.policy import GrantStore
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.policy import GrantStore
+from ubismart.host_broker.protocol import (
     A2L_PAUSED,
     CANCELLED,
     GRANT_LOCAL_ONLY,
@@ -44,7 +44,7 @@ from coding_agent.host_broker.protocol import (
     make_response,
     with_ids,
 )
-from coding_agent.host_broker.transport import Transport
+from ubismart.host_broker.transport import Transport
 
 PHASE1_REQUEST_OPS = frozenset(
     {

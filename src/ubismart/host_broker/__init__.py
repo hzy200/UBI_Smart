@@ -4,23 +4,23 @@ Phase 1 只包含可直接测试的基础件；协议、生命周期与能力分
 本包不导入 `tools/`、`sandbox/`、`graph/` 或 `runtime.py`。
 """
 
-from coding_agent.host_broker.acceptor import (
+from ubismart.host_broker.acceptor import (
     AcceptedHostCaller,
     HostBrokerAcceptor,
 )
-from coding_agent.host_broker.client import (
+from ubismart.host_broker.client import (
     HostBrokerClient,
     HostBrokerError,
     HostBrokerOffline,
 )
-from coding_agent.host_broker.consent import (
+from ubismart.host_broker.consent import (
     AutoConsent,
     CallbackConsent,
     ConsentProvider,
     StdinConsent,
     TkConsent,
 )
-from coding_agent.host_broker.lifecycle import (
+from ubismart.host_broker.lifecycle import (
     STATE_OFFLINE,
     STATE_PAUSED,
     STATE_RUNNING,
@@ -28,7 +28,7 @@ from coding_agent.host_broker.lifecycle import (
     BrokerLifecycle,
     LifecycleSnapshot,
 )
-from coding_agent.host_broker.op_journal import (
+from ubismart.host_broker.op_journal import (
     OP_CANCELLED,
     OP_FAILED,
     OP_FINISHED,
@@ -37,27 +37,27 @@ from coding_agent.host_broker.op_journal import (
     OpJournal,
     OpRecord,
 )
-from coding_agent.host_broker.ops import HostReadOnlyOps
-from coding_agent.host_broker.paths import (
+from ubismart.host_broker.ops import HostReadOnlyOps
+from ubismart.host_broker.paths import (
     HostPathError,
     HostPathPolicy,
     RootInfo,
 )
-from coding_agent.host_broker.policy import (
+from ubismart.host_broker.policy import (
     CapabilityGrant,
     GrantStore,
     HostPolicy,
     PolicyDecision,
 )
-from coding_agent.host_broker.protocol import PROTOCOL_VERSION, Frame
-from coding_agent.host_broker.server import (
+from ubismart.host_broker.protocol import PROTOCOL_VERSION, Frame
+from ubismart.host_broker.server import (
     PHASE1_REQUEST_OPS,
     HandlerError,
     HostBrokerServer,
 )
-from coding_agent.host_broker.sync_client import SyncHostCaller
-from coding_agent.host_broker.toolchain import ToolchainRef, ToolchainRegistry
-from coding_agent.host_broker.transport import (
+from ubismart.host_broker.sync_client import SyncHostCaller
+from ubismart.host_broker.toolchain import ToolchainRef, ToolchainRegistry
+from ubismart.host_broker.transport import (
     MemoryTransport,
     TcpTransport,
     Transport,
@@ -65,7 +65,7 @@ from coding_agent.host_broker.transport import (
     memory_transport_pair,
     start_tcp_server,
 )
-from coding_agent.host_broker.workspace_registry import (
+from ubismart.host_broker.workspace_registry import (
     TkWorkspaceRegistrar,
     WorkspaceRegistrar,
 )

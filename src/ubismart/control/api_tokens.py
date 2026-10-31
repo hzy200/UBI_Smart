@@ -15,7 +15,7 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlApiToken
+from ubismart.control.schema import ControlApiToken
 
 SCOPES = ("read", "run", "audit")
 _PREFIX = "ca_pat_"

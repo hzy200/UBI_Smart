@@ -14,10 +14,10 @@ from collections.abc import Callable, MutableMapping
 from pathlib import Path
 from typing import Protocol
 
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.paths import HostPathError, HostPathPolicy
-from coding_agent.host_broker.protocol import CANCELLED
-from coding_agent.host_broker.store import WorkspaceRootStore
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.paths import HostPathError, HostPathPolicy
+from ubismart.host_broker.protocol import CANCELLED
+from ubismart.host_broker.store import WorkspaceRootStore
 
 _LOG = logging.getLogger(__name__)
 
@@ -184,7 +184,7 @@ def _pick_windows_folder() -> str | None:
             info.pszDisplayName = ctypes.cast(
                 display, wintypes.LPWSTR
             )
-            info.lpszTitle = "选择 CodingAgent 本机工作区"
+            info.lpszTitle = "选择 UBISmart 本机工作区"
             # BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX
             info.ulFlags = 0x01 | 0x40 | 0x10
             info.lpfn = ctypes.cast(callback, ctypes.c_void_p)
@@ -217,7 +217,7 @@ def _pick_tk_folder() -> str:
         root.withdraw()
         root.attributes("-topmost", True)
         selected = filedialog.askdirectory(
-            title="选择 CodingAgent 本机工作区"
+            title="选择 UBISmart 本机工作区"
         )
         root.destroy()
         return str(selected or "")

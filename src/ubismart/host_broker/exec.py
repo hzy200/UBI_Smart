@@ -9,16 +9,16 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.paths import HostPathError, HostPathPolicy
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.paths import HostPathError, HostPathPolicy
+from ubismart.host_broker.protocol import (
     EXEC_UNAVAILABLE,
     INVALID_REQUEST,
     TIMEOUT,
     TOOLCHAIN_UNAVAILABLE,
 )
-from coding_agent.host_broker.toolchain import ToolchainRef, ToolchainRegistry
-from coding_agent.host_broker.win_isolation import IsolationError
+from ubismart.host_broker.toolchain import ToolchainRef, ToolchainRegistry
+from ubismart.host_broker.win_isolation import IsolationError
 
 MAX_ARGV = 128
 MAX_ARG_LENGTH = 4096

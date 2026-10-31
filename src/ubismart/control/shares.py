@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlShareLink
+from ubismart.control.schema import ControlShareLink
 
 MAX_PAYLOAD_BYTES = 2_000_000
 _PREFIX = "shr_"

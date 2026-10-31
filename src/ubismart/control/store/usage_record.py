@@ -14,7 +14,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import (
+from ubismart.control.schema import (
     ControlUsageCursor,
     ControlUsageEvent,
     ControlUserUsageDaily,

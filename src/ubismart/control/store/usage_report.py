@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlUserUsageDaily
+from ubismart.control.schema import ControlUserUsageDaily
 
 
 def _usage_row(row: Any, day: str) -> dict[str, Any]:

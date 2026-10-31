@@ -16,8 +16,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlApproval
-from coding_agent.security.secrets import redact_secrets
+from ubismart.control.schema import ControlApproval
+from ubismart.security.secrets import redact_secrets
 
 
 class ApprovalError(RuntimeError):

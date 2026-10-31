@@ -4,6 +4,6 @@
 Standalone 不导入本包；只有配置了 A2 数据源或显式使用控制面时才加载。
 """
 
-from coding_agent.control.store import ControlStore
+from ubismart.control.store import ControlStore
 
 __all__ = ["ControlStore"]

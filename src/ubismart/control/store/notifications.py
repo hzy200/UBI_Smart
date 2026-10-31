@@ -13,7 +13,7 @@ from uuid import uuid4
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import (
+from ubismart.control.schema import (
     ControlNotification,
     ControlPushSubscription,
 )

@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlWebhook
+from ubismart.control.schema import ControlWebhook
 
 _LOG = logging.getLogger(__name__)
 EVENTS = ("run_finished", "run_failed", "approval_requested")

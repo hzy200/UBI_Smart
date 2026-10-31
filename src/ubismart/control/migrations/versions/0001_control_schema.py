@@ -4,7 +4,7 @@ Revision ID: 0001_control_schema
 Revises:
 Create Date: 2026-10-24
 
-与 `coding_agent.control.schema.Base` 对齐。旧库（Phase B 用 create_all
+与 `ubismart.control.schema.Base` 对齐。旧库（Phase B 用 create_all
 建的）由 migrate.upgrade 先 stamp 到这个版本，不重复建表。
 """
 

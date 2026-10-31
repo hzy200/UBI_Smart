@@ -12,7 +12,7 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import (
+from ubismart.control.schema import (
     ControlQuotaReservation,
     ControlUsageEvent,
     ControlUserQuota,

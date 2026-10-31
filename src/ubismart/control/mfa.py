@@ -22,8 +22,8 @@ from sqlalchemy import delete, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from coding_agent.control.credentials import load_master_key
-from coding_agent.control.schema import (
+from ubismart.control.credentials import load_master_key
+from ubismart.control.schema import (
     ControlMfaChallenge,
     ControlUserMfa,
 )

@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import (
+from ubismart.control.schema import (
     CONTROL_SCHEMA_VERSION,
     Base,
     ControlMeta,

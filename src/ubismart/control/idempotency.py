@@ -14,7 +14,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import IdempotencyKey
+from ubismart.control.schema import IdempotencyKey
 
 
 class IdempotencyInFlight(RuntimeError):

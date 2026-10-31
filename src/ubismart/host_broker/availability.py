@@ -55,7 +55,7 @@ class IsolationAvailability:
 
 def _probe_job(reasons: dict[str, str]) -> bool:
     try:
-        from coding_agent.host_broker.win_isolation import JobObject
+        from ubismart.host_broker.win_isolation import JobObject
 
         job = JobObject()
         job.close()
@@ -67,7 +67,7 @@ def _probe_job(reasons: dict[str, str]) -> bool:
 
 def _probe_low_integrity(reasons: dict[str, str]) -> bool:
     try:
-        from coding_agent.host_broker.win_isolation import (
+        from ubismart.host_broker.win_isolation import (
             low_integrity_supported,
         )
 
@@ -79,7 +79,7 @@ def _probe_low_integrity(reasons: dict[str, str]) -> bool:
 
 def _probe_appcontainer(reasons: dict[str, str]) -> bool:
     try:
-        from coding_agent.host_broker.win_isolation import (
+        from ubismart.host_broker.win_isolation import (
             AppContainerRunner,
         )
 
@@ -87,7 +87,7 @@ def _probe_appcontainer(reasons: dict[str, str]) -> bool:
             runner = AppContainerRunner(
                 [],
                 profile_name=(
-                    "CodingAgentProbe_" + uuid.uuid4().hex[:12]
+                    "UBISmartProbe_" + uuid.uuid4().hex[:12]
                 ),
                 out_dir=Path(tmp) / "out",
             )
@@ -114,7 +114,7 @@ def _probe_powershell(reasons: dict[str, str]) -> bool:
 
 def _probe_tpm(reasons: dict[str, str]) -> bool:
     try:
-        from coding_agent.host_broker.attestation import probe_tpm
+        from ubismart.host_broker.attestation import probe_tpm
 
         available, reason = probe_tpm()
         if not available and reason:
@@ -131,7 +131,7 @@ def _probe_software_attestation(reasons: dict[str, str]) -> bool:
             Ed25519PrivateKey,
         )
 
-        from coding_agent.host_broker.attestation import default_key_path
+        from ubismart.host_broker.attestation import default_key_path
 
         directory = default_key_path().parent
         directory.mkdir(parents=True, exist_ok=True)

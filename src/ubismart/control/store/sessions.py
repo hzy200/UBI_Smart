@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlSession, Workspace
+from ubismart.control.schema import ControlSession, Workspace
 
 from .base import _now, _tags_from_text, _tags_to_text
 

@@ -12,12 +12,12 @@ import logging
 import threading
 from typing import Any
 
-from coding_agent.host_broker.client import HostBrokerClient
-from coding_agent.host_broker.devices import DeviceRegistry
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.protocol import GATEWAY_OFFLINE
-from coding_agent.host_broker.sync_client import GrantCache, call_with_grant
-from coding_agent.host_broker.transport import (
+from ubismart.host_broker.client import HostBrokerClient
+from ubismart.host_broker.devices import DeviceRegistry
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.protocol import GATEWAY_OFFLINE
+from ubismart.host_broker.sync_client import GrantCache, call_with_grant
+from ubismart.host_broker.transport import (
     ServerTlsConfig,
     TcpTransport,
     connect_tcp,

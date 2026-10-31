@@ -17,14 +17,14 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import (
+from ubismart.control.schema import (
     ControlAuthEvent,
     ControlAuthSession,
     ControlPasswordReset,
     ControlUser,
     ControlUserIdentity,
 )
-from coding_agent.identity.access import ACCESS_MODES, ACCESS_WRITE_AUTO
+from ubismart.identity.access import ACCESS_MODES, ACCESS_WRITE_AUTO
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 # owner = 唯一管理所有权；admin = 日常管理；approver = 只做四眼审批；

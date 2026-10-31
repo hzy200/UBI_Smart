@@ -16,7 +16,7 @@ import urllib.request
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
-from coding_agent.host_broker.protocol import Frame
+from ubismart.host_broker.protocol import Frame
 
 _LOG = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ class TkConsent:
         accent = "#2563eb"
         bad = "#c0392b"
 
-        root.title("CodingAgent · 本机文件访问请求")
+        root.title("UBISmart · 本机文件访问请求")
         root.configure(bg=bg)
         root.resizable(False, False)
         root.attributes("-topmost", True)
@@ -149,7 +149,7 @@ class TkConsent:
         head = tk.Frame(outer, bg=bg)
         head.pack(fill="x", anchor="w")
         tk.Label(
-            head, text="CodingAgent", bg=bg, fg=accent,
+            head, text="UBISmart", bg=bg, fg=accent,
             font=tkfont.Font(family="Microsoft YaHei UI", size=9, weight="bold"),
         ).pack(anchor="w")
         tk.Label(

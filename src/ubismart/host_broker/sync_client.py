@@ -13,9 +13,9 @@ import time
 import uuid
 from typing import Any
 
-from coding_agent.host_broker.client import HostBrokerClient, HostBrokerError
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.client import HostBrokerClient, HostBrokerError
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.protocol import (
     DENIED_SCOPE,
     DENIED_VERB,
     GATEWAY_OFFLINE,
@@ -24,7 +24,7 @@ from coding_agent.host_broker.protocol import (
     GRANT_REQUIRED,
     GRANT_REVOKED,
 )
-from coding_agent.host_broker.transport import (
+from ubismart.host_broker.transport import (
     TlsConfig,
     Transport,
     connect_tcp,

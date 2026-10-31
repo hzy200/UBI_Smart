@@ -11,7 +11,7 @@ import secrets
 import time
 from typing import Any
 
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.protocol import (
     GATEWAY_OFFLINE,
     PROTOCOL_VERSION,
     TIMEOUT,
@@ -26,7 +26,7 @@ from coding_agent.host_broker.protocol import (
     make_hello,
     make_request,
 )
-from coding_agent.host_broker.transport import Transport
+from ubismart.host_broker.transport import Transport
 
 
 class HostBrokerError(RuntimeError):
@@ -154,7 +154,7 @@ class HostBrokerClient:
                 raise HostBrokerError(
                     UNAUTHENTICATED, "A2L 设备证明 nonce 不匹配"
                 )
-            from coding_agent.host_broker.attestation import (
+            from ubismart.host_broker.attestation import (
                 AttestationError,
                 verify_evidence,
             )

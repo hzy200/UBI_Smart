@@ -332,7 +332,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="CodingAgent A2L 签名策略"
+        description="UBISmart A2L 签名策略"
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

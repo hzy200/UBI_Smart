@@ -29,7 +29,7 @@ from sqlalchemy import delete
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlOidcState
+from ubismart.control.schema import ControlOidcState
 
 
 class OidcError(RuntimeError):

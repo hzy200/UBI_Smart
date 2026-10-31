@@ -16,7 +16,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import RunLease
+from ubismart.control.schema import RunLease
 
 _LOG = logging.getLogger(__name__)
 

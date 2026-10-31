@@ -14,48 +14,48 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from coding_agent.host_broker.attestation import (
+from ubismart.host_broker.attestation import (
     AttestationUnavailable,
     build_device_identity,
 )
-from coding_agent.host_broker.consent import (
+from ubismart.host_broker.consent import (
     AutoConsent,
     RemoteConsent,
     StdinConsent,
     TkConsent,
 )
-from coding_agent.host_broker.lifecycle import BrokerLifecycle
-from coding_agent.host_broker.op_journal import OpJournal
-from coding_agent.host_broker.ops import HostReadOnlyOps
-from coding_agent.host_broker.paths import HostPathError, HostPathPolicy
-from coding_agent.host_broker.policy import GrantStore, HostPolicy
-from coding_agent.host_broker.policy_doc import (
+from ubismart.host_broker.lifecycle import BrokerLifecycle
+from ubismart.host_broker.op_journal import OpJournal
+from ubismart.host_broker.ops import HostReadOnlyOps
+from ubismart.host_broker.paths import HostPathError, HostPathPolicy
+from ubismart.host_broker.policy import GrantStore, HostPolicy
+from ubismart.host_broker.policy_doc import (
     PolicyDocument,
     PolicyError,
     load_signed_policy,
 )
-from coding_agent.host_broker.server import (
+from ubismart.host_broker.server import (
     EXEC_REQUEST_OPS,
     INSTALL_REQUEST_OPS,
     PHASE1_REQUEST_OPS,
     WRITE_REQUEST_OPS,
     HostBrokerServer,
 )
-from coding_agent.host_broker.snapshots import HostSnapshotStore
-from coding_agent.host_broker.store import (
+from ubismart.host_broker.snapshots import HostSnapshotStore
+from ubismart.host_broker.store import (
     WorkspaceRootStore,
     default_store_path,
 )
-from coding_agent.host_broker.toolchain import (
+from ubismart.host_broker.toolchain import (
     ToolchainRef,
     ToolchainRegistry,
 )
-from coding_agent.host_broker.transport import (
+from ubismart.host_broker.transport import (
     TlsConfig,
     certificate_fingerprint,
     connect_tcp,
 )
-from coding_agent.host_broker.win_isolation import (
+from ubismart.host_broker.win_isolation import (
     AppContainerRunner,
     IsolationError,
     IsolationReport,
@@ -63,7 +63,7 @@ from coding_agent.host_broker.win_isolation import (
     JobObject,
     set_low_integrity,
 )
-from coding_agent.host_broker.workspace_registry import TkWorkspaceRegistrar
+from ubismart.host_broker.workspace_registry import TkWorkspaceRegistrar
 
 
 def _load_toolchains(items: list[str]) -> ToolchainRegistry:
@@ -129,7 +129,7 @@ def _apply_policy(
 
 
 def _args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="CodingAgent A2L host broker")
+    parser = argparse.ArgumentParser(description="UBISmart A2L host broker")
     parser.add_argument("--url", required=True, help="tcp://127.0.0.1:8791")
     parser.add_argument("--workspace-root", required=True)
     parser.add_argument("--workspace-id", default="ws-local")

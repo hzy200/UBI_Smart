@@ -17,8 +17,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import ControlProviderKey
-from coding_agent.control.store import _now
+from ubismart.control.schema import ControlProviderKey
+from ubismart.control.store import _now
 
 
 class CredentialError(RuntimeError):

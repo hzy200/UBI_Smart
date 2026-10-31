@@ -5,7 +5,7 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from coding_agent.control.schema import Base
+from ubismart.control.schema import Base
 
 config = context.config
 target_metadata = Base.metadata
@@ -15,7 +15,7 @@ def _url() -> str:
     url = str(config.get_main_option("sqlalchemy.url") or "").strip()
     if url:
         return url
-    from coding_agent.config import get_settings
+    from ubismart.config import get_settings
 
     url = str(get_settings().control_db_url or "").strip()
     if not url:
