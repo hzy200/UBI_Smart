@@ -1,0 +1,3 @@
+# 第三方压缩资源必须逐字节一致：前端 SRI 校验的是文件内容的 sha384。
+# 关闭 EOL 转换，避免 Windows 工作区 CRLF 被提交成 LF 后校验失败。
+*.min.js -text
