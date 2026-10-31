@@ -5,17 +5,17 @@
 
 from __future__ import annotations
 
-from coding_agent.audit import AuditRecord
-from coding_agent.audit import models as audit_models
-from coding_agent.audit.logger import now_iso, truncate
-from coding_agent.memory.longterm import (
+from ubismart.audit import AuditRecord
+from ubismart.audit import models as audit_models
+from ubismart.audit.logger import now_iso, truncate
+from ubismart.memory.longterm import (
     LayeredMemory,
     LongTermMemory,
     resolve_global_memory_root,
     resolve_memory_root,
 )
-from coding_agent.memory.semantic import SemanticMemory, wrap_memory
-from coding_agent.sandbox.fs import SandboxFs
+from ubismart.memory.semantic import SemanticMemory, wrap_memory
+from ubismart.sandbox.fs import SandboxFs
 
 
 class MemoryMixin:

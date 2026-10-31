@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.graph.state import AgentState
+from ubismart.graph.state import AgentState
 
 
 def advance(state: AgentState) -> dict[str, Any]:
@@ -25,5 +25,7 @@ def advance(state: AgentState) -> dict[str, Any]:
         # 新步骤的失败签名与上一步无关
         "same_failure_count": 0,
         "last_failure_signature": "",
+        "review_same_failure_count": 0,
+        "review_failure_signature": "",
         "last_verification": {},
     }

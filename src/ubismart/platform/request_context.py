@@ -10,7 +10,7 @@ from contextvars import ContextVar, Token
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
-_request_id: ContextVar[str] = ContextVar("coding_agent_request_id", default="")
+_request_id: ContextVar[str] = ContextVar("ubismart_request_id", default="")
 
 
 def current_request_id() -> str:

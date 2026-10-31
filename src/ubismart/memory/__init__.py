@@ -1,3 +1,3 @@
-from coding_agent.memory.checkpointer import CheckpointStore
+from ubismart.memory.checkpointer import CheckpointStore
 
 __all__ = ["CheckpointStore"]

@@ -185,8 +185,12 @@ EXPLORE_PROMPT = """\
 5. 最多 {max_rounds} 轮工具调用；到上限会强制收尾。
 6. 结论要具体：指出文件、函数、行号或关键事实；不确定的明确说"未确认"。
 7. 调查足够时直接收尾：**只输出一个 JSON 对象**，不要再调用工具。字段：
-   summary、relevant_files、findings、open_questions、recommended_next_steps、
-   proposed_tasks。宿主会把它当作最终报告；还需要工具就继续调用。
+   summary、relevant_files、findings、citations、open_questions、
+   recommended_next_steps、proposed_tasks。宿主会把它当作最终报告；
+   还需要工具就继续调用。
+8. citations 是结论的证据，每项 `{{"path": "相对路径", "line": 行号, "note": "支持了什么"}}`。
+   path 必须真实存在、line 用你实际读到的行号；无法定位的证据放进 open_questions，
+   **绝不编造文件或行号**。宿主会逐条校验，伪造的引用会被剔除。
 
 工作方式：
 - 先确认项目类型与目标相关目录，再针对性检索。
@@ -199,6 +203,9 @@ EXPLORE_REPORT_PROMPT = """\
 - summary：一段话回答探索目标
 - relevant_files：相关文件路径数组
 - findings：关键发现数组，每条一句话，尽量带文件或位置
+- citations：证明结论的 file:line 证据数组，每项
+  {"path": "相对路径", "line": 行号, "note": "支持了什么"}。path 必须真实存在，
+  line 用实际行号；不确定就留空并写进 open_questions，禁止编造。
 - open_questions：尚未确认的问题数组
 - recommended_next_steps：建议主智能体接下来做什么的数组
 - proposed_tasks：**仅在确实需要新的只读调查才能继续时**给出，最多 2 个。
@@ -255,8 +262,10 @@ REVIEW_PROMPT = """\
 4. 最多 {max_rounds} 轮工具调用；到上限会强制收尾。
 5. 只报告有证据的问题；不确定的放到 open_questions，不要编造。
 6. 审查足够时直接收尾：**只输出一个 JSON 对象**，不要再调用工具。字段：
-   summary、relevant_files、findings、open_questions、recommended_next_steps、
-   proposed_tasks。宿主会把它当作最终报告。"""
+   summary、relevant_files、findings、citations、open_questions、
+   recommended_next_steps、proposed_tasks。宿主会把它当作最终报告。
+7. citations 是问题的证据，每项 `{{"path": "相对路径", "line": 行号, "note": "问题是什么"}}`。
+   path 必须真实存在、line 用实际行号；无法定位就写进 open_questions，禁止编造。"""
 
 
 REVIEW_REPORT_PROMPT = """\
@@ -264,6 +273,9 @@ REVIEW_REPORT_PROMPT = """\
 - summary：一段话总结审查结论
 - relevant_files：审查涉及的文件路径数组
 - findings：问题数组，每条以 [blocking] 或 [warning] 开头，并尽量带文件/位置
+- citations：问题对应的 file:line 证据数组，每项
+  {"path": "相对路径", "line": 行号, "note": "问题是什么"}。path 必须真实存在，
+  line 用实际行号；不确定就写进 open_questions，禁止编造。
 - open_questions：尚未确认的问题数组
 - recommended_next_steps：建议主智能体处理的数组
 - proposed_tasks：**仅在确实需要新的只读调查才能继续时**给出，最多 2 个。

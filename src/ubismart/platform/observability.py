@@ -21,7 +21,7 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
-from coding_agent.platform.request_context import current_request_id
+from ubismart.platform.request_context import current_request_id
 
 _LOCK = threading.Lock()
 _COUNTERS: dict[str, dict[tuple[tuple[str, str], ...], float]] = {}

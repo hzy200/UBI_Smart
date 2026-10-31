@@ -15,10 +15,12 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-from coding_agent.audit import AuditRecord
-from coding_agent.audit import models as audit_models
-from coding_agent.audit.logger import now_iso, truncate
-from coding_agent.events import (
+from langgraph.errors import GraphRecursionError
+
+from ubismart.audit import AuditRecord
+from ubismart.audit import models as audit_models
+from ubismart.audit.logger import now_iso, truncate
+from ubismart.events import (
     CostReport,
     Event,
     RunFailed,
@@ -26,10 +28,10 @@ from coding_agent.events import (
     RunStarted,
     ToolCallStarted,
 )
-from coding_agent.graph.build import estimate_recursion_limit
-from coding_agent.llm.billing import fetch_billing
-from coding_agent.llm.ratelimit import GLOBAL_LIMITER
-from coding_agent.protocol.messages import unanswered_tool_calls
+from ubismart.graph.build import estimate_recursion_limit
+from ubismart.llm.billing import fetch_billing
+from ubismart.llm.ratelimit import GLOBAL_LIMITER
+from ubismart.protocol.messages import unanswered_tool_calls
 
 from .common import _swallow_audit
 
@@ -89,6 +91,16 @@ class StreamMixin:
                 alerts.append("已超出本次运行成本预算")
             elif ratio >= float(settings.cost_alert_ratio):
                 alerts.append("接近本次运行成本预算")
+        session_budget = float(settings.session_cost_budget_usd or 0.0)
+        if session_budget > 0:
+            session_ratio = (
+                float(GLOBAL_LIMITER.session_usage(thread_id)["cost_usd"])
+                / session_budget
+            )
+            if session_ratio >= 1.0:
+                alerts.append("已超出本会话成本预算")
+            elif session_ratio >= float(settings.cost_alert_ratio):
+                alerts.append("接近本会话成本预算")
 
         billed_usd = 0.0
         billing_error = ""
@@ -237,12 +249,20 @@ class StreamMixin:
             and deadline_at > 0
             and time.monotonic() >= deadline_at - 1.0
         )
-        detail = (
-            f"运行超过总时限 {deadline_seconds}s，已停止。"
-            "已完成的状态在 checkpoint 里，可用同一 thread 继续。"
-            if deadline_hit
-            else f"{type(exc).__name__}: {exc}"
-        )
+        if deadline_hit:
+            detail = (
+                f"运行超过总时限 {deadline_seconds}s，已停止。"
+                "已完成的状态在 checkpoint 里，可用同一 thread 继续。"
+            )
+        elif isinstance(exc, GraphRecursionError):
+            detail = (
+                "运行步数超过估算的 recursion_limit，已停止。"
+                "已完成的状态在 checkpoint 里，可用同一 thread 继续；"
+                "若这是正常任务被误判，可调大 max_plan_steps / "
+                "max_tool_rounds / max_repairs / max_replans 中对应的预算。"
+            )
+        else:
+            detail = f"{type(exc).__name__}: {exc}"
         # 尽力记一笔，但**不能让它顶掉真正的错误**：审计本身坏了的时候
         # （比如磁盘满、目录被占），这里再抛一次就把原因盖掉了。
         try:
@@ -303,6 +323,22 @@ class StreamMixin:
         # 同一 thread 会被多轮 run 复用：全新 run 必须清零，resume 必须保留
         # 挂起前那一段的用量。
         GLOBAL_LIMITER.start_run(thread_id, reset=fresh_run)
+        # 会话级硬预算：只拦全新 run；resume 必须放行，否则挂起的审批
+        # 会被预算锁死，用户连拒绝/确认都做不了。
+        session_budget = float(settings.session_cost_budget_usd or 0.0)
+        if fresh_run and session_budget > 0:
+            session_spent = float(
+                GLOBAL_LIMITER.session_usage(thread_id)["cost_usd"]
+            )
+            if session_spent >= session_budget:
+                yield RunFailed(
+                    message=(
+                        "本会话成本预算已用尽"
+                        f"（已用 ${session_spent:.4f} / 上限 ${session_budget:.4f}）。"
+                        "如需继续，请提高 AGENT_SESSION_COST_BUDGET_USD 或新建会话。"
+                    )
+                )
+                return
         config = {
             "configurable": {"thread_id": thread_id},
             # 按图拓扑推导，别再把系数算歪（见 estimate_recursion_limit）
@@ -316,6 +352,7 @@ class StreamMixin:
                 orchestrator_checkpoint_every=(
                     settings.orchestrator_checkpoint_every
                 ),
+                orchestrator_fix_rounds=settings.orchestrator_fix_rounds,
             ),
             # 这些会随 trace 一起上报，LangSmith 里可按会话/工作区/权限筛选
             "run_name": f"agent:{thread_id}",

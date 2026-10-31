@@ -75,6 +75,17 @@ class AgentState(TypedDict, total=False):
     # 「主 agent 只读/只总结」就会让合并进来的改动完全绕过 verify。这个标志
     # 跨步骤保留，直到 verify 真正执行（或在 verify 被禁用时显式清除）。
     pending_verification: bool
+    # 本次 verify 是否针对编排合并结果、且失败后允许进入修复轮。
+    # verify 写入；路由消耗；修复准备节点清零。
+    orchestrator_fix_eligible: bool
+    # 当前是否处于 orchestrator 修复轮；plan_tasks 用它允许再次生成 implement。
+    orchestrator_fix_mode: bool
+    # 已使用的修复轮数（整个 run 累计）。
+    orchestrator_fix_rounds_used: int
+    # 修复轮发给 orchestrator 的请求（失败摘要 + 原始请求）。
+    orchestrator_fix_request: str
+    # select_workflow 强制使用的模板（修复轮 = orchestrated_implement）。
+    force_workflow: str
     # 本步是否已经因「一个改动都没产生」被要求重做过一次（上限一次，防死循环）。
     # 由 planner / advance / repair 复位，nudge 置位。
     empty_step_nudged: bool
@@ -99,6 +110,11 @@ class AgentState(TypedDict, total=False):
     # 上一次失败签名。replan 会清空 `verification`（旧结论针对旧做法），
     # 但停滞检测需要跨做法比较，所以单独留一份。
     last_failure_signature: str
+    # review 的停滞检测必须独立计数：verify 每次通过都会把
+    # `same_failure_count` 清零，共用一个计数器永远到不了阈值。
+    # 同样只由 planner / advance 归零，repair / replan 不清。
+    review_same_failure_count: int
+    review_failure_signature: str
     # 整个运行最后一次真实执行过的验证结果。replan 会清空 `verification`，
     # 但收尾时必须知道「最近一次验证到底过没过」，否则会声称成功。
     last_verification: dict[str, Any]

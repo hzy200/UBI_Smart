@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from coding_agent.platform.filelock import FileLock, NullLock
+from ubismart.platform.filelock import FileLock, NullLock
 
 DEFAULT_COOLDOWN_S = 2.0
 MAX_COOLDOWN_S = 60.0
@@ -52,6 +52,9 @@ class RateLimitCoordinator:
     _providers: dict[str, ProviderState] = field(default_factory=dict)
     _global_until: float = 0.0
     _runs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # 会话级累计用量：同一 thread 的多轮 run 累加，**不随 start_run(reset=True)
+    # 归零**。run 预算管“这一轮”，session 预算管“这个会话总共”。
+    _sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
     _cache_mtime: float = -1.0
     _cache_size: int = -1
 
@@ -229,6 +232,34 @@ class RateLimitCoordinator:
                         float(raw_usage.get("cost_usd", 0.0) or 0.0),
                     )
 
+        sessions = payload.get("sessions")
+        if isinstance(sessions, dict):
+            for session_id, raw_session in sessions.items():
+                if not isinstance(raw_session, dict):
+                    continue
+                current = self._sessions.setdefault(
+                    str(session_id), self._empty_session()
+                )
+                # 会话用量只增不减：取 max 合并，避免跨进程写入互相覆盖。
+                for field_name in (
+                    "input_tokens",
+                    "output_tokens",
+                    "cache_hit_tokens",
+                    "cache_miss_tokens",
+                ):
+                    current[field_name] = max(
+                        int(current.get(field_name, 0) or 0),
+                        int(raw_session.get(field_name, 0) or 0),
+                    )
+                current["cost_usd"] = max(
+                    float(current.get("cost_usd", 0.0) or 0.0),
+                    float(raw_session.get("cost_usd", 0.0) or 0.0),
+                )
+                current["updated_at"] = max(
+                    float(current.get("updated_at", 0.0) or 0.0),
+                    float(raw_session.get("updated_at", 0.0) or 0.0),
+                )
+
     @staticmethod
     def _empty_run(*, started_at: float = 0.0) -> dict[str, Any]:
         return {
@@ -241,16 +272,39 @@ class RateLimitCoordinator:
             "providers": {},
         }
 
+    @staticmethod
+    def _empty_session() -> dict[str, Any]:
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost_usd": 0.0,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 0,
+            "updated_at": 0.0,
+        }
+
     def _prune_runs_locked(self) -> None:
-        """按开始时间保留最近 MAX_RUNS 个 run，避免共享文件无限增长。"""
-        if len(self._runs) <= MAX_RUNS:
-            return
-        ordered = sorted(
-            self._runs.items(),
-            key=lambda item: float(item[1].get("started_at", 0.0) or 0.0),
-        )
-        for run_id, _ in ordered[: max(0, len(self._runs) - MAX_RUNS)]:
-            self._runs.pop(run_id, None)
+        """按时间保留最近 MAX_RUNS 个 run/session，避免共享文件无限增长。"""
+        if len(self._runs) > MAX_RUNS:
+            ordered = sorted(
+                self._runs.items(),
+                key=lambda item: float(
+                    item[1].get("started_at", 0.0) or 0.0
+                ),
+            )
+            for run_id, _ in ordered[: max(0, len(self._runs) - MAX_RUNS)]:
+                self._runs.pop(run_id, None)
+        if len(self._sessions) > MAX_RUNS:
+            ordered = sorted(
+                self._sessions.items(),
+                key=lambda item: float(
+                    item[1].get("updated_at", 0.0) or 0.0
+                ),
+            )
+            for session_id, _ in ordered[
+                : max(0, len(self._sessions) - MAX_RUNS)
+            ]:
+                self._sessions.pop(session_id, None)
 
     def _write_shared_locked(self, *, acquire_lock: bool = True) -> None:
         if self.path is None:
@@ -259,6 +313,7 @@ class RateLimitCoordinator:
         payload = {
             "global_until": self._global_until,
             "runs": self._runs,
+            "sessions": self._sessions,
             "providers": {
                 key: {
                     "blocked_until": state.blocked_until,
@@ -391,6 +446,24 @@ class RateLimitCoordinator:
                 },
             }
 
+    def session_usage(self, session_id: str) -> dict[str, Any]:
+        """同一 thread 的跨 run 累计用量（不受 `start_run(reset=True)` 影响）。"""
+        with self._lock:
+            self._sync_from_shared_locked()
+            raw = self._sessions.get(session_id) or {}
+            return {
+                "input_tokens": int(raw.get("input_tokens", 0) or 0),
+                "output_tokens": int(raw.get("output_tokens", 0) or 0),
+                "cost_usd": float(raw.get("cost_usd", 0.0) or 0.0),
+                "cache_hit_tokens": int(
+                    raw.get("cache_hit_tokens", 0) or 0
+                ),
+                "cache_miss_tokens": int(
+                    raw.get("cache_miss_tokens", 0) or 0
+                ),
+                "updated_at": float(raw.get("updated_at", 0.0) or 0.0),
+            }
+
     def record_usage(
         self,
         key: str,
@@ -477,6 +550,30 @@ class RateLimitCoordinator:
                     provider_usage["cache_miss_tokens"] = (
                         int(provider_usage.get("cache_miss_tokens", 0)) + add_miss
                     )
+                    # run_id 同时充当会话键（runtime 用 thread_id）。
+                    # reset=True 只归零 `_runs`，不会动这里。
+                    session = self._sessions.setdefault(
+                        run_id, self._empty_session()
+                    )
+                    session["input_tokens"] = (
+                        int(session.get("input_tokens", 0)) + add_in
+                    )
+                    session["output_tokens"] = (
+                        int(session.get("output_tokens", 0)) + add_out
+                    )
+                    session["cost_usd"] = (
+                        float(session.get("cost_usd", 0.0)) + add_cost
+                    )
+                    session["cache_hit_tokens"] = (
+                        int(session.get("cache_hit_tokens", 0)) + add_hit
+                    )
+                    session["cache_miss_tokens"] = (
+                        int(session.get("cache_miss_tokens", 0)) + add_miss
+                    )
+                    session["updated_at"] = max(
+                        time.time(),
+                        float(session.get("updated_at", 0.0) or 0.0),
+                    )
                 self._write_shared_locked(acquire_lock=False)
 
     def record_success(self, key: str) -> None:
@@ -528,6 +625,7 @@ class RateLimitCoordinator:
         with self._lock:
             self._providers.clear()
             self._runs.clear()
+            self._sessions.clear()
             self._global_until = 0.0
             self._cache_mtime = -1.0
             self._cache_size = -1

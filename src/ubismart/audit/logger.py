@@ -23,10 +23,10 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-from coding_agent.audit.models import AuditRecord
-from coding_agent.platform.filelock import FileLock
-from coding_agent.platform.observability import inc
-from coding_agent.security.secrets import redact_secrets
+from ubismart.audit.models import AuditRecord
+from ubismart.platform.filelock import FileLock
+from ubismart.platform.observability import inc
+from ubismart.security.secrets import redact_secrets
 
 MAX_ARG_CHARS = 400
 MAX_DETAIL_CHARS = 2_000

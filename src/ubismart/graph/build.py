@@ -32,14 +32,14 @@ from typing import Any
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.agents.explore import make_explore_runner, make_review_runner
-from coding_agent.config import (
+from ubismart.agents.explore import make_explore_runner, make_review_runner
+from ubismart.config import (
     PRODUCTION_PROFILES,
     Settings,
     apply_security_profile,
     get_settings,
 )
-from coding_agent.graph.nodes import (
+from ubismart.graph.nodes import (
     advance,
     make_act_node,
     make_approval_gate_node,
@@ -55,11 +55,13 @@ from coding_agent.graph.nodes import (
     nudge,
     repair,
 )
-from coding_agent.graph.routing import (
+from ubismart.graph.nodes.orchestrator_fix import prepare_orchestrator_fix
+from ubismart.graph.routing import (
     ACT,
     ADVANCE,
     APPROVE,
     NUDGE,
+    ORCHESTRATOR_FIX,
     PLAN_PREVIEW,
     REPAIR,
     REPLAN,
@@ -78,25 +80,45 @@ from coding_agent.graph.routing import (
     route_after_steering_step,
     route_after_synthesize,
 )
-from coding_agent.graph.state import AgentState
-from coding_agent.identity.access import ACCESS_READ_ONLY
-from coding_agent.llm.deepseek import build_llm
-from coding_agent.memory.longterm import (
+from ubismart.graph.state import AgentState
+from ubismart.identity.access import ACCESS_READ_ONLY
+from ubismart.knowledge.store import KnowledgeStore
+from ubismart.llm.deepseek import build_llm
+from ubismart.memory.longterm import (
     resolve_global_memory_root,
     resolve_memory_root,
 )
-from coding_agent.orchestrator import make_worker_runner, route_entry
-from coding_agent.orchestrator.implement import make_implement_runner
-from coding_agent.orchestrator.subgraph import build_orchestrator_subgraph
-from coding_agent.platform.concurrency import ConcurrencyGovernor
-from coding_agent.platform.read_cache import ReadCache
-from coding_agent.sandbox.backend import build_sandbox
-from coding_agent.sandbox.policy import SessionPolicy, parse_allow_rules
-from coding_agent.sandbox.wsl_exec import resolve_workspace
-from coding_agent.session.steering import SteeringController
-from coding_agent.session.tool_journal import ToolJournal
-from coding_agent.tools.delegate import EXPLORE_TOOL_NAMES, build_delegate_tool
-from coding_agent.tools.registry import build_tools
+from ubismart.orchestrator import make_worker_runner, route_entry
+from ubismart.orchestrator.document_workers import (
+    make_author_runner,
+    make_document_runner,
+    make_report_review_runner,
+    make_vision_runner,
+)
+from ubismart.orchestrator.implement import make_implement_runner
+from ubismart.orchestrator.patch_review import make_patch_reviewer
+from ubismart.orchestrator.subgraph import build_orchestrator_subgraph
+from ubismart.platform.concurrency import ConcurrencyGovernor
+from ubismart.platform.read_cache import ReadCache
+from ubismart.sandbox.backend import build_sandbox
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.policy import SessionPolicy, parse_allow_rules
+from ubismart.sandbox.wsl_exec import resolve_workspace
+from ubismart.session.steering import SteeringController
+from ubismart.session.tool_journal import ToolJournal
+from ubismart.tools.delegate import EXPLORE_TOOL_NAMES, build_delegate_tool
+from ubismart.tools.documents import DOCUMENT_READ, PDF_PAGE_IMAGE
+from ubismart.tools.files import (
+    EDIT_TOOL_NAME,
+    LIST_TOOL_NAME,
+    READ_TOOL_NAME,
+    WRITE_TOOL_NAME,
+)
+from ubismart.tools.knowledge import KNOWLEDGE_READ, KNOWLEDGE_SEARCH
+from ubismart.tools.registry import build_tools
+from ubismart.tools.report import REPORT_CHECK, REPORT_EXPORT, REPORT_READ
+from ubismart.tools.search import FIND_FILES
+from ubismart.tools.vision import IMAGE_INSPECT
 
 # planner + respond 各算 1 次，再留少量余量给中断/重入
 _RECURSION_MARGIN = 10
@@ -111,6 +133,7 @@ def estimate_recursion_limit(
     orchestrator_enabled: bool = False,
     orchestrator_max_tasks: int = 6,
     orchestrator_checkpoint_every: int = 4,
+    orchestrator_fix_rounds: int = 0,
 ) -> int:
     """按图拓扑估算 `recursion_limit`，避免把限额算小导致正常任务误报。
 
@@ -171,6 +194,12 @@ def estimate_recursion_limit(
         ),
     )
     orchestrator_extra = (max_replans + 1) * (6 + boundaries * 2)
+    # RFC-0008：每次修复轮都会重入 orchestrator，然后回到 verify →
+    # review/repair/replan。按"一个完整阶段 + 一个编排块"计。
+    fix_rounds = max(int(orchestrator_fix_rounds), 0)
+    orchestrator_extra += fix_rounds * (
+        (6 + boundaries * 2) + per_step + 2
+    )
     # 父图里的 orchestrator 节点本身 + 子图入口/出口各一个超步。
     orchestrator_extra += 2
     return base + orchestrator_extra
@@ -275,25 +304,167 @@ def build_graph(
                 governor=governor,
                 secret_store=secret_store,
             )
+    # 工作流选择/任务图生成只需要 chat + JSON 模式，可以用更便宜的模型。
+    planning_llm = llm
+    if settings.orchestrator_planner_model:
+        planning_llm = build_llm(
+            settings,
+            streaming=False,
+            model_override=settings.orchestrator_planner_model,
+            provider_name=provider_name,
+            task_type="agent",
+            required_capabilities=("chat",),
+            governor=governor,
+            secret_store=secret_store,
+        )
+
+    def _role_llm(model: str) -> Any:
+        """角色级模型覆盖；未配置时沿用 worker_llm（再退到主模型）。"""
+        if not model or model == settings.orchestrator_worker_model:
+            return worker_llm
+        return build_llm(
+            settings,
+            streaming=True,
+            model_override=model,
+            provider_name=provider_name,
+            task_type="worker",
+            governor=governor,
+            secret_store=secret_store,
+        )
+
+    explore_llm = _role_llm(settings.orchestrator_explore_model)
+    review_llm = _role_llm(settings.orchestrator_review_model)
+    implement_llm = _role_llm(settings.orchestrator_implement_model)
+    document_llm = _role_llm(settings.orchestrator_document_model)
+    author_llm = _role_llm(settings.orchestrator_author_model)
 
     # 子智能体/编排 worker 共用同一份只读 Explore runner。
     # delegate 工具只在 explore_enabled 时绑定；orchestrator 只使用 runner。
     explore_runner = None
     review_runner = None
     delegate_runner = None
+    citation_validator = None
+    explore_tools: list[Any] = []
     if settings.explore_enabled or settings.orchestrator_enabled:
+        workspace_fs = SandboxFs(sandbox, root)
+
+        def _valid_citation(path: str, line: int) -> bool:
+            """路径必须真实存在且是文件；行号只做非负校验。"""
+            try:
+                _lexical, info = workspace_fs.probe(path)
+            except Exception:  # noqa: BLE001 - 校验失败按无效引用处理
+                return False
+            return bool(info.exists and info.is_file and int(line) >= 0)
+
+        citation_validator = _valid_citation
         explore_tools = [tool for tool in tools if tool.name in EXPLORE_TOOL_NAMES]
         explore_runner = make_explore_runner(
-            llm=worker_llm, tools=explore_tools, settings=settings
+            llm=explore_llm,
+            tools=explore_tools,
+            settings=settings,
+            citation_validator=citation_validator,
         )
     if settings.orchestrator_enabled:
         review_runner = make_review_runner(
-            llm=worker_llm, tools=explore_tools, settings=settings
+            llm=review_llm,
+            tools=explore_tools,
+            settings=settings,
+            citation_validator=citation_validator,
+        )
+    # cheaper-first：首次用角色模型，重试时升级到主模型。
+    explore_fallback_runner = None
+    review_fallback_runner = None
+    if explore_runner is not None and settings.orchestrator_explore_model:
+        explore_fallback_runner = make_explore_runner(
+            llm=llm,
+            tools=explore_tools,
+            settings=settings,
+            citation_validator=citation_validator,
+        )
+    if review_runner is not None and settings.orchestrator_review_model:
+        review_fallback_runner = make_review_runner(
+            llm=llm,
+            tools=explore_tools,
+            settings=settings,
+            citation_validator=citation_validator,
         )
     implement_runner = None
+    implement_fallback_runner = None
     if settings.orchestrator_enabled and settings.orchestrator_write_enabled and allow_write:
         implement_runner = make_implement_runner(
-            llm=worker_llm, sandbox=sandbox, root=root, settings=settings
+            llm=implement_llm, sandbox=sandbox, root=root, settings=settings
+        )
+        if settings.orchestrator_implement_model:
+            implement_fallback_runner = make_implement_runner(
+                llm=llm, sandbox=sandbox, root=root, settings=settings
+            )
+    patch_reviewer = (
+        make_patch_reviewer(review_llm, settings)
+        if (
+            settings.orchestrator_enabled
+            and settings.orchestrator_patch_review
+        )
+        else None
+    )
+    document_runner = None
+    vision_runner = None
+    author_runner = None
+    report_review_runner = None
+    if settings.orchestrator_enabled:
+        document_tools = [
+            tool
+            for tool in tools
+            if tool.name in {
+                DOCUMENT_READ,
+                PDF_PAGE_IMAGE,
+                LIST_TOOL_NAME,
+                FIND_FILES,
+            }
+        ]
+        vision_tools = [
+            tool for tool in tools if tool.name == IMAGE_INSPECT
+        ]
+        image_tool = vision_tools[0] if vision_tools else None
+        report_tools = [
+            tool
+            for tool in tools
+            if tool.name in {
+                REPORT_EXPORT,
+                REPORT_CHECK,
+                REPORT_READ,
+                READ_TOOL_NAME,
+                WRITE_TOOL_NAME,
+                EDIT_TOOL_NAME,
+                KNOWLEDGE_READ,
+                KNOWLEDGE_SEARCH,
+            }
+        ]
+        knowledge_store = (
+            KnowledgeStore(sandbox, root)
+            if (
+                settings.deep_workflows_enabled
+                and settings.knowledge_artifacts_enabled
+            )
+            else None
+        )
+        document_runner = make_document_runner(
+            llm=document_llm,
+            tools=document_tools,
+            knowledge_store=knowledge_store,
+            settings=settings,
+            image_tool=image_tool,
+        )
+        vision_runner = make_vision_runner(tools=vision_tools)
+        author_runner = make_author_runner(
+            llm=author_llm,
+            tools=report_tools,
+            settings=settings,
+            knowledge_store=knowledge_store,
+        )
+        report_review_runner = make_report_review_runner(
+            tools=report_tools,
+            llm=review_llm,
+            settings=settings,
         )
     if settings.explore_enabled:
         delegate_runner = explore_runner
@@ -351,6 +522,7 @@ def build_graph(
     graph.add_node(REVIEW, make_review_node(sandbox, root))
     graph.add_node(NUDGE, nudge)
     graph.add_node(REPAIR, repair)
+    graph.add_node(ORCHESTRATOR_FIX, prepare_orchestrator_fix)
     graph.add_node("advance", advance)
     graph.add_node(
         REPLAN,
@@ -378,6 +550,13 @@ def build_graph(
         explore_runner=explore_runner,
         review_runner=review_runner,
         implement_runner=implement_runner,
+        explore_fallback_runner=explore_fallback_runner,
+        review_fallback_runner=review_fallback_runner,
+        implement_fallback_runner=implement_fallback_runner,
+        document_runner=document_runner,
+        vision_runner=vision_runner,
+        author_runner=author_runner,
+        report_review_runner=report_review_runner,
         sandbox=sandbox,
         root=root,
         memory_top_k=settings.memory_top_k,
@@ -396,8 +575,11 @@ def build_graph(
             steering=steering,
             allow_write=allow_write,
             governor=governor,
+            planning_llm=planning_llm,
+            patch_reviewer=patch_reviewer,
         ),
     )
+    graph.add_edge(ORCHESTRATOR_FIX, "orchestrator")
     graph.add_node(STEERING_STEP, make_steering_step_node(steering, settings))
     graph.add_node(
         STEERING_CANCEL, make_steering_cancel_node(steering, settings)
@@ -413,7 +595,11 @@ def build_graph(
     graph.add_conditional_edges(
         "orchestrator",
         route_after_synthesize,
-        {STEERING_FINAL: STEERING_FINAL, "planner": "planner"},
+        {
+            STEERING_FINAL: STEERING_FINAL,
+            "planner": "planner",
+            VERIFY: VERIFY,
+        },
     )
     graph.add_conditional_edges(
         "planner",
@@ -441,8 +627,10 @@ def build_graph(
         make_route_after_verify(
             settings.max_repair_rounds,
             max_same_failures=settings.max_same_failures,
+            max_orchestrator_fix_rounds=settings.orchestrator_fix_rounds,
         ),
         {
+            ORCHESTRATOR_FIX: ORCHESTRATOR_FIX,
             REPAIR: REPAIR,
             REPLAN: REPLAN,
             REVIEW: REVIEW,
@@ -453,7 +641,9 @@ def build_graph(
     graph.add_conditional_edges(
         REVIEW,
         make_route_after_review(
-            settings.max_repair_rounds, nudge_empty_steps=settings.nudge_empty_steps
+            settings.max_repair_rounds,
+            nudge_empty_steps=settings.nudge_empty_steps,
+            max_same_failures=settings.max_same_failures,
         ),
         {
             NUDGE: NUDGE,

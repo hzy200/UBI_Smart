@@ -11,13 +11,13 @@ from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from coding_agent.audit import AuditRecord
-from coding_agent.audit import models as audit_models
-from coding_agent.audit.logger import now_iso, truncate
-from coding_agent.llm.context import summarize_messages
-from coding_agent.memory.sessions import SessionIndex
-from coding_agent.orchestrator.merge_journal import MergeJournal
-from coding_agent.protocol.messages import text_of
+from ubismart.audit import AuditRecord
+from ubismart.audit import models as audit_models
+from ubismart.audit.logger import now_iso, truncate
+from ubismart.llm.context import summarize_messages
+from ubismart.memory.sessions import SessionIndex
+from ubismart.orchestrator.merge_journal import MergeJournal
+from ubismart.protocol.messages import text_of
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +306,8 @@ class SessionsMixin:
             "retry": 0,
             "same_failure_count": 0,
             "last_failure_signature": "",
+            "review_same_failure_count": 0,
+            "review_failure_signature": "",
             "last_verification": {},
             "stale_paths": [],
             "approvals": {},
@@ -320,6 +322,14 @@ class SessionsMixin:
             "delegation_allowed": False,
             "delegation_budget": 0,
             "execution_mode": "direct",
+            "worktrees_pruned": False,
+            "merged_paths": [],
+            "merge_batches": [],
+            "orchestrator_fix_eligible": False,
+            "orchestrator_fix_mode": False,
+            "orchestrator_fix_rounds_used": 0,
+            "orchestrator_fix_request": "",
+            "force_workflow": "",
             "workflow": "",
             "workflow_reason": "",
             "repo_summary": {},

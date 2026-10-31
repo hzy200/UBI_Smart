@@ -6,14 +6,14 @@ from collections.abc import Callable
 
 from langchain_core.messages import ToolMessage
 
-from coding_agent.graph.plan import (
+from ubismart.graph.plan import (
     EXPLORE,
     current_step_kind,
 )
-from coding_agent.graph.plan import (
+from ubismart.graph.plan import (
     VERIFY as VERIFY_KIND,
 )
-from coding_agent.graph.state import AgentState
+from ubismart.graph.state import AgentState
 
 ACT = "act"
 APPROVE = "approval_gate"
@@ -36,6 +36,8 @@ WRITE_GATE = "write_gate"
 PLAN_TASKS = "plan_tasks"
 SYNTHESIZE = "synthesize"
 PLAN_PREVIEW = "plan_preview"
+# RFC-0008：verify 失败后的有界编排修复轮
+ORCHESTRATOR_FIX = "orchestrator_fix"
 
 
 def has_more_steps(state: AgentState) -> bool:
@@ -103,8 +105,17 @@ def route_after_steering_cancel(state: AgentState) -> str:
 
 
 def route_after_synthesize(state: AgentState) -> str:
-    """取消的运行不再交给主 agent 继续实现，直接收尾。"""
-    return STEERING_FINAL if state.get("steering_cancelled") else "planner"
+    """编排结束后去哪。
+
+    - 取消：直接收尾；
+    - 修复轮：直接回到 verify，避免 planner 重新规划整个请求；
+    - 正常编排：交给主 agent 规划/实现。
+    """
+    if state.get("steering_cancelled"):
+        return STEERING_FINAL
+    if state.get("orchestrator_fix_mode"):
+        return VERIFY
+    return "planner"
 
 
 def route_after_act(state: AgentState) -> str:
@@ -124,7 +135,10 @@ def route_after_act(state: AgentState) -> str:
 
 
 def make_route_after_verify(
-    max_repair_rounds: int, *, max_same_failures: int = 2
+    max_repair_rounds: int,
+    *,
+    max_same_failures: int = 2,
+    max_orchestrator_fix_rounds: int = 0,
 ) -> Callable[[AgentState], str]:
     """验证之后去哪。
 
@@ -154,6 +168,16 @@ def make_route_after_verify(
         if verification_status == "error":
             return RESPOND
         if verification_status == "failed":
+            # 编排合并结果的验证失败：先给 orchestrator 一次有界修复机会。
+            # 轮数、eligible 与取消三者的判定都必须在进入前完成。
+            if (
+                max_orchestrator_fix_rounds > 0
+                and state.get("orchestrator_fix_eligible")
+                and not state.get("steering_cancelled")
+                and int(state.get("orchestrator_fix_rounds_used", 0))
+                < max_orchestrator_fix_rounds
+            ):
+                return ORCHESTRATOR_FIX
             # 连续出现同一失败签名 = 原地打转。继续 repair 只会重复同一类修改，
             # 直接换做法（replan）；replan 也有硬上限，最终会如实收尾。
             if state.get("same_failure_count", 0) >= max_same_failures:
@@ -173,7 +197,10 @@ def make_route_after_verify(
 
 
 def make_route_after_review(
-    max_repair_rounds: int, *, nudge_empty_steps: bool = True
+    max_repair_rounds: int,
+    *,
+    nudge_empty_steps: bool = True,
+    max_same_failures: int = 2,
 ) -> Callable[[AgentState], str]:
     """审查之后去哪。
 
@@ -185,6 +212,13 @@ def make_route_after_review(
 
     def route_after_review(state: AgentState) -> str:
         if (state.get("review") or {}).get("status") == "blocked":
+            # 同一个审查问题连续出现两次：继续 repair 只会重复同一类修改，
+            # 直接换做法。用独立计数器，避免被「验证通过」清零。
+            if (
+                int(state.get("review_same_failure_count", 0) or 0)
+                >= max_same_failures
+            ):
+                return REPLAN
             if state.get("retry", 0) < max_repair_rounds:
                 return REPAIR
             return REPLAN

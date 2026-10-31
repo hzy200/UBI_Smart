@@ -13,7 +13,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from coding_agent.security.read_policy import is_protected_read_path
+from ubismart.security.read_policy import is_protected_read_path
 
 MAX_ENTRIES = 400
 MAX_READ_BYTES = 256 * 1024

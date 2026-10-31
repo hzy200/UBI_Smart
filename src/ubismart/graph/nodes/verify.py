@@ -23,17 +23,17 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from coding_agent.graph.plan import (
+from ubismart.graph.plan import (
     EXPLORE,
     IMPLEMENT,
     current_step_kind,
 )
-from coding_agent.graph.plan import (
+from ubismart.graph.plan import (
     VERIFY as VERIFY_KIND,
 )
-from coding_agent.graph.state import AgentState
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.testrun import VerifyResult, run_verification
+from ubismart.graph.state import AgentState
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.testrun import VerifyResult, run_verification
 
 
 def make_verify_node(
@@ -128,6 +128,12 @@ def make_verify_node(
             "same_failure_count": same_failure_count,
             "last_failure_signature": (
                 result_signature if result_status == "failed" else ""
+            ),
+            # 修复轮本身已经结束；是否还能再进一轮由路由按预算决定。
+            "orchestrator_fix_mode": False,
+            # 只有"编排合并结果的验证失败"才允许把失败交回 orchestrator。
+            "orchestrator_fix_eligible": bool(
+                pending and result_status == "failed"
             ),
         }
         if pending:

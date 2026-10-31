@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import logging
 
-from coding_agent.platform.observability import note_silent_failure
+from ubismart.platform.observability import note_silent_failure
 
-_LOG = logging.getLogger("coding_agent.runtime")
+_LOG = logging.getLogger("ubismart.runtime")
 
 def _swallow_audit(site: str, exc: BaseException) -> None:
     """best-effort 审计/清理分支的统一出口：吞掉可以，不留痕不行。

@@ -22,17 +22,17 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from coding_agent.audit import AuditRecord
-from coding_agent.audit import models as audit_models
-from coding_agent.audit.logger import (
+from ubismart.audit import AuditRecord
+from ubismart.audit import models as audit_models
+from ubismart.audit.logger import (
     audit_files_by_day,
     now_iso,
     read_records_many,
     truncate,
 )
-from coding_agent.protocol.diffing import unified_diff
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.snapshots import (
+from ubismart.protocol.diffing import unified_diff
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.snapshots import (
     ACTION_RESTORE,
     RestoreResult,
     SnapshotEntry,

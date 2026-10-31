@@ -12,8 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from coding_agent.audit.logger import audit_files_by_day, read_records
-from coding_agent.audit.models import (
+from ubismart.audit.logger import audit_files_by_day, read_records
+from ubismart.audit.models import (
     PLAN,
     RUN_END,
     RUN_ERROR,

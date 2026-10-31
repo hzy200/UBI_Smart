@@ -29,6 +29,7 @@ TRANSIENT = "transient"
 ENVIRONMENT = "environment"
 SEMANTIC = "semantic"
 FATAL = "fatal"
+UNKNOWN = "unknown"
 
 RETRYABLE = frozenset({TRANSIENT, ENVIRONMENT})
 
@@ -143,6 +144,39 @@ def classify_error(exc: BaseException) -> str:
         return TRANSIENT
 
     return FATAL
+
+
+# 记录级失败通常只有文本（worker 把异常压成了 summary/error）。用同一套
+# 口径把文本分类，避免 orchestrator 再用一份独立的文案黑名单。
+_FATAL_TEXT_HINTS = (
+    "401",
+    "403",
+    "unauthorized",
+    "invalid api key",
+    "authentication failed",
+    "invalid parameter",
+    "invalid request",
+)
+
+
+def classify_failure_text(text: str) -> str:
+    """把失败摘要/错误文本压成四类；未知文本返回 UNKNOWN（沿用调用方默认）。"""
+    lowered = str(text or "").lower()
+    if not lowered:
+        return UNKNOWN
+    if any(hint in lowered for hint in _SEMANTIC_HINTS):
+        return SEMANTIC
+    if any(hint in lowered for hint in _TRANSIENT_HINTS):
+        return TRANSIENT
+    if any(hint in lowered for hint in _FATAL_TEXT_HINTS):
+        return FATAL
+    if (
+        "wslunavailable" in lowered
+        or "no space left" in lowered
+        or "device or resource busy" in lowered
+    ):
+        return ENVIRONMENT
+    return UNKNOWN
 
 
 def is_retryable(exc: BaseException) -> bool:

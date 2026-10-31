@@ -17,7 +17,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from coding_agent import AGENT_API_VERSION, __version__
+from ubismart import AGENT_API_VERSION, __version__
 
 
 def sign_context(header: str, key: str) -> str:
@@ -63,6 +63,8 @@ AGENT_CAPABILITIES: dict[str, tuple[str, ...]] = {
     "workspace": (
         "files",
         "file",
+        "file_raw",
+        "file_document",
         "git",
         "project",
         "snapshots",

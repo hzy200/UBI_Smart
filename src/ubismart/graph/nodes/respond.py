@@ -15,21 +15,21 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
-from coding_agent.graph.state import AgentState
-from coding_agent.llm.context import (
+from ubismart.graph.state import AgentState
+from ubismart.llm.context import (
     ContextBudget,
     is_context_length_error,
     summarize_messages,
     tighter_budget,
     trim_messages,
 )
-from coding_agent.llm.prompts import (
+from ubismart.llm.prompts import (
     RESPOND_INSTRUCTION,
     RESPOND_PROMPT,
     format_memory_note,
 )
-from coding_agent.protocol.messages import text_of
-from coding_agent.session.recovery import retry_async
+from ubismart.protocol.messages import text_of
+from ubismart.session.recovery import retry_async
 
 VERIFICATION_FAILED_NOTE = (
     "注意：本次运行的验证（{command}）**失败了**。\n"

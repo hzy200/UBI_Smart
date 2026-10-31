@@ -12,9 +12,9 @@ import ast
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 _IGNORED_DIRS = {
     ".git",
@@ -173,29 +173,61 @@ def _is_test_file(path: str) -> bool:
     return name.startswith("test_") or name.endswith("_test.py")
 
 
-def build_index(sources: dict[str, str]) -> PythonIndex:
+def parse_python_source(path: str, source: str) -> dict[str, object]:
+    """解析单个文件；结果可直接缓存，供增量索引复用。"""
+    normalized = str(path).replace("\\", "/").lstrip("./")
+    entry: dict[str, object] = {
+        "path": normalized,
+        "imports": [],
+        "symbols": [],
+        "dynamic": False,
+        "unparsed": False,
+        "test": _is_test_file(normalized),
+    }
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        entry["unparsed"] = True
+        return entry
+    dynamic_targets, unknown_dynamic = _dynamic_import_targets(tree)
+    entry["imports"] = sorted(
+        _imports_of(tree, normalized) | dynamic_targets
+    )
+    entry["symbols"] = _symbols_of(tree)
+    entry["dynamic"] = unknown_dynamic
+    return entry
+
+
+def build_index_from_entries(
+    entries: Iterable[dict[str, object]],
+) -> PythonIndex:
     index = PythonIndex()
-    for path, source in sources.items():
-        normalized = str(path).replace("\\", "/").lstrip("./")
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            index.imports[normalized] = frozenset()
-            index.symbols[normalized] = []
+    for raw in entries:
+        normalized = str(raw.get("path", ""))
+        if not normalized:
+            continue
+        index.imports[normalized] = frozenset(
+            str(item) for item in (raw.get("imports") or [])
+        )
+        index.symbols[normalized] = [
+            str(item) for item in (raw.get("symbols") or [])
+        ]
+        if bool(raw.get("unparsed")):
             index.unparsed.add(normalized)
-        else:
-            dynamic_targets, unknown_dynamic = _dynamic_import_targets(tree)
-            index.imports[normalized] = frozenset(
-                _imports_of(tree, normalized) | dynamic_targets
-            )
-            index.symbols[normalized] = _symbols_of(tree)
-            if unknown_dynamic:
-                index.dynamic.add(normalized)
+        if bool(raw.get("dynamic")):
+            index.dynamic.add(normalized)
         for candidate in _module_candidates(normalized):
             index.module_files.setdefault(candidate, set()).add(normalized)
-        if _is_test_file(normalized):
+        if bool(raw.get("test")) or _is_test_file(normalized):
             index.tests.add(normalized)
     return index
+
+
+def build_index(sources: dict[str, str]) -> PythonIndex:
+    return build_index_from_entries(
+        parse_python_source(path, source)
+        for path, source in sources.items()
+    )
 
 
 def _import_matches(imported: str, modules: set[str]) -> bool:

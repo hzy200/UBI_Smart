@@ -241,6 +241,15 @@ class TaskGraphExtended(Event):
     rejected: list[str] = Field(default_factory=list)
 
 
+class TaskBlocked(Event):
+    """一个任务因依赖失败、预算/并发限制或收尾而不再派发。"""
+
+    type: Literal["task_blocked"] = "task_blocked"
+    task_id: str = ""
+    role: str = ""
+    reason: str = ""
+
+
 class WorkerStarted(Event):
     """一个 worker 开始执行。
 
@@ -463,6 +472,7 @@ EventType = (
     | WorkflowSelected
     | TaskGraphCreated
     | TaskGraphExtended
+    | TaskBlocked
     | WorkerStarted
     | WorkerFinished
     | OrchestrationFinished

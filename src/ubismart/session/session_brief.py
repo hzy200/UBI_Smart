@@ -16,7 +16,7 @@ from collections.abc import Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from coding_agent.protocol.messages import text_of
+from ubismart.protocol.messages import text_of
 
 # 单条消息的上限。约束通常很短，长消息多是粘贴的代码/日志，截断即可。
 _MAX_ITEM_CHARS = 600

@@ -47,11 +47,11 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemM
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from coding_agent.graph.plan import PlanStepModel, align_kinds
-from coding_agent.graph.state import AgentState
-from coding_agent.llm.deepseek import with_json_output
-from coding_agent.llm.prompts import REPLAN_AFTER_FAILURE_PROMPT, REPLAN_PROMPT
-from coding_agent.protocol.messages import last_human_text, text_of
+from ubismart.graph.plan import PlanStepModel, align_kinds
+from ubismart.graph.state import AgentState
+from ubismart.llm.deepseek import with_json_output
+from ubismart.llm.prompts import REPLAN_AFTER_FAILURE_PROMPT, REPLAN_PROMPT
+from ubismart.protocol.messages import last_human_text, text_of
 
 
 class ReplanDecision(BaseModel):

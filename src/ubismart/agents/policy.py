@@ -15,11 +15,12 @@ A/B 的教训：38 个文件的长程任务里，模型会一次拆 3–5 个子
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.config import Settings
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +71,105 @@ def profile_workspace(sandbox: WslSandbox, root: str) -> RepoProfile:
         file_count=int(counts.get("total", 0)),
         test_file_count=int(counts.get("tests", 0)),
     )
+
+
+_REQUEST_FILE_RE = re.compile(
+    r"[A-Za-z0-9_./-]+\.(?:py|pyi|ts|tsx|js|jsx|md|json|toml|yaml|yml|css|html|"
+    r"sh|go|rs|java|kt|c|h|cpp|hpp)\b",
+    re.IGNORECASE,
+)
+_READ_ONLY_PREFIXES = (
+    "解释",
+    "说明",
+    "为什么",
+    "是什么",
+    "怎么",
+    "如何",
+    "看看",
+    "读一下",
+    "分析一下",
+    "介绍一下",
+)
+_WRITE_VERBS = (
+    "实现",
+    "修改",
+    "修复",
+    "添加",
+    "新增",
+    "删除",
+    "重构",
+    "改成",
+    "重写",
+    "补上",
+    "加一个",
+    "加个",
+)
+_MULTI_HINTS = (
+    "同时",
+    "分别",
+    "各自",
+    "多个",
+    "两个",
+    "三个",
+    "两条",
+    "一起",
+    "另外",
+    "各加",
+    "各修",
+    "都要",
+)
+_SIMPLE_HINTS = ("typo", "拼写", "重命名", "rename", "格式化", "缩进", "注释")
+
+
+def should_orchestrate(
+    request: str, profile: RepoProfile, settings: Settings
+) -> bool:
+    """是否值得进入 orchestrated 子图。
+
+    规模阈值是必要条件，不是充分条件。明显的单文件修改、只读问答与
+    拼写/重命名这类小动作直接走 single agent，避免为一次 `file_read`
+    付 survey + 工作流选择的固定成本。判定只做**高置信**的 direct：
+    拿不准时仍然编排（宁可多花一点，不要错误地跳过并行）。
+    """
+    if not settings.orchestrator_enabled:
+        return False
+    if (
+        not profile.known
+        or profile.file_count < settings.orchestrator_min_files
+    ):
+        return False
+    if not bool(getattr(settings, "orchestrator_smart_entry", True)):
+        return True
+
+    text = str(request or "").strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    has_write = any(verb in text for verb in _WRITE_VERBS)
+    has_multi = any(hint in text for hint in _MULTI_HINTS)
+
+    # 只读问答：明确不要求改动，且请求不长。
+    if (
+        not has_write
+        and len(text) <= 200
+        and text.startswith(_READ_ONLY_PREFIXES)
+    ):
+        return False
+
+    # 点名单个文件：没有多交付物信号时，单个文件通常一条功能线。
+    files = set(_REQUEST_FILE_RE.findall(text))
+    if len(files) == 1 and len(text) <= 300 and not has_multi:
+        return False
+
+    # 拼写/重命名/格式化/缩进/注释这类低风险小动作。
+    if (
+        any(hint in lowered for hint in _SIMPLE_HINTS)
+        and len(text) <= 120
+        and not has_multi
+    ):
+        return False
+
+    return True
 
 
 def delegation_policy(profile: RepoProfile, settings: Settings) -> DelegationPolicy:

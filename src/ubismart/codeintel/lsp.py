@@ -21,7 +21,7 @@ import threading
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from coding_agent.codeintel.symbols import Symbol
+from ubismart.codeintel.symbols import Symbol
 
 _KIND_NAMES = {
     5: "class",

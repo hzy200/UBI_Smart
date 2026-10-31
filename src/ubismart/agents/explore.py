@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import posixpath
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
@@ -34,25 +35,27 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.execution.context import tool_execution_context
-from coding_agent.llm.deepseek import with_json_output
-from coding_agent.llm.prompts import (
+from ubismart.config import Settings
+from ubismart.execution.context import tool_execution_context
+from ubismart.llm.deepseek import with_json_output
+from ubismart.llm.prompts import (
     EXPLORE_PROMPT,
     EXPLORE_REPORT_PROMPT,
     REVIEW_PROMPT,
     REVIEW_REPORT_PROMPT,
 )
-from coding_agent.protocol.messages import text_of
-from coding_agent.session.recovery import retry_async
-from coding_agent.tools.artifacts import SubAgentArtifact, unpack
-from coding_agent.tools.delegate import EXPLORE_TOOL_NAMES
+from ubismart.protocol.messages import text_of
+from ubismart.session.recovery import retry_async
+from ubismart.tools.artifacts import SubAgentArtifact, unpack
+from ubismart.tools.delegate import EXPLORE_TOOL_NAMES
 
 # 传给报告模型的对话转写上限。工具输出本身已被 max_output_chars 截断，
 # 这里是兜底：6 轮 × 20k 仍然可能超过上下文预算。
 _MAX_TRANSCRIPT_CHARS = 60_000
 _MAX_ITEM_CHARS = 600
 _MAX_REPORT_ITEMS = 20
+# 每条 citation 可能要跑一次沙箱探测；上限防止报告规模失控。
+_MAX_CITATIONS = 20
 
 
 class TaskProposal(BaseModel):
@@ -69,12 +72,24 @@ class TaskProposal(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
 
 
+class Citation(BaseModel):
+    """一条可核验的证据：文件 + 行号 + 说明。"""
+
+    path: str = Field(description="工作区相对路径")
+    line: int = Field(default=0, description="实际行号；无法确定时填 0")
+    note: str = Field(default="", description="这一行支持了什么结论")
+
+
 class ExploreReport(BaseModel):
     """子智能体返回给主智能体的结构化探索报告。"""
 
     summary: str = Field(description="一段话回答探索目标")
     relevant_files: list[str] = Field(default_factory=list, description="相关文件路径")
     findings: list[str] = Field(default_factory=list, description="关键发现")
+    citations: list[Citation] = Field(
+        default_factory=list,
+        description="支撑结论的 file:line 证据；path 必须真实存在",
+    )
     open_questions: list[str] = Field(default_factory=list, description="尚未确认的问题")
     recommended_next_steps: list[str] = Field(
         default_factory=list, description="建议主智能体接下来做什么"
@@ -185,6 +200,34 @@ def _fallback_summary(messages: list[Any]) -> str:
     return "探索未完成。"
 
 
+def _normalize_citation_path(path: str) -> str:
+    text = str(path or "").strip().replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    if not text:
+        return ""
+    return posixpath.normpath(text).lstrip("/")
+
+
+def _seen_paths(records: list[dict[str, Any]]) -> set[str]:
+    """子智能体本次成功读取/检索过的路径。
+
+    citation 若指向这些路径，宿主持有它自己的成功工具记录，不必再跑一次
+    沙箱探测；只有未知路径才交给 validator 校验。
+    """
+    seen: set[str] = set()
+    for record in records:
+        if not record.get("ok"):
+            continue
+        args = record.get("args") or {}
+        value = args.get("path") or args.get("file") or args.get("target")
+        if isinstance(value, str):
+            normalized = _normalize_citation_path(value)
+            if normalized:
+                seen.add(normalized)
+    return seen
+
+
 def _clean_items(items: list[str] | None, limit: int = _MAX_REPORT_ITEMS) -> list[str]:
     """去空、去重、限长、限量。"""
     seen: set[str] = set()
@@ -213,6 +256,17 @@ def render_subagent_result(artifact: SubAgentArtifact, *, limit: int = 6_000) ->
     if artifact.findings:
         lines.append("发现：")
         lines.extend(f"- {item}" for item in artifact.findings[:10])
+    if artifact.citations:
+        lines.append("证据：")
+        for item in artifact.citations[:8]:
+            path = str(item.get("path", "")).strip()
+            try:
+                line = int(item.get("line", 0) or 0)
+            except (TypeError, ValueError):
+                line = 0
+            note = str(item.get("note", "")).strip()
+            where = f"{path}:{line}" if line > 0 else path
+            lines.append(f"- {where} {note}".rstrip())
     if artifact.open_questions:
         lines.append("未决问题：")
         lines.extend(f"- {item}" for item in artifact.open_questions[:5])
@@ -231,6 +285,7 @@ def make_readonly_runner(
     tools: list[BaseTool],
     settings: Settings,
     role: str = "explore",
+    citation_validator: Callable[[str, int], bool] | None = None,
 ) -> DelegateRunner:
     """构造一个只读 worker runner（explore / review）。
 
@@ -254,9 +309,8 @@ def make_readonly_runner(
 
     child_llm = llm.bind_tools(list(tool_map.values()))
     # include_raw=True：结构化调用也能拿到 AIMessage，从而累计这次报告的 token。
-    report_llm = with_json_output(llm, ExploreReport, include_raw=True).with_retry(
-        stop_after_attempt=2
-    )
+    # 重试由调用处的 retry_async 负责，避免内层再乘一次尝试次数。
+    report_llm = with_json_output(llm, ExploreReport, include_raw=True)
     max_rounds = max(int(settings.explore_max_rounds), 1)
     timeout = max(int(settings.explore_timeout), 1)
 
@@ -488,6 +542,8 @@ def make_readonly_runner(
 
         had_tool_failure = any(not record["ok"] for record in records)
         proposed_tasks: list[dict[str, Any]] = []
+        citations: list[dict[str, Any]] = []
+        rejected_citations = 0
         if cancelled:
             status = "cancelled"
             summary = "已按用户要求取消。"
@@ -496,12 +552,35 @@ def make_readonly_runner(
             open_questions = []
             next_steps = []
         elif report is not None:
+            seen_paths = _seen_paths(records)
+            for citation in report.citations[:_MAX_CITATIONS]:
+                item = citation.model_dump()
+                normalized = _normalize_citation_path(item.get("path", ""))
+                if normalized and normalized in seen_paths:
+                    citations.append(item)
+                elif citation_validator is None or citation_validator(
+                    str(item.get("path", "")), int(item.get("line", 0) or 0)
+                ):
+                    citations.append(item)
+                else:
+                    rejected_citations += 1
             status = (
-                "partial" if (error or truncated or had_tool_failure) else "success"
+                "partial"
+                if (
+                    error
+                    or truncated
+                    or had_tool_failure
+                    or rejected_citations
+                )
+                else "success"
             )
             summary = report.summary
             relevant_files = report.relevant_files
-            findings = report.findings
+            findings = list(report.findings)
+            if rejected_citations:
+                findings.append(
+                    f"引用校验未通过：{rejected_citations} 条（已剔除）"
+                )
             open_questions = report.open_questions
             next_steps = report.recommended_next_steps
             # 每个 worker 最多带 2 个提议；更大的量由 extend_tasks 再按总量截断。
@@ -529,6 +608,7 @@ def make_readonly_runner(
             summary=summary,
             relevant_files=_clean_items(relevant_files),
             findings=_clean_items(findings),
+            citations=citations,
             open_questions=_clean_items(open_questions, limit=10),
             recommended_next_steps=_clean_items(next_steps, limit=10),
             proposed_tasks=proposed_tasks,
@@ -547,18 +627,34 @@ def make_readonly_runner(
 
 
 def make_explore_runner(
-    *, llm: BaseChatModel, tools: list[BaseTool], settings: Settings
+    *,
+    llm: BaseChatModel,
+    tools: list[BaseTool],
+    settings: Settings,
+    citation_validator: Callable[[str, int], bool] | None = None,
 ) -> DelegateRunner:
     """向后兼容：Explore 角色。"""
     return make_readonly_runner(
-        llm=llm, tools=tools, settings=settings, role="explore"
+        llm=llm,
+        tools=tools,
+        settings=settings,
+        role="explore",
+        citation_validator=citation_validator,
     )
 
 
 def make_review_runner(
-    *, llm: BaseChatModel, tools: list[BaseTool], settings: Settings
+    *,
+    llm: BaseChatModel,
+    tools: list[BaseTool],
+    settings: Settings,
+    citation_validator: Callable[[str, int], bool] | None = None,
 ) -> DelegateRunner:
     """Review 角色：同一套只读工具循环，换审查提示与报告提示。"""
     return make_readonly_runner(
-        llm=llm, tools=tools, settings=settings, role="review"
+        llm=llm,
+        tools=tools,
+        settings=settings,
+        role="review",
+        citation_validator=citation_validator,
     )

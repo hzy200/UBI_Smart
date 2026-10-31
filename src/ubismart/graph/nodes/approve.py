@@ -15,14 +15,19 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
-from coding_agent.graph.state import AgentState
-from coding_agent.sandbox.policy import APPROVED, ASK, DENIED, SessionPolicy
-from coding_agent.sandbox.policy import CommandLevel as _Level
-from coding_agent.sandbox.policy import classify as _classify
-from coding_agent.tools.code_intel import CODE_INTEL
-from coding_agent.tools.delegate import DELEGATE_EXPLORE
-from coding_agent.tools.deps import DEPS_INSTALL, DEPS_LIST
-from coding_agent.tools.files import (
+from ubismart.graph.state import AgentState
+from ubismart.sandbox.policy import APPROVED, ASK, DENIED, SessionPolicy
+from ubismart.sandbox.policy import CommandLevel as _Level
+from ubismart.sandbox.policy import classify as _classify
+from ubismart.tools.code_intel import CODE_INTEL
+from ubismart.tools.delegate import DELEGATE_EXPLORE
+from ubismart.tools.deps import DEPS_INSTALL, DEPS_LIST
+from ubismart.tools.documents import (
+    DOCUMENT_EDIT,
+    DOCUMENT_READ,
+    PDF_PAGE_IMAGE,
+)
+from ubismart.tools.files import (
     COPY_TOOL_NAME,
     DELETE_TOOL_NAME,
     EDIT_MANY_TOOL_NAME,
@@ -34,13 +39,16 @@ from coding_agent.tools.files import (
     RESTORE_TOOL_NAME,
     WRITE_TOOL_NAME,
 )
-from coding_agent.tools.git import GIT_ADD, GIT_COMMIT, GIT_DIFF, GIT_LOG, GIT_STATUS
-from coding_agent.tools.host_exec import HOST_EXEC_TOOL_NAME
-from coding_agent.tools.memory import MEMORY_SAVE, MEMORY_SEARCH
-from coding_agent.tools.search import FIND_FILES, SEARCH_CODE
-from coding_agent.tools.shell import SHELL_TOOL_NAME
-from coding_agent.tools.symbols import SYMBOL_SEARCH
-from coding_agent.tools.testrun import RUN_TESTS_TOOL
+from ubismart.tools.git import GIT_ADD, GIT_COMMIT, GIT_DIFF, GIT_LOG, GIT_STATUS
+from ubismart.tools.host_exec import HOST_EXEC_TOOL_NAME
+from ubismart.tools.knowledge import KNOWLEDGE_READ, KNOWLEDGE_SEARCH
+from ubismart.tools.memory import MEMORY_SAVE, MEMORY_SEARCH
+from ubismart.tools.report import REPORT_CHECK, REPORT_EXPORT, REPORT_READ
+from ubismart.tools.search import FIND_FILES, SEARCH_CODE
+from ubismart.tools.shell import SHELL_TOOL_NAME
+from ubismart.tools.symbols import SYMBOL_SEARCH
+from ubismart.tools.testrun import RUN_TESTS_TOOL
+from ubismart.tools.vision import IMAGE_INSPECT
 
 # 只读工具：无条件放行。
 # `delegate_explore` 也算只读：它只是把只读工具的执行挪进子智能体，
@@ -48,6 +56,11 @@ from coding_agent.tools.testrun import RUN_TESTS_TOOL
 _READ_TOOLS = frozenset(
     {
         READ_TOOL_NAME,
+        DOCUMENT_READ,
+        PDF_PAGE_IMAGE,
+        IMAGE_INSPECT,
+        REPORT_CHECK,
+        REPORT_READ,
         GIT_STATUS,
         GIT_DIFF,
         GIT_LOG,
@@ -59,6 +72,8 @@ _READ_TOOLS = frozenset(
         DELEGATE_EXPLORE,
         MEMORY_SEARCH,
         LIST_TOOL_NAME,
+        KNOWLEDGE_READ,
+        KNOWLEDGE_SEARCH,
     }
 )
 
@@ -76,6 +91,8 @@ _WRITE_TOOLS = frozenset(
         MKDIR_TOOL_NAME,
         GIT_ADD,
         MEMORY_SAVE,
+        REPORT_EXPORT,
+        DOCUMENT_EDIT,
     }
 )
 

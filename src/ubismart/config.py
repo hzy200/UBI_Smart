@@ -126,6 +126,11 @@ class Settings(BaseSettings):
     run_cost_budget_usd: float = Field(
         default=0.0, alias="AGENT_RUN_COST_BUDGET_USD"
     )
+    # 整个会话（同一 thread，多轮 run 累计）的成本预算（USD）；0 = 不限制。
+    # 全新 run 在开始前检查；resume 不拦截，避免挂起的审批被预算锁死。
+    session_cost_budget_usd: float = Field(
+        default=0.0, alias="AGENT_SESSION_COST_BUDGET_USD"
+    )
     # 达到预算的该比例时发出告警（0~1）
     cost_alert_ratio: float = Field(
         default=0.8, alias="AGENT_COST_ALERT_RATIO"
@@ -339,6 +344,129 @@ class Settings(BaseSettings):
         default=1_000_000, alias="AGENT_MAX_CAPTURE_BYTES"
     )
     max_file_read_bytes: int = Field(default=2_000_000, alias="AGENT_MAX_FILE_READ_BYTES")
+    # 文档解析上限。解析在宿主进程完成，不进入 WSL 沙箱。
+    document_max_bytes: int = Field(
+        default=20_971_520, alias="AGENT_DOCUMENT_MAX_BYTES"
+    )
+    document_max_pages: int = Field(
+        default=200, alias="AGENT_DOCUMENT_MAX_PAGES"
+    )
+    document_max_cells: int = Field(
+        default=20_000, alias="AGENT_DOCUMENT_MAX_CELLS"
+    )
+    document_max_chars: int = Field(
+        default=2_000_000, alias="AGENT_DOCUMENT_MAX_CHARS"
+    )
+    # 回滚开关：关闭后 document_pipeline 不再被自动选择。
+    document_pipeline_enabled: bool = Field(
+        default=True, alias="AGENT_DOCUMENT_PIPELINE_ENABLED"
+    )
+    document_cache_enabled: bool = Field(
+        default=True, alias="AGENT_DOCUMENT_CACHE"
+    )
+    document_cache_max_bytes: int = Field(
+        default=512 * 1024 * 1024, alias="AGENT_DOCUMENT_CACHE_MAX_BYTES"
+    )
+    document_cache_ttl_days: int = Field(
+        default=30, alias="AGENT_DOCUMENT_CACHE_TTL_DAYS"
+    )
+    # 文档管线角色级并发；author 固定为 1（报告写入全局单实例）。
+    orchestrator_document_concurrency: int = Field(
+        default=2, alias="AGENT_ORCHESTRATOR_DOCUMENT_CONCURRENCY"
+    )
+    orchestrator_vision_concurrency: int = Field(
+        default=2, alias="AGENT_ORCHESTRATOR_VISION_CONCURRENCY"
+    )
+    orchestrator_author_concurrency: int = Field(
+        default=1, alias="AGENT_ORCHESTRATOR_AUTHOR_CONCURRENCY"
+    )
+    # 单次文档管线的输入上限。
+    orchestrator_document_max_docs: int = Field(
+        default=10, alias="AGENT_DOCUMENT_PIPELINE_MAX_DOCS"
+    )
+    orchestrator_document_max_images: int = Field(
+        default=20, alias="AGENT_DOCUMENT_PIPELINE_MAX_IMAGES"
+    )
+    # 每个 document 任务完成后触发一次 steering/checkpoint 边界。
+    orchestrator_document_checkpoint: bool = Field(
+        default=True, alias="AGENT_ORCHESTRATOR_DOCUMENT_CHECKPOINT"
+    )
+    # 长文档分段读取：每次最多多少页、最多几段。
+    document_read_pages_per_call: int = Field(
+        default=5, alias="AGENT_DOCUMENT_READ_PAGES_PER_CALL"
+    )
+    document_read_max_calls: int = Field(
+        default=3, alias="AGENT_DOCUMENT_READ_MAX_CALLS"
+    )
+    # document_edit 单次调用最多执行多少条操作。
+    document_edit_max_ops: int = Field(
+        default=50, alias="AGENT_DOCUMENT_EDIT_MAX_OPS"
+    )
+    # 依赖任务注入下游 worker 的上下文总字符上限。
+    orchestrator_dependency_context_chars: int = Field(
+        default=12_000, alias="AGENT_ORCHESTRATOR_DEPENDENCY_CONTEXT_CHARS"
+    )
+    # 默认只处理文本型 PDF；扫描页不自动 OCR。
+    pdf_text_only: bool = Field(default=True, alias="AGENT_PDF_TEXT_ONLY")
+    document_ocr_enabled: bool = Field(
+        default=False, alias="AGENT_DOCUMENT_OCR_ENABLED"
+    )
+    pdf_extract_metadata: bool = Field(
+        default=True, alias="AGENT_PDF_EXTRACT_METADATA"
+    )
+    pdf_extract_outline: bool = Field(
+        default=True, alias="AGENT_PDF_EXTRACT_OUTLINE"
+    )
+    pdf_extract_annotations: bool = Field(
+        default=True, alias="AGENT_PDF_EXTRACT_ANNOTATIONS"
+    )
+    pdf_extract_forms: bool = Field(
+        default=True, alias="AGENT_PDF_EXTRACT_FORMS"
+    )
+    pdf_extract_attachments: bool = Field(
+        default=True, alias="AGENT_PDF_EXTRACT_ATTACHMENTS"
+    )
+    pdf_extract_tables: bool = Field(
+        default=True, alias="AGENT_PDF_EXTRACT_TABLES"
+    )
+    # 扫描页交给视觉模型的上限。
+    document_ocr_max_pages: int = Field(
+        default=5, alias="AGENT_DOCUMENT_OCR_MAX_PAGES"
+    )
+    document_image_max_items: int = Field(
+        default=5, alias="AGENT_DOCUMENT_IMAGE_MAX_ITEMS"
+    )
+    # 角色级累计 token 硬预算；0 = 不限制。文档/报告是单次成本最高的角色，
+    # 给保守默认值，避免一份大文档或一轮报告无限消耗；超限只阻塞该角色。
+    orchestrator_document_token_budget: int = Field(
+        default=120_000, alias="AGENT_ORCHESTRATOR_DOCUMENT_TOKEN_BUDGET"
+    )
+    orchestrator_vision_token_budget: int = Field(
+        default=60_000, alias="AGENT_ORCHESTRATOR_VISION_TOKEN_BUDGET"
+    )
+    orchestrator_author_token_budget: int = Field(
+        default=60_000, alias="AGENT_ORCHESTRATOR_AUTHOR_TOKEN_BUDGET"
+    )
+    # 图片理解上限；默认 LLM 视为多模态模型。
+    image_max_bytes: int = Field(
+        default=10_485_760, alias="AGENT_IMAGE_MAX_BYTES"
+    )
+    image_max_dimension: int = Field(
+        default=2048, alias="AGENT_IMAGE_MAX_DIMENSION"
+    )
+    # 报告输出：默认只允许写到报告目录；显式路径由 planner 解析后仍受此约束。
+    report_output_dir: str = Field(
+        default=".agent/artifacts/reports", alias="AGENT_REPORT_OUTPUT_DIR"
+    )
+    report_font_path: str = Field(
+        default="", alias="AGENT_REPORT_FONT_PATH"
+    )
+    report_allow_any_path: bool = Field(
+        default=False, alias="AGENT_REPORT_ALLOW_ANY_PATH"
+    )
+    report_llm_review: bool = Field(
+        default=False, alias="AGENT_REPORT_LLM_REVIEW"
+    )
     # 同时启动的 wsl.exe 进程上限。并发 worker 会各自调用沙箱，没有这层
     # 背压时 4 个 worker 的一次工具轮次就能同时拉起十几个 WSL 进程。
     sandbox_max_concurrent_commands: int = Field(
@@ -486,6 +614,122 @@ class Settings(BaseSettings):
     delegate_medium_calls: int = Field(default=2, alias="AGENT_DELEGATE_MEDIUM_CALLS")
     delegate_large_calls: int = Field(default=4, alias="AGENT_DELEGATE_LARGE_CALLS")
 
+    # ---------- 深层工作流（RFC-0009，默认关闭）----------
+    # 总开关：关闭时下列能力全部不生效，行为与既有四模板一致。
+    deep_workflows_enabled: bool = Field(
+        default=False, alias="AGENT_DEEP_WORKFLOWS_ENABLED"
+    )
+    knowledge_artifacts_enabled: bool = Field(
+        default=False, alias="AGENT_KNOWLEDGE_ARTIFACTS_ENABLED"
+    )
+    # 长文档：取消固定 3 次读取；覆盖范围由页数 + document_max_pages 决定，
+    # 未读完时报告 partial + 未读区间。
+    document_full_coverage: bool = Field(
+        default=False, alias="AGENT_DOCUMENT_FULL_COVERAGE"
+    )
+    # 长文档：按 chunk 分批抽取 claim，再合并；避免整篇塞入单次调用。
+    document_map_reduce: bool = Field(
+        default=False, alias="AGENT_DOCUMENT_MAP_REDUCE"
+    )
+    document_chunk_chars: int = Field(
+        default=6_000, alias="AGENT_DOCUMENT_CHUNK_CHARS"
+    )
+    document_map_concurrency: int = Field(
+        default=3, alias="AGENT_DOCUMENT_MAP_CONCURRENCY"
+    )
+    # 每篇文档提炼固定槽位（问题/方法/算法/实验/局限/创新/结论），
+    # 供跨文档矩阵与 author 使用；默认关闭（每篇多一次结构化调用），
+    # 长文档/报告场景显式开启。
+    document_matrix_enabled: bool = Field(
+        default=False, alias="AGENT_DOCUMENT_MATRIX_ENABLED"
+    )
+    # 分层归并：每层最多合并多少节点，以及单次归并的输入字符上限。
+    document_tree_fanout: int = Field(
+        default=5, ge=2, le=20, alias="AGENT_DOCUMENT_TREE_FANOUT"
+    )
+    document_tree_input_chars: int = Field(
+        default=16_000, ge=2_000, alias="AGENT_DOCUMENT_TREE_INPUT_CHARS"
+    )
+    # author 的证据上下文：优先取 claim + quote，而不是只取 summary。
+    author_evidence_top_k: int = Field(
+        default=12, alias="AGENT_AUTHOR_EVIDENCE_TOP_K"
+    )
+    author_evidence_max_chars: int = Field(
+        default=24_000, alias="AGENT_AUTHOR_EVIDENCE_MAX_CHARS"
+    )
+    # 代码架构：从 PythonIndex 生成 ArchIndex/ArchBrief 并注入规划提示。
+    arch_workflow_enabled: bool = Field(
+        default=False, alias="AGENT_ARCH_WORKFLOW_ENABLED"
+    )
+    arch_impact_max_modules: int = Field(
+        default=40, alias="AGENT_ARCH_IMPACT_MAX_MODULES"
+    )
+    # 架构索引抽样上限与增量缓存。
+    arch_max_files: int = Field(
+        default=2_000, alias="AGENT_ARCH_MAX_FILES"
+    )
+    arch_max_file_bytes: int = Field(
+        default=1_000_000, alias="AGENT_ARCH_MAX_FILE_BYTES"
+    )
+    arch_max_total_bytes: int = Field(
+        default=32_000_000, alias="AGENT_ARCH_MAX_TOTAL_BYTES"
+    )
+    arch_incremental_index: bool = Field(
+        default=True, alias="AGENT_ARCH_INCREMENTAL_INDEX"
+    )
+    # 空 = 宿主 ~/.codingagent/index-cache；可指向共享盘实现跨机器复用。
+    arch_index_cache_dir: str = Field(
+        default="", alias="AGENT_ARCH_INDEX_CACHE_DIR"
+    )
+    arch_index_cache_max_entries: int = Field(
+        default=20_000, alias="AGENT_ARCH_INDEX_CACHE_MAX_ENTRIES"
+    )
+    arch_index_cache_max_bytes: int = Field(
+        default=536_870_912, alias="AGENT_ARCH_INDEX_CACHE_MAX_BYTES"
+    )
+    arch_index_cache_ttl_days: int = Field(
+        default=30, alias="AGENT_ARCH_INDEX_CACHE_TTL_DAYS"
+    )
+    # 共享缓存跨进程锁：等待上限与 stale 判定（秒）。
+    arch_index_cache_lock_timeout_s: float = Field(
+        default=5.0, alias="AGENT_ARCH_INDEX_CACHE_LOCK_TIMEOUT_S"
+    )
+    arch_index_cache_lock_stale_s: float = Field(
+        default=60.0, alias="AGENT_ARCH_INDEX_CACHE_LOCK_STALE_S"
+    )
+    # 可选：用 LSP definition 解析动态调用（需要 AGENT_LSP_COMMAND）。
+    arch_lsp_resolution_enabled: bool = Field(
+        default=False, alias="AGENT_ARCH_LSP_RESOLUTION_ENABLED"
+    )
+    arch_lsp_max_calls: int = Field(
+        default=50, alias="AGENT_ARCH_LSP_MAX_CALLS"
+    )
+    # 文档 judge 的通过阈值；可用 scripts/calibrate_judge.py 在标注集上调。
+    document_judge_pass_score: int = Field(
+        default=60, alias="AGENT_DOCUMENT_JUDGE_PASS_SCORE"
+    )
+    # 知识检索模式：lexical（默认，零依赖）| vector | hybrid。
+    knowledge_search_mode: str = Field(
+        default="lexical", alias="AGENT_KNOWLEDGE_SEARCH_MODE"
+    )
+    # 空串 = 继承 memory_embedding_provider；支持 hash/local/remote/none。
+    # remote 仍受 memory_allow_remote_embeddings + base_url/key 双重门禁。
+    knowledge_embedding_provider: str = Field(
+        default="", alias="AGENT_KNOWLEDGE_EMBEDDING_PROVIDER"
+    )
+    # 0 = 继承 memory_embedding_dim。
+    knowledge_embedding_dim: int = Field(
+        default=0, alias="AGENT_KNOWLEDGE_EMBEDDING_DIM"
+    )
+    # 跨模块变更：按 ChangeContract 自动分波，并在波次之间跑 gate。
+    interface_first_writes: bool = Field(
+        default=False, alias="AGENT_INTERFACE_FIRST_WRITES"
+    )
+    # deep 模式下允许的写波次上限（仍受总预算/截止时间约束）。
+    deep_max_write_stages: int = Field(
+        default=4, alias="AGENT_DEEP_MAX_WRITE_STAGES"
+    )
+
     # ---------- Orchestrator（Phase 3A）----------
     # 新架构默认启用：满足规模阈值的仓库走 harness；小仓库仍走 direct 快速路径。
     orchestrator_enabled: bool = Field(
@@ -493,6 +737,25 @@ class Settings(BaseSettings):
     )
     # 小于该文件数不做编排，直接单 agent。
     orchestrator_min_files: int = Field(default=30, alias="AGENT_ORCHESTRATOR_MIN_FILES")
+    # 在规模阈值之上再加一层请求级快速判定：明显的单文件/只读问答/拼写修复
+    # 直接走 single agent，不付 survey + 工作流选择的固定成本。
+    orchestrator_smart_entry: bool = Field(
+        default=True, alias="AGENT_ORCHESTRATOR_SMART_ENTRY"
+    )
+    # survey 先只收集廉价画像；repo_map 等到确认要编排后再构建。
+    orchestrator_repo_map_lazy: bool = Field(
+        default=False, alias="AGENT_ORCHESTRATOR_REPO_MAP_LAZY"
+    )
+    # 任务图校验失败时，先带错误反馈让模型修一次，再决定是否整图降级。
+    # 默认开启；若要回到「校验失败立即降级」的旧行为，设为 false。
+    orchestrator_plan_repair: bool = Field(
+        default=True, alias="AGENT_ORCHESTRATOR_PLAN_REPAIR"
+    )
+    # 并行收益比阈值：task_count / critical_path 低于该值时，只读并行计划
+    # 会退回 direct（链式任务并行只多付调度/上下文成本）。0 = 关闭预估。
+    orchestrator_min_parallel_gain: float = Field(
+        default=1.2, alias="AGENT_ORCHESTRATOR_MIN_PARALLEL_GAIN"
+    )
     orchestrator_max_tasks: int = Field(default=6, alias="AGENT_ORCHESTRATOR_MAX_TASKS")
     # 同一批 ready 任务最多并发几个只读 worker。
     orchestrator_max_concurrent_workers: int = Field(
@@ -516,6 +779,12 @@ class Settings(BaseSettings):
     )
     orchestrator_worker_timeout: int = Field(
         default=240, alias="AGENT_ORCHESTRATOR_WORKER_TIMEOUT"
+    )
+    # worker 外层兜底超时（秒），独立于各 runner 的内部超时。
+    # 0 = 自动推导：implement 用 worker_timeout，explore/review 用 explore_timeout，
+    # 其余角色取 max(600, worker_timeout)；都会再加 30s 余量。
+    orchestrator_worker_hard_timeout_s: float = Field(
+        default=0.0, alias="AGENT_ORCHESTRATOR_WORKER_HARD_TIMEOUT_S"
     )
     # 交给主 agent 的 worker 汇总上限（字符）。
     orchestrator_context_chars: int = Field(
@@ -544,14 +813,56 @@ class Settings(BaseSettings):
         default=0, alias="AGENT_ORCHESTRATOR_TASK_TOKENS"
     )
     # 整个编排阶段的 token 上限，0 = 不限制。scheduler 在派发前按角色预留，
-    # 预留 + 已用超过上限时不再启动新任务。
+    # 预留 + 已用超过上限时停止派发；只读在飞任务会被取消，implement 继续跑完
+    # 并合并。默认 500k，足以覆盖正常多 worker 任务，同时给失控循环止损。
     orchestrator_total_tokens: int = Field(
-        default=0, alias="AGENT_ORCHESTRATOR_TOTAL_TOKENS"
+        default=500_000, alias="AGENT_ORCHESTRATOR_TOTAL_TOKENS"
     )
     # 在飞 implement + 待合并补丁的上限；超过后暂停启动新的 implement，
     # 先让合并队列排空，避免补丁/快照堆积。
     orchestrator_max_pending_merges: int = Field(
         default=8, alias="AGENT_ORCHESTRATOR_MAX_PENDING_MERGES"
+    )
+    # 已完成的 implement 补丁若与在飞任务无文件交集，立即按连通分量合并，
+    # 不必等整批结束。默认开启；若有兼容性问题可设为 false 回退整批合并。
+    orchestrator_incremental_merge: bool = Field(
+        default=True, alias="AGENT_ORCHESTRATOR_INCREMENTAL_MERGE"
+    )
+    # 补丁合并前的轻量审查：只对高风险 patch（改测试/配置/CI/安全路径、
+    # 或 diff 超过阈值）调用一次 review 模型。审查拒绝会让任务带 findings 重试；
+    # 它只是质量加固，不替代 write_scope 与审批这些安全边界。
+    orchestrator_patch_review: bool = Field(
+        default=True, alias="AGENT_ORCHESTRATOR_PATCH_REVIEW"
+    )
+    orchestrator_patch_review_max_lines: int = Field(
+        default=400, alias="AGENT_ORCHESTRATOR_PATCH_REVIEW_MAX_LINES"
+    )
+    orchestrator_patch_review_max_chars: int = Field(
+        default=60_000, alias="AGENT_ORCHESTRATOR_PATCH_REVIEW_MAX_CHARS"
+    )
+    # 同时进行的补丁审查数；审查是 LLM 调用，串行会把合并尾部拉长。
+    orchestrator_patch_review_concurrency: int = Field(
+        default=2, alias="AGENT_ORCHESTRATOR_PATCH_REVIEW_CONCURRENCY"
+    )
+    # 顺序写波次：允许后一波 implement 基于前一波已合并结果继续修改。
+    # 默认关闭；关闭时 implement 之间仍禁止互相依赖。
+    orchestrator_sequential_writes: bool = Field(
+        default=False, alias="AGENT_ORCHESTRATOR_SEQUENTIAL_WRITES"
+    )
+    # verify 失败后允许重入 orchestrator 修复的最大轮数；0 = 关闭。
+    orchestrator_fix_rounds: int = Field(
+        default=0, alias="AGENT_ORCHESTRATOR_FIX_ROUNDS"
+    )
+    # 灰度期最多允许的写波次数（stage 上限）。
+    orchestrator_max_write_stages: int = Field(
+        default=2, alias="AGENT_ORCHESTRATOR_MAX_WRITE_STAGES"
+    )
+    # 注入新 worktree 的基线补丁上限；超限 fail closed。
+    orchestrator_seed_max_files: int = Field(
+        default=200, alias="AGENT_ORCHESTRATOR_SEED_MAX_FILES"
+    )
+    orchestrator_seed_max_bytes: int = Field(
+        default=5_000_000, alias="AGENT_ORCHESTRATOR_SEED_MAX_BYTES"
     )
     # 遇到 429/限流时 scheduler 的首次退避秒数；之后指数增长，上限 30s。
     orchestrator_rate_limit_backoff_s: float = Field(
@@ -564,6 +875,28 @@ class Settings(BaseSettings):
     # worker 专用模型；空串表示继承 DEEPSEEK_MODEL。用于 explore/review 降本。
     orchestrator_worker_model: str = Field(
         default="", alias="AGENT_ORCHESTRATOR_WORKER_MODEL"
+    )
+    # 工作流选择/任务图生成专用模型；空串表示继承主模型。
+    orchestrator_planner_model: str = Field(
+        default="", alias="AGENT_ORCHESTRATOR_PLANNER_MODEL"
+    )
+    # 角色级模型覆盖；空串表示沿用 orchestrator_worker_model（再退到主模型）。
+    # explore/review 默认用便宜模型，失败重试时自动升级到主模型；
+    # 网关不支持 deepseek-flash 时，把这两个变量置空即可回退。
+    orchestrator_explore_model: str = Field(
+        default="deepseek-flash", alias="AGENT_ORCHESTRATOR_EXPLORE_MODEL"
+    )
+    orchestrator_review_model: str = Field(
+        default="deepseek-flash", alias="AGENT_ORCHESTRATOR_REVIEW_MODEL"
+    )
+    orchestrator_implement_model: str = Field(
+        default="", alias="AGENT_ORCHESTRATOR_IMPLEMENT_MODEL"
+    )
+    orchestrator_document_model: str = Field(
+        default="", alias="AGENT_ORCHESTRATOR_DOCUMENT_MODEL"
+    )
+    orchestrator_author_model: str = Field(
+        default="", alias="AGENT_ORCHESTRATOR_AUTHOR_MODEL"
     )
     # fan-in 超预算/有冲突时才调用一次 reducer LLM；失败回退确定性汇总。
     orchestrator_fanin_reducer: bool = Field(
@@ -588,6 +921,27 @@ class Settings(BaseSettings):
     # 有副作用工具的执行日志：崩溃后同一 call_id 不自动重放。
     tool_journal_enabled: bool = Field(
         default=True, alias="AGENT_TOOL_JOURNAL_ENABLED"
+    )
+    # worker 结果 journal：崩溃/resume 时复用已完成的只读结果，避免重跑。
+    # 只复用 success（可选 partial）；implement 永不复用（补丁可能已过期）。
+    worker_journal_enabled: bool = Field(
+        default=True, alias="AGENT_WORKER_JOURNAL_ENABLED"
+    )
+    # 允许复用/落盘的角色，逗号分隔。test 默认排除：结果依赖当时环境。
+    worker_journal_roles: str = Field(
+        default="explore,review", alias="AGENT_WORKER_JOURNAL_ROLES"
+    )
+    worker_journal_reuse_partial: bool = Field(
+        default=False, alias="AGENT_WORKER_JOURNAL_REUSE_PARTIAL"
+    )
+    # 只有「git 仓库 + 干净工作区 + 能拿到 HEAD」时才复用：HEAD 相同
+    # 且没有未提交改动，输入与代码状态才足够一致。
+    worker_journal_require_clean_git: bool = Field(
+        default=True, alias="AGENT_WORKER_JOURNAL_REQUIRE_CLEAN_GIT"
+    )
+    worker_journal_max_bytes: int = Field(
+        default=10_485_760,
+        alias="AGENT_WORKER_JOURNAL_MAX_BYTES",
     )
     # 同一工作区只允许一个 runtime 运行；锁文件在审计目录下。
     workspace_lock_enabled: bool = Field(
@@ -1106,7 +1460,7 @@ class Settings(BaseSettings):
     @property
     def context_budget(self) -> Any:
         """延迟导入：config 不该在导入期拉起 llm 层。"""
-        from coding_agent.llm.context import ContextBudget
+        from ubismart.llm.context import ContextBudget
 
         return ContextBudget(
             max_chars=self.context_max_chars,

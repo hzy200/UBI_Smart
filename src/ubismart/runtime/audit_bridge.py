@@ -7,12 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.audit import AuditRecord
-from coding_agent.audit import models as audit_models
-from coding_agent.audit.logger import now_iso, sanitize_args, truncate
-from coding_agent.events import FileChanged, ToolCallFinished, ToolCallStarted
-from coding_agent.sandbox.policy import APPROVED, DENIED
-from coding_agent.tools.artifacts import SubAgentArtifact
+from ubismart.audit import AuditRecord
+from ubismart.audit import models as audit_models
+from ubismart.audit.logger import now_iso, sanitize_args, truncate
+from ubismart.events import FileChanged, ToolCallFinished, ToolCallStarted
+from ubismart.sandbox.policy import APPROVED, DENIED
+from ubismart.tools.artifacts import SubAgentArtifact
 
 from .common import _swallow_audit
 

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.graph.state import AgentState
+from ubismart.graph.state import AgentState
 
 
 def nudge(state: AgentState) -> dict[str, Any]:

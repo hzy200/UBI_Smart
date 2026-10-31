@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from coding_agent.config import Settings
+from ubismart.config import Settings
 
 
 @dataclass

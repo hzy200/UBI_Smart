@@ -18,72 +18,73 @@ from uuid import uuid4
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
-from coding_agent.agents.policy import (
+from ubismart.agents.policy import (
     RepoProfile,
     delegation_policy,
     profile_workspace,
+    should_orchestrate,
 )
-from coding_agent.audit import AuditLogger, AuditRecord
-from coding_agent.audit import models as audit_models
-from coding_agent.audit.logger import (
+from ubismart.audit import AuditLogger, AuditRecord
+from ubismart.audit import models as audit_models
+from ubismart.audit.logger import (
     now_iso,
     truncate,
 )
-from coding_agent.config import (
+from ubismart.config import (
     PRODUCTION_PROFILES,
     Settings,
     apply_security_profile,
     get_settings,
 )
-from coding_agent.events import (
+from ubismart.events import (
     ApprovalRequested,
     Event,
     RunFailed,
     SteeringApplied,
     ToolCallStarted,
 )
-from coding_agent.execution import (
+from ubismart.execution import (
     ExecutionSandbox,
     ExecutionService,
     SandboxExecutionBackend,
 )
-from coding_agent.graph.build import build_graph
-from coding_agent.identity.access import (
+from ubismart.graph.build import build_graph
+from ubismart.identity.access import (
     ACCESS_READ_ONLY,
     ACCESS_WRITE_ASK,
     ACCESS_WRITE_AUTO,
     normalize_access_mode,
 )
-from coding_agent.llm.ratelimit import GLOBAL_LIMITER
-from coding_agent.memory.checkpointer import CheckpointStore
-from coding_agent.memory.semantic import SemanticMemory
-from coding_agent.platform.concurrency import ConcurrencyGovernor
-from coding_agent.platform.secrets_store import SecretStore
-from coding_agent.protocol.messages import (
+from ubismart.llm.ratelimit import GLOBAL_LIMITER
+from ubismart.memory.checkpointer import CheckpointStore
+from ubismart.memory.semantic import SemanticMemory
+from ubismart.platform.concurrency import ConcurrencyGovernor
+from ubismart.platform.secrets_store import SecretStore
+from ubismart.protocol.messages import (
     recover_dangling_tool_calls,
 )
-from coding_agent.runtime.audit_bridge import AuditMixin
-from coding_agent.runtime.common import _swallow_audit
-from coding_agent.runtime.event_map import EventMapMixin
-from coding_agent.runtime.memory import MemoryMixin
-from coding_agent.runtime.sessions import SessionsMixin
-from coding_agent.runtime.stream import StreamMixin
-from coding_agent.runtime_snapshots import SnapshotMixin
-from coding_agent.sandbox.backend import build_sandbox
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.pathguard import normalize_root
-from coding_agent.sandbox.policy import (
+from ubismart.runtime.audit_bridge import AuditMixin
+from ubismart.runtime.common import _swallow_audit
+from ubismart.runtime.event_map import EventMapMixin
+from ubismart.runtime.memory import MemoryMixin
+from ubismart.runtime.sessions import SessionsMixin
+from ubismart.runtime.stream import StreamMixin
+from ubismart.runtime_snapshots import SnapshotMixin
+from ubismart.sandbox.backend import build_sandbox
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.pathguard import normalize_root
+from ubismart.sandbox.policy import (
     SessionPolicy,
     parse_allow_rules,
 )
-from coding_agent.sandbox.snapshots import (
+from ubismart.sandbox.snapshots import (
     SnapshotStore,
 )
-from coding_agent.sandbox.wsl_exec import resolve_workspace
-from coding_agent.session.session_brief import build_session_brief
-from coding_agent.session.steering import SteeringCommand, SteeringController
-from coding_agent.session.workspace_lock import WorkspaceLock
-from coding_agent.workspace.model import normalize_workspace_kind
+from ubismart.sandbox.wsl_exec import resolve_workspace
+from ubismart.session.session_brief import build_session_brief
+from ubismart.session.steering import SteeringCommand, SteeringController
+from ubismart.session.workspace_lock import WorkspaceLock
+from ubismart.workspace.model import normalize_workspace_kind
 
 # 只有这几个 action 才真正改动了文件，read 与空回滚不发 FileChanged
 
@@ -322,6 +323,58 @@ class AgentRuntime(
     def execution(self) -> ExecutionService | None:
         return self._execution
 
+    def _attachment_inventory(self, thread_id: str) -> str:
+        """本会话上传文件的元数据清单；不读正文、不跨会话。"""
+        from ubismart.execution.file_access import (
+            LocalFileAccess,
+            SandboxFileAccess,
+        )
+        from ubismart.sandbox.fs import SandboxFs
+        from ubismart.workspace.file_preview import list_session_uploads
+
+        try:
+            if self.workspace_kind == "host":
+                access = self.file_access or LocalFileAccess(self.workspace)
+            else:
+                access = SandboxFileAccess(
+                    SandboxFs(self._sandbox, self.workspace),
+                    self.workspace,
+                )
+            rows = list_session_uploads(access, thread_id, limit=20)
+        except Exception:  # noqa: BLE001 - 附件清单是增强信息
+            return ""
+        if not rows:
+            return ""
+
+        def _size(value: int) -> str:
+            size = float(value or 0)
+            for unit in ("B", "KB", "MB", "GB"):
+                if size < 1024 or unit == "GB":
+                    return (
+                        f"{size:.0f}{unit}"
+                        if unit == "B"
+                        else f"{size:.1f}{unit}"
+                    )
+                size /= 1024
+            return f"{size:.1f}GB"
+
+        lines = [
+            "本会话上传的文件（只读；文档用 document_read，图片用 image_inspect）："
+        ]
+        used = 0
+        for row in rows:
+            suffix = str(row.get("suffix") or "").lstrip(".").upper() or "文件"
+            line = (
+                f"- {row['path']}（{suffix}，"
+                f"{_size(int(row.get('size') or 0))}）"
+            )
+            if used + len(line) > 2_000:
+                lines.append("…（其余附件已省略）")
+                break
+            lines.append(line)
+            used += len(line)
+        return "\n".join(lines)
+
     def _repo_profile(self) -> RepoProfile:
         """仓库画像（文件数/测试文件数），按 runtime 缓存。"""
         if self.workspace_kind == "host":
@@ -535,7 +588,7 @@ class AgentRuntime(
             and self.workspace_kind != "host"
         ):
             try:
-                from coding_agent.identity.instructions import load_project_instructions
+                from ubismart.identity.instructions import load_project_instructions
 
                 instructions = load_project_instructions(
                     self._sandbox,
@@ -555,11 +608,14 @@ class AgentRuntime(
         execution_mode = "direct"
         if (
             not plan_only
-            and self.settings.orchestrator_enabled
-            and profile.known
-            and profile.file_count >= self.settings.orchestrator_min_files
+            and should_orchestrate(prompt, profile, self.settings)
         ):
             execution_mode = "orchestrated"
+        # 编排模式下探索已经由 worker 覆盖；再把 delegate_explore 绑给主模型
+        # 会让同一片代码被探索两次，且两套预算互不相干。direct 路径不变。
+        inline_delegation = bool(
+            policy.allowed and execution_mode != "orchestrated"
+        )
 
         # 上一次 checkpoint 的消息有两个用途：
         # 1) 补上崩溃前没有返回的 tool_calls，否则同一 thread 重跑时
@@ -586,6 +642,10 @@ class AgentRuntime(
                 )
             )
 
+        attachments = self._attachment_inventory(thread_id)
+        if attachments:
+            prompt = f"{prompt}\n\n{attachments}"
+
         inputs = {
             # 占位 ToolMessage 必须排在新用户消息之前，配对才不会错位。
             "messages": [
@@ -609,6 +669,12 @@ class AgentRuntime(
             "run_dirty": False,
             # 编排合并补丁后由 scheduler 置位；新一轮必须复位。
             "pending_verification": False,
+            # 修复轮（RFC-0008）：每轮 run 从零开始。
+            "orchestrator_fix_eligible": False,
+            "orchestrator_fix_mode": False,
+            "orchestrator_fix_rounds_used": 0,
+            "orchestrator_fix_request": "",
+            "force_workflow": "",
             # 本轮改过的文件会累积到这里，act 据此提醒「旧读取已过期」
             "stale_paths": [],
             "approvals": {},
@@ -619,8 +685,8 @@ class AgentRuntime(
                 "file_count": profile.file_count,
                 "test_file_count": profile.test_file_count,
             },
-            "delegation_allowed": policy.allowed,
-            "delegation_budget": policy.max_calls,
+            "delegation_allowed": inline_delegation,
+            "delegation_budget": policy.max_calls if inline_delegation else 0,
             # 每次 run 重置编排字段，避免同一 thread 的上一轮结果串味
             "execution_mode": execution_mode,
             "workflow": "",
@@ -631,6 +697,11 @@ class AgentRuntime(
             "task_attempts": {},
             "worker_results": [],
             "orchestrator_round": 0,
+            # 孤儿 worktree 每个 run 只清理一次；scheduler 边界会重入。
+            "worktrees_pruned": False,
+            # 顺序写的基线：本 run 已合并到主工作区的文件。
+            "merged_paths": [],
+            "merge_batches": [],
             "orchestrator_degraded": False,
             "orchestrator_summary": "",
             "orchestrator_completed": 0,

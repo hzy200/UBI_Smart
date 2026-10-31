@@ -22,18 +22,18 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from coding_agent.graph.plan import UNKNOWN, PlanStepModel, align_kinds
-from coding_agent.graph.state import AgentState
-from coding_agent.llm.deepseek import with_json_output
-from coding_agent.llm.prompts import (
+from ubismart.graph.plan import UNKNOWN, PlanStepModel, align_kinds
+from ubismart.graph.state import AgentState
+from ubismart.llm.deepseek import with_json_output
+from ubismart.llm.prompts import (
     PLANNER_DELEGATION_NOTE,
     PLANNER_PERMISSION_READONLY,
     PLANNER_PERMISSION_WRITE,
     PLANNER_PROMPT,
     format_memory_note,
 )
-from coding_agent.protocol.messages import last_human_text
-from coding_agent.session.recovery import retry_async
+from ubismart.protocol.messages import last_human_text
+from ubismart.session.recovery import retry_async
 
 
 class TaskPlan(BaseModel):
@@ -64,8 +64,6 @@ def make_planner_node(
     async def plan(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         request = last_human_text(state["messages"])
         worker_context = str(state.get("worker_context") or "").strip()
-        if worker_context:
-            request = f"{request}\n\n{worker_context}"
         degraded = False
         retry_events: list[dict[str, Any]] = []
         # 委派提示依赖本次运行的仓库规模策略，所以按调用时组装。
@@ -79,6 +77,14 @@ def make_planner_node(
             permission_note=permission_note,
             delegation_note=delegation_note,
         )
+        if worker_context:
+            # 放在系统提示而不是拼进 user request：worker 结论是已确认事实，
+            # 不是用户的新指令；也避免模型把它当成待办再探索一遍。
+            prompt += (
+                "\n\n编排器 worker 汇总（已确认的只读事实）：\n"
+                f"{worker_context}\n"
+                "直接据此规划与实现，不要重复探索这些内容。"
+            )
         recovery_notice = str(state.get("recovery_notice") or "").strip()
         if recovery_notice:
             prompt += f"\n\n上次运行中断的恢复提示：\n{recovery_notice}"
@@ -149,6 +155,8 @@ def make_planner_node(
             "retry": 0,
             "same_failure_count": 0,
             "last_failure_signature": "",
+            "review_same_failure_count": 0,
+            "review_failure_signature": "",
             "last_verification": {},
         }
 

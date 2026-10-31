@@ -29,16 +29,16 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
-from coding_agent.graph.plan import EXPLORE, IMPLEMENT, current_step_kind
-from coding_agent.graph.state import AgentState
-from coding_agent.llm.context import (
+from ubismart.graph.plan import EXPLORE, IMPLEMENT, current_step_kind
+from ubismart.graph.state import AgentState
+from ubismart.llm.context import (
     ContextBudget,
     is_context_length_error,
     summarize_messages,
     tighter_budget,
     trim_messages,
 )
-from coding_agent.llm.prompts import (
+from ubismart.llm.prompts import (
     DELEGATION_NOTE,
     DELEGATION_NOTE_DISABLED,
     DELEGATION_NOTE_NOT_EXPLORE,
@@ -46,7 +46,7 @@ from coding_agent.llm.prompts import (
     format_review_feedback,
     format_verification_feedback,
 )
-from coding_agent.session.recovery import retry_async
+from ubismart.session.recovery import retry_async
 
 BUDGET_EXHAUSTED_TEMPLATE = "（本步骤已达到工具调用上限 {limit} 轮，停止继续尝试。）"
 

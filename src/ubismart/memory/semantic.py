@@ -8,20 +8,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.memory.embeddings import (
+from ubismart.memory.embeddings import (
     EmbeddingError,
     EmbeddingProvider,
     build_embedder,
 )
-from coding_agent.memory.longterm import LayeredMemory, LongTermMemory
-from coding_agent.memory.vectors import (
+from ubismart.memory.longterm import LayeredMemory, LongTermMemory
+from ubismart.memory.vectors import (
     VectorStore,
     cosine,
     rrf_fuse,
 )
-from coding_agent.sandbox.fs import SandboxFsError
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.security.secrets import secret_kinds
+from ubismart.sandbox.fs import SandboxFsError
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.security.secrets import secret_kinds
 
 
 def _scope_memories(

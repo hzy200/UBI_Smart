@@ -32,14 +32,29 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from coding_agent.graph.state import AgentState
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.review import (
+from ubismart.graph.state import AgentState
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.review import (
     WARNING,
     ReviewFinding,
     ReviewResult,
     run_review,
 )
+
+
+def findings_signature(findings: list[dict[str, Any]]) -> str:
+    """把 blocking findings 压成稳定签名，用于「同一问题反复出现」检测。
+
+    只取结构字段（rule/location/message），排序后拼接；message 里可能带
+    文件路径但不含时间戳，足以区分「同一个问题」与「换了一个问题」。
+    """
+    parts = sorted(
+        f"{item.get('rule', '')}|{item.get('location', '')}|"
+        f"{item.get('message', '')}"
+        for item in findings
+        if str(item.get("severity", "")) == "blocking"
+    )
+    return "\n".join(parts)[:2_000]
 
 
 def make_review_node(
@@ -82,6 +97,24 @@ def make_review_node(
                 watermark=watermark,
                 summary="审查环境异常，本次没有完成代码审查。",
             )
-        return {"review": result.model_dump(), "review_watermark": result.watermark}
+        payload = result.model_dump()
+        signature = (
+            findings_signature(payload.get("findings") or [])
+            if result.blocked
+            else ""
+        )
+        previous = str(state.get("review_failure_signature") or "")
+        if signature and signature == previous:
+            count = int(state.get("review_same_failure_count", 0)) + 1
+        elif signature:
+            count = 1
+        else:
+            count = 0
+        return {
+            "review": payload,
+            "review_watermark": result.watermark,
+            "review_failure_signature": signature,
+            "review_same_failure_count": count,
+        }
 
     return review

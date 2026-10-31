@@ -4,7 +4,7 @@
 它持有图、沙箱与安全策略，把 LangGraph 的原始流翻译成语义化的领域事件。
 前端拿不到工具，也就无法绕过命令分级审批。
 
-实现按职责拆在包里，但 `coding_agent.runtime` 这个导入路径与公开符号保持不变：
+实现按职责拆在包里，但 `ubismart.runtime` 这个导入路径与公开符号保持不变：
 
     async for event in AgentRuntime(settings).run("列出文件", thread_id="x"):
         match event.type: ...

@@ -17,7 +17,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Protocol
 
-from coding_agent.config import Settings
+from ubismart.config import Settings
 
 
 class ScanUnavailable(RuntimeError):

@@ -24,10 +24,10 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
-from coding_agent.sandbox.pathguard import SandboxPathError, normalize_root
-from coding_agent.sandbox.snapshots import AGENT_STATE_DIRNAME
-from coding_agent.security.secrets import secret_kinds
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError
+from ubismart.sandbox.pathguard import SandboxPathError, normalize_root
+from ubismart.sandbox.snapshots import AGENT_STATE_DIRNAME
+from ubismart.security.secrets import secret_kinds
 
 MEMORY_RELPATH = f"{AGENT_STATE_DIRNAME}/memory.md"
 # 元数据侧车：来源、时间、过期。主文件保持纯文本一行一条，用户仍可手工编辑。

@@ -15,10 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.backend import build_sandbox
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
-from coding_agent.sandbox.pathguard import (
+from ubismart.config import Settings
+from ubismart.sandbox.backend import build_sandbox
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError
+from ubismart.sandbox.pathguard import (
     PathGuardError,
     SandboxPathError,
     ensure_inside,

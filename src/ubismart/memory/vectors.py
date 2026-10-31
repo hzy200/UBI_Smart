@@ -13,9 +13,9 @@ import posixpath
 from collections.abc import Iterable
 from typing import Any
 
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.sandbox.snapshots import AGENT_STATE_DIRNAME
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.snapshots import AGENT_STATE_DIRNAME
 
 VECTOR_RELPATH = f"{AGENT_STATE_DIRNAME}/memory.vectors.json"
 VECTOR_VERSION = 1

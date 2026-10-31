@@ -21,9 +21,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from coding_agent.platform.filelock import FileLock
-from coding_agent.security.secrets import redact_secrets
-from coding_agent.tools.artifacts import InterruptedArtifact
+from ubismart.platform.filelock import FileLock
+from ubismart.security.secrets import redact_secrets
+from ubismart.tools.artifacts import InterruptedArtifact
 
 # 单条结果最多保留多少字符；超出部分截断并标记，避免日志无限膨胀。
 MAX_RESULT_CHARS = 20_000

@@ -12,10 +12,10 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 
-from coding_agent.config import Settings
-from coding_agent.llm.ratelimit import GLOBAL_LIMITER
-from coding_agent.llm.router import ProviderRouter
-from coding_agent.platform.secrets_store import SecretStore
+from ubismart.config import Settings
+from ubismart.llm.ratelimit import GLOBAL_LIMITER
+from ubismart.llm.router import ProviderRouter
+from ubismart.platform.secrets_store import SecretStore
 
 
 class MissingApiKeyError(RuntimeError):

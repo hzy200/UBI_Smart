@@ -4,14 +4,14 @@
 反向拉起整个 build（会与 `graph.build -> orchestrator -> graph.state` 形成环）。
 """
 
-from coding_agent.graph.state import AgentState
+from ubismart.graph.state import AgentState
 
 __all__ = ["AgentState", "build_graph"]
 
 
 def __getattr__(name: str):
     if name == "build_graph":
-        from coding_agent.graph.build import build_graph
+        from ubismart.graph.build import build_graph
 
         return build_graph
     raise AttributeError(name)

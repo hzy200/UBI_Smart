@@ -13,7 +13,7 @@ from __future__ import annotations
 import fnmatch
 import posixpath
 
-from coding_agent.config import DEFAULT_READ_DENY_GLOBS
+from ubismart.config import DEFAULT_READ_DENY_GLOBS
 
 _ALLOWED_OVERRIDES = (
     ".env.example",

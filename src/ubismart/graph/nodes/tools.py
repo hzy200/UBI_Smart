@@ -22,29 +22,29 @@ from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
-from coding_agent.agents.explore import DelegateRunner, render_subagent_result
-from coding_agent.execution.context import tool_execution_context
-from coding_agent.graph.nodes.approve import tool_level
-from coding_agent.graph.plan import EXPLORE, current_step_kind
-from coding_agent.graph.state import AgentState
-from coding_agent.platform.concurrency import ConcurrencyGovernor
-from coding_agent.protocol.messages import last_human_text
-from coding_agent.sandbox.policy import APPROVED, AUTO, DENIED, DENY, CommandLevel
-from coding_agent.session.tool_journal import (
+from ubismart.agents.explore import DelegateRunner, render_subagent_result
+from ubismart.execution.context import tool_execution_context
+from ubismart.graph.nodes.approve import tool_level
+from ubismart.graph.plan import EXPLORE, current_step_kind
+from ubismart.graph.state import AgentState
+from ubismart.platform.concurrency import ConcurrencyGovernor
+from ubismart.protocol.messages import last_human_text
+from ubismart.sandbox.policy import APPROVED, AUTO, DENIED, DENY, CommandLevel
+from ubismart.session.tool_journal import (
     ToolJournal,
     replayed_artifact,
     unknown_result_artifact,
 )
-from coding_agent.tools.artifacts import (
+from ubismart.tools.artifacts import (
     CallArtifact,
     FileArtifact,
     ShellArtifact,
     pack,
     unpack,
 )
-from coding_agent.tools.delegate import DELEGATE_EXPLORE
-from coding_agent.tools.deps import DEPS_INSTALL
-from coding_agent.tools.files import (
+from ubismart.tools.delegate import DELEGATE_EXPLORE
+from ubismart.tools.deps import DEPS_INSTALL
+from ubismart.tools.files import (
     COPY_TOOL_NAME,
     DELETE_TOOL_NAME,
     EDIT_MANY_TOOL_NAME,
@@ -56,10 +56,10 @@ from coding_agent.tools.files import (
     RESTORE_TOOL_NAME,
     WRITE_TOOL_NAME,
 )
-from coding_agent.tools.git import GIT_ADD, GIT_COMMIT
-from coding_agent.tools.host_exec import HOST_EXEC_TOOL_NAME
-from coding_agent.tools.shell import SHELL_TOOL_NAME
-from coding_agent.tools.testrun import RUN_TESTS_TOOL
+from ubismart.tools.git import GIT_ADD, GIT_COMMIT
+from ubismart.tools.host_exec import HOST_EXEC_TOOL_NAME
+from ubismart.tools.shell import SHELL_TOOL_NAME
+from ubismart.tools.testrun import RUN_TESTS_TOOL
 
 # 这些工具接受 cwd 参数；模型没显式给出时，用图状态里的当前工作目录补上，
 # 保证工具跟着会话走，而不是固定在构造时的默认值。
@@ -249,7 +249,8 @@ def _delegate_unavailable(
         artifact = None
     elif not delegation_allowed:
         content = (
-            "当前任务未启用探索委派（仓库规模较小或委派策略关闭）；"
+            "当前运行未启用探索委派（仓库规模较小、委派策略关闭，"
+            "或本次任务已由编排 worker 覆盖）；"
             "请直接使用 file_read / search_code / find_files。"
         )
         artifact = None

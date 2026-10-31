@@ -22,10 +22,10 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
-from coding_agent.config import Settings
-from coding_agent.graph.plan import EXPLORE, UNKNOWN, VERIFY, align_kinds
-from coding_agent.graph.state import AgentState
-from coding_agent.session.steering import SteeringCommand, SteeringController
+from ubismart.config import Settings
+from ubismart.graph.plan import EXPLORE, UNKNOWN, VERIFY, align_kinds
+from ubismart.graph.state import AgentState
+from ubismart.session.steering import SteeringCommand, SteeringController
 
 # /add 的 role 与 direct 模式 plan kind 的映射：review 是只读审查，
 # 在单 agent 计划里按 explore 处理（不要求产生改动）。

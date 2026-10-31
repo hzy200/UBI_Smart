@@ -12,9 +12,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from coding_agent.llm.ratelimit import GLOBAL_LIMITER, RateLimitCoordinator
-from coding_agent.platform.concurrency import ConcurrencyGovernor, ResourceTimeout
-from coding_agent.session.recovery import TRANSIENT, classify_error
+from ubismart.llm.ratelimit import GLOBAL_LIMITER, RateLimitCoordinator
+from ubismart.platform.concurrency import ConcurrencyGovernor, ResourceTimeout
+from ubismart.session.recovery import TRANSIENT, classify_error
 
 
 class ProviderUnavailableError(RuntimeError):

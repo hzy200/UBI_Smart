@@ -10,10 +10,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from coding_agent.audit import AuditRecord
-from coding_agent.audit import models as audit_models
-from coding_agent.audit.logger import now_iso, sanitize_args, truncate
-from coding_agent.events import (
+from ubismart.audit import AuditRecord
+from ubismart.audit import models as audit_models
+from ubismart.audit.logger import now_iso, sanitize_args, truncate
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     ContextTrimmed,
@@ -30,6 +30,7 @@ from coding_agent.events import (
     StepStarted,
     SubAgentFinished,
     SubAgentStarted,
+    TaskBlocked,
     TaskGraphCreated,
     TaskGraphExtended,
     ToolCallFinished,
@@ -40,11 +41,11 @@ from coding_agent.events import (
     WorkflowRevised,
     WorkflowSelected,
 )
-from coding_agent.graph.nodes.approve import tool_level
-from coding_agent.protocol.messages import reasoning_of, text_of
-from coding_agent.sandbox.policy import classify
-from coding_agent.sandbox.snapshots import ACTION_RESTORE
-from coding_agent.tools.artifacts import (
+from ubismart.graph.nodes.approve import tool_level
+from ubismart.protocol.messages import reasoning_of, text_of
+from ubismart.sandbox.policy import classify
+from ubismart.sandbox.snapshots import ACTION_RESTORE
+from ubismart.tools.artifacts import (
     CallArtifact,
     FileArtifact,
     InterruptedArtifact,
@@ -52,11 +53,11 @@ from coding_agent.tools.artifacts import (
     SubAgentArtifact,
     parse_artifact,
 )
-from coding_agent.tools.delegate import DELEGATE_EXPLORE
-from coding_agent.tools.shell import SHELL_TOOL_NAME
+from ubismart.tools.delegate import DELEGATE_EXPLORE
+from ubismart.tools.shell import SHELL_TOOL_NAME
 
 if TYPE_CHECKING:
-    from coding_agent.runtime.stream import _StreamCtx
+    from ubismart.runtime.stream import _StreamCtx
 
 MUTATING_FILE_ACTIONS = frozenset(
     {
@@ -335,6 +336,29 @@ class EventMapMixin:
             finished_seen.add(key)
             yield from self._worker_events(result, ctx.thread_id, ctx.progress)
         ctx.progress["workers_emitted"] = len(results)
+        # custom 流没覆盖到的阻塞（例如直接调用节点、或收尾时批量置位）
+        # 在 updates 分支补齐；按 task_id 去重，避免边界重入重复发。
+        status = update.get("task_status") or {}
+        tasks_by_id = {
+            str(task.get("id", "")): task
+            for task in (update.get("tasks") or [])
+            if isinstance(task, dict)
+        }
+        blocked_seen = ctx.progress.setdefault("task_blocked_keys", set())
+        if isinstance(status, dict):
+            for task_id, value in status.items():
+                if value != "blocked" or task_id in blocked_seen:
+                    continue
+                blocked_seen.add(task_id)
+                task = tasks_by_id.get(task_id) or {}
+                yield TaskBlocked(
+                    task_id=str(task_id),
+                    role=str(task.get("role", "")),
+                    reason=str(
+                        task.get("blocked_reason")
+                        or "依赖未满足或调度限制"
+                    ),
+                )
         # 事件驱动 scheduler 在同一个节点里完成动态扩展，
         # 没有独立的 extend_tasks 更新可翻译。
         added = update.get("task_extensions_applied") or []
@@ -634,6 +658,16 @@ class EventMapMixin:
                 seen.add(key)
                 yield from self._worker_events(
                     result, ctx.thread_id, ctx.progress
+                )
+        elif kind == "task_blocked":
+            task_id = str(payload_data.get("task_id", ""))
+            seen = ctx.progress.setdefault("task_blocked_keys", set())
+            if task_id and task_id not in seen:
+                seen.add(task_id)
+                yield TaskBlocked(
+                    task_id=task_id,
+                    role=str(payload_data.get("role", "")),
+                    reason=str(payload_data.get("reason", "")),
                 )
 
     def _message_events(
