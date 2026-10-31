@@ -11,9 +11,9 @@ from uuid import uuid4
 
 import pytest
 
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.artifacts import ShellArtifact, unpack
-from coding_agent.tools.deps import (
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.artifacts import ShellArtifact, unpack
+from ubismart.tools.deps import (
     DEPS_INSTALL,
     DEPS_LIST,
     build_deps_tools,

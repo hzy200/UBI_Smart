@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
 
 pytestmark = pytest.mark.wsl
 

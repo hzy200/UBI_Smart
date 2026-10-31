@@ -12,12 +12,12 @@ import shlex
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from coding_agent.orchestrator.contracts import WorkerResult
-from coding_agent.orchestrator.implement import make_implement_runner
-from coding_agent.orchestrator.nodes import make_dispatch_node, make_survey_node
-from coding_agent.orchestrator.workflow import rule_workflow
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.snapshots import SnapshotStore
+from ubismart.orchestrator.contracts import WorkerResult
+from ubismart.orchestrator.implement import make_implement_runner
+from ubismart.orchestrator.nodes import make_dispatch_node, make_survey_node
+from ubismart.orchestrator.workflow import rule_workflow
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.snapshots import SnapshotStore
 
 
 class _SlowLLM:
@@ -132,6 +132,90 @@ def test_implement_worker_creates_a_clean_patch(require_wsl) -> None:  # noqa: A
         # worktree 已清理
         leftovers = sandbox.run(f"ls -A {shlex.quote(root)}/.agent/worktrees")
         assert not leftovers.stdout.strip()
+    finally:
+        sandbox.run(f"rm -rf {shlex.quote(root)}")
+
+
+@pytest.mark.wsl
+def test_second_write_wave_is_seeded_from_the_first(require_wsl) -> None:  # noqa: ANN001
+    sandbox = require_wsl
+    root = sandbox.run("mktemp -d /tmp/agent-sequential-XXXXXX").stdout.strip()
+    assert root
+    try:
+        setup = sandbox.run(
+            f"""
+            cd {shlex.quote(root)}
+            git init -q
+            git config user.email eval@example.invalid
+            git config user.name eval
+            mkdir -p app
+            printf 'VALUE = 1\\n' > app/sample.py
+            printf '.agent/\\n__pycache__/\\n' > .gitignore
+            git add -A
+            git commit -qm init
+            """,
+            cwd=root,
+        )
+        assert setup.ok, setup.render(500)
+
+        settings = sandbox.settings.model_copy(
+            update={"orchestrator_write_enabled": True}
+        )
+        first = make_implement_runner(
+            llm=_FakeLLM(old="VALUE = 1", new="VALUE = 2"),  # type: ignore[arg-type]
+            sandbox=sandbox,
+            root=root,
+            settings=settings,
+        )
+        first_result = asyncio.run(
+            first(
+                {
+                    "id": "wave-0",
+                    "role": "implement",
+                    "goal": "第一波",
+                    "write_scope": ["app/sample.py"],
+                    "stage": 0,
+                },
+                parent_request="第一波",
+                cwd=root,
+            )
+        )
+        assert first_result.status == "success", first_result.model_dump()
+        applied = sandbox.run(
+            f"git apply {shlex.quote(first_result.patch_path)}", cwd=root
+        )
+        assert applied.ok, applied.render(500)
+
+        second = make_implement_runner(
+            # old_string 只有第一波合并后才存在；种子没注入就会匹配失败。
+            llm=_FakeLLM(old="VALUE = 2", new="VALUE = 3"),  # type: ignore[arg-type]
+            sandbox=sandbox,
+            root=root,
+            settings=settings,
+        )
+        second_result = asyncio.run(
+            second(
+                {
+                    "id": "wave-1",
+                    "role": "implement",
+                    "goal": "第二波",
+                    "write_scope": ["app/sample.py"],
+                    "stage": 1,
+                    "seed_from_workspace": True,
+                    "baseline_paths": ["app/sample.py"],
+                },
+                parent_request="第二波",
+                cwd=root,
+            )
+        )
+
+        assert second_result.status == "success", second_result.model_dump()
+        assert second_result.files == ["app/sample.py"]
+        patch = sandbox.run(f"cat {shlex.quote(second_result.patch_path)}")
+        # 补丁以 seed 后的树为基准：只包含 2→3，不包含 1→2。
+        assert "-VALUE = 2" in patch.stdout
+        assert "+VALUE = 3" in patch.stdout
+        assert "-VALUE = 1" not in patch.stdout
     finally:
         sandbox.run(f"rm -rf {shlex.quote(root)}")
 

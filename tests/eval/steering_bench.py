@@ -45,14 +45,14 @@ from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 
-from coding_agent.audit import AuditLogger  # noqa: E402
-from coding_agent.config import Settings  # noqa: E402
-from coding_agent.events import RunFinished, SteeringApplied  # noqa: E402
-from coding_agent.graph.nodes.steering import (  # noqa: E402
+from ubismart.audit import AuditLogger  # noqa: E402
+from ubismart.config import Settings  # noqa: E402
+from ubismart.events import RunFinished, SteeringApplied  # noqa: E402
+from ubismart.graph.nodes.steering import (  # noqa: E402
     make_steering_step_node,
 )
-from coding_agent.graph.state import AgentState  # noqa: E402
-from coding_agent.runtime import AgentRuntime  # noqa: E402
+from ubismart.graph.state import AgentState  # noqa: E402
+from ubismart.runtime import AgentRuntime  # noqa: E402
 
 
 class _NullMemory:

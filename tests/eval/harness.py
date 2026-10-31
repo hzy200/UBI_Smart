@@ -33,9 +33,9 @@ from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
 
-from coding_agent.audit import AuditLogger
-from coding_agent.config import Settings
-from coding_agent.events import (
+from ubismart.audit import AuditLogger
+from ubismart.config import Settings
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     CostReport,
@@ -53,11 +53,11 @@ from coding_agent.events import (
     WorkerStarted,
     WorkflowSelected,
 )
-from coding_agent.runtime import AgentRuntime
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.delegate import DELEGATE_EXPLORE
-from coding_agent.tools.files import (
+from ubismart.runtime import AgentRuntime
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.delegate import DELEGATE_EXPLORE
+from ubismart.tools.files import (
     EDIT_TOOL_NAME,
     RESTORE_TOOL_NAME,
     WRITE_TOOL_NAME,
@@ -1536,7 +1536,7 @@ def eval_audit_dir() -> Path:
     于是审计静默写到 `D:\\home\\hong\\...` 去。这正是本仓库文档里反复提醒的
     "宿主侧与沙箱侧是两处，别混淆"。
     """
-    return Path(tempfile.gettempdir()) / "coding-agent-eval-audit"
+    return Path(tempfile.gettempdir()) / "ubismart-eval-audit"
 
 
 def _dirty_entries(porcelain: str, *, ignore: tuple[str, ...] = ()) -> list[str]:

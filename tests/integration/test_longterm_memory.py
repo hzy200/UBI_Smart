@@ -10,9 +10,9 @@ from uuid import uuid4
 
 import pytest
 
-from coding_agent.memory.longterm import MAX_FACTS, LongTermMemory, MemoryError
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.memory.longterm import MAX_FACTS, LongTermMemory, MemoryError
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
 
 pytestmark = pytest.mark.wsl
 

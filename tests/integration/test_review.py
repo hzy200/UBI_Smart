@@ -15,8 +15,8 @@ from uuid import uuid4
 
 import pytest
 
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.review import run_review
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.review import run_review
 
 pytestmark = pytest.mark.wsl
 
@@ -120,7 +120,7 @@ def test_linters_are_probed_not_assumed(require_wsl, workdir) -> None:
 
     本机实测两者都没有 —— 这时必须如实"没跑 linter"，而不是假装审过。
     """
-    from coding_agent.tools.review import available_linters
+    from ubismart.tools.review import available_linters
 
     _snapshot(require_wsl, workdir, SID_1, "a.py", "x = 1\n")
     _write(require_wsl, workdir, "a.py", "x = 2\n")

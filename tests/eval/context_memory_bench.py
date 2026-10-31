@@ -39,14 +39,14 @@ from langchain_core.messages import (  # noqa: E402
     ToolMessage,
 )
 
-from coding_agent.llm.context import (  # noqa: E402
+from ubismart.llm.context import (  # noqa: E402
     ContextBudget,
     summarize_messages,
     total_chars,
     total_tokens,
     trim_messages,
 )
-from coding_agent.memory.longterm import LongTermMemory  # noqa: E402
+from ubismart.memory.longterm import LongTermMemory  # noqa: E402
 
 GOAL = "修复 discount 计算，并保持旧接口兼容"
 CONSTRAINT = "不要修改 legacy/ 目录"
@@ -175,7 +175,7 @@ class _MemoryFs:
 
     def read_text(self, path: str, *, max_bytes: int) -> str:
         if path not in self.files:
-            from coding_agent.sandbox.fs import SandboxFsError
+            from ubismart.sandbox.fs import SandboxFsError
 
             raise SandboxFsError("not found")
         return self.files[path]

@@ -4,8 +4,8 @@ from collections.abc import Iterator
 
 import pytest
 
-from coding_agent.config import Settings, get_settings
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.config import Settings, get_settings
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 
 @pytest.fixture(autouse=True)
@@ -98,7 +98,7 @@ def _isolate_agent_data_dirs(tmp_path, monkeypatch) -> Iterator[None]:
         monkeypatch.delenv(name, raising=False)
 
     # 限流协调器是模块级单例，可能已被上一个测试/宿主配置指向真实文件。
-    from coding_agent.llm.ratelimit import GLOBAL_LIMITER
+    from ubismart.llm.ratelimit import GLOBAL_LIMITER
 
     GLOBAL_LIMITER.configure(str(tmp_path / "rate_limits.json"))
     GLOBAL_LIMITER.reset()

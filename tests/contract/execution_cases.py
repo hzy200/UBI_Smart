@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.execution import ExecutionRequest, ExecutionService
+from ubismart.execution import ExecutionRequest, ExecutionService
 
 
 def assert_execution_contract(

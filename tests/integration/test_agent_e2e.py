@@ -27,9 +27,9 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.config import Settings
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
 
 EVAL_DIR = Path(__file__).resolve().parents[1] / "eval"
 if str(EVAL_DIR) not in sys.path:

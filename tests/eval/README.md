@@ -301,6 +301,49 @@ python tests/eval/steering_bench.py --repeat 3 --delay-ms 50
 | `real` | 5 个完整标准库模块中的回归定位 | `baseline_real.json` | `python tests/eval/runner.py --suite real` |
 | `real_advanced` | 14 个隐藏需求/多回归真实代码任务（11 spec + 3 multi） | `baseline_real_advanced.json` | `python tests/eval/runner.py --suite real_advanced` |
 | `blind` | 5 个无可见测试、只给症状的盲测任务 | `baseline_blind.json` | `python tests/eval/runner.py --suite blind` |
+| `arch` | 2 个跨模块接口传播任务（重命名 / 参数贯通），隐藏测试判定 | 待建立 | `python tests/eval/runner.py --suite arch` |
+
+### 长文档指标
+
+文档任务没有“项目自带测试”可判定。`doc_metrics.py` 提供确定性的过程指标：
+
+- `coverage_metrics`：总页数、已读页、未读区间、覆盖率；
+- `citation_metrics`：citation 中带 path/anchor/quote 的比例；
+- `evidence_coverage`：claim 是否有 `path#anchor` 证据。
+
+手动跑真实文档（需要 WSL + API Key）：
+
+```bash
+# 确定性 judge（引用锚点/原文比例）
+python scripts/eval_documents.py --file docs/report.pdf --question "提炼关键结论" --judge
+# 额外调用模型逐条判断结论是否有证据；模型失败回退确定性
+python scripts/eval_documents.py --file docs/report.pdf --question "提炼关键结论" --judge --judge-llm
+```
+
+它输出覆盖率、未读区间、引用锚点比例与 token 用量；答案正确性仍需人工或
+独立 judge，不能把“读了全文”当成“答对了”。
+
+阈值校准（JSONL：`{"question","answer","sources","label":"pass|fail"}`）：
+
+```bash
+python scripts/calibrate_judge.py --input labeled.jsonl
+python scripts/calibrate_judge.py --input labeled.jsonl --llm
+```
+
+首轮真实评测记录见 [`docs/DEEP_WORKFLOW_EVAL.md`](../../docs/DEEP_WORKFLOW_EVAL.md)。
+
+千级数据集的构建/校验/切分（默认合成标注，只用于跑通流程）：
+
+```bash
+python scripts/build_judge_dataset.py --target 1000 \
+  --out dist/judge/all.jsonl --split-dir dist/judge
+# 真实标注：把 label_source 设为 human，再强制校验
+python scripts/build_judge_dataset.py --input labeled.jsonl \
+  --out dist/judge/human.jsonl --require-human
+
+# 150 条待人工审核队列（label 为空，不能直接校准）
+python scripts/export_judge_human_pack.py --out dist/judge/pending.jsonl
+```
 
 分套件不是分类癖：长程档的单任务成本是前两档的若干倍，混进全量会让整轮变得
 不可承受；它的波动量级也不同（任务更少、每个更长），混着报会掩盖差异。
@@ -816,3 +859,50 @@ python tests/eval/runner.py --verify-seeds    # 在真实沙箱里再确认一�
 - `verdict` 四态 —— `error` 表示**判定没跑起来**（沙箱不可用、编排层崩溃），
   它既不算通过也不算失败；`flaky`（仅在 `--repeat k>1` 时出现）表示**这个任务的
   结论取决于运气**，混进 passed 或 failed 都会掩盖这件事。
+
+## 论文联合阅读标尺（tests/eval/papers.py）
+
+回答的是：**多份长英文文档能否被完整覆盖、交叉引用并做横向比较**。
+与单篇 `scripts/eval_documents.py` 不同，这里要求每篇都出现、每篇都有证据、
+答案引用每篇，并限制答案长度（上下文管理）。
+
+```bash
+python tests/eval/papers.py --list
+python tests/eval/papers.py --case papers/cross_method --json
+python tests/eval/papers.py --all --judge-llm
+python tests/eval/papers.py --pdf-dir /path/to/pdfs --all --json
+
+# pytest 入口（真实 WSL + 真实模型）
+pytest -m llm tests/integration/test_paper_documents.py -q
+```
+
+- 语料默认读根目录 `pdf/`，**文件数量不写死**：每次运行扫描目录，新增/删除
+  PDF 会自动扩展/收缩用例；`--pdf-dir` 可指定其它目录；
+- 已知论文（U-Net / VMamba / DPS）按文件名附加概念与数值要点；未知 PDF
+  仍参与覆盖、逐篇引用与上下文管理检查，只是没有额外的概念组；
+- 用例：`cross_method`（方法对比）、`cross_numbers`（跨文档数值检索，
+  仅在目录中至少有已知论文时生成）、`cross_limits`（边界与组合风险）、
+  `report`（document → author → report_check，校验摘要/方法/实验/局限/创新
+  五个章节、全文档引用与报告长度）；
+- 判定是确定性的：覆盖全部文档、每篇 sources ≥ 1、答案引用每篇、已知概念
+  命中、答案长度上限、`quote_verified_ratio` 阈值、确定性 judge supported；
+- 引用跨度校验：每条证据的 quote 会在归一化文档文本中定位，记录
+  `quote_verified` / `quote_span`；章节号、作者名、`page=13-15` 等非解析器
+  锚点会回写成真实页码，无法定位的证据不进入下游引用集；
+- 章节感知切分：map-reduce 按标题切分，超长章节再分段并保留标题；
+- 结构化矩阵：每篇固定 `problem/method/algorithm/experiments/limitations/
+  innovations/conclusion` 槽位，空槽位用已验证 claim 回填；最终答案附紧凑
+  矩阵，树状归并后仍保留每篇结构；
+- 分层归并：`document_tree_fanout`（默认 5）逐层归并，单次输入受
+  `document_tree_input_chars` 限制，不再放大单次摘要；
+- 归属校验：`knowledge/attribution.py` 按句子检查“提到的文档”与引用路径，
+  错配计入 `attribution_issues`；评测默认要求 0 条；
+- 运行时会复制到临时工作区并使用稳定文件名（已知论文为
+  `UNet.pdf` / `VMamba.pdf` / `DPS.pdf`，未知论文为 `paper-N.pdf`），
+  避免路径空格影响引用解析；
+- `tests/unit/test_papers_eval.py` 不调用模型，用 2 篇/5 篇合成样本校验
+  “数量可变”与判定逻辑，可进 CI；PDF 缺失时跳过；
+- 10 篇（230 页）实测通过：`cross_method` 600 条证据、10/10 覆盖，
+  约 54 万输入/46 万输出 token、18 分钟；`report` 报告 10,023 字、
+  report_check 与 judge 通过、约 22 分钟。文档输入上限为 64，证据点上限
+  随文档数放大，最终 sources 按文档轮转。

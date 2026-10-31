@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 pytestmark = pytest.mark.wsl
 

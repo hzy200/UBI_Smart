@@ -54,25 +54,25 @@ from tasks_real import (  # noqa: E402
     TASKS_REAL_ADVANCED,
 )
 
-from coding_agent.codeintel.python_index import (  # noqa: E402
+from ubismart.codeintel.python_index import (  # noqa: E402
     build_index,
     related_test_files,
 )
-from coding_agent.codeintel.symbols import search_symbols  # noqa: E402
-from coding_agent.config import Settings, get_settings  # noqa: E402
-from coding_agent.llm.billing import billing_targets  # noqa: E402
-from coding_agent.llm.ratelimit import RateLimitCoordinator  # noqa: E402
-from coding_agent.llm.router import ProviderRouter  # noqa: E402
-from coding_agent.sandbox.policy import (  # noqa: E402
+from ubismart.codeintel.symbols import search_symbols  # noqa: E402
+from ubismart.config import Settings, get_settings  # noqa: E402
+from ubismart.llm.billing import billing_targets  # noqa: E402
+from ubismart.llm.ratelimit import RateLimitCoordinator  # noqa: E402
+from ubismart.llm.router import ProviderRouter  # noqa: E402
+from ubismart.sandbox.policy import (  # noqa: E402
     AUTO,
     CommandLevel,
     SessionPolicy,
     classify,
     parse_allow_rules,
 )
-from coding_agent.sandbox.wsl_exec import WslSandbox  # noqa: E402
-from coding_agent.security.write_policy import protected_write_reason  # noqa: E402
-from coding_agent.session.steering import SteeringCommand, SteeringController  # noqa: E402
+from ubismart.sandbox.wsl_exec import WslSandbox  # noqa: E402
+from ubismart.security.write_policy import protected_write_reason  # noqa: E402
+from ubismart.session.steering import SteeringCommand, SteeringController  # noqa: E402
 
 DEFAULT_DATASET = "coding-agent-full-v1"
 
@@ -189,7 +189,7 @@ def _ok(checks: dict[str, bool], detail: str = "") -> dict[str, Any]:
 
 
 def _mechanism_secret_redaction() -> dict[str, Any]:
-    from coding_agent.security.secrets import redact_secrets, secret_kinds
+    from ubismart.security.secrets import redact_secrets, secret_kinds
 
     text = "sk-" + "a" * 32 + " password=hunter2hunter2"
     redacted = redact_secrets(text)
@@ -354,7 +354,7 @@ def _mechanism_shell_policy() -> dict[str, Any]:
 
 
 def _mechanism_lsp_framing() -> dict[str, Any]:
-    from coding_agent.sandbox.wsl_exec import _parse_session_output
+    from ubismart.sandbox.wsl_exec import _parse_session_output
 
     raw = (
         b"noise\n"
@@ -413,8 +413,8 @@ def _mechanism_run_usage() -> dict[str, Any]:
 
 def _mechanism_unregistered_tool() -> dict[str, Any]:
     """未登记工具必须 fail-closed 到 L3，且 L3 不能被自动批准绕过。"""
-    from coding_agent.graph.nodes.approve import tool_level
-    from coding_agent.sandbox.policy import ASK, SessionPolicy
+    from ubismart.graph.nodes.approve import tool_level
+    from ubismart.sandbox.policy import ASK, SessionPolicy
 
     level = tool_level("totally_new_tool", {})
     policy = SessionPolicy(approval_mode="approve")
@@ -429,7 +429,7 @@ def _mechanism_unregistered_tool() -> dict[str, Any]:
 
 
 def _mechanism_path_guard() -> dict[str, Any]:
-    from coding_agent.platform.paths import PathGuardError, ensure_inside
+    from ubismart.platform.paths import PathGuardError, ensure_inside
 
     kept = ensure_inside("/home/u/ws/app/x.py", "/home/u/ws")
     try:
@@ -448,7 +448,7 @@ def _mechanism_path_guard() -> dict[str, Any]:
 
 def _mechanism_audit_chain() -> dict[str, Any]:
     """写两条记录 → 链校验通过；改一条内容 → 必须被发现。"""
-    from coding_agent.audit import (
+    from ubismart.audit import (
         AuditLogger,
         AuditRecord,
         verify_audit_files,
@@ -477,7 +477,7 @@ def _mechanism_audit_chain() -> dict[str, Any]:
 
 
 def _mechanism_archive_safety() -> dict[str, Any]:
-    from coding_agent.workspace.archive import ArchiveError, safe_extract
+    from ubismart.workspace.archive import ArchiveError, safe_extract
 
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "evil.zip"
@@ -498,7 +498,7 @@ def _mechanism_archive_safety() -> dict[str, Any]:
 
 
 def _mechanism_request_hmac() -> dict[str, Any]:
-    from coding_agent.agent_protocol import sign_context, verify_context
+    from ubismart.agent_protocol import sign_context, verify_context
 
     header = '{"user":"alice"}'
     signature = sign_context(header, "secret")
@@ -521,9 +521,9 @@ def _mechanism_delegate_wiring() -> dict[str, Any]:
     """
     from langchain_core.messages import AIMessage, HumanMessage
 
-    from coding_agent.graph.nodes.tools import make_tools_node
-    from coding_agent.tools.artifacts import SubAgentArtifact
-    from coding_agent.tools.delegate import DELEGATE_EXPLORE, build_delegate_tool
+    from ubismart.graph.nodes.tools import make_tools_node
+    from ubismart.tools.artifacts import SubAgentArtifact
+    from ubismart.tools.delegate import DELEGATE_EXPLORE, build_delegate_tool
 
     seen: list[dict[str, Any]] = []
     expected_calls = [{"name": "file_read", "ok": True}]
@@ -666,8 +666,8 @@ def _prepare_env(settings: Settings) -> tuple[WslSandbox, Any, str]:
     if not WslSandbox.available(settings.wsl_distro):
         raise RuntimeError(f"WSL 发行版 {settings.wsl_distro} 不可用")
     sandbox = WslSandbox(settings)
-    from coding_agent.sandbox.fs import SandboxFs
-    from coding_agent.sandbox.wsl_exec import resolve_workspace
+    from ubismart.sandbox.fs import SandboxFs
+    from ubismart.sandbox.wsl_exec import resolve_workspace
 
     fs = SandboxFs(sandbox, resolve_workspace(settings, sandbox))
     return sandbox, fs, eval_root(settings, sandbox)
@@ -833,7 +833,7 @@ def upload_dataset(client: Any, dataset: str, case_ids: list[str]) -> None:
     except Exception:  # noqa: BLE001 - 不存在则创建
         created = client.create_dataset(
             dataset_name=dataset,
-            description="CodingAgent 全功能评测：能力任务 + 机制探针",
+            description="UBISmart 全功能评测：能力任务 + 机制探针",
         )
         dataset_id = created.id
     existing_ids = {

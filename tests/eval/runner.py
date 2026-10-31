@@ -53,6 +53,7 @@ from harness import (  # noqa: E402
     task_root,
 )
 from tasks import TASKS  # noqa: E402
+from tasks_arch import TASKS_ARCH  # noqa: E402
 from tasks_full import TASKS_FULL  # noqa: E402
 from tasks_hard import TASKS_HARD  # noqa: E402
 from tasks_long import LONG_TASKS  # noqa: E402
@@ -62,9 +63,9 @@ from tasks_real import (  # noqa: E402
     TASKS_REAL_ADVANCED,
 )
 
-from coding_agent.config import get_settings  # noqa: E402
-from coding_agent.sandbox.fs import SandboxFs  # noqa: E402
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace  # noqa: E402
+from ubismart.config import get_settings  # noqa: E402
+from ubismart.sandbox.fs import SandboxFs  # noqa: E402
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace  # noqa: E402
 
 # 两个套件各有各的 canonical 基线。
 #
@@ -85,6 +86,8 @@ SUITES: dict[str, tuple[EvalTask, ...]] = {
     "real_advanced": tuple(TASKS_REAL_ADVANCED),
     # 盲测：没有可见测试，只给症状。
     "blind": tuple(TASKS_BLIND),
+    # 架构变更：跨模块接口传播，隐藏测试判定。
+    "arch": tuple(TASKS_ARCH),
 }
 
 
@@ -371,6 +374,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="即使这份数字不可比也写入 baseline（会标记 comparable=false）",
     )
+    parser.add_argument(
+        "--deep",
+        action="store_true",
+        help="开启 RFC-0009 深层工作流（架构索引/契约/波次/长文档）",
+    )
     args = parser.parse_args(argv)
 
     if args.list:
@@ -378,6 +386,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     settings = get_settings()
+    if args.deep:
+        settings = settings.model_copy(
+            update={
+                "deep_workflows_enabled": True,
+                "arch_workflow_enabled": True,
+                "knowledge_artifacts_enabled": True,
+                "interface_first_writes": True,
+                "orchestrator_sequential_writes": True,
+                "document_full_coverage": True,
+                "document_map_reduce": True,
+                # 评测任务很小，默认阈值会让 deep 任务走 direct；
+                # 显式放开写编排与规模阈值，才测得到新链路。
+                "orchestrator_write_enabled": True,
+                "orchestrator_min_files": 1,
+                "orchestrator_smart_entry": False,
+            }
+        )
     if not WslSandbox.available(settings.wsl_distro):
         print(f"WSL 发行版 {settings.wsl_distro} 不可用，评测无法进行。")
         return 2

@@ -11,10 +11,10 @@ from uuid import uuid4
 
 import pytest
 
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.snapshots import SnapshotStore
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.files import (
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.snapshots import SnapshotStore
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.files import (
     EDIT_TOOL_NAME,
     RESTORE_TOOL_NAME,
     WRITE_TOOL_NAME,
@@ -42,7 +42,7 @@ def ctx(require_wsl, workspace, settings):
 
 
 def _call(ctx, tool_name: str, **args):
-    from coding_agent.tools.artifacts import FileArtifact, unpack
+    from ubismart.tools.artifacts import FileArtifact, unpack
 
     text, artifact = unpack(ctx["tools"][tool_name].invoke(args))
     assert artifact is not None

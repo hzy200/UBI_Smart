@@ -20,11 +20,11 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from coding_agent.config import Settings, get_settings
-from coding_agent.graph.nodes.planner import TaskPlan
-from coding_agent.graph.nodes.replan import ReplanDecision
-from coding_agent.llm.deepseek import build_llm, with_json_output
-from coding_agent.llm.prompts import (
+from ubismart.config import Settings, get_settings
+from ubismart.graph.nodes.planner import TaskPlan
+from ubismart.graph.nodes.replan import ReplanDecision
+from ubismart.llm.deepseek import build_llm, with_json_output
+from ubismart.llm.prompts import (
     PLANNER_PERMISSION_WRITE,
     PLANNER_PROMPT,
     REPLAN_PROMPT,

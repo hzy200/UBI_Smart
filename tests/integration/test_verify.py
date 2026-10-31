@@ -12,9 +12,9 @@ from uuid import uuid4
 
 import pytest
 
-from coding_agent.graph.nodes.verify import make_verify_node
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.testrun import (
+from ubismart.graph.nodes.verify import make_verify_node
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.testrun import (
     VerifyResult,
     detect_test_command,
     run_verification,

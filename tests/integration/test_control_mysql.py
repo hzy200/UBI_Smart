@@ -18,15 +18,15 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-from coding_agent.control.accounts import SessionStore, UserStore
-from coding_agent.control.backup import backup, restore
-from coding_agent.control.credentials import CredentialStore
-from coding_agent.control.migrate import (
+from ubismart.control.accounts import SessionStore, UserStore
+from ubismart.control.backup import backup, restore
+from ubismart.control.credentials import CredentialStore
+from ubismart.control.migrate import (
     alembic_config,
     current_revision,
     upgrade,
 )
-from coding_agent.control.store import ControlStore
+from ubismart.control.store import ControlStore
 
 pytestmark = pytest.mark.mysql
 
@@ -35,7 +35,7 @@ def _url() -> str:
     url = os.environ.get("AGENT_TEST_MYSQL_URL", "").strip()
     if not url:
         # 测试便利：允许直接复用 .env 中配置的控制面测试库。
-        from coding_agent.config import Settings
+        from ubismart.config import Settings
 
         url = str(Settings().control_db_url or "").strip()
     if not url:

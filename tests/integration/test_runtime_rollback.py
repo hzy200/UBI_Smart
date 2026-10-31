@@ -12,11 +12,11 @@ from uuid import uuid4
 
 import pytest
 
-from coding_agent.audit import AuditLogger, read_records
-from coding_agent.runtime import AgentRuntime
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.artifacts import unpack
-from coding_agent.tools.files import EDIT_TOOL_NAME, WRITE_TOOL_NAME, build_file_tools
+from ubismart.audit import AuditLogger, read_records
+from ubismart.runtime import AgentRuntime
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.artifacts import unpack
+from ubismart.tools.files import EDIT_TOOL_NAME, WRITE_TOOL_NAME, build_file_tools
 
 pytestmark = pytest.mark.wsl
 

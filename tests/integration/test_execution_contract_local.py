@@ -7,9 +7,9 @@ import os
 import pytest
 from tests.contract.execution_cases import assert_execution_contract
 
-from coding_agent.config import Settings
-from coding_agent.execution import ExecutionService, SandboxExecutionBackend
-from coding_agent.sandbox.local_exec import LocalLinuxSandbox
+from ubismart.config import Settings
+from ubismart.execution import ExecutionService, SandboxExecutionBackend
+from ubismart.sandbox.local_exec import LocalLinuxSandbox
 
 pytestmark = [
     pytest.mark.execution,

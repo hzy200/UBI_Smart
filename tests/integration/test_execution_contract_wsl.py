@@ -8,7 +8,7 @@ import uuid
 import pytest
 from tests.contract.execution_cases import assert_execution_contract
 
-from coding_agent.execution import ExecutionService, SandboxExecutionBackend
+from ubismart.execution import ExecutionService, SandboxExecutionBackend
 
 pytestmark = [pytest.mark.wsl, pytest.mark.execution]
 

@@ -12,10 +12,10 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.artifacts import FileArtifact, unpack
-from coding_agent.tools.files import (
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.artifacts import FileArtifact, unpack
+from ubismart.tools.files import (
     COPY_TOOL_NAME,
     DELETE_TOOL_NAME,
     EDIT_MANY_TOOL_NAME,
@@ -622,7 +622,7 @@ def test_write_many_refuses_the_whole_batch_when_any_path_escapes(
     require_wsl: WslSandbox, workspace: str
 ) -> None:
     """全有或全无：越界时不能留下半成品工作区。"""
-    from coding_agent.sandbox.pathguard import SandboxPathError
+    from ubismart.sandbox.pathguard import SandboxPathError
 
     fs = SandboxFs(require_wsl, workspace)
 
@@ -636,7 +636,7 @@ def test_write_many_rejects_a_symlinked_escape(
     require_wsl: WslSandbox, workspace: str
 ) -> None:
     """宿主侧的词法校验挡不住符号链接，必须由脚本内的 realpath 校验兜住。"""
-    from coding_agent.sandbox.pathguard import SandboxPathError
+    from ubismart.sandbox.pathguard import SandboxPathError
 
     fs = SandboxFs(require_wsl, workspace)
     require_wsl.run(f"ln -sfn /etc {shlex.quote(workspace + '/link')}")

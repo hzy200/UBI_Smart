@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 
 @pytest.mark.wsl

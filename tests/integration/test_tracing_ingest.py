@@ -18,8 +18,8 @@ import pytest
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.config import Settings
-from coding_agent.runtime import AgentRuntime
+from ubismart.config import Settings
+from ubismart.runtime import AgentRuntime
 
 pytestmark = pytest.mark.wsl
 
@@ -129,7 +129,7 @@ def test_run_name_and_tags_are_carried(mock_langsmith) -> None:
 
     text = _captured_text()
     assert "probe-named-run" in text
-    assert "coding-agent" in text
+    assert "ubismart" in text
 
 
 # ---------------- 运行时的元数据确实挂到了图上 ----------------

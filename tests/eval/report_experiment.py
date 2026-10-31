@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from coding_agent.config import get_settings
+from ubismart.config import get_settings
 
 
 def _pct(values: list[float], q: float) -> float:

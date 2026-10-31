@@ -9,30 +9,30 @@ import time
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.execution.contracts import ExecutionRequest
-from coding_agent.execution.host_backend import HostExecutionBackend
-from coding_agent.execution.host_file_access import HostFileAccess
-from coding_agent.execution.service import ExecutionService
-from coding_agent.host_broker.acceptor import HostBrokerAcceptor
-from coding_agent.host_broker.consent import AutoConsent
-from coding_agent.host_broker.lifecycle import BrokerLifecycle
-from coding_agent.host_broker.op_journal import OpJournal
-from coding_agent.host_broker.ops import HostReadOnlyOps
-from coding_agent.host_broker.paths import HostPathPolicy
-from coding_agent.host_broker.policy import GrantStore, HostPolicy
-from coding_agent.host_broker.server import HostBrokerServer
-from coding_agent.host_broker.sync_client import SyncHostCaller
-from coding_agent.host_broker.toolchain import ToolchainRef, ToolchainRegistry
-from coding_agent.host_broker.transport import connect_tcp, start_tcp_server
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.artifacts import unpack
-from coding_agent.tools.files import (
+from ubismart.config import Settings
+from ubismart.execution.contracts import ExecutionRequest
+from ubismart.execution.host_backend import HostExecutionBackend
+from ubismart.execution.host_file_access import HostFileAccess
+from ubismart.execution.service import ExecutionService
+from ubismart.host_broker.acceptor import HostBrokerAcceptor
+from ubismart.host_broker.consent import AutoConsent
+from ubismart.host_broker.lifecycle import BrokerLifecycle
+from ubismart.host_broker.op_journal import OpJournal
+from ubismart.host_broker.ops import HostReadOnlyOps
+from ubismart.host_broker.paths import HostPathPolicy
+from ubismart.host_broker.policy import GrantStore, HostPolicy
+from ubismart.host_broker.server import HostBrokerServer
+from ubismart.host_broker.sync_client import SyncHostCaller
+from ubismart.host_broker.toolchain import ToolchainRef, ToolchainRegistry
+from ubismart.host_broker.transport import connect_tcp, start_tcp_server
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.artifacts import unpack
+from ubismart.tools.files import (
     LIST_TOOL_NAME,
     READ_TOOL_NAME,
     build_file_tools,
 )
-from coding_agent.tools.search import FIND_FILES, build_search_tools
+from ubismart.tools.search import FIND_FILES, build_search_tools
 
 pytestmark = [
     pytest.mark.host,

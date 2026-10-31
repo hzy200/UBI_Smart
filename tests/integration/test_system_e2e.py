@@ -31,8 +31,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.config import Settings
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 ROOT = Path(__file__).resolve().parents[2]
 

@@ -20,9 +20,9 @@ pytest.importorskip("textual", reason='TUI 测试需要 ui extras：pip install 
 
 from textual.widgets import Input, RichLog, TextArea
 
-from coding_agent.audit import AuditLogger, AuditRecord
-from coding_agent.audit.logger import now_iso
-from coding_agent.events import (
+from ubismart.audit import AuditLogger, AuditRecord
+from ubismart.audit.logger import now_iso
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     CostReport,
@@ -43,10 +43,10 @@ from coding_agent.events import (
     WorkerFinished,
     WorkerStarted,
 )
-from coding_agent.memory.sessions import SessionInfo
-from coding_agent.runtime import HistoryMessage
-from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
-from coding_agent.tui.app import AgentTuiApp
+from ubismart.memory.sessions import SessionInfo
+from ubismart.runtime import HistoryMessage
+from ubismart.sandbox.snapshots import RestoreResult, SnapshotEntry
+from ubismart.tui.app import AgentTuiApp
 
 PLAN = ["列出工作区文件", "读取 policy.py", "总结分级规则"]
 

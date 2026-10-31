@@ -17,8 +17,8 @@ from uuid import uuid4
 
 import pytest
 
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
 
 # `tests/eval` 不是包（刻意：它是独立脚本目录），按路径挂进来
 _EVAL_DIR = Path(__file__).resolve().parents[1] / "eval"

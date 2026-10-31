@@ -12,35 +12,35 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.audit import AuditLogger, AuditRecord
-from coding_agent.audit.logger import now_iso
-from coding_agent.config import Settings
-from coding_agent.servers import agent_server
-from coding_agent.workspace.browse import list_directory, read_text_file
+from ubismart import web
+from ubismart.audit import AuditLogger, AuditRecord
+from ubismart.audit.logger import now_iso
+from ubismart.config import Settings
+from ubismart.servers import agent_server
+from ubismart.workspace.browse import list_directory, read_text_file
 
 pytestmark = pytest.mark.smoke
 
 CORE_MODULES = (
-    "coding_agent",
-    "coding_agent.config",
-    "coding_agent.events",
-    "coding_agent.agent_protocol",
-    "coding_agent.protocol.event_transport",
-    "coding_agent.runtime",
-    "coding_agent.graph.build",
-    "coding_agent.orchestrator.graph",
-    "coding_agent.execution.service",
-    "coding_agent.execution.host_ops",
-    "coding_agent.sandbox.policy",
-    "coding_agent.sandbox.pathguard",
-    "coding_agent.tools.registry",
-    "coding_agent.control.store",
-    "coding_agent.control.protocol",
-    "coding_agent.workspace.browse",
-    "coding_agent.audit.logger",
-    "coding_agent.web.app",
-    "coding_agent.servers.agent_server",
+    "ubismart",
+    "ubismart.config",
+    "ubismart.events",
+    "ubismart.agent_protocol",
+    "ubismart.protocol.event_transport",
+    "ubismart.runtime",
+    "ubismart.graph.build",
+    "ubismart.orchestrator.graph",
+    "ubismart.execution.service",
+    "ubismart.execution.host_ops",
+    "ubismart.sandbox.policy",
+    "ubismart.sandbox.pathguard",
+    "ubismart.tools.registry",
+    "ubismart.control.store",
+    "ubismart.control.protocol",
+    "ubismart.workspace.browse",
+    "ubismart.audit.logger",
+    "ubismart.web.app",
+    "ubismart.servers.agent_server",
 )
 
 
