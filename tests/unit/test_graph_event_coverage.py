@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
+from pathlib import Path
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
@@ -24,6 +25,7 @@ from ubismart.config import Settings
 from ubismart.graph.build import build_graph
 from ubismart.runtime.event_map import EventMapMixin
 from ubismart.runtime.stream import StreamMixin
+from ubismart.sandbox.local_exec import LocalLinuxSandbox
 from ubismart.sandbox.wsl_exec import ExecResult, WslSandbox
 
 # 建图时检索工具要探测 rg。给固定应答，让本用例不依赖真实 WSL
@@ -66,17 +68,24 @@ _META_NODES = {"__start__", "__end__"}
 
 
 @pytest.fixture
-def real_graph(monkeypatch: pytest.MonkeyPatch):
+def real_graph(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """真实编译的图，只有沙箱探测被替换掉。"""
     monkeypatch.setattr(
         WslSandbox,
         "_exec",
         lambda self, script, *, wall, command="", **kwargs: _FAKE_PROBE,
     )
+    monkeypatch.setattr(
+        LocalLinuxSandbox,
+        "run",
+        lambda self, command, **kwargs: _FAKE_PROBE,
+    )
+    workspace = tmp_path / "agent-eval"
+    workspace.mkdir()
     settings = Settings(
         _env_file=None,
         deepseek_api_key="x",
-        wsl_workspace="/tmp/agent-eval",
+        wsl_workspace=str(workspace),
     )
     return build_graph(settings, checkpointer=MemorySaver())
 

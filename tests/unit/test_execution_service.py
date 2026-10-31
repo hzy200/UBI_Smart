@@ -116,7 +116,7 @@ def test_run_maps_exec_result_and_assigns_sequence(tmp_path) -> None:
             op_id="op1",
             kind="run",
             run_id="r1",
-            payload={"command": "echo hi", "cwd": "/ws"},
+            payload={"command": "echo hi", "cwd": str(tmp_path)},
         )
     )
     assert result.status == "ok"

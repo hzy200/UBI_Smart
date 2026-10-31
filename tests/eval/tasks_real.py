@@ -453,8 +453,9 @@ class StatisticsHiddenTest(unittest.TestCase):
             "项目里的分数模块最近出现回归：负分数的负号跑到了分母上，"
             "例如 `1/-2` 而不是 `-1/2`。请定位并修复。"
         ),
-        old="            if denominator < 0:",
-        new="            if False:",
+        # 3.11 与 3.12 的缩进不同；去掉前导空格后两版都只出现一次。
+        old="if denominator < 0:",
+        new="if False:",
         tests={
             "test_fractions.py": '''\
 import unittest
@@ -820,8 +821,9 @@ class StatisticsHiddenTest(unittest.TestCase):
             "不是最接近的那个。例如圆周率近似到最大分母 10 得到 3，"
             "而不是 22/7。请定位并修复。"
         ),
-        old="        if abs(bound2 - self) <= abs(bound1-self):",
-        new="        if abs(bound2 - self) > abs(bound1-self):",
+        # 3.11/3.12 都保留这一行；两版 limit_denominator 的收尾比较已不同。
+        old="        p0, q0, p1, q1 = 0, 1, 1, 0",
+        new="        p0, q0, p1, q1 = 0, 1, 1, 1",
         tests={
             "test_fractions.py": '''\
 import unittest
@@ -1038,8 +1040,9 @@ class StatisticsHiddenTest(unittest.TestCase):
             "把分数四舍五入到整数时，恰好一半的值没有按银行家舍入："
             "`5/2` 得到 3 而不是 2。请定位并修复。"
         ),
-        old="            elif remainder * 2 > self.denominator:",
-        new="            elif remainder * 2 >= self.denominator:",
+        # 3.11 用 self.denominator、3.12 用局部 d；截取到比较符即可通用。
+        old="if remainder * 2 < ",
+        new="if remainder * 2 <= ",
         hidden_tests={
             "test_fractions_hidden.py": '''\
 import unittest

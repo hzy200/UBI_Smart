@@ -153,12 +153,15 @@ def test_history_ignores_workspace_root(tmp_path) -> None:
 
 def test_registry_off_keeps_legacy_behavior(tmp_path) -> None:
     client = _app(tmp_path, workspace_registry=False)
+    # 注册表关闭时 A3 会创建 workspace。A3 是 Linux 语义，workspace 必须是
+    # POSIX 绝对路径；用 /tmp 下的唯一目录，避免 /srv 的写权限问题。
+    workspace = f"/tmp/ubismart-legacy-{tmp_path.name}"
     response = client.get(
         "/v1/snapshots",
         params={"thread_id": "t1"},
-        headers=_headers("/srv/ws/alice/alice/demo"),
+        headers=_headers(workspace),
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
 
 def test_registry_accepts_host_path_inside_allowed_root(

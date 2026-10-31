@@ -9,6 +9,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',
+    // 界面默认跟随浏览器语言；CI runner 是 en-US，会让中文断言失败。
+    // 固定成中文，保证测试与产品默认文案一致。
+    locale: 'zh-CN',
   },
   projects: [
     {

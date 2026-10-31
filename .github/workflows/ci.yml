@@ -166,13 +166,19 @@ jobs:
     # Windows 专属路径：路径守卫、A2L host broker、desktop 启动链。
     # 这些在 Linux runner 上要么 skip，要么走不到；单独一条 job 才有意义。
     runs-on: windows-latest
+    env:
+      # runner 控制台默认 cp1252；脚本里的中文提示会让子进程
+      # UnicodeEncodeError，直接以 UTF-8 运行。
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: 安装（开发 + 界面 + 控制面依赖）
-        run: pip install -e ".[dev,ui,web,db,documents,report]"
+        # tzdata：Windows 没有系统 zoneinfo 数据库，eval 的 DST 用例需要它。
+        run: pip install -e ".[dev,ui,web,db,documents,report]" tzdata
       - name: Windows 快反馈
         # 默认 addopts 是 `-n auto --dist loadfile`；Windows runner 上同样并行。
         run: pytest -m "not wsl and not wsl_env and not llm" -q
@@ -248,8 +254,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: 安装（开发 + 控制面数据库依赖）
-        run: pip install -e ".[dev,db]"
+      - name: 安装（开发 + 界面 + 控制面数据库依赖）
+        # `pytest -m mysql` 仍会导入全部测试模块；只装 dev+db 会因缺少
+        # fastapi 等在收集阶段就报错。
+        run: pip install -e ".[dev,ui,web,db,documents,report]"
       - name: 安装 MySQL 客户端
         # 备份/恢复用例直接调用 mysqldump/mysql，service container 只提供服务端。
         run: sudo apt-get update && sudo apt-get install -y default-mysql-client
