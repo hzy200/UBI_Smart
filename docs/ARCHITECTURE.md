@@ -4,7 +4,7 @@ doc_id: architecture
 title: 架构
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-31
 review_cadence: 拓扑、部署形态或状态字段变动时
 note: |
   第 6 节的 56 条不变量与第 7 节的取舍是本项目最硬的 L2 资产。
@@ -80,7 +80,7 @@ LLM 拿不到操作系统句柄，只能产出结构化调用 `{tool, args}`；�
 ```
 
 **依赖方向是单向的**，`tests/unit/test_architecture.py` 用 AST 扫描守住最关键的一条：
-`tui/`、`web/`、`desktop/` 若导入 `coding_agent.tools` 或 `coding_agent.sandbox` 直接失败。
+`tui/`、`web/`、`desktop/` 若导入 `ubismart.tools` 或 `ubismart.sandbox` 直接失败。
 
 为什么这条最重要：一旦前端能直接调工具，就会出现**绕过审批的第二条执行路径** ——
 Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性，不是代码风格。
@@ -113,6 +113,7 @@ Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性�
 | `sandbox/fs.py` | 沙箱内文件读写 + 路径双重校验 | 不做业务判断 |
 | `audit/` | JSONL 审计 | 不解析工具文本输出 |
 | `memory/` | checkpoint / 会话索引 / 长期记忆 | 不持有业务状态 |
+| `knowledge/` | 架构索引/简报/影响分析（RFC-0009） | 不执行工具、不直接改工作区；产物是确定性数据 |
 | `desktop/` | 桌面壳：local FastAPI + pywebview + 随机 token | 不实现业务逻辑；不直接调用工具 |
 | `access.py` | 会话访问模式（只读/审批写/自动写） | 不做执行判定（在 policy） |
 
@@ -413,6 +414,38 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
 文件/检索白名单，不绑定 shell/git/deps/test。`WslSandbox` 增加并发命令信号量与
 探测缓存锁；所有 worker 工具调用、合并、超时、scope 违规、取消均写审计。
 
+### 8.1 深层工作流与知识产物（RFC-0009，部分落地）
+
+当前 orchestrator 的强项是安全、恢复与并发分派；复杂长文档与跨模块架构理解曾受
+“15 页静默截断、12k 依赖上下文、4k repo map、无状态 explore”限制。
+[RFC-0009](rfc/0009-deep-workflows-and-knowledge-artifacts.md) 引入：
+
+- **已落地**：长文档全文覆盖与 `coverage` 报告、map-reduce 分批抽取、
+  author 的 `claim + quote + anchor` 证据上下文；
+  `knowledge/architecture.py` 的 `ArchIndex` / `ArchBrief` / `impact_analysis`
+  由 survey 构建并进入规划提示；`KnowledgeStore` 把 `DocIndex`/`ClaimStore`/
+  `ArchIndex`/`ArchBrief` 落到 `.agent/artifacts/knowledge/<run_id>/`，
+  `knowledge_read/search` 只读工具在 run 作用域内检索；
+  `ChangeContract` 把影响分析变成接口优先的 stage 与波次 gate（ADR-0031）；
+  `architecture_change` 动态图构建器按信号直接产出任务图、失败回退四模板
+  （ADR-0032）；知识检索支持 lexical/vector/hybrid，remote 仍走 memory 门禁
+  （ADR-0033）；`arch` 评测套件与文档覆盖/引用指标（ADR-0034）；
+  Python 增量索引、多语言/规模抽样与文档答案 judge（ADR-0035）；
+  跨语言调用图、内容寻址的跨机器索引缓存（ADR-0036）；
+  动态/反射/宏识别、宏调用边、可选 LSP definition 动态解析、缓存 TTL/LRU
+  淘汰与跨进程锁；judge 阈值校准、种子集与大规模构建/切分（ADR-0037）。
+- **文档侧进一步落地（ADR-0038）**：章节感知切分、quote 跨度校验、
+  每篇固定槽位证据矩阵（问题/方法/算法/实验/局限/创新/结论）、树状归并、
+  跨文档归属校验，以及 `document → author → report_check` 报告评测。
+  10 篇/230 页实测：覆盖 10/10、每篇 35–67 条证据、矩阵槽位 87–94%、
+  归属错配 0；单次约 58–60 万输入/47–55 万输出 token，19–24 分钟，
+  因此矩阵默认关闭、按需开启。
+- **未落地**：编译器级宏展开、LSP 调用层级/类型推断、强一致分布式锁、
+  真实超大规模人工标注；claim 级语义归属与语义 judge 校准仍未完成。
+
+总开关 `AGENT_DEEP_WORKFLOWS_ENABLED` 默认关闭；关闭时上述路径不生效。
+文档矩阵另由 `AGENT_DOCUMENT_MATRIX_ENABLED`（默认关闭）控制。
+
 ## 9. 并发与进程模型
 
 ### 单 runtime
@@ -682,7 +715,7 @@ P2/P3 核心（写/快照/AppContainer exec）已落地；revision、企业分�
   单实例保留内存适配器。
 - **A2→A3 内部 API**：`/v1/runs|stream|resume|resume_steering|steer|approvals|
   status|history`，Bearer 内部 token + base64 `X-Agent-Context`；运行生命周期
-  可走独立 `coding-agent-agent` 进程，未配置时仍同进程。Phase D 增加
+  可走独立 `ubismart-agent` 进程，未配置时仍同进程。Phase D 增加
   `/v1/meta`（版本/能力握手）、`/v1/cancel_all` 与 `/v1/shutdown`。
 
 对外控制 API 仍以现有 `/api/*` 为基线；事件唯一契约仍是 `events.py`（28 个领域

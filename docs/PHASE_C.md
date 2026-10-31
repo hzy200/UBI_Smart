@@ -17,7 +17,7 @@ C2/C3 的执行路径代理**：既有工具仍按 `sandbox.run() -> ExecResult`
 
 ## 1. 契约
 
-`src/coding_agent/execution/`：
+`src/ubismart/execution/`：
 
 | 对象 | 作用 |
 |---|---|

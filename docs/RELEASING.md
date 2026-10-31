@@ -21,7 +21,7 @@ review_cadence: 发版方式、兼容策略或部署拓扑变动时
 | 产物 | 来源 | 说明 |
 |---|---|---|
 | 前端发布包 | `dist/frontend/<version>/` | `index.html`、`admin/index.html`、`sw.js`、`manifest.webmanifest`、`static/`、`manifest.json`、`SHA256SUMS` |
-| 控制面数据库 | 部署侧 MySQL | 发布前执行 `python -m coding_agent.control.migrate --backup`；生产关闭 auto_create |
+| 控制面数据库 | 部署侧 MySQL | 发布前执行 `python -m ubismart.control.migrate --backup`；生产关闭 auto_create |
 | 运行时配置 | 部署侧 `/config.json` | 从 `config.example.json` 复制，填 `apiBaseUrl` / `authMode` / SSE 参数 |
 | API | A2 服务 | `/api/v1/*`（当前）、`/api/*`（兼容窗口，带 `Deprecation`） |
 | 回退入口 | A2 `/` + `/static` | 包内 `web/static` 快照，默认开启 |
@@ -57,14 +57,14 @@ CI 的 `frontend` job 生成并校验该目录，上传为 `frontend-release` ar
 前后端**独立升版**：
 
 - 前端：`frontend/src/version.ts` 与 `package.json` 必须一致；
-- 后端：`pyproject.toml` 从 `coding_agent.__version__` 动态读取，只有一处；
+- 后端：`pyproject.toml` 从 `ubismart.__version__` 动态读取，只有一处；
 - 不再要求前后端版本号相等；`scripts/check_version.py` 在 CI/Makefile 校验上述两组；
 - 前端版本必须 `>= MIN_FRONTEND_VERSION`；
 - API 版本由 `web/version.py` 的 `WEB_API_VERSION` 决定，当前 `v1`；
 - `MIN_API_VERSION`（当前 `v0`）表示仍在兼容窗口内的最旧 API 版本。
 
 **Windows 安装包也吃后端版本**：`build_installer.ps1` 从
-`coding_agent.__version__` 读出来传给 ISCC（`/DAppVersion=`），`.iss` 里只有
+`ubismart.__version__` 读出来传给 ISCC（`/DAppVersion=`），`.iss` 里只有
 `{#AppVersion}` 占位符。这条链路由 `scripts/check_installer.py` 守着 ——
 安装包版本与 `__version__` 漂移会直接让 CI 红。
 
@@ -74,7 +74,7 @@ CI 的 `frontend` job 生成并校验该目录，上传为 `frontend-release` ar
 conda activate agent
 
 # 前端构建与类型
-cd src/coding_agent/web/frontend
+cd src/ubismart/web/frontend
 node node_modules/typescript/bin/tsc --noEmit
 node esbuild.mjs
 node test.mjs && node test-dom.mjs
@@ -104,7 +104,7 @@ python scripts/gen_contracts.py --check
 
 1. **构建**：生成 `dist/frontend/<version>/`，保留上一版目录；
 2. **迁移数据库**：先备份，再执行
-   `python -m coding_agent.control.migrate --backup`；迁移失败不发布前端；
+   `python -m ubismart.control.migrate --backup`；迁移失败不发布前端；
 3. **发布前端**：先上 hash 资源与 `admin/` 静态文件，再切
    `index.html` / `config.json`；
 4. **灰度**：先让一个内部来源访问新前端与 `/admin`，观察
@@ -165,7 +165,7 @@ python scripts/check_installer.py
 构建脚本没有写死版本、`PrivilegesRequired=lowest`、卸载段不删
 `%LOCALAPPDATA%`、`.iss` 引用的文件与图标存在。
 
-产物是 `dist/CodingAgent-Setup.exe`。**没有 CI 签名链路**，只有本地
+产物是 `dist/UBISmart-Setup.exe`。**没有 CI 签名链路**，只有本地
 `signtool`（在 PATH 上时才生效）；没有签名证书时明确当作"内部构建"发布，
 不要对外宣称已签名。
 

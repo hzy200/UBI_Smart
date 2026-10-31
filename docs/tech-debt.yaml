@@ -6,7 +6,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-28
+last_reviewed: 2026-10-31
 review_cadence: 每次发版前过一遍；超过 due 的条目必须在 PR 里说明
 
 items:
@@ -158,7 +158,7 @@ items:
     owner: 项目作者
     due: 已结清
     do_not: |
-      不要在 orchestrator 里写 `import coding_agent.graph.build`。
+      不要在 orchestrator 里写 `import ubismart.graph.build`。
       不要把 `scheduler_plan.py` 里的纯函数搬回去 —— 它们回到 `scheduler.py`
       就等于把环重新焊上。
       注意包级环与模块级环不是一回事：折叠成包之后 `graph ⇄ orchestrator`
@@ -431,7 +431,7 @@ items:
     due: 出现多人协作同一工作区的实际需求时
     do_not: 不要让 ACL 间接授予执行/写入；绑定会话仍必须校验 workspace.owner
 
-  - id: TD-032
+  - id: TD-048
     title: Webhook 签名 secret 在控制面数据库明文保存
     where: control/webhooks.py, control/schema.py
     why_now: 出站投递必须用 secret 计算 HMAC，无法只存哈希；本轮没有引入
@@ -444,6 +444,206 @@ items:
     due: 控制面数据库对外开放或共享给非运维角色前
     do_not: 不要把 secret 放进日志、Webhook 列表响应或前端 localStorage
 
+  # ------------------------------------------------------------------
+  # 编排 harness 演进待办（2026-10-30 登记；细节见 docs/rfc/0006 与各条 where）
+  # ------------------------------------------------------------------
+
+  - id: TD-035
+    title: 编排入口只看仓库规模，不看请求复杂度
+    status: 已偿还 2026-10-30（请求级 smart entry；AGENT_ORCHESTRATOR_SMART_ENTRY）
+    where: runtime/core.py, agents/policy.py
+    why_now: |
+      `execution_mode` 只由 `file_count >= orchestrator_min_files` 决定。
+      大型仓库里的单文件修改、typo 修复也会先付 survey + 决策成本；
+      当前没有"请求级"的快速 direct 判定。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 临时调高 `AGENT_ORCHESTRATOR_MIN_FILES`，代价是中型仓库失去编排
+    owner: 项目作者
+    due: 收集到足够请求样本、能定义高置信 direct 规则时
+    do_not: 不要用业务关键词黑名单硬编码；不要把"没认出"的请求默认判成 direct
+
+  - id: TD-036
+    title: survey 无条件构建 repo_map
+    status: 已偿还 2026-10-30（repo_map 延迟构建；默认关闭，AGENT_ORCHESTRATOR_REPO_MAP_LAZY）
+    where: orchestrator/survey.py
+    why_now: |
+      全仓 Python AST 扫描发生在 workflow 选择之前；若最终选 direct，
+      这次扫描完全白付。大仓库冷启动时尤其明显。
+    debt_type: 性能
+    severity: medium
+    workaround: 可设 `AGENT_REPO_MAP_CHARS=0` 关闭，但 worker 也失去结构摘要
+    owner: 项目作者
+    due: 大仓库冷启动成为瓶颈时
+    do_not: 不要让 `plan_tasks` 依赖一个从未构建过的 repo_map；延迟构建后要补失败兜底
+
+  - id: TD-037
+    title: 决策/规划未做模型分层，画像整字典注入
+    status: 已偿还 2026-10-30（planner/角色模型 + 画像裁剪；新模型字段默认空）
+    where: orchestrator/subgraph.py, workflow.py, plan.py, graph/build.py
+    why_now: |
+      select_workflow / plan_tasks 用主模型，且把整个 `repo_summary`
+      （含 repo_map 与最多 50 条文档/图片清单）直接格式化进提示。
+      成本与延迟都可以用更便宜的模型 + 裁剪画像降下来。
+    debt_type: 能力缺口
+    severity: low
+    workaround: 目前只能整体换主模型（会同时削弱 act/respond）
+    owner: 项目作者
+    due: 成本成为瓶颈、且有可对比评测集时
+    do_not: 不要换模型却不同步跑 `make agent-e2e`；不要把 repo_map 从 worker 任务里删掉
+
+  - id: TD-038
+    title: 主图 delegate 与编排 worker 的预算互不相干
+    status: 已偿还 2026-10-30（orchestrated 下禁用 inline delegate）
+    where: runtime/core.py, agents/policy.py, graph/nodes/tools.py
+    why_now: |
+      orchestrated 模式下 `delegate_explore` 仍绑定在主模型上，
+      且 `delegation_policy` 独立按仓库规模给 2/4/6 次预算；
+      fan-in 之后主 agent 可能把同一片代码再探索一遍。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 可设 `AGENT_EXPLORE_ENABLED=false` 全局关闭，direct 路径也一起失去委派
+    owner: 项目作者
+    due: 下一次做成本 A/B 时
+    do_not: 不要只在前端隐藏 delegate 工具而保留执行路径
+
+  - id: TD-039
+    title: 任务重试不区分确定性失败
+    status: 已偿还 2026-10-30（is_retryable；确定性失败不重试）
+    where: orchestrator/scheduler_run.py, orchestrator/scheduling.py
+    why_now: |
+      `finalize` 对任何 failed 都按 `orchestrator_task_retries` 重试；
+      "没有 write_scope""git 工作区不干净""runner 未配置"这类确定性失败
+      会白白再烧一次时间和 token。
+    debt_type: 能力缺口
+    severity: low
+    workaround: 可设 `AGENT_ORCHESTRATOR_TASK_RETRIES=0`
+    owner: 项目作者
+    due: 下一次统计无效重试成本时
+    do_not: 不要把所有 failed 一刀切成不重试；瞬时错误仍需重试
+
+  - id: TD-040
+    title: implement 完成后的下游接线不完整
+    status: 已偿还 2026-10-30（implement 下游依赖改为并集）
+    where: orchestrator/scheduler_plan.py
+    why_now: |
+      `wire_implement_dependents` 只在 test/review 的 `depends_on` 为空时
+      才挂到 implement 之后。模型若给了一个 explore 依赖，review 可能
+      看到的是合并前状态。
+    debt_type: 已知缺陷
+    severity: medium
+    workaround: 提示模型显式把 implement 写进 review/test 的 depends_on
+    owner: 项目作者
+    due: 下一次编排写任务回归时
+    do_not: 不要直接覆盖模型给出的依赖；应当做并集去重
+
+  - id: TD-041
+    title: implement 合并批次粒度过粗
+    status: 已偿还 2026-10-30（增量合并，默认关闭；AGENT_ORCHESTRATOR_INCREMENTAL_MERGE）
+    where: orchestrator/merge_queue.py, orchestrator/scheduler_run.py, orchestrator/merge.py
+    why_now: |
+      scheduler 只在"没有任何 implement 在飞"时 flush。一个慢 worker
+      会阻塞同批已完成补丁的合并，并连带阻塞 test/review 依赖方。
+      `merge_implement_patches_atomic` 本来就按共享文件的连通分量独立
+      留快照/提交/回滚，说明"整批等待"是调度层约束，不是合并层约束。
+      方案与回滚见 `docs/rfc/0006-incremental-implement-merge.md`。
+    debt_type: 架构
+    severity: medium
+    workaround: 减少并行 implement 数（会牺牲吞吐）
+    owner: 项目作者
+    due: RFC-0006 批准后
+    do_not: 不要在拿不到补丁真实路径时提前合并；不要改变 allow_overlap 的整批 3-way 语义
+
+  - id: TD-042
+    title: 任务图校验"全有或全无"
+    status: 部分偿还 2026-10-30（一次带错误反馈的修复，默认关闭；部分任务保留未做）
+    where: orchestrator/graph.py, orchestrator/plan.py
+    why_now: |
+      `validate_tasks` 任一非结构性错误（角色不合法、scope 重叠、超限）
+      都会把整张图降级成单个 explore/implement。模型给出 5 个好任务 +
+      1 个拼写错误时，全部作废。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 重跑一次；提高 max_tasks 无效
+    owner: 项目作者
+    due: 需要提升编排成功率时
+    do_not: 不要对结构错误（环、重复 id、依赖缺失）做部分采纳；不要绕过 host 校验
+
+  - id: TD-043
+    title: 不支持顺序写波次（implement 不能依赖 implement）
+    status: 已偿还 2026-10-30（顺序写，默认关闭；AGENT_ORCHESTRATOR_SEQUENTIAL_WRITES）
+    where: orchestrator/graph.py, orchestrator/plan.py, orchestrator/implement.py
+    why_now: |
+      校验禁止 implement 互相依赖；且 `git worktree add --detach HEAD`
+      看不到上一波合并后的未提交改动。真实"先重构、再加功能"只能退回
+      主 agent 串行执行。顺序写需要先决定工作区基线注入方案，单独 RFC。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 交给主 agent 串行完成，失去并发编排
+    owner: 项目作者
+    due: RFC-0007（待写）批准后
+    do_not: 不要为了顺序写自动 commit；不要用"主工作区串行"替代 worktree 隔离
+
+  - id: TD-044
+    title: 编排失败不能回流到 worker
+    status: 已偿还 2026-10-30（有界修复轮，默认关闭；AGENT_ORCHESTRATOR_FIX_ROUNDS）
+    where: graph/routing.py, graph/build.py, orchestrator/workflow.py
+    why_now: |
+      orchestrator 子图跑完就交回父图；verify 失败后仍由主 agent repair，
+      无法再次派发 implement worker。`pending_verification` 只触发验证，
+      不触发重新编排。
+    debt_type: 能力缺口
+    severity: low
+    workaround: 无（只能靠主 agent 自己修）
+    owner: 项目作者
+    due: 需要提升编排写任务修复率时
+    do_not: 不要在 verify 失败时无条件重入；必须限轮次、带失败签名并同步递归上限
+
+  - id: TD-045
+    title: fan-in 回灌可能诱导重复探索
+    status: 已偿还 2026-10-30（fan-in 头部禁止重复探索）
+    where: graph/nodes/planner.py, orchestrator/fanin.py
+    why_now: |
+      `parallel_readonly` 的汇总没有统一的"事实已确认、不要重复探索"提示；
+      `worker_context` 被直接拼进 user request，主 agent 容易重新探索。
+    debt_type: 能力缺口
+    severity: low
+    workaround: 在请求里手写"不要重复探索"
+    owner: 项目作者
+    due: 做一次重复探索率统计后
+    do_not: 不要把子智能体 transcript 写回主历史；不要把 worker 结论伪装成用户指令
+
+  - id: TD-046
+    title: 调度与事件的可观测性缺口
+    status: 已偿还 2026-10-30（EWMA 口径 / TaskBlocked / prune 一次 / 去除双重重试）
+    where: orchestrator/scheduler_run.py, orchestrator/scheduling.py, events.py
+    why_now: |
+      EWMA 把失败/早停的低用量样本也算进去，会低估预留；只有
+      worker_started/finished/throttled 事件，没有 task_ready/blocked/merge；
+      `prune_orphan_worktrees` 每个 checkpoint 边界都跑；结构化调用存在
+      `with_retry` + `retry_async` 双重重试。
+    debt_type: 可观测性
+    severity: low
+    workaround: 看审计与 fan-in handoff；调大 checkpoint_every 减少边界
+    owner: 项目作者
+    due: 前端需要解释"为什么没跑"或成本再次超预期时
+    do_not: 不要为新事件牺牲调度热路径；不要只改 EWMA 而不跑预算回归
+
+  - id: TD-047
+    title: author 写范围未强制、同步工具不可取消、递归无兜底
+    status: 部分偿还 2026-10-30（author write_scope、递归错误文案；to_thread 取消仍未做）
+    where: orchestrator/document_workers.py, agents/explore.py, orchestrator/implement.py, runtime/stream.py
+    why_now: |
+      author 的 `write_scope` 只是声明，实际边界靠 report_output_dir；
+      子智能体/worker 的工具走 `asyncio.to_thread`，取消/超时只能丢结果；
+      `GraphRecursionError` 目前只作为 RunFailed 报出，没有可操作收尾。
+    debt_type: 已知缺陷
+    severity: low
+    workaround: 保持 `AGENT_REPORT_ALLOW_ANY_PATH=false`；保留递归余量
+    owner: 项目作者
+    due: 分别评估（author 边界优先）
+    do_not: 不要让 author 绕过 write_scope；不要在没有 async 执行后端时宣称工具可取消
+
 # ===========================================================================
 paid_off:
   - id: TD-019
@@ -453,7 +653,7 @@ paid_off:
       （文件写、git add 等），未知脚本/包装器必须人工确认。回归覆盖
       `some-unknown-tool`、`python3 -c`、`xargs`。
     regression: tests/unit/test_policy.py
-    see: src/coding_agent/sandbox/policy.py
+    see: src/ubismart/sandbox/policy.py
 
   - id: TD-028
     title: A2 没有可抓取指标与结构化日志
@@ -462,12 +662,12 @@ paid_off:
       支持独立抓取；AGENT_LOG_FORMAT=json 统一字段；新增 Prometheus 告警基线
       与 docs/OBSERVABILITY.md。
     regression: tests/unit/test_observability.py
-    see: src/coding_agent/observability.py、packaging/prometheus/
+    see: src/ubismart/observability.py、packaging/prometheus/
 
   - id: TD-029
     title: 控制面备份只有手工脚本，没有调度与演练基线
     resolved: 2026-10-28
-    how: CodingAgentControl --backup + systemd timer（每天 03:30、保留 14 份）；
+    how: UBISmartControl --backup + systemd timer（每天 03:30、保留 14 份）；
       docs/DATABASE.md 定义 RPO 24h/RTO 1h；新增 0011→0012 跨版本迁移用例，
       runbook RB-017 记录演练。
     regression: tests/unit/test_control_migrations.py、pytest -m mysql
@@ -491,7 +691,7 @@ paid_off:
       UPDATE；结算/过期清理改为条件 DELETE 成功后再扣减；并发测试覆盖
       超额预留、重复结算、重复清理与用量累加。
     regression: tests/unit/test_quota_usage.py
-    see: src/coding_agent/control/store/usage.py
+    see: src/ubismart/control/store/usage.py
 
   - id: TD-024
     title: 租约续期依赖 SSE 事件，/cancel 不终止已卡住的同步工具
@@ -500,7 +700,7 @@ paid_off:
       登记在飞进程并提供 `cancel_active()`；runtime 收到 `/cancel` 时终止进程；
       proxy 在流结束/断开时兜底调用 on_terminal，避免租约被心跳永久续着。
     regression: tests/unit/test_run_leases.py、tests/unit/test_sandbox_timeout_cleanup.py
-    see: src/coding_agent/control/leases.py、src/coding_agent/sandbox/wsl_exec.py
+    see: src/ubismart/control/leases.py、src/ubismart/sandbox/wsl_exec.py
 
   - id: TD-020
     title: "`command` 内建与 git 只读子命令可绕过命令分级"
@@ -510,7 +710,7 @@ paid_off:
       按参数区分读写，`-c/--config-env/--exec-path` 升 L3；rm 拆分 flag、
       find -exec、`git push +ref`、PATH/LD_PRELOAD 前缀均升 L3；`\;` 不再被拆段。
     regression: tests/unit/test_policy.py
-    see: src/coding_agent/sandbox/policy.py
+    see: src/ubismart/sandbox/policy.py
 
   - id: TD-021
     title: 工作区导入/上传任务裸 create_task 可能被 GC
@@ -518,7 +718,7 @@ paid_off:
     how: task 存入 `job["_task"]` 保持强引用，加 1h 超时与 done callback 兜底终态；
       staging/workdir 留给 `_load_jobs` 在重启时清理。
     regression: tests/unit/test_workspace_import_a3.py
-    see: src/coding_agent/agent_server_routes/imports.py
+    see: src/ubismart/servers/agent_server_routes/workspace_import.py
 
   - id: TD-022
     title: vendored DOMPurify 3.1.6 已知 XSS 绕过且无 SRI
@@ -526,7 +726,7 @@ paid_off:
     how: 升级 DOMPurify 3.3.2 / marked 18.1.2；四个 vendor script 加
       integrity+crossorigin；vendor README 记录版本/来源/SHA-256；新增 SRI 单测。
     regression: tests/unit/test_web_frontend_assets.py
-    see: src/coding_agent/web/static/vendor/README.md
+    see: src/ubismart/web/static/vendor/README.md
 
   - id: TD-018
     title: 缺少 Playwright 真实浏览器 E2E
@@ -551,7 +751,7 @@ paid_off:
       可用 AGENT_SNAPSHOT_MANIFEST_DIR 重定向到工作区外）；恢复时校验，
       `.absent` 以清单为准。shell 仍可删除快照，但恢复会失败而不是静默还原。
     regression: tests/unit/test_snapshots.py（校验和、篡改拒绝、absent 清单）
-    see: src/coding_agent/sandbox/snapshots.py
+    see: src/ubismart/sandbox/snapshots.py
 
   - id: TD-001
     title: runtime._stream 是最大的函数（623 行 / CC 114）
@@ -604,3 +804,36 @@ paid_off:
     due: 多实例部署或需要密钥轮换审计时
     do_not: 不要把明文 key 写进租户 JSON、.env 或前端 localStorage；
       不要让各实例使用不同主密钥
+
+  - id: TD-049
+    title: 长 PDF 默认只读前 15 页（已报告覆盖区间）
+    where: orchestrator/document_workers.py
+    why_now: `document_read_pages_per_call=5` × `document_read_max_calls=3`；
+      默认关闭时仍只读前 15 页，但已显式报告 coverage=partial 与未读区间。
+      全文覆盖、章节切分、引用跨度、矩阵/树状归并均已可选
+    debt_type: 已知缺陷
+    severity: medium
+    status: 部分偿还 2026-10-31（coverage 显式；full coverage/map-reduce/矩阵/树状归并可选；默认仍 15 页）
+    workaround: 开启 AGENT_DOCUMENT_FULL_COVERAGE + AGENT_DOCUMENT_MAP_REDUCE；
+      长文档/报告场景再加 AGENT_DOCUMENT_MATRIX_ENABLED 与树状归并
+    owner: 项目作者
+    due: 长文档成为主要场景时
+    do_not: 不要在报告里声称“已通读全文”；也不要用拼接 prompt 硬塞超长文本
+
+  - id: TD-050
+    title: 代码架构理解无持久化产物
+    where: codeintel/python_index.py, orchestrator/survey.py, agents/explore.py
+    why_now: import 图已存在但只用于测试影响；repo map 4k、explore 无状态、
+      fan-in 8k，跨 worker 的架构认知不累积。产物层方案见 RFC-0009
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 让 planner 点名单文件/目录缩小探索范围；复杂跨模块任务仍可能漏依赖
+    owner: 项目作者
+    due: 跨模块变更成为主要场景时
+    do_not: 不要靠继续放大 fan-in 文本或增加 explore 轮次来“堆”理解
+    resolved: 2026-10-31
+    how: ArchIndex/ArchBrief/impact/ChangeContract 落 KnowledgeStore；
+      survey/plan/knowledge 工具已接入（ADR-0029、ADR-0031）
+    regression: tests/unit/test_architecture_knowledge.py、
+      tests/unit/test_knowledge_store.py、
+      tests/unit/test_scheduler.py::test_interface_first_waves_run_gate_between_stages

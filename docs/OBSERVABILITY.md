@@ -4,7 +4,7 @@ doc_id: observability
 title: 可观测性：指标、日志与告警
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-28
+last_reviewed: 2026-10-31
 review_cadence: 指标/日志/告警或抓取方式变动时
 ---
 
@@ -19,7 +19,7 @@ A2 与 A3 都暴露 Prometheus text exposition：
 | A2（control_server / web） | `GET /metrics` | `AGENT_METRICS_TOKEN` Bearer；空则复用普通 Web 认证（Cookie/Bearer/loopback） |
 | A3（agent_server） | `GET /metrics` | `AGENT_INTERNAL_TOKEN` Bearer；非 loopback 仍需内部 HMAC |
 
-指标定义在 `src/coding_agent/platform/observability.py`。标签只取有界枚举，
+指标定义在 `src/ubismart/platform/observability.py`。标签只取有界枚举，
 `thread_id` / 文件路径 / workspace 不允许作为标签值。
 
 常用指标：
@@ -38,6 +38,22 @@ A2 与 A3 都暴露 Prometheus text exposition：
 | `agent_runs_total` / `agent_tool_calls_total` | counter | 有界枚举 | A3 运行/工具调用 |
 | `agent_sandbox_commands_total` / `agent_llm_errors_total` | counter | `status` / `kind` | 执行与模型错误 |
 
+### 文档 worker 的结构化字段
+
+不出 Prometheus 指标，但随 `WorkerResult` 写入事件/审计与评测 JSON：
+
+| 字段 | 含义 |
+|---|---|
+| `coverage` | 每篇文档的 pages/read_ranges/unread/status |
+| `sources[].quote_verified` / `quote_span` | quote 是否在原文定位、页码与字符跨度 |
+| `sources[].anchor_valid` | 锚点是否属于文档真实锚点集合 |
+| `matrix` | 每篇固定槽位（问题/方法/算法/实验/局限/创新/结论） |
+| `attribution_issues` | 提到 A 却引用 B 的句子级错配 |
+| `verification.matrix_entries` / `attribution_issues` | 上述两类的计数摘要 |
+
+评测侧另输出 `quote_verified_ratio`、`matrix_slot_ratio`、`attribution_issues`
+与 `report_chars`，用于回归对比；这些是**过程指标**，不等于语义正确率。
+
 ## 2. 日志
 
 服务入口支持 `AGENT_LOG_FORMAT=text|json`（`--log-level` 控制级别）：
@@ -52,7 +68,7 @@ A2 与 A3 都暴露 Prometheus text exposition：
 
 ## 3. 告警
 
-基线规则在 [`packaging/prometheus/coding-agent-alerts.yml`](../packaging/prometheus/coding-agent-alerts.yml)：
+基线规则在 [`packaging/prometheus/ubismart-alerts.yml`](../packaging/prometheus/ubismart-alerts.yml)：
 
 - 审计写入失败（critical，任何一次都告警）；
 - A2 5xx > 5%（10 分钟）；

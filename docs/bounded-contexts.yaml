@@ -79,7 +79,7 @@ contexts:
     isolation: 独立子图；不复制主 messages，只注入 session_brief
     change_note: |
       任务图校验失败必须整图降级并标记 degraded，不能静默截断。
-      并发写是该上下文风险最高的部分，改动前读 src/coding_agent/orchestrator/AGENTS.md。
+      并发写是该上下文风险最高的部分，改动前读 src/ubismart/orchestrator/AGENTS.md。
 
   - id: sandbox
     name: 执行安全层

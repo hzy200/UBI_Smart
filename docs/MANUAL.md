@@ -309,8 +309,8 @@ agent web --host 0.0.0.0 --port 8765 --allow-remote \
 mysql -u root -p < packaging/mysql/init.sql   # 先改两个 change-me 密码
 export AGENT_CONTROL_DB_URL='mysql+pymysql://coding_agent:***@127.0.0.1:3306/coding_agent'
 export AGENT_CONTROL_DB_AUTO_CREATE=false
-python -m coding_agent.control.migrate --backup
-# 或 coding-agent-control --migrate-only
+python -m ubismart.control.migrate --backup
+# 或 ubismart-control --migrate-only
 ```
 
 **启动企业模式**：

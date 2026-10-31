@@ -94,7 +94,7 @@ make check                    # ruff + 快反馈测试
 ```bash
 sudo apt-get install -y python3.12-venv
 sudo python3 -m venv /opt/coding-agent/venv
-sudo /opt/coding-agent/venv/bin/pip install "/path/to/CodingAgent[web,db]"
+sudo /opt/coding-agent/venv/bin/pip install "/path/to/ubismart[web,db]"
 sudo packaging/systemd/install.sh --python /opt/coding-agent/venv/bin/python
 ```
 

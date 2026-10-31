@@ -1,5 +1,5 @@
 # 由 scripts/gen_contracts.py 从源码生成，禁止手改。
-# 事实源：src/coding_agent/graph/nodes/approve.py
+# 事实源：src/ubismart/graph/nodes/approve.py
 
 contract: coding-agent/tools
 version: 1
@@ -27,6 +27,14 @@ shell:
   note: "复合命令按 && || ; | 分段取最高级；无法解析的一律降级为 L2。"
 
 tools:
+  - tool: DOCUMENT_READ
+    level: 0
+    label: "L0 只读"
+    behaviour: "自动执行"
+  - tool: PDF_PAGE_IMAGE
+    level: 0
+    label: "L0 只读"
+    behaviour: "自动执行"
   - tool: code_intel
     level: 0
     label: "L0 只读"
@@ -63,7 +71,27 @@ tools:
     level: 0
     label: "L0 只读"
     behaviour: "自动执行"
+  - tool: image_inspect
+    level: 0
+    label: "L0 只读"
+    behaviour: "自动执行"
+  - tool: knowledge_read
+    level: 0
+    label: "L0 只读"
+    behaviour: "自动执行"
+  - tool: knowledge_search
+    level: 0
+    label: "L0 只读"
+    behaviour: "自动执行"
   - tool: memory_search
+    level: 0
+    label: "L0 只读"
+    behaviour: "自动执行"
+  - tool: report_check
+    level: 0
+    label: "L0 只读"
+    behaviour: "自动执行"
+  - tool: report_read
     level: 0
     label: "L0 只读"
     behaviour: "自动执行"
@@ -75,6 +103,10 @@ tools:
     level: 0
     label: "L0 只读"
     behaviour: "自动执行"
+  - tool: DOCUMENT_EDIT
+    level: 1
+    label: "L1 低风险写"
+    behaviour: "需 --write 一次性授权后自动执行 + 审计"
   - tool: file_copy
     level: 1
     label: "L1 低风险写"
@@ -108,6 +140,10 @@ tools:
     label: "L1 低风险写"
     behaviour: "需 --write 一次性授权后自动执行 + 审计"
   - tool: memory_save
+    level: 1
+    label: "L1 低风险写"
+    behaviour: "需 --write 一次性授权后自动执行 + 审计"
+  - tool: report_export
     level: 1
     label: "L1 低风险写"
     behaviour: "需 --write 一次性授权后自动执行 + 审计"

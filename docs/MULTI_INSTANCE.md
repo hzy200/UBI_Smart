@@ -35,7 +35,7 @@ LB / 反代 ───│ A2 #1        │──┐
 | `AGENT_SECRET_MASTER_KEY` | 所有实例相同 | 上游 Provider Key 的 AES-256-GCM 主密钥 |
 | `AGENT_WEB_ACCOUNTS_ENABLED` | `true` | 企业账号 + DB 加密密钥托管 |
 
-入口（`agent serve` / `coding-agent-control` / 桌面）会把
+入口（`agent serve` / `ubismart-control` / 桌面）会把
 `stream_buffer=True` 传给 `create_app`；自定义入口若设置
 `AGENT_EVENT_TRANSPORT=redis` 却关闭 stream buffer，启动会直接失败。
 

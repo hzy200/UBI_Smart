@@ -2,13 +2,13 @@
 
 # 领域事件契约
 
-事实源：`src/coding_agent/events.py`（pydantic 模型）。
+事实源：`src/ubismart/events.py`（pydantic 模型）。
 机器可读版本：[`events.json`](events.json)。
 
 前端（CLI / TUI / Web / Desktop GUI）**只**消费这里的事件，不导入 `tools/` 与 `sandbox/`。
 这条边界由 `tests/unit/test_architecture.py` 用 AST 扫描守住。
 
-共 **28** 个事件类型。
+共 **29** 个事件类型。
 
 ## `approval_requested`
 
@@ -312,6 +312,18 @@ rejected 表示宿主没让它跑（审批拒绝、任务级委派预算耗尽�
 | `parent_call_id` | `str` | `""` |  |
 | `role` | `str` | `"explore"` |  |
 | `goal` | `str` | `""` |  |
+
+## `task_blocked`
+
+类 `TaskBlocked`
+
+一个任务因依赖失败、预算/并发限制或收尾而不再派发。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `task_id` | `str` | `""` |  |
+| `role` | `str` | `""` |  |
+| `reason` | `str` | `""` |  |
 
 ## `task_graph_created`
 

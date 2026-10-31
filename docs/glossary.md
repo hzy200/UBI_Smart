@@ -4,7 +4,7 @@ doc_id: glossary
 title: 统一语言词汇表
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-31
 review_cadence: 引入新术语或发现新歧义时
 criticality: 高
 note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系统并存，动手前先查这里。
@@ -131,6 +131,21 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 | `worktree` | implement worker 的独立 git 工作树，改完导出 patch 回主工作区顺序合并 |
 | `checkpoint_every` | 每完成多少个任务形成一次 checkpoint/干预边界；**不再限制每边界能启动几个** |
 | `steering` | 运行中干预（pause/cancel/add/replan），只在节点边界消费 |
+| **知识产物（knowledge artifact）** | run 级、可查询的结构化理解产物，落 `.agent/artifacts/knowledge/`；不是聊天摘要。见 [RFC-0009](rfc/0009-deep-workflows-and-knowledge-artifacts.md) |
+| **`DocIndex`** | 文档结构索引：document → section → chunk → anchor；含覆盖状态与未读区间 |
+| **`ClaimStore`** | 结论-证据库：每条 claim 绑定 `path#anchor` 与原文 quote，供写作检索 |
+| **证据矩阵（`DocumentMatrix`）** | 每篇文档的固定槽位：问题/方法/算法/实验/局限/创新/结论；空槽位用已验证 claim 回填 |
+| **树状归并（tree reduce）** | 多篇矩阵/摘要按 `document_tree_fanout` 逐层合并，单次输入受 `document_tree_input_chars` 限制 |
+| **引用跨度（quote span）** | quote 在归一化文档文本中的 `{start,end,page}`；`quote_verified=false` 的证据不进入下游 |
+| **归属校验（attribution）** | 按句子检查“提到的文档”与引用路径是否一致；错配写 `attribution_issues`，不是语义判断 |
+| **已解析文档头** | 多文档答案开头的确定性清单，列出全部路径/标题，防止树状归并把已覆盖文档说成缺失 |
+| **`ArchIndex`** | 代码架构索引：模块/文件/符号 + import 边 + 测试拓扑 + 入口/热点 |
+| **`ArchBrief`** | 从 `ArchIndex` 生成的架构简报：子系统、边界、风险、未决问题 |
+| **`ChangeContract`** | 跨模块变更契约：受影响文件/模块、接口、验收、受影响测试、波次 |
+| **接口优先波次** | 先改接口/契约、再改调用方的顺序写波次；波次之间设 gate |
+| **覆盖契约** | 长文档必须报告 `complete` 或 `partial + 未读区间`，禁止“读了前 15 页却像读了全文” |
+| **文档 map-reduce** | 分批抽取 claim/实体，再按 section/document 合并；不把整篇塞进一次调用 |
+| **动态图构建器** | 按复杂度信号从节点库组合阶段，输出仍是 `TaskSpec[]`，复用现有 scheduler |
 
 ## 九、GUI / 会话权限术语
 
@@ -167,11 +182,11 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 
 | 规范名 | 职责 | 当前锚点 |
 |---|---|---|
-| **A1 前端** | 渲染、SSE、审批交互、主题/字体、平台桥 | `src/coding_agent/web/static/`、`src/coding_agent/cli/`、`src/coding_agent/tui/app.py` |
-| **A2L 宿主能力代理** | 客户端 `host` 工作区、本地 grant/ZX、工具链能力、本地同意与审计；只外连 | 规划中：`src/coding_agent/host_broker/` |
-| **A2 控制面** | 认证、租户、会话目录、运行/审批索引、配额、Provider 档案、MySQL | `src/coding_agent/web/app.py`、`src/coding_agent/tenancy.py` |
-| **A3 编排面** | 图、LLM、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/coding_agent/runtime/`、`src/coding_agent/graph/`、`src/coding_agent/orchestrator/` |
-| **A4 执行面** | shell、文件、Git、测试、快照、worktree、上传落盘；按 `target` 路由 host/sandbox | `src/coding_agent/tools/`、`src/coding_agent/sandbox/`、`src/coding_agent/execution/` |
+| **A1 前端** | 渲染、SSE、审批交互、主题/字体、平台桥 | `src/ubismart/web/static/`、`src/ubismart/cli/`、`src/ubismart/tui/app.py` |
+| **A2L 宿主能力代理** | 客户端 `host` 工作区、本地 grant/ZX、工具链能力、本地同意与审计；只外连 | 规划中：`src/ubismart/host_broker/` |
+| **A2 控制面** | 认证、租户、会话目录、运行/审批索引、配额、Provider 档案、MySQL | `src/ubismart/web/app.py`、`src/ubismart/tenancy.py` |
+| **A3 编排面** | 图、LLM、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/ubismart/runtime/`、`src/ubismart/graph/`、`src/ubismart/orchestrator/` |
+| **A4 执行面** | shell、文件、Git、测试、快照、worktree、上传落盘；按 `target` 路由 host/sandbox | `src/ubismart/tools/`、`src/ubismart/sandbox/`、`src/ubismart/execution/` |
 
 | 词 | 含义 |
 |---|---|

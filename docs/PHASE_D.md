@@ -23,10 +23,10 @@ Linux：  浏览器   → A2 systemd + MySQL    → 原生 A3+A4
 
 ### 1.1 协议契约
 
-`src/coding_agent/__init__.py` 新增 `AGENT_API_VERSION = 1`；只有破坏性变更
+`src/ubismart/__init__.py` 新增 `AGENT_API_VERSION = 1`；只有破坏性变更
 才递增，A2 拒绝不同主版本。
 
-`src/coding_agent/control/protocol.py`：
+`src/ubismart/control/protocol.py`：
 
 | 对象 | 作用 |
 |---|---|
@@ -80,22 +80,22 @@ pywebview → Windows A2（control_server，127.0.0.1:8780）
               WSL A3（agent_server，127.0.0.1:8790）
 ```
 
-桌面不再启动旧的单进程 `coding_agent.server`；`--host-mode` 仍保留旧
+桌面不再启动旧的单进程 `ubismart.server`；`--host-mode` 仍保留旧
 Windows 宿主模式一个版本，standalone 不受影响。
 
 ### 2.2 Supervisor
 
-`src/coding_agent/desktop/supervisor.py`：
+`src/ubismart/desktop/supervisor.py`：
 
-- `start_agent()`：WSL 内启动 `coding_agent.agent_server`，默认端口 8790；
-- `start_control()`：Windows 本机启动 `coding_agent.control_server --desktop`，
+- `start_agent()`：WSL 内启动 `ubismart.servers.agent_server`，默认端口 8790；
+- `start_control()`：Windows 本机启动 `ubismart.servers.control_server --desktop`，
   默认端口 8780，并把 `AGENT_INTERNAL_URL/TOKEN` 注入环境；
 - 端口可用性在 Windows 侧预检；被占用时直接报错并提示
   `AGENT_DESKTOP_AGENT_PORT` / `AGENT_DESKTOP_CONTROL_PORT`；
 - token 每次启动随机生成，只保存在 supervisor 内存；重启复用同一 token
   与端口，A2 的 `AGENT_INTERNAL_URL` 不需要热更新；
-- 打包后优先使用同目录 `CodingAgentControl.exe`，开发模式用
-  `python -m coding_agent.control_server`。
+- 打包后优先使用同目录 `UBISmartControl.exe`，开发模式用
+  `python -m ubismart.servers.control_server`。
 
 ### 2.3 入口参数
 
@@ -150,7 +150,7 @@ Windows 宿主模式一个版本，standalone 不受影响。
 - `control_server --migrate` 在启动前升级，迁移前自动备份；失败只告警，
   由降级路径兜底；
 - 桌面 supervisor 在 `AGENT_CONTROL_DB_URL` 非空时自动加 `--migrate`；
-- 打包脚本把 `alembic.ini` 与 `migrations/` 一起放入 `CodingAgentControl`。
+- 打包脚本把 `alembic.ini` 与 `migrations/` 一起放入 `UBISmartControl`。
 
 配置示例：
 
@@ -229,11 +229,11 @@ A2 的 `ExecStartPre` 迁移失败会阻止 A2 启动；未配置数据库时
 
 - 创建系统用户 `coding-agent`、`/var/lib/coding-agent`、`/srv/coding-agent/workspaces`、
   `/etc/coding-agent`；
-- 支持两种安装源：PyInstaller 目录（默认 `dist/CodingAgent*`）或
+- 支持两种安装源：PyInstaller 目录（默认 `dist/UBISmart*`）或
   `--python /path/to/venv/bin/python` 源码模式；
 - 首次安装生成内部 token 与前端 token，写入 `agent.env` / `control.env`，
   另存 `install-secrets.txt`（0600）；已存在 env 时拒绝覆盖；
-- env 文件 `0640 root:coding-agent`；数据目录 `0700`；
+- env 文件 `0640 root:ubismart`；数据目录 `0700`；
 - 安装/启用 systemd 单元，启动后轮询 A2/A3 `/healthz`；
 - `--no-start`、`--uninstall`（保留配置与数据）。
 

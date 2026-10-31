@@ -21,10 +21,10 @@ Phase A 只做**契约、归属与验收基线**，不改变现有行为。目�
 
 | 层 | 职责 | 当前代码锚点 | 目标归属 |
 |---|---|---|---|
-| A1 前端 | 对话、SSE 渲染、计划/任务/推理可视化、审批、文件/Git、设置 | `src/coding_agent/web/static/`、`src/coding_agent/tui/`、`src/coding_agent/cli/` | 只调用 A2 API；桌面桥只做平台动作 |
-| A2 控制面 | 认证、租户、会话目录、运行索引、配额、Provider 档案、审计查询、恢复索引 | `src/coding_agent/web/app.py`、`src/coding_agent/web/auth.py`、`src/coding_agent/tenancy.py` | 独立控制面；可接 MySQL；不执行工具 |
-| A3 编排面 | LangGraph、LLM、计划、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/coding_agent/runtime/`、`src/coding_agent/graph/`、`src/coding_agent/orchestrator/`、`src/coding_agent/llm/` | Agent 服务；保留全部编排能力 |
-| A4 执行面 | shell、文件 I/O、搜索、Git、测试、快照、worktree、上传落盘 | `src/coding_agent/tools/`、`src/coding_agent/sandbox/`、`src/coding_agent/memory/` | 平台执行适配器；保留全部工具能力 |
+| A1 前端 | 对话、SSE 渲染、计划/任务/推理可视化、审批、文件/Git、设置 | `src/ubismart/web/static/`、`src/ubismart/tui/`、`src/ubismart/cli/` | 只调用 A2 API；桌面桥只做平台动作 |
+| A2 控制面 | 认证、租户、会话目录、运行索引、配额、Provider 档案、审计查询、恢复索引 | `src/ubismart/web/app.py`、`src/ubismart/web/auth.py`、`src/ubismart/tenancy.py` | 独立控制面；可接 MySQL；不执行工具 |
+| A3 编排面 | LangGraph、LLM、计划、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/ubismart/runtime/`、`src/ubismart/graph/`、`src/ubismart/orchestrator/`、`src/ubismart/llm/` | Agent 服务；保留全部编排能力 |
+| A4 执行面 | shell、文件 I/O、搜索、Git、测试、快照、worktree、上传落盘 | `src/ubismart/tools/`、`src/ubismart/sandbox/`、`src/ubismart/memory/` | 平台执行适配器；保留全部工具能力 |
 
 **核心约束**：A3 与 A4 保留原 Agent 的全部功能；拆分只改调用路径，不删能力，
 也不把 Agent 的执行语义搬进 A2。
@@ -127,7 +127,7 @@ GET  /agent/workspaces/{id}/files | file | git | snapshots
 
 ### 4.2 事件与 SSE
 
-事件唯一契约仍是 `src/coding_agent/events.py`（28 个领域事件）：
+事件唯一契约仍是 `src/ubismart/events.py`（28 个领域事件）：
 
 - 规划/步进：`PlanCreated`、`PlanRevised`、`StepStarted`、`StepFinished`；
 - 模型/思考：`AssistantToken`、`ReasoningToken`；
@@ -139,7 +139,7 @@ GET  /agent/workspaces/{id}/files | file | git | snapshots
 - 运行/成本/干预：`RunStarted`、`RunFinished`、`RunFailed`、`CostReport`、
   `ContextTrimmed`、`SteeringApplied`、`ApprovalRequested`。
 
-SSE 约定（当前由 `src/coding_agent/web/app.py` 实现，Phase A 冻结）：
+SSE 约定（当前由 `src/ubismart/web/app.py` 实现，Phase A 冻结）：
 
 - 帧格式：`id: <seq>` + `data: <event json>`；15 秒无事件发 `: keepalive`；
 - `seq` 在同一 thread 的 resume 前后保持单调；`after` 或 `Last-Event-ID` 重放；
@@ -176,7 +176,7 @@ SSE 约定（当前由 `src/coding_agent/web/app.py` 实现，Phase A 冻结）�
 | 观测 | 审计哈希链、成本/用量、provider 路由/冷却/fallback、并发池 | A3 |
 | 沙箱 | WSL/Linux 本地执行、路径双重校验、bwrap、资源上限、工作区锁 | A4 |
 
-**Standalone 证据**：`src/coding_agent/cli/` 与 `src/coding_agent/tui/app.py`
+**Standalone 证据**：`src/ubismart/cli/` 与 `src/ubismart/tui/app.py`
 直接依赖 `AgentRuntime` 与事件，不经过 A2；Phase A 不要求它们改用 MySQL。
 
 ## 6. 前端能力基线

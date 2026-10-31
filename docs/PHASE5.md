@@ -24,7 +24,7 @@ Phase 5 聚焦可运维性与低风险增强：
 `DesktopApi.collect_diagnostics()`，产物：
 
 ```text
-%LOCALAPPDATA%/CodingAgent/diagnostics/CodingAgent-diagnostics-YYYYMMDD-HHMMSS.zip
+%LOCALAPPDATA%/CodingAgent/diagnostics/UBISmart-diagnostics-YYYYMMDD-HHMMSS.zip
   ├─ summary.json        # 版本、Python、平台、配置（无密钥）
   ├─ launcher.json
   ├─ logs/launcher.log   # 尾部最多 2 MB
@@ -57,7 +57,7 @@ checkpoint/审计保留，可在恢复中心继续。
 ```json
 {
   "version": "0.2.0",
-  "download_url": "https://example.com/CodingAgent-Setup.exe",
+  "download_url": "https://example.com/UBISmart-Setup.exe",
   "sha256": "...",
   "notes": "修复 ..."
 }

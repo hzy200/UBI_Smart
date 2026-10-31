@@ -36,13 +36,13 @@ review_cadence: 状态变更或范围变化时
 
 当前工作区是贯穿 A2/A3 的裸字符串：
 
-- `control_sessions.workspace`（`src/coding_agent/control/schema.py:47`）；
-- `AgentContext.workspace`（`src/coding_agent/agent_protocol.py:70`）；
-- `AgentRuntimeFactory.new()` 无条件 `mkdir`（`src/coding_agent/agent_context.py:44`）；
-- 桌面 `pick_folder()` 直接返回 `/mnt/...`（`src/coding_agent/desktop/api.py:40`）。
+- `control_sessions.workspace`（`src/ubismart/control/schema.py:47`）；
+- `AgentContext.workspace`（`src/ubismart/agent_protocol.py:70`）；
+- `AgentRuntimeFactory.new()` 无条件 `mkdir`（`src/ubismart/agent_context.py:44`）；
+- 桌面 `pick_folder()` 直接返回 `/mnt/...`（`src/ubismart/desktop/api.py:40`）。
 
 后果：目录改名/换机后会话失去连续性；A3 只校验“以 `/` 开头”
-（`src/coding_agent/agent_server.py:103`）；Windows 默认工作区在 9p 上；
+（`src/ubismart/servers/agent_server.py:103`）；Windows 默认工作区在 9p 上；
 没有工作区级配额、revision 与归档。
 
 ## 4. 受影响面

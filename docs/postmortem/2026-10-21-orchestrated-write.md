@@ -83,4 +83,4 @@ vs "paths are ignored"）。**只看退出码、不看 stderr 就是在赌。**
 2. 新增状态是否有"不会再被调度器捡起来"的中间态；
 3. 失败路径是否写进了审计 detail（否则事后无法定位）。
 
-详见 [`src/coding_agent/orchestrator/AGENTS.md`](../../src/coding_agent/orchestrator/AGENTS.md)。
+详见 [`src/ubismart/orchestrator/AGENTS.md`](../../src/ubismart/orchestrator/AGENTS.md)。

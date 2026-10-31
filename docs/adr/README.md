@@ -4,7 +4,7 @@ doc_id: adr-index
 title: 架构决策记录索引
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-28
+last_reviewed: 2026-10-31
 review_cadence: 每次新增决策时
 ---
 
@@ -50,6 +50,21 @@ review_cadence: 每次新增决策时
 | [0021](0021-enterprise-mysql-account-store.md) | 企业账号、额度与上游 Key 统一存 MySQL | accepted | 架构 · 数据库 · 安全 |
 | [0022](0022-collaboration-boundary-and-substrate.md) | 协作开发止步于 sandbox 侧，host 侧只用 Git 交换代码 | proposed | 安全 · 协作 · 工作区 |
 | [0023](0023-enterprise-identity-and-four-eyes.md) | OIDC + TOTP + 四眼审批放在 A2，A3 只消费布尔决策 | accepted | 安全 · 身份 · 审批 |
+| [0024](0024-document-pipeline-on-orchestrator.md) | 文档/图像管线复用 orchestrator 动态任务图，解析放宿主 | accepted | 架构 · 编排 · 文档 · 图像 |
+| [0025](0025-single-report-format-and-system-fonts.md) | 报告只产出一个格式，PDF 不附带字体 | accepted | 文档 · 交付 · 发布 |
+| [0026](0026-incremental-implement-merge.md) | implement 补丁按连通分量增量合并 | accepted | 编排 · 合并 · 性能 |
+| [0027](0027-sequential-write-waves.md) | implement 顺序写波次与 worktree 基线注入 | accepted | 编排 · 写路径 · 安全 |
+| [0028](0028-orchestrated-fix-rounds.md) | verify 失败后的有界编排修复轮 | accepted | 编排 · 验证 · 修复 |
+| [0029](0029-knowledge-artifacts.md) | 知识产物层：架构索引、简报与影响分析 | accepted | 架构 · 编排 · 成本 |
+| [0030](0030-deep-document-flow.md) | 长文档全文覆盖、map-reduce 与证据写作 | accepted | 文档 · 长上下文 · 效果 |
+| [0031](0031-interface-first-waves.md) | ChangeContract 与接口优先的顺序写波次 | accepted | 编排 · 跨模块 · 验证 |
+| [0032](0032-dynamic-workflow-builder.md) | 复杂度信号驱动的动态图构建器 | accepted | 编排 · 工作流 · 路由 |
+| [0033](0033-knowledge-vector-search.md) | 知识检索的向量/远程 embedding 适配 | accepted | 检索 · 隐私 · 成本 |
+| [0034](0034-deep-workflow-evals.md) | 长文档与架构变更的效果评测 | accepted | 评测 · 长文档 · 架构 |
+| [0035](0035-incremental-sampling-and-doc-judge.md) | 增量索引、多语言抽样与文档答案 judge | accepted | 索引 · 多语言 · 评测 |
+| [0036](0036-callgraph-and-shared-cache.md) | 跨语言调用图与跨机器索引缓存 | accepted | 架构 · 索引 · 影响分析 |
+| [0037](0037-judge-threshold-calibration.md) | 文档 judge 阈值校准 | accepted | 评测 · 文档 · 校准 |
+| [0038](0038-structured-document-matrix-and-attribution.md) | 结构化文档矩阵、分层归并与跨文档归属校验 | accepted | 文档 · 长上下文 · 评测 |
 
 ## 待补录候选
 

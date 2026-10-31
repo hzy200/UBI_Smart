@@ -4,7 +4,7 @@ doc_id: workflow
 title: 工作流设计
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-31
 review_cadence: 拓扑或状态生命周期变动时
 ---
 
@@ -374,7 +374,50 @@ Web 端点提供 `/api/steer`、`/api/resume`、`/api/resume_steering`，
 
 **已完成**：`recursion_limit` 拓扑推导（W7）、shell 变更"未留底"提示、每 thread 恢复次数上限
 （`AGENT_MAX_RESUMES`）、token 用量累计（`usage_metadata` → `run_end` 审计，未引入 tokenizer）、
-审计按大小轮转（`AGENT_AUDIT_MAX_MB`，读取合并当天各片段）。
+审计按大小轮转（`AGENT_AUDIT_MAX_MB`，读取合并当天各片段）、worker 结果 journal、
+会话级成本预算、合并前高风险 patch review、并行收益预估。
+
+**深层工作流（RFC-0009，部分落地）**：见
+[RFC-0009](rfc/0009-deep-workflows-and-knowledge-artifacts.md)。
+
+已落地：
+
+1. **长文档完整性**：默认仍只读前 15 页，但会报告 `coverage=partial` 与未读区间；
+   开启 `AGENT_DOCUMENT_FULL_COVERAGE` 后按 `AGENT_DOCUMENT_MAX_PAGES` 读全文。
+2. **文档 map-reduce**：`AGENT_DOCUMENT_MAP_REDUCE` 把长文分批抽取后合并；
+   author 在 deep 模式下拿到 `claim + quote + anchor` 证据。
+3. **架构索引**：`ArchIndex` / `ArchBrief` / `impact_analysis` 由 survey 构建，
+   进入规划提示；`unparsed/dynamic` 时显式标记影响分析可能不完整。
+4. **知识产物持久化与检索**：`KnowledgeStore` 落
+   `.agent/artifacts/knowledge/<run_id>/`；`knowledge_read/search` 只读工具
+   在 run 作用域内检索 doc chunk / claim / arch。
+5. **ChangeContract + 接口优先波次**：按反向 import 分层生成波次，plan 确定性
+   分配 stage；`AGENT_INTERFACE_FIRST_WRITES` 开启后在波次边界跑受影响测试 gate，
+   失败只阻塞后续波次。
+6. **动态图构建器**：契约有 ≥2 波且可写时直接产出 `architecture_change` 任务图；
+   信号不足回退四模板。
+7. **检索与评测**：知识检索支持 lexical/vector/hybrid（remote 走 memory 门禁）；
+   `arch` 评测套件与 `scripts/eval_documents.py` 提供跨模块/长文档效果指标。
+8. **索引与 judge**：Python 索引按内容哈希增量更新，缓存可指向共享盘跨机器复用；
+   多语言仓库按语言/规模抽样，抽样截断会让影响分析 `fallback=True`；
+   轻量跨语言调用图参与影响分析与契约；动态/反射/宏调用会被识别、建宏调用边，
+   或经可选 LSP definition 解析；共享缓存按 TTL/条目/字节 LRU 淘汰并加跨进程锁；
+   文档答案支持确定性/LLM judge，阈值可用种子集或
+   `scripts/build_judge_dataset.py` 构建/切分后的标注集校准。
+9. **章节感知与引用跨度**：map-reduce 按标题切分；每条证据 quote 在
+   归一化文档文本中定位，记录 `quote_verified` / `quote_span`；章节号、
+   作者名、页码范围会回写成真实 `page=N`，无法定位的证据不进入下游。
+10. **证据矩阵 + 树状归并 + 归属校验**：每篇固定槽位
+    （问题/方法/算法/实验/局限/创新/结论），按 `AGENT_DOCUMENT_TREE_FANOUT`
+    逐层归并；`knowledge/attribution.py` 按句子检查“提到的文档”与引用路径，
+    错配计入 `attribution_issues`；`papers/report` 真实跑
+    `document → author → report_check`（ADR-0038）。10 篇/230 页实测
+    覆盖 10/10、矩阵槽位 87–94%、归属 0，单次 19–24 分钟。
+
+后续（非目标）：编译器级宏展开、LSP 调用层级/类型推断、强一致分布式锁、
+真实超大规模人工标注；claim 级语义归属与语义 judge 校准。
+所有深层能力由 `AGENT_DEEP_WORKFLOWS_ENABLED` 控制，默认关闭；文档矩阵另由
+`AGENT_DOCUMENT_MATRIX_ENABLED`（默认关闭）控制；关闭时行为与当前一致。
 
 **并发假设**：单个 `AgentRuntime` 实例按「单会话、单线程」使用；跨 thread 复用靠按 thread
 分桶的状态（`_pending_calls` / `_progress` / `_resume_counts`）。若要并发跑多个会话，
@@ -383,6 +426,8 @@ Web 端点提供 `/api/steer`、`/api/resume`、`/api/resume_steering`，
 ## 7. 相关文档
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) —— 分层、数据流、**不变量**、扩展点
+- [RFC-0009](rfc/0009-deep-workflows-and-knowledge-artifacts.md) —— 长文档与代码架构的深层工作流（规划）
+- [RFC-0005](rfc/0005-document-image-and-report-pipeline.md) —— 文档/图像/报告管线（已实现）
 - [THREAT_MODEL.md](THREAT_MODEL.md) —— T1/T2 威胁模型（沙箱边界）
 - [ENVIRONMENT.md](ENVIRONMENT.md) —— 环境配置完整流程
 - [USAGE.md](USAGE.md) —— 工作流用法、配置、故障排查

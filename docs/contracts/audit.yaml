@@ -1,5 +1,5 @@
 # 由 scripts/gen_contracts.py 从源码生成，禁止手改。
-# 事实源：src/coding_agent/audit/models.py
+# 事实源：src/ubismart/audit/models.py
 
 contract: coding-agent/audit
 version: 1

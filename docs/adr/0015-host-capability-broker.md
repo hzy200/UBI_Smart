@@ -199,7 +199,7 @@ UNC、设备路径、8.3 短名与 ADS；字符串 `realpath` 不够。
   静默推送，也没有独立更新通道。Phase 1 只保留客户端重启。
 - **本地 UI 是最终闸门**：授权、暂停、查看日志都在客户端完成；服务端页面
   不能替代本地同意。
-- A2L 本地审计写在 agent 不可写目录（如 `%ProgramData%\CodingAgent\audit`），
+- A2L 本地审计写在 agent 不可写目录（如 `%ProgramData%\UBISmart\audit`），
   哈希链 + 设备签名，异步转发 A2；A2 只建索引。
 - A2L 自身更新沿用 `desktop/update.py` 的“只检查 + 打开下载页”策略，
   不接受服务端静默推送更新。

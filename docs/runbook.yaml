@@ -223,7 +223,7 @@ scenarios:
     signal: '升级前、迁移失败后，或需要回滚控制面数据'
     steps:
       - 'python scripts/backup_control_db.py --out D:/backups --keep 7'
-      - 'alembic -c src/coding_agent/control/alembic.ini upgrade head'
+      - 'alembic -c src/ubismart/control/alembic.ini upgrade head'
       - 'python scripts/restore_control_db.py --source D:/backups/control-xxxx.sql'
     verify: 备份输出 ok=true；迁移后 /healthz db_state=ok；恢复后会话标题一致
     last_drilled: 2026-10-29

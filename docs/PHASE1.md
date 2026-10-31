@@ -38,7 +38,7 @@ WSL: ~/.coding-agent/
 Windows 只负责：
 
 - 配置向导；
-- 启动 `wsl.exe` 内的 `coding_agent.server`；
+- 启动 `wsl.exe` 内的 `ubismart.server`；
 - 读取握手、健康检查；
 - 打开 pywebview；
 - 关窗时取消运行并优雅退出。
@@ -55,7 +55,7 @@ agent gui
 1. 选择 WSL 发行版；
 2. 选择/创建工作区（原生文件夹选择器会转换为 `/mnt/<drive>/...`）；
 3. 选择 WSL Python（默认 `~/.coding-agent/venv/bin/python`）；
-4. 检测 `fastapi/uvicorn/langgraph/coding_agent` 是否可导入；
+4. 检测 `fastapi/uvicorn/langgraph/ubismart` 是否可导入；
 5. 保存 `%LOCALAPPDATA%\CodingAgent\launcher.json`。
 
 之后 `agent gui` 直接启动。`agent gui --setup` 重新配置；
@@ -71,7 +71,7 @@ wsl.exe -d <distro> --cd <workspace> -- env \
   AGENT_CHECKPOINT_PATH=... \
   AGENT_STEERING_DIR=... \
   AGENT_EXECUTION_BACKEND=local \
-  <python> -m coding_agent.server \
+  <python> -m ubismart.server \
     --host 127.0.0.1 --port 0 --workspace <workspace> \
     --token-stdin --log-level warning
 ```
@@ -108,7 +108,7 @@ python scripts/build_portable.py
 产物：
 
 ```text
-dist/CodingAgent/CodingAgent.exe
+dist/UBISmart/UBISmart.exe
 ```
 
 当前脚本使用 PyInstaller `onedir`，包含 `web/static` 与 pywebview。

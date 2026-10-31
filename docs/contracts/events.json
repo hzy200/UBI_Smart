@@ -1,7 +1,7 @@
 {
   "contract": "coding-agent/events",
   "version": 1,
-  "source": "src/coding_agent/events.py",
+  "source": "src/ubismart/events.py",
   "note": "前端唯一可消费的领域事件契约。前端只认识这里的事件，不认识 LangGraph，也拿不到 tools/ 与 sandbox/。",
   "events": [
     {
@@ -665,6 +665,31 @@
         },
         {
           "name": "goal",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        }
+      ]
+    },
+    {
+      "event_type": "task_blocked",
+      "class": "TaskBlocked",
+      "doc": "一个任务因依赖失败、预算/并发限制或收尾而不再派发。",
+      "fields": [
+        {
+          "name": "task_id",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "role",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "reason",
           "type": "str",
           "default": "",
           "doc": ""

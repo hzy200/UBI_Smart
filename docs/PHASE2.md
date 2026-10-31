@@ -13,7 +13,7 @@ review_cadence: 安装/发行版/升级方式变动时
 Phase 2 把 Phase 1 的“现有发行版 + 手动 venv”升级为可分发形态：
 
 ```text
-CodingAgent-Setup.exe
+UBISmart-Setup.exe
   ├─ Windows 薄壳（PyInstaller onedir）
   ├─ wsl/CodingAgent-rootfs.tar
   └─ WebView2 bootstrapper（安装时下载/打包）
@@ -35,7 +35,7 @@ python scripts/build_wsl_distro.py
 1. 下载 Ubuntu 24.04 base rootfs；
 2. `wsl --import CodingAgentBuild`；
 3. apt 安装 Python 3.12、venv、git、ripgrep、bubblewrap、CA；
-4. `/opt/coding-agent/venv` 安装 `coding-agent[web]`；
+4. `/opt/coding-agent/venv` 安装 `ubismart[web]`；
 5. 创建 `agent` 用户、工作区与 `/etc/wsl.conf`；
 6. `wsl --export` → `packaging/wsl/CodingAgent-rootfs.tar`；
 7. 注销构建发行版（`--keep` 可保留）。
@@ -53,16 +53,16 @@ powershell -ExecutionPolicy Bypass -File scripts/build_installer.ps1
 `build_installer.ps1` 会：
 
 - 构建 rootfs；
-- 构建 `dist/CodingAgent/CodingAgent.exe`；
+- 构建 `dist/UBISmart/UBISmart.exe`；
 - 下载 WebView2 Evergreen bootstrapper 到 `packaging/vendor/`；
-- 调用 Inno Setup 6 生成 `dist/CodingAgent-Setup.exe`；
+- 调用 Inno Setup 6 生成 `dist/UBISmart-Setup.exe`；
 - 可选调用 `signtool` 签名 exe/installer。
 
 `ISCC.exe` 依次在 `%ProgramFiles%`、`%ProgramFiles(x86)%`、
 `D:\InnoSetup\Inno Setup 6` 下查找；脚本已带上 `packaging/vendor` 与
-rootfs 的重复来源防护（`dist\CodingAgent\wsl` 只打包一次）。
+rootfs 的重复来源防护（`dist\UBISmart\wsl` 只打包一次）。
 
-**版本号只有一个来源**：`src/coding_agent/__init__.py::__version__`。
+**版本号只有一个来源**：`src/ubismart/__init__.py::__version__`。
 `build_installer.ps1` 读它并通过 `/DAppVersion=` 传给 ISCC，`.iss` 里只保留
 `{#AppVersion}` 占位符（`#ifndef` 的兜底值必须与之一致）。
 `scripts/check_installer.py` 会校验这条链路，写死版本会直接失败。
@@ -75,7 +75,7 @@ WSL2 的 Windows 机器上构建，托管 runner 做不了。`ci.yml` 的 `insta
 
 1. `python scripts/check_installer.py --check` —— 版本单一源、免提权安装、
    卸载保留 `%LOCALAPPDATA%`、`.iss` 引用路径存在；
-2. 用 stub 的 `dist/CodingAgent/CodingAgent.exe` 与 WebView2 bootstrapper
+2. 用 stub 的 `dist/UBISmart/UBISmart.exe` 与 WebView2 bootstrapper
    跑一次 `ISCC`，确认脚本还能编译。
 
 它守住的是"脚本站不站得住"，**不是**"这个安装包能发"。发布前仍需在真机上
@@ -140,8 +140,8 @@ python=/opt/coding-agent/venv/bin/python
 
 本机验证（2026-10-23）：
 
-- `dist/CodingAgent` 约 648 MB（exe 51 MB + `_internal` 190 MB + rootfs 407 MB）；
-- `dist/CodingAgent-Setup.exe` 约 211 MB；
+- `dist/UBISmart` 约 648 MB（exe 51 MB + `_internal` 190 MB + rootfs 407 MB）；
+- `dist/UBISmart-Setup.exe` 约 211 MB；
 - 静默安装到 `%LOCALAPPDATA%\Programs\CodingAgent` → 首次启动自动导入
   `CodingAgent` 发行版（约 22 s）→ server 握手成功 → 冒烟关窗退出码 0；
 - 静默卸载后安装目录移除，WSL 发行版与 `%LOCALAPPDATA%\CodingAgent`

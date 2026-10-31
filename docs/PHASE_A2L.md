@@ -397,8 +397,8 @@ toolchain root 会被 AppContainer 授予 `RX` ACL；只应注册可信工具链
 - A3 本地 JSON 台账（`AGENT_HOST_BROKER_DEVICE_REGISTRY`）记录
   `a2l_id + 证书指纹 + 设备公钥 + 状态`；`DEVICE_POLICY=enforce` 时
   未登记/吊销/指纹不符/过期设备拒绝接入。
-- 管理员用 `coding-agent-host-device`（或
-  `python -m coding_agent.host_broker.devices`）预登记与吊销；
+- 管理员用 `ubismart-host-device`（或
+  `python -m ubismart.host_broker.devices`）预登记与吊销；
   acceptor 每 `DEVICE_RELOAD_S` 秒重载台账，吊销后断开在线连接。
 - A2L 可用 `--attestation auto|require|tpm|off` 生成设备证明：
   hello_ok 携带对 `nonce:a2l_id` 的签名；A3 用台账公钥校验。
@@ -409,7 +409,7 @@ toolchain root 会被 AppContainer 授予 `RX` ACL；只应注册可信工具链
 - `agent doctor` 会探测 Job Object / 低完整性 / AppContainer / TPM /
   软件设备证明的真实可用性；测试在能力缺失时 skip 而不是 fail。
 - 管理员登记设备公钥：
-  `python -m coding_agent.host_broker --url ... --workspace-root ... \
+  `python -m ubismart.host_broker --url ... --workspace-root ... \
    --attestation auto --print-device-identity`，把输出的
   `kind/public_key` 写入台账。
 - **不可信仓库禁止 host 工作区与 `host_exec`**：`security_profile=untrusted`
@@ -423,7 +423,7 @@ toolchain root 会被 AppContainer 授予 `RX` ACL；只应注册可信工具链
   `job_memory_mb`、`attestation`、`expires_at`、`a2l_id` 绑定。
 - 策略无效/过期/签名不符 → A2L 拒绝启动；CLI 参数不能重新打开被策略
   关闭的能力。
-- 管理命令：`coding-agent-host-policy keygen|sign|verify`。
+- 管理命令：`ubismart-host-policy keygen|sign|verify`。
 
 ### 3.6 配置项（计划新增，落地后以 `docs/contracts/config.md` 为准）
 
@@ -472,32 +472,32 @@ toolchain root 会被 AppContainer 授予 `RX` ACL；只应注册可信工具链
 
 | 文件 | 职责 | 阶段 |
 |---|---|---|
-| `src/coding_agent/host_broker/__init__.py` | 包入口；不导出能力实现 | P1 |
-| `src/coding_agent/host_broker/protocol.py` | 版本化帧、DTO、错误码；无 I/O | P1 |
-| `src/coding_agent/host_broker/transport.py` | 传输抽象 + 内存通道；生产 WebSocket 后续接入 | P1 |
-| `src/coding_agent/host_broker/client.py` | A4 侧客户端：外连、握手、心跳、请求/取消 | P1 |
-| `src/coding_agent/host_broker/server.py` | A2L 进程：握手、分发、取消、暂停、优雅退出 | P1 |
-| `src/coding_agent/host_broker/policy.py` | grant/ZX/verb 判定；判定顺序唯一入口 | P1 |
-| `src/coding_agent/host_broker/paths.py` | Windows handle 级 canonicalization、junction/UNC/ADS 防护 | P1 |
-| `src/coding_agent/host_broker/toolchain.py` | 能力注册与 `ToolchainRef`；对模型只暴露摘要 | P1 |
-| `src/coding_agent/host_broker/ops.py` | Phase 1 只读能力：list/find/stat/read/toolchains/env | P1 |
-| `src/coding_agent/host_broker/sync_client.py` | 同步调用桥：给工具层/ExecutionBackend | P1 |
-| `src/coding_agent/host_broker/acceptor.py` | A3 侧监听、握手、`AcceptedHostCaller` | P1 |
-| `src/coding_agent/host_broker/__main__.py` | A2L 子进程入口（主动外连） | P1 |
-| `src/coding_agent/host_broker/consent.py` | stdin/回调/本机对话框同意 | P1 |
-| `src/coding_agent/host_broker/workspace_registry.py` | 本机选目录、生成 handle、保存本地映射 | P1 |
-| `src/coding_agent/host_broker/errors.py` | op/policy 统一业务错误 | P1 |
-| `src/coding_agent/execution/host_file_access.py` | A2L typed ops 的 FileAccess 适配 | P1 |
+| `src/ubismart/host_broker/__init__.py` | 包入口；不导出能力实现 | P1 |
+| `src/ubismart/host_broker/protocol.py` | 版本化帧、DTO、错误码；无 I/O | P1 |
+| `src/ubismart/host_broker/transport.py` | 传输抽象 + 内存通道；生产 WebSocket 后续接入 | P1 |
+| `src/ubismart/host_broker/client.py` | A4 侧客户端：外连、握手、心跳、请求/取消 | P1 |
+| `src/ubismart/host_broker/server.py` | A2L 进程：握手、分发、取消、暂停、优雅退出 | P1 |
+| `src/ubismart/host_broker/policy.py` | grant/ZX/verb 判定；判定顺序唯一入口 | P1 |
+| `src/ubismart/host_broker/paths.py` | Windows handle 级 canonicalization、junction/UNC/ADS 防护 | P1 |
+| `src/ubismart/host_broker/toolchain.py` | 能力注册与 `ToolchainRef`；对模型只暴露摘要 | P1 |
+| `src/ubismart/host_broker/ops.py` | Phase 1 只读能力：list/find/stat/read/toolchains/env | P1 |
+| `src/ubismart/host_broker/sync_client.py` | 同步调用桥：给工具层/ExecutionBackend | P1 |
+| `src/ubismart/host_broker/acceptor.py` | A3 侧监听、握手、`AcceptedHostCaller` | P1 |
+| `src/ubismart/host_broker/__main__.py` | A2L 子进程入口（主动外连） | P1 |
+| `src/ubismart/host_broker/consent.py` | stdin/回调/本机对话框同意 | P1 |
+| `src/ubismart/host_broker/workspace_registry.py` | 本机选目录、生成 handle、保存本地映射 | P1 |
+| `src/ubismart/host_broker/errors.py` | op/policy 统一业务错误 | P1 |
+| `src/ubismart/execution/host_file_access.py` | A2L typed ops 的 FileAccess 适配 | P1 |
 | A2L 本地审计（计划中，尚未落文件） | 本地哈希链、设备签名、异步转发 | P2 |
-| `src/coding_agent/host_broker/store.py` | 本地 SQLite：workspace_id ↔ absolute_root、grants、审计游标 | P1 |
-| `src/coding_agent/host_broker/op_journal.py` | 本地 op 日志：`started/finished/unknown`；P1 只读，P2 写/执行防重放 | P1 |
-| `src/coding_agent/execution/file_access.py` | `FileAccess` 协议 + `SandboxFileAccess` / `HostFileAccess`；P1 只读三工具使用 | P1 |
-| `src/coding_agent/host_broker/lifecycle.py` | 绑定客户端生命周期、单实例、崩溃重启、暂停/离线、托盘状态 | P1 |
-| `src/coding_agent/host_broker/consent.py` | 本地同意 UI 骨架（Phase 1 只读不弹窗） | P1 |
-| `src/coding_agent/execution/host_backend.py` | 实现 `ExecutionBackend`，把请求映射成 `host.*` | P1 |
-| `src/coding_agent/control/migrations/versions/0005_workspace_kind.py` | 工作区 kind/a2l_id/root_handle 迁移 | P1 |
-| `src/coding_agent/control/migrations/versions/0006_session_workspace_binding.py` | 会话持久化 workspace_kind/a2l_id/root_handle | P1 |
-| `src/coding_agent/workspace/model.py` | `WorkspaceRef` / `WorkspaceKind` | P1 |
+| `src/ubismart/host_broker/store.py` | 本地 SQLite：workspace_id ↔ absolute_root、grants、审计游标 | P1 |
+| `src/ubismart/host_broker/op_journal.py` | 本地 op 日志：`started/finished/unknown`；P1 只读，P2 写/执行防重放 | P1 |
+| `src/ubismart/execution/file_access.py` | `FileAccess` 协议 + `SandboxFileAccess` / `HostFileAccess`；P1 只读三工具使用 | P1 |
+| `src/ubismart/host_broker/lifecycle.py` | 绑定客户端生命周期、单实例、崩溃重启、暂停/离线、托盘状态 | P1 |
+| `src/ubismart/host_broker/consent.py` | 本地同意 UI 骨架（Phase 1 只读不弹窗） | P1 |
+| `src/ubismart/execution/host_backend.py` | 实现 `ExecutionBackend`，把请求映射成 `host.*` | P1 |
+| `src/ubismart/control/migrations/versions/0005_workspace_kind.py` | 工作区 kind/a2l_id/root_handle 迁移 | P1 |
+| `src/ubismart/control/migrations/versions/0006_session_workspace_binding.py` | 会话持久化 workspace_kind/a2l_id/root_handle | P1 |
+| `src/ubismart/workspace/model.py` | `WorkspaceRef` / `WorkspaceKind` | P1 |
 | `tests/unit/test_execution_targets.py` | 路由矩阵、冲突拒绝 | P1 |
 | `tests/unit/test_workspace_ref.py` | 引用序列化、不传绝对路径 | P1 |
 | `tests/unit/test_host_broker_protocol.py` | 版本、帧、幂等、错误码 | P1 |
@@ -525,23 +525,23 @@ toolchain root 会被 AppContainer 授予 `RX` ACL；只应注册可信工具链
 
 | 文件 | 改动 |
 |---|---|
-| `src/coding_agent/execution/contracts.py` | 增加 `target/workspace_kind/grant_id`；只增不改 |
-| `src/coding_agent/execution/service.py` | 内置 target 路由；capabilities 增加 targets/workspace_kind |
-| `src/coding_agent/execution/sandbox_backend.py` | 保持 WSL 语义；实现现有 protocol 的 `kind` |
-| `src/coding_agent/workspace/browse.py` | 接收 `WorkspaceRef`，拒绝裸绝对路径 |
-| `src/coding_agent/tools/files.py` | `file_read/file_list` 改走 `FileAccess`；P1 只读，不碰写路径 |
-| `src/coding_agent/tools/search.py` | `find_files` 增加 host 原生遍历；不启动 shell |
-| `src/coding_agent/runtime/` | 按工作区 kind 注入 `HostFileAccess` 或 `SandboxFileAccess` |
-| `src/coding_agent/agent_protocol.py` | A2/A3 上下文增加 `workspace_kind/a2l_id/root_handle` |
-| `src/coding_agent/web/models.py` / `services.py` | 会话上下文透传 host 字段 |
-| `src/coding_agent/agent_context.py` | host 工作区自动注入 `file_access/targets`，强制只读 |
-| `src/coding_agent/desktop/launcher.py` | 自动拉起/停止/守护 A2L，注入 host 环境 |
-| `src/coding_agent/desktop/config.py` | host 工作区、handle、安全档字段 |
-| `src/coding_agent/control/workspaces.py` | 工作区记录增加 `kind/a2l_id/root_handle`；host 不存绝对路径 |
-| `src/coding_agent/control/schema.py` | 加列迁移（旧行 `sandbox`）：`kind`、`a2l_id`、`root_handle` |
-| `src/coding_agent/config.py` | 新增第 3.6 节配置项 |
-| `src/coding_agent/desktop/supervisor.py` | 客户端启动/退出时拉起/终止 A2L；崩溃重启；失败不拖垮 A2/A3 |
-| `src/coding_agent/desktop/launcher.py` / `config.py` | A2L 随客户端启动、托盘、安全档选择 |
+| `src/ubismart/execution/contracts.py` | 增加 `target/workspace_kind/grant_id`；只增不改 |
+| `src/ubismart/execution/service.py` | 内置 target 路由；capabilities 增加 targets/workspace_kind |
+| `src/ubismart/execution/sandbox_backend.py` | 保持 WSL 语义；实现现有 protocol 的 `kind` |
+| `src/ubismart/workspace/browse.py` | 接收 `WorkspaceRef`，拒绝裸绝对路径 |
+| `src/ubismart/tools/files.py` | `file_read/file_list` 改走 `FileAccess`；P1 只读，不碰写路径 |
+| `src/ubismart/tools/search.py` | `find_files` 增加 host 原生遍历；不启动 shell |
+| `src/ubismart/runtime/` | 按工作区 kind 注入 `HostFileAccess` 或 `SandboxFileAccess` |
+| `src/ubismart/agent_protocol.py` | A2/A3 上下文增加 `workspace_kind/a2l_id/root_handle` |
+| `src/ubismart/web/models.py` / `services.py` | 会话上下文透传 host 字段 |
+| `src/ubismart/agent_context.py` | host 工作区自动注入 `file_access/targets`，强制只读 |
+| `src/ubismart/desktop/launcher.py` | 自动拉起/停止/守护 A2L，注入 host 环境 |
+| `src/ubismart/desktop/config.py` | host 工作区、handle、安全档字段 |
+| `src/ubismart/control/workspaces.py` | 工作区记录增加 `kind/a2l_id/root_handle`；host 不存绝对路径 |
+| `src/ubismart/control/schema.py` | 加列迁移（旧行 `sandbox`）：`kind`、`a2l_id`、`root_handle` |
+| `src/ubismart/config.py` | 新增第 3.6 节配置项 |
+| `src/ubismart/desktop/supervisor.py` | 客户端启动/退出时拉起/终止 A2L；崩溃重启；失败不拖垮 A2/A3 |
+| `src/ubismart/desktop/launcher.py` / `config.py` | A2L 随客户端启动、托盘、安全档选择 |
 | `pyproject.toml` | 新增 `host` pytest marker |
 | `tests/unit/test_architecture.py` | AST 禁止前端/服务端导入 `host_broker.server/policy` |
 | `tests/unit/test_desktop_supervisor.py` | A2L 守护、降级、单实例 |
@@ -720,10 +720,10 @@ P2/P3 的核心能力（brokered write、快照、AppContainer 受控 exec）已
 
 | 项 | 状态 | 落点 |
 |---|---|---|
-| `WorkspaceRef` / `WorkspaceKind` | 完成 | `src/coding_agent/workspace/model.py` |
-| `ExecutionRequest.target/workspace_kind/grant_id` | 完成 | `src/coding_agent/execution/contracts.py` |
-| `FileAccess` 协议 + `SandboxFileAccess` | 完成（契约层） | `src/coding_agent/execution/file_access.py` |
-| 本地 `op_journal` | 完成（骨架） | `src/coding_agent/host_broker/op_journal.py` |
+| `WorkspaceRef` / `WorkspaceKind` | 完成 | `src/ubismart/workspace/model.py` |
+| `ExecutionRequest.target/workspace_kind/grant_id` | 完成 | `src/ubismart/execution/contracts.py` |
+| `FileAccess` 协议 + `SandboxFileAccess` | 完成（契约层） | `src/ubismart/execution/file_access.py` |
+| 本地 `op_journal` | 完成（骨架） | `src/ubismart/host_broker/op_journal.py` |
 | A2L 配置骨架 + `host` marker | 完成 | `config.py`、`pyproject.toml` |
 | A2L 协议 + 客户端/服务端骨架 | 完成（内存通道） | `host_broker/protocol.py`、`client.py`、`server.py`、`transport.py` |
 | A2L mTLS + 设备/服务端指纹绑定 | 完成（P0） | `transport.py`、`client.py`、`server.py`、`agent_server.py` |

@@ -76,10 +76,10 @@ pytest -m "not llm"           # 全量（含真实 WSL）
 
 | 你要动什么 | 读什么 |
 |---|---|
-| 主图 / 状态字段 | [`WORKFLOW.md`](WORKFLOW.md) §2.2 状态生命周期表 + `src/coding_agent/graph/AGENTS.md` |
-| 编排 / 并发 / 写隔离 | [`HARNESS.md`](HARNESS.md) + `src/coding_agent/orchestrator/AGENTS.md` |
-| 沙箱 / 安全 | [`THREAT_MODEL.md`](THREAT_MODEL.md) + `src/coding_agent/sandbox/AGENTS.md` |
-| 工具 | `src/coding_agent/tools/AGENTS.md` + [`contracts/tools.yaml`](contracts/tools.yaml) |
+| 主图 / 状态字段 | [`WORKFLOW.md`](WORKFLOW.md) §2.2 状态生命周期表 + `src/ubismart/graph/AGENTS.md` |
+| 编排 / 并发 / 写隔离 | [`HARNESS.md`](HARNESS.md) + `src/ubismart/orchestrator/AGENTS.md` |
+| 沙箱 / 安全 | [`THREAT_MODEL.md`](THREAT_MODEL.md) + `src/ubismart/sandbox/AGENTS.md` |
+| 工具 | `src/ubismart/tools/AGENTS.md` + [`contracts/tools.yaml`](contracts/tools.yaml) |
 | 前端 / GUI | [`WORKFLOW.md`](WORKFLOW.md) §4（**不得 import tools/ 或 sandbox/**）+ [`GUI.md`](GUI.md) |
 | 配置 | [`contracts/config.md`](contracts/config.md)（全量，代码生成） |
 | 评测 | [`../tests/eval/README.md`](../tests/eval/README.md)（噪声口径必读） |

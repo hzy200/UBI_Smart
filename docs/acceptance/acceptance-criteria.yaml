@@ -8,7 +8,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-31
 review_cadence: 需求或测试变动时
 convention:
   id_prefix: REQ
@@ -593,7 +593,7 @@ criteria:
   - id: REQ-66
     title: Agent Server 可在 WSL 内独立运行
     given: WSL 内 venv 与项目依赖
-    when: python -m coding_agent.server --workspace <path>
+    when: python -m ubismart.server --workspace <path>
     then: Windows 可通过 loopback 访问静态页/API；工具走本地 bash，不再逐条 wsl.exe
     status: implemented
     tests: [tests/unit/test_server_entrypoint.py]
@@ -668,10 +668,10 @@ criteria:
     title: 安装包与 WebView2 bootstrapper 构建脚本
     given: PyInstaller + Inno Setup 6
     when: scripts/build_installer.ps1
-    then: 生成 dist/CodingAgent-Setup.exe；包含 app/rootfs/WebView2；可选 signtool 签名
+    then: 生成 dist/UBISmart-Setup.exe；包含 app/rootfs/WebView2；可选 signtool 签名
     status: implemented
     tests: [tests/unit/test_check_installer.py]
-    see: packaging/installer/CodingAgent.iss
+    see: packaging/installer/UBISmart.iss
 
   - id: REQ-75
     title: 只读探测项目 Python 与工作区模式
@@ -961,7 +961,7 @@ criteria:
     title: A2/A3 原生服务打包
     given: PyInstaller 与部署环境
     when: 运行 build_services.py 并安装 systemd/Windows 开机任务
-    then: 生成 CodingAgentAgent/CodingAgentControl；服务只绑 loopback，环境文件含 token
+    then: 生成 UBISmartAgent/UBISmartControl；服务只绑 loopback，环境文件含 token
     status: implemented
     tests: [tests/unit/test_layer_contracts.py::test_native_service_packaging_assets_exist]
     see: docs/PHASE_B.md
@@ -1965,3 +1965,495 @@ criteria:
     status: implemented
     tests: [tests/unit/test_provider_credentials.py::test_rotate_master_key_reencrypts_and_bumps_version, tests/unit/test_provider_credentials.py::test_master_key_material_scan]
     see: scripts/phase_secret_key_drill.py
+
+  # ---------------------------------------------------------------- 文档管线（RFC-0005 planned）
+  - id: REQ-214
+    title: 前端文档阅读器与旧格式边界
+    given: 工作区或本会话上传中包含 PDF、DOCX、XLSX、XLS、PPTX、Markdown、代码或图片
+    when: 用户在 Web/Desktop 打开文件
+    then: |
+      按类型分派只读阅读器；PDF/Office 可预览，代码保持高亮与行号；
+      .doc/.ppt 明确提示“请先转为 docx/pptx”，不启动外部转换进程；
+      所有读取仍经服务端路径守卫与秘密文件保护。
+    status: implemented
+    note: raw/document 端点、Markdown/DOCX/XLSX/PPTX/PDF/SVG 阅读器已实现；
+          PPTX 用 python-pptx 几何生成 SVG 版式，XLSX 有公式栏与滚动窗口行渲染，
+          viewer 按格式拆分在 features/viewers/，
+          DOCX 额外展示页眉/页脚/分节/脚注/批注；
+          Playwright viewer 冒烟见 frontend/tests/e2e/viewers.spec.ts。
+    tests: [tests/unit/test_workspace_file_preview.py::test_read_raw_and_range, tests/unit/test_workspace_file_preview.py::test_read_document_returns_blocks, tests/unit/test_workspace_file_preview.py::test_read_document_can_embed_pptx_images, tests/unit/test_workspace_file_preview.py::test_path_traversal_is_rejected]
+    see: docs/rfc/0005-document-image-and-report-pipeline.md
+
+  - id: REQ-215
+    title: document_read 宿主解析与锚点
+    given: 一份受支持格式的文档
+    when: Agent 调用 document_read
+    then: |
+      宿主通过 FileAccess.read_bytes 读取并解析，返回页码/工作表/幻灯片锚点；
+      不支持格式与解析失败返回可操作错误；不启动 LibreOffice 等外部进程；
+      路径守卫、秘密文件保护、ZIP/XML 炸弹限制生效。
+    status: implemented
+    tests: [tests/unit/test_document_tools.py::test_pdf_page_anchor, tests/unit/test_document_tools.py::test_docx_paragraphs_and_tables, tests/unit/test_document_tools.py::test_docx_headers_footers_and_notes, tests/unit/test_document_tools.py::test_xlsx_sheet_anchor, tests/unit/test_document_tools.py::test_pptx_slide_and_notes, tests/unit/test_document_tools.py::test_pptx_layout_svg_contains_text_and_image, tests/unit/test_document_tools.py::test_legacy_formats_are_rejected_with_actionable_hint, tests/unit/test_document_tools.py::test_macro_and_ole_files_are_rejected, tests/unit/test_document_tools.py::test_pdf_javascript_is_not_executed, tests/unit/test_document_tools.py::test_nested_zip_entry_is_not_extracted, tests/unit/test_document_tools.py::test_secret_file_is_rejected, tests/unit/test_document_tools.py::test_disk_cache_is_written_and_reused, tests/unit/test_document_tools.py::test_pdf_page_image_renders_png, tests/unit/test_document_tools.py::test_docx_and_pptx_embedded_images, tests/unit/test_document_tools.py::test_pdf_metadata_and_text_layer_quality, tests/unit/test_document_tools.py::test_scanned_pdf_is_skipped_by_default_text_only_mode, tests/unit/test_document_tools.py::test_pdf_tables_are_extracted_from_text_layer, tests/unit/test_document_tools.py::test_zip_bomb_is_rejected, tests/unit/test_document_tools.py::test_xxe_document_is_rejected, tests/unit/test_document_tools.py::test_oversized_xml_part_is_rejected, tests/unit/test_document_tools.py::test_document_cache_capacity_cleanup_removes_oldest, tests/unit/test_document_tools.py::test_document_cache_ttl_cleanup, tests/unit/test_document_tools.py::test_pdf_attachments_are_extracted_and_parsed]
+    see: docs/rfc/0005-document-image-and-report-pipeline.md
+
+  - id: REQ-216
+    title: document_pipeline 动态任务图
+    given: 多份文档/图片与一个报告请求
+    when: 进入 orchestrator
+    then: |
+      生成 document/vision/汇总/author/review 任务图；高阶段任务等待低阶段
+      屏障；下游 worker 收到有界依赖上下文与 artifact 路径；单文档失败不阻塞
+      整体但记录缺口；动态提议只允许只读 document/vision。
+    status: implemented
+    tests: [tests/unit/test_orchestrator_document_pipeline.py::test_rule_selects_document_pipeline_for_uploads, tests/unit/test_orchestrator_document_pipeline.py::test_default_document_tasks_are_a_staged_dag, tests/unit/test_orchestrator_document_pipeline.py::test_stage_barrier_and_dependency_context, tests/unit/test_orchestrator_document_pipeline.py::test_pipeline_switch_disables_document_workflow, tests/unit/test_orchestrator_document_pipeline.py::test_role_concurrency_limits, tests/unit/test_orchestrator_document_pipeline.py::test_document_checkpoint_boundary, tests/unit/test_document_workers.py::test_document_runner_extracts_points_and_sources, tests/unit/test_document_workers.py::test_document_runner_reads_long_pdf_in_page_ranges, tests/unit/test_document_workers.py::test_document_runner_uses_vision_for_scanned_pdf, tests/unit/test_document_workers.py::test_document_runner_understands_embedded_images, tests/unit/test_document_workers.py::test_vision_runner_uses_image_tool, tests/unit/test_document_workers.py::test_report_review_runner_uses_report_check, tests/unit/test_document_pipeline_e2e.py::test_multi_document_pipeline_end_to_end, tests/unit/test_document_pipeline_e2e.py::test_scheduler_runs_multi_document_pipeline, tests/unit/test_document_pipeline_e2e.py::test_scheduler_cancel_stops_document_pipeline, tests/unit/test_orchestrator_document_pipeline.py::test_scheduler_gate_routes_cancel_and_replan, tests/unit/test_document_workers.py::test_dependency_context_respects_total_budget, tests/unit/test_document_workers.py::test_dependency_context_truncates_long_summary]
+    see: docs/adr/0024-document-pipeline-on-orchestrator.md
+
+  - id: REQ-217
+    title: 图像理解使用默认多模态模型
+    given: 用户上传图片，或 PDF 页面无文本层
+    when: vision worker 或 image_inspect 理解图片
+    then: |
+      使用默认多模态 LLM；图片经格式/大小/尺寸校验与缩放；返回文本与结构化结果；
+      不把 base64 长期留在主对话历史；端点不支持图片时明确报错，不静默降级。
+    status: implemented
+    tests: [tests/unit/test_vision_tool.py::test_image_inspect_returns_structured_artifact, tests/unit/test_vision_tool.py::test_svg_is_rejected, tests/unit/test_vision_tool.py::test_prepare_image_scales_down, tests/unit/test_vision_tool.py::test_prepare_image_rejects_decompression_bomb]
+    see: docs/rfc/0005-document-image-and-report-pipeline.md
+
+  - id: REQ-218
+    title: 报告只产出一个交付格式
+    given: 用户请求撰写报告
+    when: 未明确指定输出格式
+    then: |
+      只产出一个交付文件；上下文明确为正式 Word 交付时输出 docx，
+      其余无法判断时输出 md；明确指定 PDF/Word/Markdown 时按指定格式；
+      多格式仅在用户明确要求时生成。
+    status: implemented
+    tests: [tests/unit/test_report_export.py::test_resolve_output_format_rules, tests/unit/test_report_export.py::test_export_md_docx_pdf, tests/unit/test_report_export.py::test_export_uses_template_file, tests/unit/test_report_export.py::test_template_without_content_placeholder_is_rejected, tests/unit/test_report_export.py::test_report_check_validates_citation_anchors, tests/unit/test_orchestrator_document_pipeline.py::test_explicit_multi_format_creates_multiple_authors, tests/unit/test_orchestrator_document_pipeline.py::test_author_tasks_allow_explicit_multi_format_but_cap_at_three, tests/unit/test_document_pipeline_e2e.py::test_scheduler_runs_explicit_multi_format_authors, tests/unit/test_document_workers.py::test_author_runner_exports_report, tests/unit/test_document_workers.py::test_author_runner_marks_partial_when_self_check_fails, tests/unit/test_report_export.py::test_report_read_returns_report_text, tests/unit/test_report_export.py::test_resolve_required_sections_from_request, tests/unit/test_report_export.py::test_report_check_required_sections_md, tests/unit/test_report_export.py::test_report_check_required_sections_docx, tests/unit/test_document_workers.py::test_report_review_runner_runs_optional_llm_review, tests/unit/test_document_pipeline_e2e.py::test_multi_document_pipeline_end_to_end]
+    see: docs/adr/0025-single-report-format-and-system-fonts.md
+
+  - id: REQ-219
+    title: PDF 导出不附带字体
+    given: 用户明确要求 PDF 报告
+    when: report_export 生成 PDF
+    then: |
+      不随仓库/发布包附带字体文件；运行时查找系统 CJK 字体；
+      找不到时明确失败并给出 AGENT_REPORT_FONT_PATH 指引；
+      不生成乱码 PDF，不静默降级为 md。
+    status: implemented
+    tests: [tests/unit/test_report_export.py::test_export_md_docx_pdf, tests/unit/test_report_export.py::test_pdf_without_font_reports_actionable_error]
+    see: docs/adr/0025-single-report-format-and-system-fonts.md
+
+  - id: REQ-220
+    title: author 写权限边界
+    given: author 任务生成报告
+    when: 写入工作区
+    then: |
+      全局最多一个 author；只允许 .md/.docx/.pdf；只允许用户显式报告路径或
+      配置的报告目录；禁止写源码目录；写入走快照与审计。
+    status: implemented
+    tests: [tests/unit/test_report_export.py::test_export_outside_report_dir_is_rejected, tests/unit/test_orchestrator_document_pipeline.py::test_author_requires_write_permission, tests/unit/test_orchestrator_document_pipeline.py::test_author_tasks_allow_explicit_multi_format_but_cap_at_three, tests/unit/test_orchestrator_document_pipeline.py::test_author_is_hard_single_instance, tests/unit/test_orchestrator_document_pipeline.py::test_role_token_budget_exhaustion, tests/unit/test_report_export.py::test_export_uses_snapshot_and_records_it, tests/unit/test_report_export.py::test_existing_binary_report_is_not_overwritten, tests/unit/test_events.py::test_report_artifact_emits_file_changed]
+    see: docs/adr/0025-single-report-format-and-system-fonts.md
+
+  - id: REQ-221
+    title: 上传附件清单进入运行提示
+    given: 本会话上传了文档或图片
+    when: runtime 开始一次新运行
+    then: |
+      提示词中追加有界的文件元数据清单（路径/类型/大小），不读正文；
+      只列出本会话上传目录，不扫描其他会话；清单为空时不追加。
+    status: implemented
+    tests: [tests/unit/test_workspace_file_preview.py::test_list_session_uploads_is_scoped_to_thread, tests/unit/test_runtime_upload_prompt.py::test_attachment_inventory_is_rendered_for_the_current_thread]
+    see: docs/rfc/0005-document-image-and-report-pipeline.md
+
+  - id: REQ-222
+    title: Office 文档受限编辑（纯 Python）
+    given: 工作区内的 DOCX/XLSX/PPTX 与一个编辑请求
+    when: Agent 调用 document_edit（L1，需 --write）
+    then: |
+      按格式执行受限操作（docx：替换文本/追加段落/页眉页脚；xlsx：设置
+      单元格值或公式；pptx：替换文本/新增幻灯片文本）；只写工作区内新路径，
+      拒绝同路径、已存在文件、宏文档与跨格式转换；受 write_scope、写保护
+      glob、字节上限与操作数上限约束，并发出 FileChanged 事件。
+    status: implemented
+    tests: [tests/unit/test_document_edit.py::test_docx_replace_append_and_header, tests/unit/test_document_edit.py::test_docx_replace_across_runs, tests/unit/test_document_edit.py::test_xlsx_set_value_and_formula, tests/unit/test_document_edit.py::test_pptx_replace_and_add_text, tests/unit/test_document_edit.py::test_rejects_same_or_existing_output, tests/unit/test_document_edit.py::test_rejects_macro_cross_format_and_bad_op, tests/unit/test_document_edit.py::test_rejects_traversal_write_scope_and_protected, tests/unit/test_document_edit.py::test_tool_is_l1_and_only_exposed_with_write]
+    see: docs/rfc/0005-document-image-and-report-pipeline.md
+
+  - id: REQ-223
+    title: 文档管线性能门槛与表格窗口化
+    given: 大 PDF 与超大 XLSX
+    when: CI 运行压测门槛，用户滚动大表
+    then: |
+      压测脚本按页数/内存/并发耗时设宽松阈值，数量级退化时 CI 失败；
+      XLSX 只渲染可视窗口行，上下占位高度维持滚动条，占位通过 CSSOM
+      设置以规避 CSP 对内联 style 属性的拦截。
+    status: implemented
+    note: Playwright 大表用例见 frontend/tests/e2e/viewers.spec.ts。
+    tests: [tests/unit/test_bench_documents.py::test_evaluate_passes_within_thresholds, tests/unit/test_bench_documents.py::test_evaluate_detects_regressions, tests/unit/test_bench_documents.py::test_evaluate_factor_relaxes_limits, tests/unit/test_bench_documents.py::test_build_report_smoke]
+    see: docs/rfc/0005-document-image-and-report-pipeline.md
+
+  # ---------------------------------------------------------------- 编排合并（RFC-0006 planned）
+  - id: REQ-224
+    title: 无文件交集的 implement 补丁可增量合并
+    given: 两个 implement 写不同文件，其中一个 worker 仍在运行
+    when: 另一个 worker 完成，补丁 `git apply --check` 通过
+    then: |
+      已完成的补丁立即按连通分量合并并写入最终状态；在飞 worker 不受影响；
+      合并仍先留快照，失败只回滚本分量；未完成的补丁不与它同批。
+    status: implemented
+    tests: [tests/unit/test_scheduler.py::test_disjoint_completed_implement_merges_while_another_is_in_flight, tests/unit/test_scheduling.py::test_take_mergeable_selects_disjoint_components]
+    see: docs/rfc/0006-incremental-implement-merge.md
+
+  - id: REQ-225
+    title: 共享文件的 implement 补丁仍整批等待
+    given: 两个 implement 补丁命中同一文件，且另有 worker 在飞
+    when: 开启增量合并
+    then: |
+      两个共享文件的补丁都不提前应用（或按 allow_overlap 的 3-way 预演
+      整组处理）；拿不到补丁真实路径时回退到"无在飞 implement 才 flush"。
+    status: implemented
+    tests: [tests/unit/test_scheduler.py::test_shared_file_implement_still_waits_for_batch, tests/unit/test_scheduler.py::test_unknown_patch_paths_fall_back_to_batch_flush, tests/unit/test_scheduling.py::test_take_mergeable_falls_back_when_paths_are_unknown]
+    see: docs/rfc/0006-incremental-implement-merge.md
+
+  # ---------------------------------------------------------------- 顺序写波次（RFC-0007 planned）
+  - id: REQ-226
+    title: 后一波 implement 的 worktree 包含前一波合并结果
+    given: 任务 A(stage=0) 与 B(stage=1)，B depends_on A，写范围允许重叠
+    when: A 合并成功
+    then: |
+      B 的 worktree 包含 A 的全部改动（含新增文件）后才开始；seed 失败、
+      超限或脏文件无法归属时 B 失败，不带着不完整基线执行。
+    status: implemented
+    tests: [tests/integration/test_implement_worker.py::test_second_write_wave_is_seeded_from_the_first, tests/unit/test_implement_runner_unit.py::test_sequential_task_seeds_worktree_and_uses_baseline, tests/unit/test_implement_runner_unit.py::test_seed_failure_fails_closed, tests/unit/test_scheduler.py::test_sequential_stage_receives_baseline_paths]
+    see: docs/rfc/0007-sequential-write-waves.md
+
+  - id: REQ-227
+    title: 同 stage 的 implement 仍必须互相独立
+    given: 同 stage 的两个 implement 写范围重叠
+    when: 校验任务图
+    then: 仍整图降级，不因顺序写能力放宽同 stage 的不依赖/不重叠约束
+    status: implemented
+    tests: [tests/unit/test_orchestrator.py::test_same_stage_overlap_still_rejected_with_sequential_writes, tests/unit/test_orchestrator.py::test_same_stage_implement_dependency_is_rejected, tests/unit/test_orchestrator.py::test_implement_stage_over_limit_is_rejected, tests/unit/test_orchestrator.py::test_sequential_implement_wave_can_depend_on_lower_stage]
+    see: docs/rfc/0007-sequential-write-waves.md
+
+  # ---------------------------------------------------------------- 编排修复轮（RFC-0008 planned）
+  - id: REQ-228
+    title: verify 失败后的有界编排修复轮
+    given: 编排合并过补丁，主图 verify 失败，修复轮预算 > 0
+    when: route_after_verify 评估出口
+    then: |
+      进入有界修复轮；修复 worker 使用 worktree 基线注入；修复合并后直接
+      回到 verify，而不是重新规划整个请求；轮次计数递增。
+    status: implemented
+    tests: [tests/unit/test_routing.py::test_failed_orchestrated_verify_enters_fix_round, tests/unit/test_verify_node.py::test_failed_pending_verification_marks_fix_eligible, tests/unit/test_scheduler.py::test_fix_mode_worker_receives_baseline_paths, tests/unit/test_orchestrator_fix.py::test_prepare_fix_builds_request_and_resets_task_graph, tests/unit/test_orchestrator.py::test_plan_tasks_fix_mode_allows_implement_after_merge]
+    see: docs/rfc/0008-orchestrated-fix-rounds.md
+
+  - id: REQ-229
+    title: 修复轮不会无限循环
+    given: 修复轮数已达上限、verify 是环境错误，或本次没有编排合并
+    when: verify 失败
+    then: 不进入修复轮，按原有 repair/replan/respond 处理
+    status: implemented
+    tests: [tests/unit/test_routing.py::test_fix_rounds_are_bounded, tests/unit/test_routing.py::test_verification_error_does_not_enter_fix_round, tests/unit/test_routing.py::test_fix_round_requires_eligible_failure, tests/unit/test_recursion_limit.py::test_orchestrator_fix_rounds_are_counted]
+    see: docs/rfc/0008-orchestrated-fix-rounds.md
+
+  # ---------------------------------------------------------------- 深层工作流（RFC-0009 planned）
+  - id: REQ-230
+    title: 长文档全文覆盖或显式报告未读区间
+    given: 一份超过单次读取上限的长 PDF，开启 AGENT_DOCUMENT_FULL_COVERAGE
+    when: document worker 完成解析
+    then: |
+      读取次数由页数与 token 预算决定，不再被固定 3 次截断；若因预算/OCR/
+      解析失败未读完，必须产出 coverage.status=partial 与 unread 区间，
+      并在报告“局限性”中体现。禁止静默只读前 N 页却表现为全文分析。
+    status: implemented
+    tests: [tests/unit/test_document_workers.py::test_document_runner_full_coverage_reads_every_page, tests/unit/test_document_workers.py::test_document_runner_reports_partial_coverage]
+    see: docs/adr/0030-deep-document-flow.md
+
+  - id: REQ-231
+    title: 长文档分批抽取并合并，不整篇塞入单次调用
+    given: 文档内容超过单次上下文预算
+    when: 开启 AGENT_DOCUMENT_MAP_REDUCE
+    then: |
+      按 chunk 分批抽取 claim/实体，再按 section/document 合并；单个 chunk
+      失败只重试该片，不重跑整篇；最终产物可追溯到 chunk anchor。
+    status: implemented
+    tests: [tests/unit/test_document_workers.py::test_document_runner_map_reduce_merges_batches]
+    see: docs/adr/0030-deep-document-flow.md
+
+  - id: REQ-232
+    title: 报告写作按证据检索，而不是只读 12k 摘要
+    given: 长文档或多文档报告任务
+    when: author/section writer 撰写某一节
+    then: |
+      通过 knowledge_search 检索与该节相关的 claim + quote + anchor；
+      引用可由 report_check 校验；证据不足时明确写入局限性，不编造。
+    status: partial
+    tests: [tests/unit/test_document_workers.py::test_author_runner_receives_claim_and_quote_evidence]
+    see: docs/adr/0030-deep-document-flow.md
+
+  - id: REQ-233
+    title: 架构索引与简报可被后续 worker 复用
+    given: 大型代码仓库与一个跨模块请求
+    when: 架构工作流完成 arch survey
+    then: |
+      产出 ArchIndex（含 import 边、符号、测试拓扑）与 ArchBrief；
+      planner/implement worker 通过知识产物句柄读取，而不是各自从零探索；
+      产物带 git_head 指纹，过期不命中。
+    status: partial
+    tests: [tests/unit/test_architecture_knowledge.py::test_arch_index_captures_imports_and_reverse_edges, tests/unit/test_architecture_knowledge.py::test_arch_brief_is_bounded_and_actionable, tests/unit/test_architecture_knowledge.py::test_impact_analysis_follows_callers_and_tests]
+    see: docs/adr/0029-knowledge-artifacts.md
+
+  - id: REQ-234
+    title: 跨模块变更使用接口优先波次与波次 gate
+    given: ChangeContract 检测到接口变更与多个调用方
+    when: 生成 implement 任务图
+    then: |
+      自动启用顺序波次：先接口/契约、后调用方；同一波次内写范围不重叠；
+      波次之间运行编译/import/受影响测试 gate；gate 失败只回滚或修复该波次。
+    status: implemented
+    tests: [tests/unit/test_architecture_knowledge.py::test_change_contract_orders_interfaces_before_callers, tests/unit/test_architecture_knowledge.py::test_apply_change_contract_stages_implement_tasks, tests/unit/test_orchestrator.py::test_plan_tasks_applies_change_contract_waves, tests/unit/test_scheduler.py::test_interface_first_waves_run_gate_between_stages, tests/unit/test_scheduler.py::test_failed_wave_gate_blocks_later_stages]
+    see: docs/adr/0031-interface-first-waves.md
+
+  - id: REQ-235
+    title: 知识产物访问受 run 作用域与路径守卫
+    given: 模型请求读取/检索知识产物
+    when: 调用 knowledge_read / knowledge_search
+    then: |
+      只接受宿主签发的 artifact_id 与选择器；拒绝绝对路径、.. 与符号链接
+      逃逸；产物目录不进版本控制；远程 embedding 默认关闭，开启需显式配置
+      并写审计。
+    status: partial
+    tests: [tests/unit/test_knowledge_store.py::test_artifact_ids_cannot_escape_the_run_directory, tests/unit/test_knowledge_tools.py::test_search_requires_a_run_context, tests/unit/test_knowledge_tools.py::test_search_reads_the_current_run]
+    see: docs/adr/0029-knowledge-artifacts.md
+
+  - id: REQ-236
+    title: 动态图构建失败时回退现有四模板
+    given: 复杂度信号不足，或动态图构建/校验失败
+    when: 选择工作流
+    then: |
+      回退 direct / parallel_readonly / orchestrated_implement /
+      document_pipeline，不静默截断任务，也不进入未经验证的新路径。
+    status: implemented
+    tests: [tests/unit/test_workflow_builder.py::test_requires_write_and_deep_mode, tests/unit/test_workflow_builder.py::test_single_wave_falls_back, tests/unit/test_orchestrator.py::test_select_workflow_uses_dynamic_architecture_plan]
+    see: docs/adr/0032-dynamic-workflow-builder.md
+
+  - id: REQ-237
+    title: Python 索引增量更新
+    given: 同一仓库第二次 survey，只有部分文件变化
+    when: 构建 Python 索引
+    then: 只重新解析内容哈希变化的文件；缓存读写失败回退全量解析，不阻断 survey
+    status: implemented
+    tests: [tests/unit/test_index_cache.py::test_only_changed_files_are_reparsed, tests/unit/test_index_cache.py::test_corrupt_cache_entry_falls_back]
+    see: docs/adr/0035-incremental-sampling-and-doc-judge.md
+
+  - id: REQ-238
+    title: 多语言/规模抽样索引与保守回退
+    given: 大型或多语言仓库，文件数超过 arch_max_files
+    when: 构建架构索引
+    then: |
+      按语言组比例抽样；非 Python 用轻量正则提符号；sample.truncated=True
+      时 impact_analysis.fallback=True，契约/分波必须保守。
+    status: implemented
+    tests: [tests/unit/test_polyglot_index.py::test_collect_arch_sources_allocates_per_language, tests/unit/test_polyglot_index.py::test_build_arch_index_includes_non_python_symbols_and_languages, tests/unit/test_architecture_knowledge.py::test_impact_analysis_marks_sampled_repo_as_fallback]
+    see: docs/adr/0035-incremental-sampling-and-doc-judge.md
+
+  - id: REQ-239
+    title: 文档答案 judge 与失败回退
+    given: 文档 worker 产出的答案与证据
+    when: 运行自动 judge
+    then: |
+      确定性 judge 检查引用锚点是否可对应证据；LLM judge 逐条判断结论是否有证据；
+      LLM 失败回退确定性结果并记录 error，不把 judge 故障判成答案失败。
+    status: implemented
+    tests: [tests/unit/test_document_judge.py::test_deterministic_judge_accepts_known_citation, tests/unit/test_document_judge.py::test_deterministic_judge_flags_unknown_citation, tests/unit/test_document_judge.py::test_llm_judge_failure_falls_back_to_deterministic]
+    see: docs/adr/0035-incremental-sampling-and-doc-judge.md
+
+  - id: REQ-240
+    title: 跨语言调用图参与影响分析与契约
+    given: Python/TS/Go/Rust/JVM 混合仓库
+    when: 构建架构索引并分析请求影响面
+    then: |
+      轻量调用图按唯一符号名解析调用边；同名多定义跳过；跨语言调用方进入
+      affected_files，并补入 ChangeContract 波次。
+    status: implemented
+    tests: [tests/unit/test_architecture_knowledge.py::test_call_graph_finds_cross_language_callers, tests/unit/test_architecture_knowledge.py::test_call_graph_skips_ambiguous_symbols]
+    see: docs/adr/0036-callgraph-and-shared-cache.md
+
+  - id: REQ-241
+    title: 内容寻址的跨机器索引缓存
+    given: 不同 clone/机器上的相同文件内容
+    when: 构建 Python 增量索引
+    then: |
+      以内容 SHA-256 为键命中缓存；文件改名仍可复用；缓存目录可由
+      AGENT_ARCH_INDEX_CACHE_DIR 指向共享盘；缓存不存源码正文。
+    status: implemented
+    tests: [tests/unit/test_index_cache.py::test_content_is_reused_after_rename, tests/unit/test_index_cache.py::test_cache_dir_can_be_configured]
+    see: docs/adr/0036-callgraph-and-shared-cache.md
+
+  - id: REQ-242
+    title: judge 阈值校准
+    given: 一批带 pass/fail 标注的文档答案与 judge 分数
+    when: 运行校准脚本
+    then: |
+      遍历 0-100 选择 F1 最大的阈值；无样本回退默认值；阈值可通过
+      AGENT_DOCUMENT_JUDGE_PASS_SCORE 生效。
+    status: implemented
+    tests: [tests/unit/test_judge_calibration.py::test_calibration_finds_a_separating_threshold, tests/unit/test_judge_calibration.py::test_calibration_without_samples_uses_default, tests/unit/test_judge_calibration.py::test_pass_score_can_be_configured]
+    see: docs/adr/0037-judge-threshold-calibration.md
+
+  - id: REQ-243
+    title: 动态/反射/宏调用识别与保守回退
+    given: Python getattr/globals/eval、TS 计算属性、Rust 宏等动态调用
+    when: 构建调用图并分析变更影响
+    then: |
+      可解析的目标进入调用边；无法静态确定的目标记录到 dynamic_calls；
+      变更附近存在动态调用时 impact_analysis.fallback=True。
+    status: implemented
+    tests: [tests/unit/test_architecture_knowledge.py::test_call_graph_resolves_getattr_and_macros, tests/unit/test_architecture_knowledge.py::test_dynamic_calls_near_change_force_fallback]
+    see: docs/adr/0036-callgraph-and-shared-cache.md
+
+  - id: REQ-244
+    title: 共享缓存自动淘汰
+    given: 共享索引缓存长期使用、条目/字节超限或过期
+    when: 写入达到清理周期或手动 prune
+    then: |
+      按 TTL、条目数与字节数淘汰最旧条目；并发写/删只可能造成重新解析，
+      不阻断索引构建。
+    status: implemented
+    tests: [tests/unit/test_index_cache.py::test_prune_removes_oldest_entries, tests/unit/test_index_cache.py::test_prune_removes_expired_entries, tests/unit/test_index_cache.py::test_prune_respects_byte_budget]
+    see: docs/adr/0036-callgraph-and-shared-cache.md
+
+  - id: REQ-245
+    title: judge 种子标注集与导出工作流
+    given: 需要校准文档 judge 阈值
+    when: 使用内置种子集或导出 JSONL 扩充标注
+    then: |
+      种子集字段完整且可导出；校准脚本可直接读取种子集；
+      人工追加标注后重跑即可更新阈值。
+    status: implemented
+    tests: [tests/unit/test_judge_dataset.py::test_seed_dataset_has_expandable_shape, tests/unit/test_judge_dataset.py::test_seed_dataset_can_be_exported_as_jsonl, tests/unit/test_judge_dataset.py::test_seed_dataset_calibrates_to_a_useful_threshold]
+    see: docs/adr/0037-judge-threshold-calibration.md
+
+  - id: REQ-246
+    title: 宏定义/调用边与可选 LSP 动态解析
+    given: Rust macro_rules!/C #define，或配置了 AGENT_LSP_COMMAND 的动态调用
+    when: 构建架构索引与影响分析
+    then: |
+      宏定义与调用形成 kind=macro 边；开启 LSP 解析时，可定位的动态调用
+      补成 kind=lsp 文件级边并标记 resolved；LSP 不可用则保持 fallback。
+    status: implemented
+    tests: [tests/unit/test_architecture_knowledge.py::test_macro_definitions_create_macro_edges, tests/unit/test_architecture_knowledge.py::test_lsp_resolution_turns_dynamic_calls_into_edges, tests/unit/test_architecture_knowledge.py::test_lsp_edges_extend_impact_files]
+    see: docs/adr/0036-callgraph-and-shared-cache.md
+
+  - id: REQ-247
+    title: 共享缓存跨进程锁与 stale 接管
+    given: 多个进程/机器共享同一索引缓存目录
+    when: 并发写入同一内容哈希或执行 prune
+    then: |
+      锁文件互斥；等待超时只跳过本次写/清理；stale 锁可被接管；
+      释放时只删除自己 token 的锁。
+    status: implemented
+    tests: [tests/unit/test_cache_lock.py::test_lock_is_exclusive, tests/unit/test_cache_lock.py::test_stale_lock_is_reclaimed, tests/unit/test_cache_lock.py::test_put_file_returns_false_when_lock_unavailable]
+    see: docs/adr/0036-callgraph-and-shared-cache.md
+
+  - id: REQ-248
+    title: 大规模 judge 标注集构建/校验/切分
+    given: 需要千级样本校准 judge 阈值
+    when: 运行构建器或导入 JSONL
+    then: |
+      可生成/导入、校验 schema 与重复、按确定性切分 train/calibration/test；
+      require_human 会拒绝 synthetic 标签；合成数据只用于跑通流程。
+    status: implemented
+    tests: [tests/unit/test_judge_dataset_builder.py::test_builds_target_size_and_valid_schema, tests/unit/test_judge_dataset_builder.py::test_require_human_rejects_synthetic, tests/unit/test_judge_dataset_builder.py::test_dedupe_and_split_are_deterministic, tests/unit/test_judge_dataset_builder.py::test_large_dataset_calibrates_well]
+    see: docs/adr/0037-judge-threshold-calibration.md
+
+  - id: REQ-249
+    title: 150 条待人工审核队列与强制 reviewer
+    given: 需要真人标注但 AI 不能替代
+    when: 导出 pending 队列并人工填写审核字段
+    then: |
+      pending 样本 label 为空、label_source=pending-human，不能进入校准；
+      promote_case 强制合法 label 与 reviewer 后才转为 human；
+      require_human=True 会拒绝未审核数据。
+    status: implemented
+    tests: [tests/unit/test_judge_human_pack.py::test_pending_pack_is_large_and_not_human_yet, tests/unit/test_judge_human_pack.py::test_promote_requires_label_and_reviewer]
+    see: docs/adr/0037-judge-threshold-calibration.md
+
+  # ---------------------------------------------------------------- 多文档结构化阅读
+  - id: REQ-250
+    title: map-reduce 章节感知切分
+    given: 长文档包含编号标题、Abstract/Introduction/Method 等章节
+    when: 构建 map 单元
+    then: |
+      按章节标题切分；超长章节再按段落切分并保留标题；
+      页码前缀与 Figure/Table 标题不会被误判为章节。
+    status: implemented
+    tests: [tests/unit/test_document_workers.py::test_split_sections_keeps_headings_and_page_markers, tests/unit/test_document_workers.py::test_split_sections_splits_oversized_section_with_heading]
+    see: docs/adr/0038-structured-document-matrix-and-attribution.md
+
+  - id: REQ-251
+    title: 引用跨度校验
+    given: 文档 worker 抽取出一条证据 claim + quote + anchor
+    when: 生成 sources / 评测 judge
+    then: |
+      quote 在归一化文档文本中定位并记录 quote_span{start,end,page}；
+      章节号/作者名/页码范围回写成真实 page=N；无法定位或锚点不存在
+      的证据不进入下游；judge 输出 quote_verified_ratio。
+    status: implemented
+    tests: [tests/unit/test_document_workers.py::test_verify_source_quotes_records_span_and_page, tests/unit/test_document_judge.py::test_deterministic_judge_reports_unverified_quote_spans]
+    see: docs/adr/0038-structured-document-matrix-and-attribution.md
+
+  - id: REQ-252
+    title: 每篇固定槽位证据矩阵
+    given: 多篇文档需要横向比较
+    when: 文档 worker 完成分批抽取
+    then: |
+      每篇输出 problem/method/algorithm/experiments/limitations/innovations/
+      conclusion 固定槽位；空槽位用已验证 claim 回填；矩阵随结果下传。
+    status: implemented
+    tests: [tests/unit/test_document_workers.py::test_document_runner_builds_matrix_and_tree_summary]
+    see: docs/adr/0038-structured-document-matrix-and-attribution.md
+
+  - id: REQ-253
+    title: 分层/树状归并与紧凑矩阵附录
+    given: 文档数量超过单次归并输入上限
+    when: 合并多篇矩阵/摘要
+    then: |
+      按 document_tree_fanout 逐层归并，单次输入受 document_tree_input_chars
+      限制；最终答案附紧凑矩阵，已解析文档不会被树状归并压掉。
+    status: implemented
+    tests: [tests/unit/test_document_workers.py::test_document_runner_builds_matrix_and_tree_summary]
+    see: docs/adr/0038-structured-document-matrix-and-attribution.md
+
+  - id: REQ-254
+    title: 跨文档归属校验
+    given: 答案句子提到某篇文档并引用证据
+    when: 运行归属校验
+    then: |
+      提到 A 却只引用 B 时写入 attribution_issues；多文档对比句允许；
+      paper-1 不会误匹配 paper-10；评测默认要求 0 条错配。
+    status: implemented
+    tests: [tests/unit/test_attribution.py::test_attribution_wrong_path_is_flagged, tests/unit/test_attribution.py::test_attribution_multi_document_sentence_is_allowed, tests/unit/test_attribution.py::test_attribution_paper1_does_not_match_paper10]
+    see: docs/adr/0038-structured-document-matrix-and-attribution.md
+
+  - id: REQ-255
+    title: 论文报告链路评测
+    given: 多篇 PDF 需要生成综述报告
+    when: 运行 document → author → report_check
+    then: |
+      断言覆盖全部文档、每篇被引用、摘要/方法/实验/局限/创新章节、
+      矩阵槽位覆盖率、引用跨度、归属与报告长度；report_check 与 judge 通过。
+    status: implemented
+    tests: [tests/unit/test_papers_eval.py::test_report_case_and_evaluation, tests/unit/test_papers_eval.py::test_report_case_flags_missing_section_and_failed_check]
+    see: docs/adr/0038-structured-document-matrix-and-attribution.md
+
+  - id: REQ-256
+    title: 文档数量扩展不截断
+    given: 输入文档数量从 3 扩到 10 甚至更多
+    when: 文档 worker 分配输入、证据与评测用例
+    then: |
+      输入上限为 64；证据点上限随文档数放大；最终 sources 按文档轮转；
+      10 篇时每篇仍有证据且被引用，不会因前几篇长文占满上限而丢文档。
+    status: implemented
+    tests: [tests/unit/test_document_workers.py::test_document_runner_does_not_truncate_many_inputs, tests/unit/test_papers_eval.py::test_evaluate_result_passes_for_different_document_counts]
+    see: docs/adr/0038-structured-document-matrix-and-attribution.md

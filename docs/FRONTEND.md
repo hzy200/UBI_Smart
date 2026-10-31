@@ -41,7 +41,8 @@ review_cadence: 前端交互、事件契约、权限模型或桌面壳变动时
 - **模型输出不是 HTML**。所有 markdown 先经 `marked`，再经 `DOMPurify`
   清洗后才进入 `x-html`；不允许拼接未清洗的 HTML。
 - **静态资源全部本地 vendored**（Alpine、highlight.js、marked、
-  DOMPurify），运行时不依赖 CDN，也没有前端打包服务器。
+  DOMPurify、mammoth、SheetJS、pdf.js），运行时不依赖 CDN，也没有前端打包服务器。
+  文档 viewer 库按需动态加载并带 SRI；PDF worker 从同源 `/static/vendor/` 加载。
 
 ### 构建链
 
@@ -96,7 +97,7 @@ web/static/vendor/*                                (直接由 A2 提供)
   mixin 必须用 `Object.defineProperties` 组合，不能用对象展开——展开会在
   构造时求值 getter，导致 CSP 构建下失去响应性。
 - `contracts/events.generated.ts` 由 `scripts/gen_contracts.py` 从
-  `src/coding_agent/events.py` 生成，禁止手改。
+  `src/ubismart/events.py` 生成，禁止手改。
 - 守卫测试：`tests/unit/test_frontend_workspace_ui.py` 检查构建产物是否
   包含关键流程，防止忘记重建导致界面静默退回旧版本。
 - 类型检查：`tsc --noEmit`；构建：`node esbuild.mjs`。
@@ -201,6 +202,25 @@ web/static/vendor/*                                (直接由 A2 提供)
 文件预览使用 highlight.js 按扩展名高亮，带行号、面包屑与“跳转到行”；
 常见图片（png/jpg/gif/webp/bmp/ico/svg）在 2MB 以内直接以 data URL 预览，
 超过上限或二进制文件显示说明。host 工作区暂不支持图片预览。
+
+文档阅读器按类型分派：Markdown 经 marked + DOMPurify 渲染；PDF 用按需加载的
+pdf.js 逐页渲染到 canvas，并叠加 SVG 文本层（可选中）、支持翻页、缩放、
+全文搜索（命中文本标黄）与连续滚动（按批懒加载，不设固定页数上限），
+同时展示 PDF 元数据与书签大纲（可跳页），失败时退回内置 viewer；DOCX 用 mammoth 转 HTML 后经 DOMPurify，
+并额外展示服务端解析出的页眉/页脚/分节信息、脚注与批注（`.docx-extras`）；
+XLSX/XLS 用 SheetJS 解析并支持 sheet 标签切换、合并单元格、大表截断提示，
+点击单元格显示公式/值（`.xlsx-formula`）；大表按滚动窗口只渲染可视行，
+上下占位高度通过 CSSOM 命令式设置（CSP `style-src 'self'` 会丢弃内联
+`style` 属性）；
+PPTX 经 `/api/file/document` 读取 python-pptx 提取的形状几何、文本、表格与内嵌图片，
+生成绝对定位 SVG 版式（`.slide-svg`，不依赖 LibreOffice，也不还原像素级字体/阴影），
+可展示内嵌图片。旧版 `.doc/.ppt` 不做转换，明确提示先另存为 docx/pptx。
+实现按格式拆在 `features/viewers/`：`registry` 分派，`basic/pdf/docx/sheet/
+document/table` 各自负责一种能力，`inspector.ts` 只保留 fileView 状态与调用。
+vendored 库按需动态加载并带 SRI；raw 端点支持单段 `Range`，CSP 额外放行
+`frame-src 'self' blob:` 与 `worker-src 'self'`。SVG 只按源码展示，不进入
+`<img>`。注意 CSP 为 `style-src 'self'`，内联 `style` 属性会被浏览器丢弃；
+需要动态高度/位置时用 `element.style`（CSSOM）而不是模板 `:style`。
 主区可叠放一个实时分屏：从会话操作或命令面板打开另一个会话的独立
 `SessionView`，两侧各自接收 SSE、显示状态并可独立发送任务；分屏收到审批时
 直接展示内联审批卡，可在分屏内批准/拒绝/全部拒绝，无需切回主区。关闭分屏
@@ -562,7 +582,7 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 自动：
 
 ```bash
-cd src/coding_agent/web/frontend
+cd src/ubismart/web/frontend
 node node_modules/typescript/bin/tsc --noEmit
 node esbuild.mjs
 node test.mjs

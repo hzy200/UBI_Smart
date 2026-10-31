@@ -4,7 +4,7 @@ doc_id: acceptance
 title: 需求对照与自检
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-28
+last_reviewed: 2026-10-31
 review_cadence: 每次发版前
 note: |
   第 1 节是需求 → 落点 → 验证的对照表。
@@ -74,7 +74,7 @@ note: |
 | 工作区只读 ACL | `control/workspaces.py`、`web/routes/admin.py`、迁移 `0013` | `test_workspace_acl.py`、`test_control_migrations.py` |
 | SIGTERM 优雅 drain | `servers/agent_server.py`、`servers/control_server.py`、`AGENT_DRAIN_TIMEOUT_S` | `test_agent_server_drain.py` |
 | 可观测性 | `platform/observability.py`、A2/A3 `/metrics`、`docs/OBSERVABILITY.md` | `test_observability.py` |
-| 备份调度 | `packaging/systemd/coding-agent-backup.*`、`CodingAgentControl --backup` | `test_control_migrations.py`、`pytest -m mysql` |
+| 备份调度 | `packaging/systemd/coding-agent-backup.*`、`UBISmartControl --backup` | `test_control_migrations.py`、`pytest -m mysql` |
 | checkpoint 回滚 | checkpoint 负责**会话状态**恢复；快照负责**文件内容**回滚 | `test_checkpointer.py` + `agent undo` |
 | 会话分叉/回退 | `AgentRuntime.fork/rewind`；历史不删除，回退即新建分支 | `agent fork` / `agent rewind`；`test_runtime_checkpoints.py` |
 | 上下文治理 | 字符 + 估算 token 双预算、400 降档重试、确定性摘要、`ContextTrimmed` 指标 | `tests/eval/context_memory_bench.py` |
@@ -152,7 +152,7 @@ sudo packaging/systemd/install.sh --uninstall   # 保留配置与数据
 
 # 7. 前端构建与类型检查
 python scripts/build_frontend.py
-npx --yes -p typescript@5.9.3 tsc --noEmit -p src/coding_agent/web/frontend/tsconfig.json
+npx --yes -p typescript@5.9.3 tsc --noEmit -p src/ubismart/web/frontend/tsconfig.json
 
 # 8. Phase F 安全与迁移验收
 pytest -m "not llm" tests/unit/test_phase_f_security.py -q
@@ -511,7 +511,7 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] B4.2：文件/Git/项目环境、快照/checkpoint/fork/rewind/compact、记忆、
       上传、审计、会话索引、恢复中心路由已迁移到 Agent Server；
 - [x] A2 provider key 随运行短期注入 A3 内存；审计查询时幂等写入 MySQL 索引；
-- [x] `scripts/build_services.py` 构建 `CodingAgentAgent`/`CodingAgentControl`；
+- [x] `scripts/build_services.py` 构建 `UBISmartAgent`/`UBISmartControl`；
       Linux systemd unit、Windows SYSTEM 开机任务与环境文件示例已提供；
 - [x] 前端源迁到 `frontend/src/app.ts`，esbuild 生成 CSP 兼容的 `static/app.js`；
 - [x] schema 在 SQLite 实际建表、MySQL DDL 编译通过；
@@ -604,6 +604,50 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 - [x] 分屏宽度可拖拽并持久化；活跃 pane 有强调边框；
 - [x] 编辑器标签/文件视图按会话隔离；分屏内可直接批准、拒绝或全部拒绝。
 - [ ] 键盘焦点仍是浏览器全局（不按会话隔离）；分屏审批出现时不自动抢焦点。
+
+### 5.18 深层工作流与知识产物（RFC-0009，部分落地）
+
+所有能力默认关闭；验收锚点为 REQ-230～REQ-236。
+
+- [x] 长文档全文覆盖或显式 `partial` + 未读区间（REQ-230）；
+- [x] 长文档分批 map-reduce，不整篇塞入单次调用（REQ-231）；
+- [x] 报告写作上下文包含 claim + quote + anchor（REQ-232，partial：检索工具已提供，尚未强制按节检索）；
+- [x] `ArchIndex`（含 import 边）、`ArchBrief`、`impact_analysis` 接入规划提示（REQ-233，partial）；
+- [x] 跨模块变更使用接口优先波次与波次 gate（REQ-234）；
+- [x] 知识产物持久化与 `knowledge_read/search` 工具（REQ-235，partial：词法检索，无向量）；
+- [x] 动态图构建失败回退现有四模板（REQ-236）；
+- [x] Python 索引增量更新，只重解析变化文件（REQ-237）；
+- [x] 多语言/规模抽样索引，截断时影响分析 fallback（REQ-238）；
+- [x] 文档答案确定性 + LLM judge，LLM 失败回退确定性（REQ-239）；
+- [x] 跨语言调用图参与影响分析与契约（REQ-240）；
+- [x] 内容寻址的跨机器索引缓存，换 clone/改名可复用（REQ-241）；
+- [x] judge 阈值可配置并支持标注集校准（REQ-242）；
+- [x] 动态/反射/宏调用被识别或标记 fallback（REQ-243）；
+- [x] 共享缓存按 TTL/条目/字节自动淘汰（REQ-244）；
+- [x] 种子标注集可导出并驱动校准（REQ-245）；
+- [x] 宏定义/调用边与可选 LSP 动态解析（REQ-246）；
+- [x] 共享缓存跨进程锁与 stale 接管（REQ-247）；
+- [x] 大规模标注集构建/校验/切分，且可强制人工标注（REQ-248）；
+- [x] 150 条待人工审核队列，promote 强制 label+reviewer（REQ-249）。
+
+### 5.19 多文档结构化阅读（ADR-0038）
+
+- [x] map-reduce 按章节标题切分，超长章节保留标题再分段（REQ-250）；
+- [x] 证据 quote 在归一化文本中定位，记录 `quote_verified` /
+      `quote_span`，非法/无法定位的锚点不进入下游（REQ-251）；
+- [x] 每篇固定槽位证据矩阵（问题/方法/算法/实验/局限/创新/结论），
+      空槽位用已验证 claim 回填（REQ-252）；
+- [x] 多文档按 fanout 树状归并，单次输入有上限，最终答案附紧凑矩阵（REQ-253）；
+- [x] 按句子检查“提到的文档”与引用路径，归属错配写入
+      `attribution_issues`（REQ-254）；
+- [x] `document → author → report_check` 报告评测，断言章节、逐篇引用、
+      矩阵槽位、引用跨度与归属（REQ-255）。
+
+矩阵默认关闭（`AGENT_DOCUMENT_MATRIX_ENABLED=false`）；评测/长文档场景显式开启。
+10 篇/230 页实测见 [DEEP_WORKFLOW_EVAL.md](DEEP_WORKFLOW_EVAL.md) §9。
+
+设计与落地顺序见 [RFC-0009](rfc/0009-deep-workflows-and-knowledge-artifacts.md)；
+决策见 [ADR-0038](adr/0038-structured-document-matrix-and-attribution.md)。
 
 ## 6. 冻结
 

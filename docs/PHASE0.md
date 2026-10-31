@@ -22,7 +22,7 @@ Windows
   WebView / browser
       │ HTTP + SSE，127.0.0.1:8765
 WSL2
-  coding_agent.server
+  ubismart.server
       ├─ FastAPI / SSE
       ├─ AgentRuntime / LangGraph
       ├─ tools / audit / checkpoint / steering
@@ -55,7 +55,7 @@ curl -sS -o /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py
 cd /home/<user>/agent-ws
 PYTHONPATH=/mnt/d/User/PycharmProjects/CodingAgent/src \
 DEEPSEEK_API_KEY=... \
-~/.coding-agent/venv/bin/python -m coding_agent.server \
+~/.coding-agent/venv/bin/python -m ubismart.server \
   --port 8765 \
   --token phase0token \
   --workspace /home/<user>/agent-ws

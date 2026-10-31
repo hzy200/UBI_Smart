@@ -18,7 +18,7 @@ B2 会话目录接入 + B3 SSE 事件传输重放 + B4 进程拆分与剩余 Age
 
 ### 1.1 A2 数据 schema
 
-新增 `src/coding_agent/control/schema.py`，同一套 SQLAlchemy 模型跑 MySQL 与 SQLite：
+新增 `src/ubismart/control/schema.py`，同一套 SQLAlchemy 模型跑 MySQL 与 SQLite：
 
 | 表 | 内容 |
 |---|---|
@@ -62,7 +62,7 @@ B2 会话目录接入 + B3 SSE 事件传输重放 + B4 进程拆分与剩余 Age
 
 ### 1.3 SecretProvider 接口
 
-`src/coding_agent/control/secrets.py` 定义两档：
+`src/ubismart/control/secrets.py` 定义两档：
 
 - `KeyringSecretProvider`：桌面 OS 密钥环；
 - `SystemdCredsSecretProvider`：服务器 `$CREDENTIALS_DIRECTORY` 只读凭据。
@@ -74,7 +74,7 @@ B2 会话目录接入 + B3 SSE 事件传输重放 + B4 进程拆分与剩余 Age
 
 ### 1.4 共享事件传输与 SSE 重放
 
-`src/coding_agent/control/transport.py`：
+`src/ubismart/control/transport.py`：
 
 - `MemoryEventTransport`：单实例默认，按 thread 保留最近 N 条，支持 `after`；
 - `RedisStreamEventTransport`：Redis Streams 适配器（`seq` + `data`、近似
@@ -96,7 +96,7 @@ B2 会话目录接入 + B3 SSE 事件传输重放 + B4 进程拆分与剩余 Age
 
 ### 1.5 独立 Agent Server 与 A2 内部客户端
 
-新增 `src/coding_agent/agent_server.py`（`coding-agent-agent` 入口）：
+新增 `src/ubismart/servers/agent_server.py`（`ubismart-agent` 入口）：
 
 - 只绑 loopback，必须配置 `AGENT_INTERNAL_TOKEN`；
 - A2 用 `Authorization: Bearer` + `X-Agent-Context`（base64 JSON：
@@ -138,7 +138,7 @@ Agent Server 不持有控制面数据库。恢复中心的 pending approval 扫�
 
 ### 1.6 原生服务打包
 
-新增 `src/coding_agent/control_server.py`（`coding-agent-control`）与
+新增 `src/ubismart/servers/control_server.py`（`ubismart-control`）与
 `scripts/build_services.py`：
 
 ```bash
@@ -149,8 +149,8 @@ python scripts/build_frontend.py
 
 产物：
 
-- `dist/CodingAgentAgent/CodingAgentAgent.exe`（A3+A4）
-- `dist/CodingAgentControl/CodingAgentControl.exe`（A2）
+- `dist/UBISmartAgent/UBISmartAgent.exe`（A3+A4）
+- `dist/UBISmartControl/UBISmartControl.exe`（A2）
 
 部署文件：
 
@@ -171,8 +171,8 @@ Linux 安装概要：
 sudo useradd --system --home /var/lib/coding-agent coding-agent
 sudo install -d -o coding-agent -g coding-agent /var/lib/coding-agent \
   /srv/coding-agent/workspaces /opt/coding-agent/bin
-sudo cp dist/CodingAgentAgent/CodingAgentAgent* /opt/coding-agent/bin/
-sudo cp dist/CodingAgentControl/CodingAgentControl* /opt/coding-agent/bin/
+sudo cp dist/UBISmartAgent/UBISmartAgent* /opt/coding-agent/bin/
+sudo cp dist/UBISmartControl/UBISmartControl* /opt/coding-agent/bin/
 sudo install -d /etc/coding-agent
 sudo install -m 600 -o coding-agent packaging/systemd/agent.env.example /etc/coding-agent/agent.env
 sudo install -m 600 -o coding-agent packaging/systemd/control.env.example /etc/coding-agent/control.env
@@ -181,14 +181,14 @@ sudo cp packaging/systemd/coding-agent-*.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now coding-agent-agent coding-agent-control
 ```
 
-Windows 安装概要：把 `dist/CodingAgentAgent`、`dist/CodingAgentControl` 复制到
+Windows 安装概要：把 `dist/UBISmartAgent`、`dist/UBISmartControl` 复制到
 `%LOCALAPPDATA%\Programs\CodingAgent`，运行
 `packaging/windows/install-startup-task.ps1 -Target agent|control`；
 环境文件在 `%PROGRAMDATA%\CodingAgent\<target>.env`。
 
 ### 1.7 前端 esbuild / TypeScript 首切片
 
-- 源文件迁移到 `src/coding_agent/web/frontend/src/app.ts`
+- 源文件迁移到 `src/ubismart/web/frontend/src/app.ts`
   （原 `static/app.js` 的内容），`main.ts` 负责入口，`contracts.ts` 提供
   最小事件/会话类型；
 - `static/app.js` 现在由 esbuild 生成（IIFE、无 `eval`，保持 CSP 兼容），
@@ -198,7 +198,7 @@ Windows 安装概要：把 `dist/CodingAgentAgent`、`dist/CodingAgentControl` �
 ```bash
 python scripts/build_frontend.py   # 直接走 npx esbuild，无需 node_modules
 # 或：
-cd src/coding_agent/web/frontend
+cd src/ubismart/web/frontend
 npm install && npm run build
 ```
 
@@ -287,7 +287,7 @@ Redis 客户端在 `.[events]`。
 - [x] 文件/Git/快照/checkpoint/记忆/上传/审计/会话索引路由已迁移；
 - [x] A2 provider key 短期注入 A3 内存，明文不落盘/日志；A2 企业模式仅存密文；
 - [x] 审计索引在 A2 查询时幂等回传 MySQL（拉取式）；
-- [x] A2/A3 原生可执行目录（`CodingAgentControl` / `CodingAgentAgent`）；
+- [x] A2/A3 原生可执行目录（`UBISmartControl` / `UBISmartAgent`）；
 - [x] Linux systemd unit、Windows SYSTEM 开机任务与环境文件示例；
 - [x] 前端切到 `frontend/src` + esbuild 生成 `static/app.js`，CSP 兼容；
 - [x] 未配置内部 URL 时行为不变，Standalone/A2 同进程仍可用；

@@ -87,12 +87,12 @@ python scripts/setup_control_mysql.py \
 ```bash
 export AGENT_CONTROL_DB_URL='mysql+pymysql://coding_agent:***@127.0.0.1:3306/coding_agent'
 export AGENT_CONTROL_DB_AUTO_CREATE=false
-coding-agent-control --migrate
+ubismart-control --migrate
 # 或
-python -m coding_agent.control.migrate
+python -m ubismart.control.migrate
 ```
 
-迁移条目在 `src/coding_agent/control/migrations/versions/`，当前 head 为
+迁移条目在 `src/ubismart/control/migrations/versions/`，当前 head 为
 `0019_share_links`。`0019` 新增 `control_share_links`；`0018` 新增
 `control_api_tokens` 与 `control_webhooks`；`0017` 新增
 `control_push_subscriptions`；
@@ -190,7 +190,7 @@ python scripts/restore_control_db.py --source backups/control-20261028-020000.sq
 ### 5.1 调度与目标（基线）
 
 - Linux：`packaging/systemd/coding-agent-backup.timer` 每天 03:30（随机延迟
-  15 分钟）执行 `CodingAgentControl --backup --backup-keep 14`；未配置
+  15 分钟）执行 `UBISmartControl --backup --backup-keep 14`；未配置
   `AGENT_CONTROL_DB_URL` 时 service 由 `ExecCondition` 跳过。
 - Windows：用任务计划程序按同样口径调用
   `python scripts/backup_control_db.py --keep 14`。
@@ -271,7 +271,7 @@ GROUP BY user_id;
 ## 8. 迁移与回滚
 
 - 升级前：`backup_control_db.py`；
-- 升级：`coding-agent-control --migrate`；
+- 升级：`ubismart-control --migrate`；
 - 回滚：Alembic `downgrade` 只用于受控窗口，生产更推荐“备份恢复”；
 - 版本不匹配时 A2 进入只读降级，不阻塞运行与 SSE。
 

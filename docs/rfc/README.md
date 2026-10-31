@@ -4,7 +4,7 @@ doc_id: rfc-index
 title: RFC 索引与流程
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-30
 review_cadence: 新增或状态变更时
 ---
 
@@ -58,6 +58,11 @@ draft ──批准──▶ accepted ──实现完成──▶ implemented
 | [0002](0002-native-execution-domain-and-grant-model.md) | 客户端执行域、授权凭证模型与 A2L 宿主能力代理（五层） | accepted | 项目作者 | 0015 |
 | [0003](0003-frontend-backend-separation.md) | 前后端分离的运行时契约、错误协议与传输矩阵 | accepted | 项目作者 | 0016、0017、0018 |
 | [0004](0004-enterprise-identity-and-four-eyes.md) | 企业身份（OIDC / TOTP）与四眼审批 | accepted | 项目作者 | 0023 |
+| [0005](0005-document-image-and-report-pipeline.md) | 二进制文档与图像理解、报告撰写能力（文档管线） | accepted | 项目作者 | 0024、0025 |
+| [0006](0006-incremental-implement-merge.md) | implement 补丁按连通分量增量合并 | accepted | 项目作者 | 0026 |
+| [0007](0007-sequential-write-waves.md) | implement 顺序写波次与 worktree 基线注入 | accepted | 项目作者 | 0027 |
+| [0008](0008-orchestrated-fix-rounds.md) | verify 失败后的有界编排修复轮 | accepted | 项目作者 | 0028 |
+| [0009](0009-deep-workflows-and-knowledge-artifacts.md) | 复杂长文档与代码架构的深层工作流 | accepted | 项目作者 | 0029、0030、0031 |
 
 ## 模板
 

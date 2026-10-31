@@ -2,14 +2,14 @@
 
 # 配置契约
 
-事实源：`src/coding_agent/config.py`。**这份是全量**，README 的配置表只是摘录。
+事实源：`src/ubismart/config.py`。**这份是全量**，README 的配置表只是摘录。
 机器可读版本（可直接用来校验有没有捏造配置项）：[`config.json`](config.json)。
 
 优先级：构造函数参数 **>** .env **>** 环境变量 **>** 默认值。
 
 > 刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。
 
-共 **305** 个配置项。
+共 **400** 个配置项。
 
 ## 通用
 
@@ -22,12 +22,28 @@
 | `AGENT_APPROVAL_FOUR_EYES_MIN_LEVEL` | `approval_four_eyes_min_level` | `int` | `3` |  |
 | `AGENT_APPROVAL_MODE` | `approval_mode` | `str` | `"ask"` | ask（逐条询问）\| approve（自动放行 L2；L3 仍需确认）\| deny（一律拒绝） |
 | `AGENT_APPROVAL_TTL_S` | `approval_ttl_s` | `int` | `3600` |  |
+| `AGENT_ARCH_IMPACT_MAX_MODULES` | `arch_impact_max_modules` | `int` | `40` |  |
+| `AGENT_ARCH_INCREMENTAL_INDEX` | `arch_incremental_index` | `bool` | `true` |  |
+| `AGENT_ARCH_INDEX_CACHE_DIR` | `arch_index_cache_dir` | `str` | `""` | 空 = 宿主 ~/.codingagent/index-cache；可指向共享盘实现跨机器复用。 |
+| `AGENT_ARCH_INDEX_CACHE_LOCK_STALE_S` | `arch_index_cache_lock_stale_s` | `float` | `60.0` |  |
+| `AGENT_ARCH_INDEX_CACHE_LOCK_TIMEOUT_S` | `arch_index_cache_lock_timeout_s` | `float` | `5.0` | 共享缓存跨进程锁：等待上限与 stale 判定（秒）。 |
+| `AGENT_ARCH_INDEX_CACHE_MAX_BYTES` | `arch_index_cache_max_bytes` | `int` | `536870912` |  |
+| `AGENT_ARCH_INDEX_CACHE_MAX_ENTRIES` | `arch_index_cache_max_entries` | `int` | `20000` |  |
+| `AGENT_ARCH_INDEX_CACHE_TTL_DAYS` | `arch_index_cache_ttl_days` | `int` | `30` |  |
+| `AGENT_ARCH_LSP_MAX_CALLS` | `arch_lsp_max_calls` | `int` | `50` |  |
+| `AGENT_ARCH_LSP_RESOLUTION_ENABLED` | `arch_lsp_resolution_enabled` | `bool` | `false` | 可选：用 LSP definition 解析动态调用（需要 AGENT_LSP_COMMAND）。 |
+| `AGENT_ARCH_MAX_FILES` | `arch_max_files` | `int` | `2000` | 架构索引抽样上限与增量缓存。 |
+| `AGENT_ARCH_MAX_FILE_BYTES` | `arch_max_file_bytes` | `int` | `1000000` |  |
+| `AGENT_ARCH_MAX_TOTAL_BYTES` | `arch_max_total_bytes` | `int` | `32000000` |  |
+| `AGENT_ARCH_WORKFLOW_ENABLED` | `arch_workflow_enabled` | `bool` | `false` | 代码架构：从 PythonIndex 生成 ArchIndex/ArchBrief 并注入规划提示。 |
 | `AGENT_AUDIT_DIR` | `audit_dir` | `str` | `""` | 留空表示自动用 <当前目录>/.agent/audit |
 | `AGENT_AUDIT_ENABLED` | `audit_enabled` | `bool` | `true` |  |
 | `AGENT_AUDIT_MAX_MB` | `audit_max_mb` | `int` | `256` | 单个审计文件超过该大小（MB）就轮转；0 表示不轮转 |
 | `AGENT_AUDIT_SYSLOG_ADDRESS` | `audit_syslog_address` | `str` | `""` | SIEM 导出：host:port（UDP syslog），每条审计 JSON 一行；空 = 不导出。 |
 | `AGENT_AUDIT_WEBHOOK_TOKEN` | `audit_webhook_token` | `str` | `""` |  |
 | `AGENT_AUDIT_WEBHOOK_URL` | `audit_webhook_url` | `str` | `""` | SIEM webhook：POST 每行审计 JSON；空 = 不导出。 |
+| `AGENT_AUTHOR_EVIDENCE_MAX_CHARS` | `author_evidence_max_chars` | `int` | `24000` |  |
+| `AGENT_AUTHOR_EVIDENCE_TOP_K` | `author_evidence_top_k` | `int` | `12` | author 的证据上下文：优先取 claim + quote，而不是只取 summary。 |
 | `AGENT_BILLING_ENABLED` | `billing_enabled` | `bool` | `false` | 是否在 run 结束时拉取 provider 账单做对账；默认关闭避免额外网络请求。 |
 | `AGENT_BILLING_TIMEOUT_S` | `billing_timeout_s` | `float` | `10.0` |  |
 | `AGENT_CHECKPOINT_KEEP` | `checkpoint_keep` | `int` | `200` | 每个 thread/命名空间保留的 checkpoint 数；0 = 不轮转。 每轮工具调用都会落一个 checkpoint，长期使用需要上限。 |
@@ -56,12 +72,38 @@
 | `AGENT_CORS_ALLOWED_ORIGINS` | `web_cors_allowed_origins` | `str` | `""` | 独立源站前端允许的精确 origin（逗号分隔）；空 = 不启用 CORS。 只允许 scheme://host[:port]，不接受路径、通配符或 null。 |
 | `AGENT_COST_ALERT_RATIO` | `cost_alert_ratio` | `float` | `0.8` | 达到预算的该比例时发出告警（0~1） |
 | `AGENT_COST_CURRENCY` | `cost_currency` | `str` | `"CNY"` | 成本展示与额度计量货币；上游价格仍按 USD 计价。 |
+| `AGENT_DEEP_MAX_WRITE_STAGES` | `deep_max_write_stages` | `int` | `4` | deep 模式下允许的写波次上限（仍受总预算/截止时间约束）。 |
+| `AGENT_DEEP_WORKFLOWS_ENABLED` | `deep_workflows_enabled` | `bool` | `false` | ---------- 深层工作流（RFC-0009，默认关闭）---------- 总开关：关闭时下列能力全部不生效，行为与既有四模板一致。 |
 | `AGENT_DELEGATE_LARGE_CALLS` | `delegate_large_calls` | `int` | `4` |  |
 | `AGENT_DELEGATE_LARGE_FILES` | `delegate_large_files` | `int` | `300` |  |
 | `AGENT_DELEGATE_MEDIUM_CALLS` | `delegate_medium_calls` | `int` | `2` |  |
 | `AGENT_DELEGATE_MEDIUM_FILES` | `delegate_medium_files` | `int` | `100` |  |
 | `AGENT_DELEGATE_MIN_FILES` | `delegate_min_files` | `int` | `30` | ---- 成本感知的委派预算（按仓库文件数分级）---- 小于 min_files：不委派，直接读；[min, medium)：medium_calls； [medium, large)：large_calls；>= large：max_delegate_calls。 |
 | `AGENT_DEPS_DETECT_TTL_S` | `deps_detect_ttl_s` | `float` | `30.0` | 包管理器探测缓存时间；安装后会主动失效。 |
+| `AGENT_DOCUMENT_CACHE` | `document_cache_enabled` | `bool` | `true` |  |
+| `AGENT_DOCUMENT_CACHE_MAX_BYTES` | `document_cache_max_bytes` | `int` | `"512 * 1024 * 1024"` |  |
+| `AGENT_DOCUMENT_CACHE_TTL_DAYS` | `document_cache_ttl_days` | `int` | `30` |  |
+| `AGENT_DOCUMENT_CHUNK_CHARS` | `document_chunk_chars` | `int` | `6000` |  |
+| `AGENT_DOCUMENT_EDIT_MAX_OPS` | `document_edit_max_ops` | `int` | `50` | document_edit 单次调用最多执行多少条操作。 |
+| `AGENT_DOCUMENT_FULL_COVERAGE` | `document_full_coverage` | `bool` | `false` | 长文档：取消固定 3 次读取；覆盖范围由页数 + document_max_pages 决定， 未读完时报告 partial + 未读区间。 |
+| `AGENT_DOCUMENT_IMAGE_MAX_ITEMS` | `document_image_max_items` | `int` | `5` |  |
+| `AGENT_DOCUMENT_JUDGE_PASS_SCORE` | `document_judge_pass_score` | `int` | `60` | 文档 judge 的通过阈值；可用 scripts/calibrate_judge.py 在标注集上调。 |
+| `AGENT_DOCUMENT_MAP_CONCURRENCY` | `document_map_concurrency` | `int` | `3` |  |
+| `AGENT_DOCUMENT_MAP_REDUCE` | `document_map_reduce` | `bool` | `false` | 长文档：按 chunk 分批抽取 claim，再合并；避免整篇塞入单次调用。 |
+| `AGENT_DOCUMENT_MATRIX_ENABLED` | `document_matrix_enabled` | `bool` | `false` | 每篇文档提炼固定槽位（问题/方法/算法/实验/局限/创新/结论）， 供跨文档矩阵与 author 使用；默认关闭（每篇多一次结构化调用）， 长文档/报告场景显式开启。 |
+| `AGENT_DOCUMENT_MAX_BYTES` | `document_max_bytes` | `int` | `20971520` | 文档解析上限。解析在宿主进程完成，不进入 WSL 沙箱。 |
+| `AGENT_DOCUMENT_MAX_CELLS` | `document_max_cells` | `int` | `20000` |  |
+| `AGENT_DOCUMENT_MAX_CHARS` | `document_max_chars` | `int` | `2000000` |  |
+| `AGENT_DOCUMENT_MAX_PAGES` | `document_max_pages` | `int` | `200` |  |
+| `AGENT_DOCUMENT_OCR_ENABLED` | `document_ocr_enabled` | `bool` | `false` |  |
+| `AGENT_DOCUMENT_OCR_MAX_PAGES` | `document_ocr_max_pages` | `int` | `5` | 扫描页交给视觉模型的上限。 |
+| `AGENT_DOCUMENT_PIPELINE_ENABLED` | `document_pipeline_enabled` | `bool` | `true` | 回滚开关：关闭后 document_pipeline 不再被自动选择。 |
+| `AGENT_DOCUMENT_PIPELINE_MAX_DOCS` | `orchestrator_document_max_docs` | `int` | `10` | 单次文档管线的输入上限。 |
+| `AGENT_DOCUMENT_PIPELINE_MAX_IMAGES` | `orchestrator_document_max_images` | `int` | `20` |  |
+| `AGENT_DOCUMENT_READ_MAX_CALLS` | `document_read_max_calls` | `int` | `3` |  |
+| `AGENT_DOCUMENT_READ_PAGES_PER_CALL` | `document_read_pages_per_call` | `int` | `5` | 长文档分段读取：每次最多多少页、最多几段。 |
+| `AGENT_DOCUMENT_TREE_FANOUT` | `document_tree_fanout` | `int` | `5` | 分层归并：每层最多合并多少节点，以及单次归并的输入字符上限。 |
+| `AGENT_DOCUMENT_TREE_INPUT_CHARS` | `document_tree_input_chars` | `int` | `16000` |  |
 | `AGENT_DRAIN_TIMEOUT_S` | `drain_timeout_s` | `int` | `60` | SIGTERM 优雅退出：A3 停止接收新运行并等待进行中的运行自然结束； 超时后取消，A2 用同一数值约束 uvicorn 在途请求。0 = 不等待。 |
 | `AGENT_EVENT_TRANSPORT` | `event_transport` | `str` | `"memory"` | ---------- 共享事件传输（Phase B3） ---------- memory = 单实例内存；redis = Redis Streams（多实例 SSE 重放）。 |
 | `AGENT_EVENT_TRANSPORT_MAXLEN` | `event_transport_maxlen` | `int` | `10000` |  |
@@ -111,11 +153,18 @@
 | `AGENT_HOST_TOOLCHAIN_ROOTS` | `host_toolchain_roots` | `str` | `""` |  |
 | `AGENT_HOST_WORKSPACE_ID` | `host_workspace_id` | `str` | `""` |  |
 | `AGENT_IDEMPOTENCY_TTL_S` | `idempotency_ttl_s` | `int` | `600` | 幂等键保留时间。 |
+| `AGENT_IMAGE_MAX_BYTES` | `image_max_bytes` | `int` | `10485760` | 图片理解上限；默认 LLM 视为多模态模型。 |
+| `AGENT_IMAGE_MAX_DIMENSION` | `image_max_dimension` | `int` | `2048` |  |
 | `AGENT_INSTRUCTIONS_ENABLED` | `instructions_enabled` | `bool` | `true` | 是否发现并注入仓库内的 AGENTS.md / CLAUDE.md（分层项目指令）。 |
+| `AGENT_INTERFACE_FIRST_WRITES` | `interface_first_writes` | `bool` | `false` | 跨模块变更：按 ChangeContract 自动分波，并在波次之间跑 gate。 |
 | `AGENT_INTERNAL_HMAC_KEY` | `agent_internal_hmac_key` | `str` | `""` | 空 = 只依赖内部 Bearer token（兼容旧部署）； 非空 = A2 对 X-Agent-Context 做 HMAC，A3 验签。 |
 | `AGENT_INTERNAL_HMAC_REQUIRED` | `agent_internal_hmac_required` | `bool` | `false` | 是否**要求** A2 发来的 X-Agent-Context 带 HMAC 签名（非空 key）。 空 = 兼容未升级的部署，只靠内部 Bearer token；拆分部署应显式设 true。 A3 绑在非 loopback 地址时无论这里怎么配都强制要求（启动时校验）。 |
 | `AGENT_INTERNAL_TOKEN` | `agent_internal_token` | `str` | `""` |  |
 | `AGENT_INTERNAL_URL` | `agent_internal_url` | `str` | `""` | ---------- A2 → A3 内部连接（Phase B4） ---------- 空 = A2 与 Agent 同进程（默认，兼容旧部署）。 |
+| `AGENT_KNOWLEDGE_ARTIFACTS_ENABLED` | `knowledge_artifacts_enabled` | `bool` | `false` |  |
+| `AGENT_KNOWLEDGE_EMBEDDING_DIM` | `knowledge_embedding_dim` | `int` | `0` | 0 = 继承 memory_embedding_dim。 |
+| `AGENT_KNOWLEDGE_EMBEDDING_PROVIDER` | `knowledge_embedding_provider` | `str` | `""` | 空串 = 继承 memory_embedding_provider；支持 hash/local/remote/none。 remote 仍受 memory_allow_remote_embeddings + base_url/key 双重门禁。 |
+| `AGENT_KNOWLEDGE_SEARCH_MODE` | `knowledge_search_mode` | `str` | `"lexical"` | 知识检索模式：lexical（默认，零依赖）\| vector \| hybrid。 |
 | `AGENT_LLM_AIMD_MAX` | `llm_aimd_max` | `int` | `8` |  |
 | `AGENT_LLM_AIMD_MIN` | `llm_aimd_min` | `int` | `1` | LLM 每个 provider 的自适应并发范围。 |
 | `AGENT_LLM_FALLBACK_ON_ERROR` | `llm_fallback_on_error` | `bool` | `true` | 非 429 错误是否也尝试下一个 provider。 |
@@ -179,20 +228,49 @@
 | `AGENT_OIDC_USERNAME_CLAIM` | `oidc_username_claim` | `str` | `"preferred_username"` |  |
 | `AGENT_ORCHESTRATOR_ADD_EXPLORE_TESTS` | `orchestrator_add_explore_tests` | `bool` | `false` | 只读模式下模型只给一个任务时，是否强行补一个「找测试」explore 任务。 默认关闭：这会增加一次 worker 成本，只有演示并发/确实需要测试画像时才值得。 |
 | `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` | `orchestrator_allow_overlap` | `bool` | `false` | 允许多个 implement 修改同一文件；合并时用 git apply --3way。 有真实冲突时只回滚本分量，不会把冲突标记落进主工作区。 |
+| `AGENT_ORCHESTRATOR_AUTHOR_CONCURRENCY` | `orchestrator_author_concurrency` | `int` | `1` |  |
+| `AGENT_ORCHESTRATOR_AUTHOR_MODEL` | `orchestrator_author_model` | `str` | `""` |  |
+| `AGENT_ORCHESTRATOR_AUTHOR_TOKEN_BUDGET` | `orchestrator_author_token_budget` | `int` | `60000` |  |
 | `AGENT_ORCHESTRATOR_CHECKPOINT_EVERY` | `orchestrator_checkpoint_every` | `int` | `4` | scheduler 每完成多少个任务返回一次父图，形成 checkpoint/干预边界。 |
 | `AGENT_ORCHESTRATOR_CONTEXT_CHARS` | `orchestrator_context_chars` | `int` | `8000` | 交给主 agent 的 worker 汇总上限（字符）。 |
+| `AGENT_ORCHESTRATOR_DEPENDENCY_CONTEXT_CHARS` | `orchestrator_dependency_context_chars` | `int` | `12000` | 依赖任务注入下游 worker 的上下文总字符上限。 |
+| `AGENT_ORCHESTRATOR_DOCUMENT_CHECKPOINT` | `orchestrator_document_checkpoint` | `bool` | `true` | 每个 document 任务完成后触发一次 steering/checkpoint 边界。 |
+| `AGENT_ORCHESTRATOR_DOCUMENT_CONCURRENCY` | `orchestrator_document_concurrency` | `int` | `2` | 文档管线角色级并发；author 固定为 1（报告写入全局单实例）。 |
+| `AGENT_ORCHESTRATOR_DOCUMENT_MODEL` | `orchestrator_document_model` | `str` | `""` |  |
+| `AGENT_ORCHESTRATOR_DOCUMENT_TOKEN_BUDGET` | `orchestrator_document_token_budget` | `int` | `120000` | 角色级累计 token 硬预算；0 = 不限制。文档/报告是单次成本最高的角色， 给保守默认值，避免一份大文档或一轮报告无限消耗；超限只阻塞该角色。 |
 | `AGENT_ORCHESTRATOR_ENABLED` | `orchestrator_enabled` | `bool` | `true` | ---------- Orchestrator（Phase 3A）---------- 新架构默认启用：满足规模阈值的仓库走 harness；小仓库仍走 direct 快速路径。 |
+| `AGENT_ORCHESTRATOR_EXPLORE_MODEL` | `orchestrator_explore_model` | `str` | `"deepseek-flash"` | 角色级模型覆盖；空串表示沿用 orchestrator_worker_model（再退到主模型）。 explore/review 默认用便宜模型，失败重试时自动升级到主模型； 网关不支持 deepseek-flash 时，把这两个变量置空即可回退。 |
 | `AGENT_ORCHESTRATOR_FANIN_REDUCER` | `orchestrator_fanin_reducer` | `bool` | `false` | fan-in 超预算/有冲突时才调用一次 reducer LLM；失败回退确定性汇总。 |
 | `AGENT_ORCHESTRATOR_FANOUT_ARTIFACTS` | `orchestrator_fanout_artifacts` | `bool` | `true` | fan-in 是否落 artifact store 并输出结构化结果。 |
+| `AGENT_ORCHESTRATOR_FIX_ROUNDS` | `orchestrator_fix_rounds` | `int` | `0` | verify 失败后允许重入 orchestrator 修复的最大轮数；0 = 关闭。 |
+| `AGENT_ORCHESTRATOR_IMPLEMENT_MODEL` | `orchestrator_implement_model` | `str` | `""` |  |
+| `AGENT_ORCHESTRATOR_INCREMENTAL_MERGE` | `orchestrator_incremental_merge` | `bool` | `true` | 已完成的 implement 补丁若与在飞任务无文件交集，立即按连通分量合并， 不必等整批结束。默认开启；若有兼容性问题可设为 false 回退整批合并。 |
 | `AGENT_ORCHESTRATOR_MAX_CONCURRENT_WORKERS` | `orchestrator_max_concurrent_workers` | `int` | `4` | 同一批 ready 任务最多并发几个只读 worker。 |
 | `AGENT_ORCHESTRATOR_MAX_PENDING_MERGES` | `orchestrator_max_pending_merges` | `int` | `8` | 在飞 implement + 待合并补丁的上限；超过后暂停启动新的 implement， 先让合并队列排空，避免补丁/快照堆积。 |
 | `AGENT_ORCHESTRATOR_MAX_TASKS` | `orchestrator_max_tasks` | `int` | `6` |  |
+| `AGENT_ORCHESTRATOR_MAX_WRITE_STAGES` | `orchestrator_max_write_stages` | `int` | `2` | 灰度期最多允许的写波次数（stage 上限）。 |
 | `AGENT_ORCHESTRATOR_MIN_FILES` | `orchestrator_min_files` | `int` | `30` | 小于该文件数不做编排，直接单 agent。 |
+| `AGENT_ORCHESTRATOR_MIN_PARALLEL_GAIN` | `orchestrator_min_parallel_gain` | `float` | `1.2` | 并行收益比阈值：task_count / critical_path 低于该值时，只读并行计划 会退回 direct（链式任务并行只多付调度/上下文成本）。0 = 关闭预估。 |
+| `AGENT_ORCHESTRATOR_PATCH_REVIEW` | `orchestrator_patch_review` | `bool` | `true` | 补丁合并前的轻量审查：只对高风险 patch（改测试/配置/CI/安全路径、 或 diff 超过阈值）调用一次 review 模型。审查拒绝会让任务带 findings 重试； 它只是质量加固，不替代 write_scope 与审批这些安全边界。 |
+| `AGENT_ORCHESTRATOR_PATCH_REVIEW_CONCURRENCY` | `orchestrator_patch_review_concurrency` | `int` | `2` | 同时进行的补丁审查数；审查是 LLM 调用，串行会把合并尾部拉长。 |
+| `AGENT_ORCHESTRATOR_PATCH_REVIEW_MAX_CHARS` | `orchestrator_patch_review_max_chars` | `int` | `60000` |  |
+| `AGENT_ORCHESTRATOR_PATCH_REVIEW_MAX_LINES` | `orchestrator_patch_review_max_lines` | `int` | `400` |  |
+| `AGENT_ORCHESTRATOR_PLANNER_MODEL` | `orchestrator_planner_model` | `str` | `""` | 工作流选择/任务图生成专用模型；空串表示继承主模型。 |
+| `AGENT_ORCHESTRATOR_PLAN_REPAIR` | `orchestrator_plan_repair` | `bool` | `true` | 任务图校验失败时，先带错误反馈让模型修一次，再决定是否整图降级。 默认开启；若要回到「校验失败立即降级」的旧行为，设为 false。 |
 | `AGENT_ORCHESTRATOR_RATE_LIMIT_BACKOFF_S` | `orchestrator_rate_limit_backoff_s` | `float` | `2.0` | 遇到 429/限流时 scheduler 的首次退避秒数；之后指数增长，上限 30s。 |
+| `AGENT_ORCHESTRATOR_REPO_MAP_LAZY` | `orchestrator_repo_map_lazy` | `bool` | `false` | survey 先只收集廉价画像；repo_map 等到确认要编排后再构建。 |
+| `AGENT_ORCHESTRATOR_REVIEW_MODEL` | `orchestrator_review_model` | `str` | `"deepseek-flash"` |  |
 | `AGENT_ORCHESTRATOR_RUN_DEADLINE_S` | `orchestrator_run_deadline_s` | `int` | `900` | 整个编排阶段（含所有 worker）的墙钟上限，0 表示不限制。 |
+| `AGENT_ORCHESTRATOR_SEED_MAX_BYTES` | `orchestrator_seed_max_bytes` | `int` | `5000000` |  |
+| `AGENT_ORCHESTRATOR_SEED_MAX_FILES` | `orchestrator_seed_max_files` | `int` | `200` | 注入新 worktree 的基线补丁上限；超限 fail closed。 |
+| `AGENT_ORCHESTRATOR_SEQUENTIAL_WRITES` | `orchestrator_sequential_writes` | `bool` | `false` | 顺序写波次：允许后一波 implement 基于前一波已合并结果继续修改。 默认关闭；关闭时 implement 之间仍禁止互相依赖。 |
+| `AGENT_ORCHESTRATOR_SMART_ENTRY` | `orchestrator_smart_entry` | `bool` | `true` | 在规模阈值之上再加一层请求级快速判定：明显的单文件/只读问答/拼写修复 直接走 single agent，不付 survey + 工作流选择的固定成本。 |
 | `AGENT_ORCHESTRATOR_TASK_RETRIES` | `orchestrator_task_retries` | `int` | `1` | 单个任务失败后最多重试几次（0 = 不重试）。重试仍失败才把依赖方标 blocked。 |
 | `AGENT_ORCHESTRATOR_TASK_TOKENS` | `orchestrator_task_tokens` | `int` | `0` | 单任务 token 上限，0 表示不限制（由 provider 回报的 usage 累计判断）。 |
-| `AGENT_ORCHESTRATOR_TOTAL_TOKENS` | `orchestrator_total_tokens` | `int` | `0` | 整个编排阶段的 token 上限，0 = 不限制。scheduler 在派发前按角色预留， 预留 + 已用超过上限时不再启动新任务。 |
+| `AGENT_ORCHESTRATOR_TOTAL_TOKENS` | `orchestrator_total_tokens` | `int` | `500000` | 整个编排阶段的 token 上限，0 = 不限制。scheduler 在派发前按角色预留， 预留 + 已用超过上限时停止派发；只读在飞任务会被取消，implement 继续跑完 并合并。默认 500k，足以覆盖正常多 worker 任务，同时给失控循环止损。 |
+| `AGENT_ORCHESTRATOR_VISION_CONCURRENCY` | `orchestrator_vision_concurrency` | `int` | `2` |  |
+| `AGENT_ORCHESTRATOR_VISION_TOKEN_BUDGET` | `orchestrator_vision_token_budget` | `int` | `60000` |  |
+| `AGENT_ORCHESTRATOR_WORKER_HARD_TIMEOUT_S` | `orchestrator_worker_hard_timeout_s` | `float` | `0.0` | worker 外层兜底超时（秒），独立于各 runner 的内部超时。 0 = 自动推导：implement 用 worker_timeout，explore/review 用 explore_timeout， 其余角色取 max(600, worker_timeout)；都会再加 30s 余量。 |
 | `AGENT_ORCHESTRATOR_WORKER_MODEL` | `orchestrator_worker_model` | `str` | `""` | worker 专用模型；空串表示继承 DEEPSEEK_MODEL。用于 explore/review 降本。 |
 | `AGENT_ORCHESTRATOR_WORKER_REPAIRS` | `orchestrator_worker_repairs` | `int` | `2` |  |
 | `AGENT_ORCHESTRATOR_WORKER_ROUNDS` | `orchestrator_worker_rounds` | `int` | `12` |  |
@@ -203,6 +281,13 @@
 | `AGENT_OTEL_ENDPOINT` | `otel_endpoint` | `str` | `""` | OTLP HTTP trace；空 = 关闭。需要 `pip install -e ".[otel]"`。 |
 | `AGENT_OTEL_HEADERS` | `otel_headers` | `str` | `""` | `k=v,k2=v2` 形式的 collector headers。 |
 | `AGENT_OTEL_SERVICE_NAME` | `otel_service_name` | `str` | `"coding-agent"` |  |
+| `AGENT_PDF_EXTRACT_ANNOTATIONS` | `pdf_extract_annotations` | `bool` | `true` |  |
+| `AGENT_PDF_EXTRACT_ATTACHMENTS` | `pdf_extract_attachments` | `bool` | `true` |  |
+| `AGENT_PDF_EXTRACT_FORMS` | `pdf_extract_forms` | `bool` | `true` |  |
+| `AGENT_PDF_EXTRACT_METADATA` | `pdf_extract_metadata` | `bool` | `true` |  |
+| `AGENT_PDF_EXTRACT_OUTLINE` | `pdf_extract_outline` | `bool` | `true` |  |
+| `AGENT_PDF_EXTRACT_TABLES` | `pdf_extract_tables` | `bool` | `true` |  |
+| `AGENT_PDF_TEXT_ONLY` | `pdf_text_only` | `bool` | `true` | 默认只处理文本型 PDF；扫描页不自动 OCR。 |
 | `AGENT_PERSISTENT_SHELL` | `persistent_shell` | `bool` | `true` | 常驻 WSL bash 会话池。默认开启：实测读/检索从 ~170ms 降到 ~20ms。 会话异常时会自动退回逐命令 wsl.exe，因此可安全地作为默认值。 |
 | `AGENT_PERSISTENT_SHELL_POOL` | `persistent_shell_pool` | `int` | `4` |  |
 | `AGENT_PROVIDER_PROBE_ALLOWED_HOSTS` | `provider_probe_allowed_hosts` | `str` | `""` | 目标主机后缀白名单（逗号分隔，如 `deepseek.com,openai.com`）； 空 = 不额外限制，仍需过 IP 判定。企业部署建议填上，可以顺带收敛 DNS rebinding 的残余风险。 |
@@ -213,6 +298,10 @@
 | `AGENT_RATE_LIMIT_STATE_PATH` | `rate_limit_state_path` | `str` | `""` | 跨进程限流状态文件；留空 = <当前目录>/.agent/rate_limits.json；:memory: 关闭 |
 | `AGENT_READ_CACHE_MAX_BYTES` | `read_cache_max_bytes` | `int` | `"64 * 1024 * 1024"` | run 级文件内容缓存的字节上限（LRU）。0 = 关闭缓存。 |
 | `AGENT_READ_DENY_GLOBS` | `read_deny_globs` | `str` | `"DEFAULT_READ_DENY_GLOBS"` | 秘密文件读保护 glob（逗号分隔）；.env.example 等模板自动放行。 |
+| `AGENT_REPORT_ALLOW_ANY_PATH` | `report_allow_any_path` | `bool` | `false` |  |
+| `AGENT_REPORT_FONT_PATH` | `report_font_path` | `str` | `""` |  |
+| `AGENT_REPORT_LLM_REVIEW` | `report_llm_review` | `bool` | `false` |  |
+| `AGENT_REPORT_OUTPUT_DIR` | `report_output_dir` | `str` | `".agent/artifacts/reports"` | 报告输出：默认只允许写到报告目录；显式路径由 planner 解析后仍受此约束。 |
 | `AGENT_REPO_MAP_CHARS` | `repo_map_chars` | `int` | `4000` | repo map 注入 planner 的字符预算（0 = 关闭）。 |
 | `AGENT_RETRY_ATTEMPTS` | `retry_attempts` | `int` | `3` | 节点级瞬时错误重试（超时/连接重置/5xx/429/环境抖动）。 attempts 是**总尝试次数**；1 表示不重试。退避为指数 + 抖动， 且整次重试累计等待不超过 max_total_wait，避免长时间卡住。 |
 | `AGENT_RETRY_BASE_DELAY_S` | `retry_base_delay_s` | `float` | `1.0` |  |
@@ -230,6 +319,7 @@
 | `AGENT_SECRET_PROVIDER` | `secret_provider` | `str` | `"auto"` | auto \| keyring \| systemd；服务器部署用 systemd-creds，Vault/KMS 走同一 Protocol。 |
 | `AGENT_SECURITY_PROFILE` | `security_profile` | `str` | `"local"` | ---------- 安全 profile 与不可信仓库 ---------- local（默认，面向可信仓库）\| untrusted（bwrap + 禁网 + 强制 ask + 不信任仓库指令/记忆）。 |
 | `AGENT_SESSION_BRIEF_CHARS` | `session_brief_chars` | `int` | `4000` | 编排子图/worker 的会话约束摘要上限（字符）。独立子图不复制 messages， 这里从 checkpoint 抽最近若干轮压缩后注入；0 表示关闭。 |
+| `AGENT_SESSION_COST_BUDGET_USD` | `session_cost_budget_usd` | `float` | `0.0` | 整个会话（同一 thread，多轮 run 累计）的成本预算（USD）；0 = 不限制。 全新 run 在开始前检查；resume 不拦截，避免挂起的审批被预算锁死。 |
 | `AGENT_SHELL_CPU_SECONDS` | `shell_cpu_seconds` | `int` | `600` | 沙箱资源上限，0 表示不限制 |
 | `AGENT_SHELL_ENV_ALLOWLIST` | `shell_env_allowlist` | `str` | `""` | WSL 命令默认 `env -i` 清空宿主环境。这里按名称显式放行少量构建变量 （如 JAVA_HOME/GOPATH/VIRTUAL_ENV）。名称含 KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL/AUTH/COOKIE/SESSION 的一律忽略。 |
 | `AGENT_SHELL_MAX_FILE_MB` | `shell_max_file_mb` | `int` | `512` |  |
@@ -291,6 +381,11 @@
 | `AGENT_WEB_SESSION_TTL_S` | `web_session_ttl_s` | `int` | `"12 * 3600"` |  |
 | `AGENT_WEB_STATIC_DIR` | `web_static_dir` | `str` | `""` | /static 挂载目录；空 = 与 web_frontend_dir 相同。 发布包通常为 <frontend_dir>/static，包内则两者同目录。 |
 | `AGENT_WEB_WORKSPACES_ROOT` | `web_workspaces_root` | `str` | `""` | per-user 工作区根目录；空 = 沙箱 $HOME/agent-ws/users。 |
+| `AGENT_WORKER_JOURNAL_ENABLED` | `worker_journal_enabled` | `bool` | `true` | worker 结果 journal：崩溃/resume 时复用已完成的只读结果，避免重跑。 只复用 success（可选 partial）；implement 永不复用（补丁可能已过期）。 |
+| `AGENT_WORKER_JOURNAL_MAX_BYTES` | `worker_journal_max_bytes` | `int` | `10485760` |  |
+| `AGENT_WORKER_JOURNAL_REQUIRE_CLEAN_GIT` | `worker_journal_require_clean_git` | `bool` | `true` | 只有「git 仓库 + 干净工作区 + 能拿到 HEAD」时才复用：HEAD 相同 且没有未提交改动，输入与代码状态才足够一致。 |
+| `AGENT_WORKER_JOURNAL_REUSE_PARTIAL` | `worker_journal_reuse_partial` | `bool` | `false` |  |
+| `AGENT_WORKER_JOURNAL_ROLES` | `worker_journal_roles` | `str` | `"explore,review"` | 允许复用/落盘的角色，逗号分隔。test 默认排除：结果依赖当时环境。 |
 | `AGENT_WORKSPACE_ARCHIVE_ROOT` | `workspace_archive_root` | `str` | `""` | revision 归档根；空 = 关闭归档（仍可运行，但不能灾难恢复）。 |
 | `AGENT_WORKSPACE_EXTRACT_MAX_RATIO` | `workspace_extract_max_ratio` | `int` | `200` | 解压比上限：解压后总字节 / 归档字节，防止 zip bomb。 |
 | `AGENT_WORKSPACE_IMPORT_MODE` | `workspace_import_mode` | `str` | `"copy"` | copy = 桌面默认复制到 ext4；mount = 显式降级，需二次确认。 |

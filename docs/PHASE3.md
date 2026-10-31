@@ -23,7 +23,7 @@ Agent 自己仍运行在专用发行版的 `/opt/coding-agent/venv`，与项目�
 
 ## 1. 项目环境探测
 
-`coding_agent.project_env.probe_project()` 是只读探测：
+`ubismart.project_env.probe_project()` 是只读探测：
 
 | 字段 | 含义 |
 |---|---|
@@ -46,7 +46,7 @@ HTTP：`GET /api/project?workspace=<绝对路径>`，返回同样的结构；
 
 ## 2. 桌面桥
 
-`coding_agent.desktop.api.DesktopApi` 作为 pywebview 的 `js_api`：
+`ubismart.desktop.api.DesktopApi` 作为 pywebview 的 `js_api`：
 
 | 方法 | 行为 |
 |---|---|

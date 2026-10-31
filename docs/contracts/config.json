@@ -1,7 +1,7 @@
 {
   "contract": "coding-agent/config",
   "version": 1,
-  "source": "src/coding_agent/config.py",
+  "source": "src/ubismart/config.py",
   "priority": [
     "构造函数参数",
     ".env",
@@ -9,7 +9,7 @@
     "默认值"
   ],
   "priority_note": "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入用户看不见也删不掉的陈旧值，导致改 .env 不生效。项目目录里的 .env 是显式写下、看得见、可编辑的意图，因此让它优先。",
-  "count": 305,
+  "count": 400,
   "env_vars": [
     "AGENT_AGENT_DATA_ROOT",
     "AGENT_ALLOW_GIT_CLONE",
@@ -18,12 +18,28 @@
     "AGENT_APPROVAL_FOUR_EYES_MIN_LEVEL",
     "AGENT_APPROVAL_MODE",
     "AGENT_APPROVAL_TTL_S",
+    "AGENT_ARCH_IMPACT_MAX_MODULES",
+    "AGENT_ARCH_INCREMENTAL_INDEX",
+    "AGENT_ARCH_INDEX_CACHE_DIR",
+    "AGENT_ARCH_INDEX_CACHE_LOCK_STALE_S",
+    "AGENT_ARCH_INDEX_CACHE_LOCK_TIMEOUT_S",
+    "AGENT_ARCH_INDEX_CACHE_MAX_BYTES",
+    "AGENT_ARCH_INDEX_CACHE_MAX_ENTRIES",
+    "AGENT_ARCH_INDEX_CACHE_TTL_DAYS",
+    "AGENT_ARCH_LSP_MAX_CALLS",
+    "AGENT_ARCH_LSP_RESOLUTION_ENABLED",
+    "AGENT_ARCH_MAX_FILES",
+    "AGENT_ARCH_MAX_FILE_BYTES",
+    "AGENT_ARCH_MAX_TOTAL_BYTES",
+    "AGENT_ARCH_WORKFLOW_ENABLED",
     "AGENT_AUDIT_DIR",
     "AGENT_AUDIT_ENABLED",
     "AGENT_AUDIT_MAX_MB",
     "AGENT_AUDIT_SYSLOG_ADDRESS",
     "AGENT_AUDIT_WEBHOOK_TOKEN",
     "AGENT_AUDIT_WEBHOOK_URL",
+    "AGENT_AUTHOR_EVIDENCE_MAX_CHARS",
+    "AGENT_AUTHOR_EVIDENCE_TOP_K",
     "AGENT_BILLING_ENABLED",
     "AGENT_BILLING_TIMEOUT_S",
     "AGENT_CHECKPOINT_KEEP",
@@ -52,12 +68,38 @@
     "AGENT_CORS_ALLOWED_ORIGINS",
     "AGENT_COST_ALERT_RATIO",
     "AGENT_COST_CURRENCY",
+    "AGENT_DEEP_MAX_WRITE_STAGES",
+    "AGENT_DEEP_WORKFLOWS_ENABLED",
     "AGENT_DELEGATE_LARGE_CALLS",
     "AGENT_DELEGATE_LARGE_FILES",
     "AGENT_DELEGATE_MEDIUM_CALLS",
     "AGENT_DELEGATE_MEDIUM_FILES",
     "AGENT_DELEGATE_MIN_FILES",
     "AGENT_DEPS_DETECT_TTL_S",
+    "AGENT_DOCUMENT_CACHE",
+    "AGENT_DOCUMENT_CACHE_MAX_BYTES",
+    "AGENT_DOCUMENT_CACHE_TTL_DAYS",
+    "AGENT_DOCUMENT_CHUNK_CHARS",
+    "AGENT_DOCUMENT_EDIT_MAX_OPS",
+    "AGENT_DOCUMENT_FULL_COVERAGE",
+    "AGENT_DOCUMENT_IMAGE_MAX_ITEMS",
+    "AGENT_DOCUMENT_JUDGE_PASS_SCORE",
+    "AGENT_DOCUMENT_MAP_CONCURRENCY",
+    "AGENT_DOCUMENT_MAP_REDUCE",
+    "AGENT_DOCUMENT_MATRIX_ENABLED",
+    "AGENT_DOCUMENT_MAX_BYTES",
+    "AGENT_DOCUMENT_MAX_CELLS",
+    "AGENT_DOCUMENT_MAX_CHARS",
+    "AGENT_DOCUMENT_MAX_PAGES",
+    "AGENT_DOCUMENT_OCR_ENABLED",
+    "AGENT_DOCUMENT_OCR_MAX_PAGES",
+    "AGENT_DOCUMENT_PIPELINE_ENABLED",
+    "AGENT_DOCUMENT_PIPELINE_MAX_DOCS",
+    "AGENT_DOCUMENT_PIPELINE_MAX_IMAGES",
+    "AGENT_DOCUMENT_READ_MAX_CALLS",
+    "AGENT_DOCUMENT_READ_PAGES_PER_CALL",
+    "AGENT_DOCUMENT_TREE_FANOUT",
+    "AGENT_DOCUMENT_TREE_INPUT_CHARS",
     "AGENT_DRAIN_TIMEOUT_S",
     "AGENT_EVENT_TRANSPORT",
     "AGENT_EVENT_TRANSPORT_MAXLEN",
@@ -107,11 +149,18 @@
     "AGENT_HOST_TOOLCHAIN_ROOTS",
     "AGENT_HOST_WORKSPACE_ID",
     "AGENT_IDEMPOTENCY_TTL_S",
+    "AGENT_IMAGE_MAX_BYTES",
+    "AGENT_IMAGE_MAX_DIMENSION",
     "AGENT_INSTRUCTIONS_ENABLED",
+    "AGENT_INTERFACE_FIRST_WRITES",
     "AGENT_INTERNAL_HMAC_KEY",
     "AGENT_INTERNAL_HMAC_REQUIRED",
     "AGENT_INTERNAL_TOKEN",
     "AGENT_INTERNAL_URL",
+    "AGENT_KNOWLEDGE_ARTIFACTS_ENABLED",
+    "AGENT_KNOWLEDGE_EMBEDDING_DIM",
+    "AGENT_KNOWLEDGE_EMBEDDING_PROVIDER",
+    "AGENT_KNOWLEDGE_SEARCH_MODE",
     "AGENT_LLM_AIMD_MAX",
     "AGENT_LLM_AIMD_MIN",
     "AGENT_LLM_FALLBACK_ON_ERROR",
@@ -175,20 +224,49 @@
     "AGENT_OIDC_USERNAME_CLAIM",
     "AGENT_ORCHESTRATOR_ADD_EXPLORE_TESTS",
     "AGENT_ORCHESTRATOR_ALLOW_OVERLAP",
+    "AGENT_ORCHESTRATOR_AUTHOR_CONCURRENCY",
+    "AGENT_ORCHESTRATOR_AUTHOR_MODEL",
+    "AGENT_ORCHESTRATOR_AUTHOR_TOKEN_BUDGET",
     "AGENT_ORCHESTRATOR_CHECKPOINT_EVERY",
     "AGENT_ORCHESTRATOR_CONTEXT_CHARS",
+    "AGENT_ORCHESTRATOR_DEPENDENCY_CONTEXT_CHARS",
+    "AGENT_ORCHESTRATOR_DOCUMENT_CHECKPOINT",
+    "AGENT_ORCHESTRATOR_DOCUMENT_CONCURRENCY",
+    "AGENT_ORCHESTRATOR_DOCUMENT_MODEL",
+    "AGENT_ORCHESTRATOR_DOCUMENT_TOKEN_BUDGET",
     "AGENT_ORCHESTRATOR_ENABLED",
+    "AGENT_ORCHESTRATOR_EXPLORE_MODEL",
     "AGENT_ORCHESTRATOR_FANIN_REDUCER",
     "AGENT_ORCHESTRATOR_FANOUT_ARTIFACTS",
+    "AGENT_ORCHESTRATOR_FIX_ROUNDS",
+    "AGENT_ORCHESTRATOR_IMPLEMENT_MODEL",
+    "AGENT_ORCHESTRATOR_INCREMENTAL_MERGE",
     "AGENT_ORCHESTRATOR_MAX_CONCURRENT_WORKERS",
     "AGENT_ORCHESTRATOR_MAX_PENDING_MERGES",
     "AGENT_ORCHESTRATOR_MAX_TASKS",
+    "AGENT_ORCHESTRATOR_MAX_WRITE_STAGES",
     "AGENT_ORCHESTRATOR_MIN_FILES",
+    "AGENT_ORCHESTRATOR_MIN_PARALLEL_GAIN",
+    "AGENT_ORCHESTRATOR_PATCH_REVIEW",
+    "AGENT_ORCHESTRATOR_PATCH_REVIEW_CONCURRENCY",
+    "AGENT_ORCHESTRATOR_PATCH_REVIEW_MAX_CHARS",
+    "AGENT_ORCHESTRATOR_PATCH_REVIEW_MAX_LINES",
+    "AGENT_ORCHESTRATOR_PLANNER_MODEL",
+    "AGENT_ORCHESTRATOR_PLAN_REPAIR",
     "AGENT_ORCHESTRATOR_RATE_LIMIT_BACKOFF_S",
+    "AGENT_ORCHESTRATOR_REPO_MAP_LAZY",
+    "AGENT_ORCHESTRATOR_REVIEW_MODEL",
     "AGENT_ORCHESTRATOR_RUN_DEADLINE_S",
+    "AGENT_ORCHESTRATOR_SEED_MAX_BYTES",
+    "AGENT_ORCHESTRATOR_SEED_MAX_FILES",
+    "AGENT_ORCHESTRATOR_SEQUENTIAL_WRITES",
+    "AGENT_ORCHESTRATOR_SMART_ENTRY",
     "AGENT_ORCHESTRATOR_TASK_RETRIES",
     "AGENT_ORCHESTRATOR_TASK_TOKENS",
     "AGENT_ORCHESTRATOR_TOTAL_TOKENS",
+    "AGENT_ORCHESTRATOR_VISION_CONCURRENCY",
+    "AGENT_ORCHESTRATOR_VISION_TOKEN_BUDGET",
+    "AGENT_ORCHESTRATOR_WORKER_HARD_TIMEOUT_S",
     "AGENT_ORCHESTRATOR_WORKER_MODEL",
     "AGENT_ORCHESTRATOR_WORKER_REPAIRS",
     "AGENT_ORCHESTRATOR_WORKER_ROUNDS",
@@ -199,6 +277,13 @@
     "AGENT_OTEL_ENDPOINT",
     "AGENT_OTEL_HEADERS",
     "AGENT_OTEL_SERVICE_NAME",
+    "AGENT_PDF_EXTRACT_ANNOTATIONS",
+    "AGENT_PDF_EXTRACT_ATTACHMENTS",
+    "AGENT_PDF_EXTRACT_FORMS",
+    "AGENT_PDF_EXTRACT_METADATA",
+    "AGENT_PDF_EXTRACT_OUTLINE",
+    "AGENT_PDF_EXTRACT_TABLES",
+    "AGENT_PDF_TEXT_ONLY",
     "AGENT_PERSISTENT_SHELL",
     "AGENT_PERSISTENT_SHELL_POOL",
     "AGENT_PROVIDER_PROBE_ALLOWED_HOSTS",
@@ -209,6 +294,10 @@
     "AGENT_RATE_LIMIT_STATE_PATH",
     "AGENT_READ_CACHE_MAX_BYTES",
     "AGENT_READ_DENY_GLOBS",
+    "AGENT_REPORT_ALLOW_ANY_PATH",
+    "AGENT_REPORT_FONT_PATH",
+    "AGENT_REPORT_LLM_REVIEW",
+    "AGENT_REPORT_OUTPUT_DIR",
     "AGENT_REPO_MAP_CHARS",
     "AGENT_RETRY_ATTEMPTS",
     "AGENT_RETRY_BASE_DELAY_S",
@@ -226,6 +315,7 @@
     "AGENT_SECRET_PROVIDER",
     "AGENT_SECURITY_PROFILE",
     "AGENT_SESSION_BRIEF_CHARS",
+    "AGENT_SESSION_COST_BUDGET_USD",
     "AGENT_SHELL_CPU_SECONDS",
     "AGENT_SHELL_ENV_ALLOWLIST",
     "AGENT_SHELL_MAX_FILE_MB",
@@ -287,6 +377,11 @@
     "AGENT_WEB_SESSION_TTL_S",
     "AGENT_WEB_STATIC_DIR",
     "AGENT_WEB_WORKSPACES_ROOT",
+    "AGENT_WORKER_JOURNAL_ENABLED",
+    "AGENT_WORKER_JOURNAL_MAX_BYTES",
+    "AGENT_WORKER_JOURNAL_REQUIRE_CLEAN_GIT",
+    "AGENT_WORKER_JOURNAL_REUSE_PARTIAL",
+    "AGENT_WORKER_JOURNAL_ROLES",
     "AGENT_WORKSPACE_ARCHIVE_ROOT",
     "AGENT_WORKSPACE_EXTRACT_MAX_RATIO",
     "AGENT_WORKSPACE_IMPORT_MODE",
@@ -375,6 +470,118 @@
       "doc": ""
     },
     {
+      "name": "arch_impact_max_modules",
+      "env": "AGENT_ARCH_IMPACT_MAX_MODULES",
+      "type": "int",
+      "default": 40,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_incremental_index",
+      "env": "AGENT_ARCH_INCREMENTAL_INDEX",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_index_cache_dir",
+      "env": "AGENT_ARCH_INDEX_CACHE_DIR",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "空 = 宿主 ~/.codingagent/index-cache；可指向共享盘实现跨机器复用。"
+    },
+    {
+      "name": "arch_index_cache_lock_stale_s",
+      "env": "AGENT_ARCH_INDEX_CACHE_LOCK_STALE_S",
+      "type": "float",
+      "default": 60.0,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_index_cache_lock_timeout_s",
+      "env": "AGENT_ARCH_INDEX_CACHE_LOCK_TIMEOUT_S",
+      "type": "float",
+      "default": 5.0,
+      "section": "通用",
+      "doc": "共享缓存跨进程锁：等待上限与 stale 判定（秒）。"
+    },
+    {
+      "name": "arch_index_cache_max_bytes",
+      "env": "AGENT_ARCH_INDEX_CACHE_MAX_BYTES",
+      "type": "int",
+      "default": 536870912,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_index_cache_max_entries",
+      "env": "AGENT_ARCH_INDEX_CACHE_MAX_ENTRIES",
+      "type": "int",
+      "default": 20000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_index_cache_ttl_days",
+      "env": "AGENT_ARCH_INDEX_CACHE_TTL_DAYS",
+      "type": "int",
+      "default": 30,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_lsp_max_calls",
+      "env": "AGENT_ARCH_LSP_MAX_CALLS",
+      "type": "int",
+      "default": 50,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_lsp_resolution_enabled",
+      "env": "AGENT_ARCH_LSP_RESOLUTION_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "可选：用 LSP definition 解析动态调用（需要 AGENT_LSP_COMMAND）。"
+    },
+    {
+      "name": "arch_max_files",
+      "env": "AGENT_ARCH_MAX_FILES",
+      "type": "int",
+      "default": 2000,
+      "section": "通用",
+      "doc": "架构索引抽样上限与增量缓存。"
+    },
+    {
+      "name": "arch_max_file_bytes",
+      "env": "AGENT_ARCH_MAX_FILE_BYTES",
+      "type": "int",
+      "default": 1000000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_max_total_bytes",
+      "env": "AGENT_ARCH_MAX_TOTAL_BYTES",
+      "type": "int",
+      "default": 32000000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "arch_workflow_enabled",
+      "env": "AGENT_ARCH_WORKFLOW_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "代码架构：从 PythonIndex 生成 ArchIndex/ArchBrief 并注入规划提示。"
+    },
+    {
       "name": "audit_dir",
       "env": "AGENT_AUDIT_DIR",
       "type": "str",
@@ -421,6 +628,22 @@
       "default": "",
       "section": "通用",
       "doc": "SIEM webhook：POST 每行审计 JSON；空 = 不导出。"
+    },
+    {
+      "name": "author_evidence_max_chars",
+      "env": "AGENT_AUTHOR_EVIDENCE_MAX_CHARS",
+      "type": "int",
+      "default": 24000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "author_evidence_top_k",
+      "env": "AGENT_AUTHOR_EVIDENCE_TOP_K",
+      "type": "int",
+      "default": 12,
+      "section": "通用",
+      "doc": "author 的证据上下文：优先取 claim + quote，而不是只取 summary。"
     },
     {
       "name": "billing_enabled",
@@ -647,6 +870,22 @@
       "doc": "成本展示与额度计量货币；上游价格仍按 USD 计价。"
     },
     {
+      "name": "deep_max_write_stages",
+      "env": "AGENT_DEEP_MAX_WRITE_STAGES",
+      "type": "int",
+      "default": 4,
+      "section": "通用",
+      "doc": "deep 模式下允许的写波次上限（仍受总预算/截止时间约束）。"
+    },
+    {
+      "name": "deep_workflows_enabled",
+      "env": "AGENT_DEEP_WORKFLOWS_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "---------- 深层工作流（RFC-0009，默认关闭）---------- 总开关：关闭时下列能力全部不生效，行为与既有四模板一致。"
+    },
+    {
       "name": "delegate_large_calls",
       "env": "AGENT_DELEGATE_LARGE_CALLS",
       "type": "int",
@@ -693,6 +932,198 @@
       "default": 30.0,
       "section": "通用",
       "doc": "包管理器探测缓存时间；安装后会主动失效。"
+    },
+    {
+      "name": "document_cache_enabled",
+      "env": "AGENT_DOCUMENT_CACHE",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_cache_max_bytes",
+      "env": "AGENT_DOCUMENT_CACHE_MAX_BYTES",
+      "type": "int",
+      "default": "512 * 1024 * 1024",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_cache_ttl_days",
+      "env": "AGENT_DOCUMENT_CACHE_TTL_DAYS",
+      "type": "int",
+      "default": 30,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_chunk_chars",
+      "env": "AGENT_DOCUMENT_CHUNK_CHARS",
+      "type": "int",
+      "default": 6000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_edit_max_ops",
+      "env": "AGENT_DOCUMENT_EDIT_MAX_OPS",
+      "type": "int",
+      "default": 50,
+      "section": "通用",
+      "doc": "document_edit 单次调用最多执行多少条操作。"
+    },
+    {
+      "name": "document_full_coverage",
+      "env": "AGENT_DOCUMENT_FULL_COVERAGE",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "长文档：取消固定 3 次读取；覆盖范围由页数 + document_max_pages 决定， 未读完时报告 partial + 未读区间。"
+    },
+    {
+      "name": "document_image_max_items",
+      "env": "AGENT_DOCUMENT_IMAGE_MAX_ITEMS",
+      "type": "int",
+      "default": 5,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_judge_pass_score",
+      "env": "AGENT_DOCUMENT_JUDGE_PASS_SCORE",
+      "type": "int",
+      "default": 60,
+      "section": "通用",
+      "doc": "文档 judge 的通过阈值；可用 scripts/calibrate_judge.py 在标注集上调。"
+    },
+    {
+      "name": "document_map_concurrency",
+      "env": "AGENT_DOCUMENT_MAP_CONCURRENCY",
+      "type": "int",
+      "default": 3,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_map_reduce",
+      "env": "AGENT_DOCUMENT_MAP_REDUCE",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "长文档：按 chunk 分批抽取 claim，再合并；避免整篇塞入单次调用。"
+    },
+    {
+      "name": "document_matrix_enabled",
+      "env": "AGENT_DOCUMENT_MATRIX_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "每篇文档提炼固定槽位（问题/方法/算法/实验/局限/创新/结论）， 供跨文档矩阵与 author 使用；默认关闭（每篇多一次结构化调用）， 长文档/报告场景显式开启。"
+    },
+    {
+      "name": "document_max_bytes",
+      "env": "AGENT_DOCUMENT_MAX_BYTES",
+      "type": "int",
+      "default": 20971520,
+      "section": "通用",
+      "doc": "文档解析上限。解析在宿主进程完成，不进入 WSL 沙箱。"
+    },
+    {
+      "name": "document_max_cells",
+      "env": "AGENT_DOCUMENT_MAX_CELLS",
+      "type": "int",
+      "default": 20000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_max_chars",
+      "env": "AGENT_DOCUMENT_MAX_CHARS",
+      "type": "int",
+      "default": 2000000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_max_pages",
+      "env": "AGENT_DOCUMENT_MAX_PAGES",
+      "type": "int",
+      "default": 200,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_ocr_enabled",
+      "env": "AGENT_DOCUMENT_OCR_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_ocr_max_pages",
+      "env": "AGENT_DOCUMENT_OCR_MAX_PAGES",
+      "type": "int",
+      "default": 5,
+      "section": "通用",
+      "doc": "扫描页交给视觉模型的上限。"
+    },
+    {
+      "name": "document_pipeline_enabled",
+      "env": "AGENT_DOCUMENT_PIPELINE_ENABLED",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "回滚开关：关闭后 document_pipeline 不再被自动选择。"
+    },
+    {
+      "name": "orchestrator_document_max_docs",
+      "env": "AGENT_DOCUMENT_PIPELINE_MAX_DOCS",
+      "type": "int",
+      "default": 10,
+      "section": "通用",
+      "doc": "单次文档管线的输入上限。"
+    },
+    {
+      "name": "orchestrator_document_max_images",
+      "env": "AGENT_DOCUMENT_PIPELINE_MAX_IMAGES",
+      "type": "int",
+      "default": 20,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_read_max_calls",
+      "env": "AGENT_DOCUMENT_READ_MAX_CALLS",
+      "type": "int",
+      "default": 3,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "document_read_pages_per_call",
+      "env": "AGENT_DOCUMENT_READ_PAGES_PER_CALL",
+      "type": "int",
+      "default": 5,
+      "section": "通用",
+      "doc": "长文档分段读取：每次最多多少页、最多几段。"
+    },
+    {
+      "name": "document_tree_fanout",
+      "env": "AGENT_DOCUMENT_TREE_FANOUT",
+      "type": "int",
+      "default": 5,
+      "section": "通用",
+      "doc": "分层归并：每层最多合并多少节点，以及单次归并的输入字符上限。"
+    },
+    {
+      "name": "document_tree_input_chars",
+      "env": "AGENT_DOCUMENT_TREE_INPUT_CHARS",
+      "type": "int",
+      "default": 16000,
+      "section": "通用",
+      "doc": ""
     },
     {
       "name": "drain_timeout_s",
@@ -1087,12 +1518,36 @@
       "doc": "幂等键保留时间。"
     },
     {
+      "name": "image_max_bytes",
+      "env": "AGENT_IMAGE_MAX_BYTES",
+      "type": "int",
+      "default": 10485760,
+      "section": "通用",
+      "doc": "图片理解上限；默认 LLM 视为多模态模型。"
+    },
+    {
+      "name": "image_max_dimension",
+      "env": "AGENT_IMAGE_MAX_DIMENSION",
+      "type": "int",
+      "default": 2048,
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "instructions_enabled",
       "env": "AGENT_INSTRUCTIONS_ENABLED",
       "type": "bool",
       "default": true,
       "section": "通用",
       "doc": "是否发现并注入仓库内的 AGENTS.md / CLAUDE.md（分层项目指令）。"
+    },
+    {
+      "name": "interface_first_writes",
+      "env": "AGENT_INTERFACE_FIRST_WRITES",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "跨模块变更：按 ChangeContract 自动分波，并在波次之间跑 gate。"
     },
     {
       "name": "agent_internal_hmac_key",
@@ -1125,6 +1580,38 @@
       "default": "",
       "section": "通用",
       "doc": "---------- A2 → A3 内部连接（Phase B4） ---------- 空 = A2 与 Agent 同进程（默认，兼容旧部署）。"
+    },
+    {
+      "name": "knowledge_artifacts_enabled",
+      "env": "AGENT_KNOWLEDGE_ARTIFACTS_ENABLED",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "knowledge_embedding_dim",
+      "env": "AGENT_KNOWLEDGE_EMBEDDING_DIM",
+      "type": "int",
+      "default": 0,
+      "section": "通用",
+      "doc": "0 = 继承 memory_embedding_dim。"
+    },
+    {
+      "name": "knowledge_embedding_provider",
+      "env": "AGENT_KNOWLEDGE_EMBEDDING_PROVIDER",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "空串 = 继承 memory_embedding_provider；支持 hash/local/remote/none。 remote 仍受 memory_allow_remote_embeddings + base_url/key 双重门禁。"
+    },
+    {
+      "name": "knowledge_search_mode",
+      "env": "AGENT_KNOWLEDGE_SEARCH_MODE",
+      "type": "str",
+      "default": "lexical",
+      "section": "通用",
+      "doc": "知识检索模式：lexical（默认，零依赖）| vector | hybrid。"
     },
     {
       "name": "llm_aimd_max",
@@ -1631,6 +2118,30 @@
       "doc": "允许多个 implement 修改同一文件；合并时用 git apply --3way。 有真实冲突时只回滚本分量，不会把冲突标记落进主工作区。"
     },
     {
+      "name": "orchestrator_author_concurrency",
+      "env": "AGENT_ORCHESTRATOR_AUTHOR_CONCURRENCY",
+      "type": "int",
+      "default": 1,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_author_model",
+      "env": "AGENT_ORCHESTRATOR_AUTHOR_MODEL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_author_token_budget",
+      "env": "AGENT_ORCHESTRATOR_AUTHOR_TOKEN_BUDGET",
+      "type": "int",
+      "default": 60000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "orchestrator_checkpoint_every",
       "env": "AGENT_ORCHESTRATOR_CHECKPOINT_EVERY",
       "type": "int",
@@ -1647,12 +2158,60 @@
       "doc": "交给主 agent 的 worker 汇总上限（字符）。"
     },
     {
+      "name": "orchestrator_dependency_context_chars",
+      "env": "AGENT_ORCHESTRATOR_DEPENDENCY_CONTEXT_CHARS",
+      "type": "int",
+      "default": 12000,
+      "section": "通用",
+      "doc": "依赖任务注入下游 worker 的上下文总字符上限。"
+    },
+    {
+      "name": "orchestrator_document_checkpoint",
+      "env": "AGENT_ORCHESTRATOR_DOCUMENT_CHECKPOINT",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "每个 document 任务完成后触发一次 steering/checkpoint 边界。"
+    },
+    {
+      "name": "orchestrator_document_concurrency",
+      "env": "AGENT_ORCHESTRATOR_DOCUMENT_CONCURRENCY",
+      "type": "int",
+      "default": 2,
+      "section": "通用",
+      "doc": "文档管线角色级并发；author 固定为 1（报告写入全局单实例）。"
+    },
+    {
+      "name": "orchestrator_document_model",
+      "env": "AGENT_ORCHESTRATOR_DOCUMENT_MODEL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_document_token_budget",
+      "env": "AGENT_ORCHESTRATOR_DOCUMENT_TOKEN_BUDGET",
+      "type": "int",
+      "default": 120000,
+      "section": "通用",
+      "doc": "角色级累计 token 硬预算；0 = 不限制。文档/报告是单次成本最高的角色， 给保守默认值，避免一份大文档或一轮报告无限消耗；超限只阻塞该角色。"
+    },
+    {
       "name": "orchestrator_enabled",
       "env": "AGENT_ORCHESTRATOR_ENABLED",
       "type": "bool",
       "default": true,
       "section": "通用",
       "doc": "---------- Orchestrator（Phase 3A）---------- 新架构默认启用：满足规模阈值的仓库走 harness；小仓库仍走 direct 快速路径。"
+    },
+    {
+      "name": "orchestrator_explore_model",
+      "env": "AGENT_ORCHESTRATOR_EXPLORE_MODEL",
+      "type": "str",
+      "default": "deepseek-flash",
+      "section": "通用",
+      "doc": "角色级模型覆盖；空串表示沿用 orchestrator_worker_model（再退到主模型）。 explore/review 默认用便宜模型，失败重试时自动升级到主模型； 网关不支持 deepseek-flash 时，把这两个变量置空即可回退。"
     },
     {
       "name": "orchestrator_fanin_reducer",
@@ -1669,6 +2228,30 @@
       "default": true,
       "section": "通用",
       "doc": "fan-in 是否落 artifact store 并输出结构化结果。"
+    },
+    {
+      "name": "orchestrator_fix_rounds",
+      "env": "AGENT_ORCHESTRATOR_FIX_ROUNDS",
+      "type": "int",
+      "default": 0,
+      "section": "通用",
+      "doc": "verify 失败后允许重入 orchestrator 修复的最大轮数；0 = 关闭。"
+    },
+    {
+      "name": "orchestrator_implement_model",
+      "env": "AGENT_ORCHESTRATOR_IMPLEMENT_MODEL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_incremental_merge",
+      "env": "AGENT_ORCHESTRATOR_INCREMENTAL_MERGE",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "已完成的 implement 补丁若与在飞任务无文件交集，立即按连通分量合并， 不必等整批结束。默认开启；若有兼容性问题可设为 false 回退整批合并。"
     },
     {
       "name": "orchestrator_max_concurrent_workers",
@@ -1695,12 +2278,76 @@
       "doc": ""
     },
     {
+      "name": "orchestrator_max_write_stages",
+      "env": "AGENT_ORCHESTRATOR_MAX_WRITE_STAGES",
+      "type": "int",
+      "default": 2,
+      "section": "通用",
+      "doc": "灰度期最多允许的写波次数（stage 上限）。"
+    },
+    {
       "name": "orchestrator_min_files",
       "env": "AGENT_ORCHESTRATOR_MIN_FILES",
       "type": "int",
       "default": 30,
       "section": "通用",
       "doc": "小于该文件数不做编排，直接单 agent。"
+    },
+    {
+      "name": "orchestrator_min_parallel_gain",
+      "env": "AGENT_ORCHESTRATOR_MIN_PARALLEL_GAIN",
+      "type": "float",
+      "default": 1.2,
+      "section": "通用",
+      "doc": "并行收益比阈值：task_count / critical_path 低于该值时，只读并行计划 会退回 direct（链式任务并行只多付调度/上下文成本）。0 = 关闭预估。"
+    },
+    {
+      "name": "orchestrator_patch_review",
+      "env": "AGENT_ORCHESTRATOR_PATCH_REVIEW",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "补丁合并前的轻量审查：只对高风险 patch（改测试/配置/CI/安全路径、 或 diff 超过阈值）调用一次 review 模型。审查拒绝会让任务带 findings 重试； 它只是质量加固，不替代 write_scope 与审批这些安全边界。"
+    },
+    {
+      "name": "orchestrator_patch_review_concurrency",
+      "env": "AGENT_ORCHESTRATOR_PATCH_REVIEW_CONCURRENCY",
+      "type": "int",
+      "default": 2,
+      "section": "通用",
+      "doc": "同时进行的补丁审查数；审查是 LLM 调用，串行会把合并尾部拉长。"
+    },
+    {
+      "name": "orchestrator_patch_review_max_chars",
+      "env": "AGENT_ORCHESTRATOR_PATCH_REVIEW_MAX_CHARS",
+      "type": "int",
+      "default": 60000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_patch_review_max_lines",
+      "env": "AGENT_ORCHESTRATOR_PATCH_REVIEW_MAX_LINES",
+      "type": "int",
+      "default": 400,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_planner_model",
+      "env": "AGENT_ORCHESTRATOR_PLANNER_MODEL",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": "工作流选择/任务图生成专用模型；空串表示继承主模型。"
+    },
+    {
+      "name": "orchestrator_plan_repair",
+      "env": "AGENT_ORCHESTRATOR_PLAN_REPAIR",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "任务图校验失败时，先带错误反馈让模型修一次，再决定是否整图降级。 默认开启；若要回到「校验失败立即降级」的旧行为，设为 false。"
     },
     {
       "name": "orchestrator_rate_limit_backoff_s",
@@ -1711,12 +2358,60 @@
       "doc": "遇到 429/限流时 scheduler 的首次退避秒数；之后指数增长，上限 30s。"
     },
     {
+      "name": "orchestrator_repo_map_lazy",
+      "env": "AGENT_ORCHESTRATOR_REPO_MAP_LAZY",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "survey 先只收集廉价画像；repo_map 等到确认要编排后再构建。"
+    },
+    {
+      "name": "orchestrator_review_model",
+      "env": "AGENT_ORCHESTRATOR_REVIEW_MODEL",
+      "type": "str",
+      "default": "deepseek-flash",
+      "section": "通用",
+      "doc": ""
+    },
+    {
       "name": "orchestrator_run_deadline_s",
       "env": "AGENT_ORCHESTRATOR_RUN_DEADLINE_S",
       "type": "int",
       "default": 900,
       "section": "通用",
       "doc": "整个编排阶段（含所有 worker）的墙钟上限，0 表示不限制。"
+    },
+    {
+      "name": "orchestrator_seed_max_bytes",
+      "env": "AGENT_ORCHESTRATOR_SEED_MAX_BYTES",
+      "type": "int",
+      "default": 5000000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_seed_max_files",
+      "env": "AGENT_ORCHESTRATOR_SEED_MAX_FILES",
+      "type": "int",
+      "default": 200,
+      "section": "通用",
+      "doc": "注入新 worktree 的基线补丁上限；超限 fail closed。"
+    },
+    {
+      "name": "orchestrator_sequential_writes",
+      "env": "AGENT_ORCHESTRATOR_SEQUENTIAL_WRITES",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": "顺序写波次：允许后一波 implement 基于前一波已合并结果继续修改。 默认关闭；关闭时 implement 之间仍禁止互相依赖。"
+    },
+    {
+      "name": "orchestrator_smart_entry",
+      "env": "AGENT_ORCHESTRATOR_SMART_ENTRY",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "在规模阈值之上再加一层请求级快速判定：明显的单文件/只读问答/拼写修复 直接走 single agent，不付 survey + 工作流选择的固定成本。"
     },
     {
       "name": "orchestrator_task_retries",
@@ -1738,9 +2433,33 @@
       "name": "orchestrator_total_tokens",
       "env": "AGENT_ORCHESTRATOR_TOTAL_TOKENS",
       "type": "int",
-      "default": 0,
+      "default": 500000,
       "section": "通用",
-      "doc": "整个编排阶段的 token 上限，0 = 不限制。scheduler 在派发前按角色预留， 预留 + 已用超过上限时不再启动新任务。"
+      "doc": "整个编排阶段的 token 上限，0 = 不限制。scheduler 在派发前按角色预留， 预留 + 已用超过上限时停止派发；只读在飞任务会被取消，implement 继续跑完 并合并。默认 500k，足以覆盖正常多 worker 任务，同时给失控循环止损。"
+    },
+    {
+      "name": "orchestrator_vision_concurrency",
+      "env": "AGENT_ORCHESTRATOR_VISION_CONCURRENCY",
+      "type": "int",
+      "default": 2,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_vision_token_budget",
+      "env": "AGENT_ORCHESTRATOR_VISION_TOKEN_BUDGET",
+      "type": "int",
+      "default": 60000,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "orchestrator_worker_hard_timeout_s",
+      "env": "AGENT_ORCHESTRATOR_WORKER_HARD_TIMEOUT_S",
+      "type": "float",
+      "default": 0.0,
+      "section": "通用",
+      "doc": "worker 外层兜底超时（秒），独立于各 runner 的内部超时。 0 = 自动推导：implement 用 worker_timeout，explore/review 用 explore_timeout， 其余角色取 max(600, worker_timeout)；都会再加 30s 余量。"
     },
     {
       "name": "orchestrator_worker_model",
@@ -1823,6 +2542,62 @@
       "doc": ""
     },
     {
+      "name": "pdf_extract_annotations",
+      "env": "AGENT_PDF_EXTRACT_ANNOTATIONS",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "pdf_extract_attachments",
+      "env": "AGENT_PDF_EXTRACT_ATTACHMENTS",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "pdf_extract_forms",
+      "env": "AGENT_PDF_EXTRACT_FORMS",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "pdf_extract_metadata",
+      "env": "AGENT_PDF_EXTRACT_METADATA",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "pdf_extract_outline",
+      "env": "AGENT_PDF_EXTRACT_OUTLINE",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "pdf_extract_tables",
+      "env": "AGENT_PDF_EXTRACT_TABLES",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "pdf_text_only",
+      "env": "AGENT_PDF_TEXT_ONLY",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "默认只处理文本型 PDF；扫描页不自动 OCR。"
+    },
+    {
       "name": "persistent_shell",
       "env": "AGENT_PERSISTENT_SHELL",
       "type": "bool",
@@ -1901,6 +2676,38 @@
       "default": "DEFAULT_READ_DENY_GLOBS",
       "section": "通用",
       "doc": "秘密文件读保护 glob（逗号分隔）；.env.example 等模板自动放行。"
+    },
+    {
+      "name": "report_allow_any_path",
+      "env": "AGENT_REPORT_ALLOW_ANY_PATH",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "report_font_path",
+      "env": "AGENT_REPORT_FONT_PATH",
+      "type": "str",
+      "default": "",
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "report_llm_review",
+      "env": "AGENT_REPORT_LLM_REVIEW",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "report_output_dir",
+      "env": "AGENT_REPORT_OUTPUT_DIR",
+      "type": "str",
+      "default": ".agent/artifacts/reports",
+      "section": "通用",
+      "doc": "报告输出：默认只允许写到报告目录；显式路径由 planner 解析后仍受此约束。"
     },
     {
       "name": "repo_map_chars",
@@ -2037,6 +2844,14 @@
       "default": 4000,
       "section": "通用",
       "doc": "编排子图/worker 的会话约束摘要上限（字符）。独立子图不复制 messages， 这里从 checkpoint 抽最近若干轮压缩后注入；0 表示关闭。"
+    },
+    {
+      "name": "session_cost_budget_usd",
+      "env": "AGENT_SESSION_COST_BUDGET_USD",
+      "type": "float",
+      "default": 0.0,
+      "section": "通用",
+      "doc": "整个会话（同一 thread，多轮 run 累计）的成本预算（USD）；0 = 不限制。 全新 run 在开始前检查；resume 不拦截，避免挂起的审批被预算锁死。"
     },
     {
       "name": "shell_cpu_seconds",
@@ -2525,6 +3340,46 @@
       "default": "",
       "section": "通用",
       "doc": "per-user 工作区根目录；空 = 沙箱 $HOME/agent-ws/users。"
+    },
+    {
+      "name": "worker_journal_enabled",
+      "env": "AGENT_WORKER_JOURNAL_ENABLED",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "worker 结果 journal：崩溃/resume 时复用已完成的只读结果，避免重跑。 只复用 success（可选 partial）；implement 永不复用（补丁可能已过期）。"
+    },
+    {
+      "name": "worker_journal_max_bytes",
+      "env": "AGENT_WORKER_JOURNAL_MAX_BYTES",
+      "type": "int",
+      "default": 10485760,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "worker_journal_require_clean_git",
+      "env": "AGENT_WORKER_JOURNAL_REQUIRE_CLEAN_GIT",
+      "type": "bool",
+      "default": true,
+      "section": "通用",
+      "doc": "只有「git 仓库 + 干净工作区 + 能拿到 HEAD」时才复用：HEAD 相同 且没有未提交改动，输入与代码状态才足够一致。"
+    },
+    {
+      "name": "worker_journal_reuse_partial",
+      "env": "AGENT_WORKER_JOURNAL_REUSE_PARTIAL",
+      "type": "bool",
+      "default": false,
+      "section": "通用",
+      "doc": ""
+    },
+    {
+      "name": "worker_journal_roles",
+      "env": "AGENT_WORKER_JOURNAL_ROLES",
+      "type": "str",
+      "default": "explore,review",
+      "section": "通用",
+      "doc": "允许复用/落盘的角色，逗号分隔。test 默认排除：结果依赖当时环境。"
     },
     {
       "name": "workspace_archive_root",

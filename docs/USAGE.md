@@ -177,7 +177,7 @@ python scripts/phase_d_smoke.py
 可重新配置；`--host-mode` 回退旧宿主模式。
 
 Phase 0 的 WSL 内 Agent Server 见 [PHASE0.md](PHASE0.md)：
-`python -m coding_agent.server --port 8765 --token <token> --workspace <WSL路径>`，
+`python -m ubismart.server --port 8765 --token <token> --workspace <WSL路径>`，
 Windows 浏览器访问 `http://127.0.0.1:8765/#token=<token>`。
 
 ## 常见工作流
@@ -468,7 +468,7 @@ export AGENT_CONTROL_DB_AUTO_CREATE=false
 export AGENT_WEB_ACCOUNTS_ENABLED=true
 export AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=true
 export AGENT_SECRET_MASTER_KEY="$(openssl rand -base64 32)"
-python -m coding_agent.control.migrate --backup
+python -m ubismart.control.migrate --backup
 agent admin create --username admin --role owner
 agent web --port 8765
 ```

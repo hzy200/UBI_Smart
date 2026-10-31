@@ -28,7 +28,7 @@ warning: |
 
 > **勘误（2026-10-25）**：本快照中只读编排（explore/review）worker 的
 > `worker_tool_calls` 被记为 0，原因是
-> `src/coding_agent/orchestrator/workers.py` 组装 `WorkerResult` 时漏传
+> `src/ubismart/orchestrator/workers.py` 组装 `WorkerResult` 时漏传
 > `artifact.tool_calls`。这是**指标漏记，不是 worker 没有调用工具**。
 > 后续运行已修复；本快照里的只读 worker 工具调用数应视为“缺失”，
 > 其余 token / 耗时 / 状态 / 合并数字不受影响。

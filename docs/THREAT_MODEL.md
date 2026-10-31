@@ -306,6 +306,24 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
   缓冲；审计仍不是 WORM，远端/SIEM 导出见技术债。
 - **上传**：单文件/数量/工作区跨会话累计限额、basename 清洗、SandboxFs 路径双重校验、写审计；
   写入 `.agent/uploads`，不自动执行/解压，不授予模型源码写权限。
+- **文档/图片读取**：宿主进程解析，不进入 WSL；路径守卫与秘密文件保护同
+  `file_read`；Office ZIP 校验条目数/解压总量/压缩比，XML 经 `defusedxml`
+  解析，PDF 不执行脚本，不执行宏、不解析 OLE 嵌入对象；文档内容视为不可信
+  输入并做提示注入隔离；DOCX/PPTX 内嵌图片与扫描 PDF 页写入
+  `.agent/documents/` 后交给图像理解；PDF 附件提取后递归解析一层正文；
+  XML 单部分/总量超限直接拒绝；
+  图片校验格式/大小/尺寸，并设置 4000 万像素上限防解压炸弹；SVG 不渲染；
+  文档缓存按容量/TTL 自动清理。旧 `.doc/.ppt` 直接拒绝，不引入 LibreOffice 等外部转换进程。
+  攻击样例专项覆盖：`.docm` 宏文档与 OLE `.xls` 拒绝、PDF JavaScript 不执行、
+  docx 内嵌套 ZIP 不展开（见 `tests/unit/test_document_tools.py`）。
+- **文档编辑**：`document_edit` 为 L1，只在 `allow_write` 时暴露；仅接受
+  docx/xlsx/pptx，宏文档与旧格式拒绝，不做跨格式转换；输出必须是工作区内
+  新路径（拒绝同路径与已存在文件，避免不可回滚的二进制覆盖），并受
+  `write_scope`、`protected_write_reason`、源/输出字节上限与单次操作数上限
+  约束；写入前登记空快照，产物走 `FileArtifact` 审计与 FileChanged 事件。
+  编辑只做文本/单元格/文本框级操作，不执行宏、不解析嵌入对象。
+  前端 PDF/Office viewer 库全部本地 vendored 并按需加载（SRI），PDF worker
+  同源加载；CSP 增加 `worker-src 'self'`。详见 RFC-0005。
 - **密钥**：单机 GUI 注入的 key 只进 OS 密钥环；企业模式由管理员写入
   `control_provider_keys`，只存 AES-256-GCM 密文与后四位，主密钥来自
   `AGENT_SECRET_MASTER_KEY`/KMS，缺失时拒绝写入；解密失败 fail closed，

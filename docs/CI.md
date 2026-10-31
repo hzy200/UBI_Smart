@@ -63,7 +63,7 @@ review_cadence: 工作流文件变动时
 `installer` job：`windows-latest`，先跑
 `python scripts/check_installer.py --check`（版本单一源、免提权安装、卸载保留
 `%LOCALAPPDATA%`、`.iss` 引用路径与图标存在），再用 stub 的
-`dist/CodingAgent` 与 WebView2 bootstrapper 跑一次 `ISCC` 编译。
+`dist/UBISmart` 与 WebView2 bootstrapper 跑一次 `ISCC` 编译。
 **它不产出可发布包**：真包需要 WSL rootfs（`build_wsl_distro.py` 要跑 apt）与
 签名证书，只能在装有 WSL2 的 Windows 机器上构建，步骤见
 [RELEASING.md](RELEASING.md) 的「安装包」一节。

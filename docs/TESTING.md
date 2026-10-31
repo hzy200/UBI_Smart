@@ -4,7 +4,7 @@ doc_id: testing
 title: 测试分层与运行口径
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-31
 review_cadence: 测试分层、标记或 CI 口径变动时
 ---
 
@@ -30,10 +30,10 @@ review_cadence: 测试分层、标记或 CI 口径变动时
 
 ### 1.1 前端测试
 
-前端是静态 SPA，入口在 `src/coding_agent/web/frontend/`：
+前端是静态 SPA，入口在 `src/ubismart/web/frontend/`：
 
 ```bash
-cd src/coding_agent/web/frontend
+cd src/ubismart/web/frontend
 node node_modules/typescript/bin/tsc --noEmit
 node esbuild.mjs
 node test.mjs        # 74 个纯函数用例
@@ -118,6 +118,31 @@ make agent-e2e
 | `test_orchestrated_implement_parallel_workers` | `orchestrated_implement` 工作流、任务图、≥2 worker、implement 角色、worktree 内工具调用、补丁合并成功 |
 
 该标记**同时带 `llm`**：默认 `pytest -m "not llm"` 与 CI 都会跳过，避免误烧额度。
+
+### 多文档论文评测（真实 PDF）
+
+`tests/eval/papers.py` 自动扫描 `pdf/`（或 `--pdf-dir`），数量不写死；用例
+`cross_method` / `cross_numbers` / `cross_limits` / `report` 分别覆盖方法对比、
+跨文档数值检索、边界与组合风险、完整报告链路。
+
+```bash
+# 只读、无模型：样本结构、矩阵、归属、报告判定
+pytest -m "not llm" tests/unit/test_papers_eval.py -q
+
+# 真实 WSL + 模型（会跳过没有 pdf/ 或没有 API Key 的环境）
+pytest -m llm tests/integration/test_paper_documents.py -q
+
+# 手动运行，输出过程指标
+python tests/eval/papers.py --list
+python tests/eval/papers.py --case papers/cross_method --json
+python tests/eval/papers.py --case papers/report --json
+```
+
+判定不止“答案看起来对”：覆盖全部文档、每篇至少一条证据、答案引用每篇、
+矩阵槽位覆盖率、`quote_verified_ratio`、跨文档 `attribution_issues`、
+报告章节与 `report_check`、确定性 judge。10 篇实测与边界见
+[DEEP_WORKFLOW_EVAL.md](DEEP_WORKFLOW_EVAL.md) §9；样本说明见
+[`tests/eval/README.md`](../tests/eval/README.md)。
 
 ### 系统级 E2E（本地）
 
