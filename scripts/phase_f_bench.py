@@ -42,9 +42,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
 
-from coding_agent.control.store import ControlStore  # noqa: E402
-from coding_agent.execution.contracts import ExecutionRequest  # noqa: E402
-from coding_agent.execution.service import ExecutionService  # noqa: E402
+from ubismart.control.store import ControlStore  # noqa: E402
+from ubismart.execution.contracts import ExecutionRequest  # noqa: E402
+from ubismart.execution.service import ExecutionService  # noqa: E402
 
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -298,7 +298,7 @@ def measure_sse_proxy(workdir: Path, rounds: int = 20) -> dict:
         [
             sys.executable,
             "-m",
-            "coding_agent.servers.control_server",
+            "ubismart.servers.control_server",
             "--host",
             "127.0.0.1",
             "--port",
@@ -372,8 +372,8 @@ class _BrokerThread:
         self.loop.run_forever()
 
     async def _start(self) -> None:
-        from coding_agent.host_broker.server import HostBrokerServer
-        from coding_agent.host_broker.transport import start_tcp_server
+        from ubismart.host_broker.server import HostBrokerServer
+        from ubismart.host_broker.transport import start_tcp_server
 
         async def handler(transport) -> None:
             server = HostBrokerServer(
@@ -418,16 +418,16 @@ def measure_host_rpc(workdir: Path, rounds: int = 100) -> dict:
     if os.name != "nt":
         return {"skipped": "host broker bench requires Windows"}
 
-    from coding_agent.execution.host_file_access import (
+    from ubismart.execution.host_file_access import (
         CHUNK_BYTES,
         HostFileAccess,
     )
-    from coding_agent.host_broker.op_journal import OpJournal
-    from coding_agent.host_broker.ops import HostReadOnlyOps
-    from coding_agent.host_broker.paths import HostPathPolicy
-    from coding_agent.host_broker.policy import GrantStore, HostPolicy
-    from coding_agent.host_broker.sync_client import SyncHostCaller
-    from coding_agent.host_broker.toolchain import ToolchainRegistry
+    from ubismart.host_broker.op_journal import OpJournal
+    from ubismart.host_broker.ops import HostReadOnlyOps
+    from ubismart.host_broker.paths import HostPathPolicy
+    from ubismart.host_broker.policy import GrantStore, HostPolicy
+    from ubismart.host_broker.sync_client import SyncHostCaller
+    from ubismart.host_broker.toolchain import ToolchainRegistry
 
     root = workdir / "project"
     root.mkdir(parents=True, exist_ok=True)
@@ -524,8 +524,8 @@ def measure_host_rpc(workdir: Path, rounds: int = 100) -> dict:
 
 def measure_wsl_shell(rounds: int = 20) -> dict:
     """常驻 shell 与逐命令 `wsl.exe` 的延迟对比。"""
-    from coding_agent.config import Settings
-    from coding_agent.sandbox.wsl_exec import WslSandbox
+    from ubismart.config import Settings
+    from ubismart.sandbox.wsl_exec import WslSandbox
 
     report: dict[str, Any] = {}
     for name, persistent in (("persistent", True), ("one_shot", False)):
@@ -563,12 +563,12 @@ def measure_wsl_shell(rounds: int = 20) -> dict:
 
 def measure_snapshot_write(rounds: int = 5) -> dict:
     """快照留底与「留底 + 写目标」的耗时。"""
-    from coding_agent.config import Settings
-    from coding_agent.sandbox.fs import SandboxFs
-    from coding_agent.sandbox.snapshots import SnapshotStore
-    from coding_agent.sandbox.wsl_exec import WslSandbox
+    from ubismart.config import Settings
+    from ubismart.sandbox.fs import SandboxFs
+    from ubismart.sandbox.snapshots import SnapshotStore
+    from ubismart.sandbox.wsl_exec import WslSandbox
 
-    root = f"/tmp/coding-agent-bench-{os.getpid()}"
+    root = f"/tmp/ubismart-bench-{os.getpid()}"
     manifest_root = Path(tempfile.mkdtemp(prefix="snapshot-manifest-"))
     sandbox = WslSandbox(
         Settings(

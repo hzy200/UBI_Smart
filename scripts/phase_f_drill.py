@@ -26,15 +26,15 @@ from alembic.script import ScriptDirectory  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
 
-from coding_agent.control.backup import backup, restore  # noqa: E402
-from coding_agent.control.migrate import (  # noqa: E402
+from ubismart.control.backup import backup, restore  # noqa: E402
+from ubismart.control.migrate import (  # noqa: E402
     alembic_config,
     current_revision,
     has_table,
     upgrade,
 )
-from coding_agent.control.schema import Base  # noqa: E402
-from coding_agent.control.store import ControlStore  # noqa: E402
+from ubismart.control.schema import Base  # noqa: E402
+from ubismart.control.store import ControlStore  # noqa: E402
 
 
 def _head_revision(url: str) -> str:

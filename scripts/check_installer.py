@@ -20,9 +20,9 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ISS = ROOT / "packaging" / "installer" / "CodingAgent.iss"
+ISS = ROOT / "packaging" / "installer" / "UBISmart.iss"
 BUILD_PS1 = ROOT / "scripts" / "build_installer.ps1"
-VERSION_FILE = ROOT / "src" / "coding_agent" / "__init__.py"
+VERSION_FILE = ROOT / "src" / "ubismart" / "__init__.py"
 
 
 def _version_of(path: Path) -> str:

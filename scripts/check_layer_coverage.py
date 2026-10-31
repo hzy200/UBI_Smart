@@ -40,8 +40,8 @@ def _pct(entry: dict) -> float:
 
 
 def _relative(filename: str) -> str:
-    """`src/coding_agent/sandbox/fs.py` → `sandbox/fs.py`。"""
-    marker = "coding_agent/"
+    """`src/ubismart/sandbox/fs.py` → `sandbox/fs.py`。"""
+    marker = "ubismart/"
     text = str(filename).replace("\\", "/")
     index = text.rfind(marker)
     return text[index + len(marker) :] if index >= 0 else text

@@ -22,8 +22,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.pool import NullPool  # noqa: E402
 
-from coding_agent.control.migrate import has_table  # noqa: E402
-from coding_agent.control.workspaces import (  # noqa: E402
+from ubismart.control.migrate import has_table  # noqa: E402
+from ubismart.control.workspaces import (  # noqa: E402
     WorkspacePolicy,
     WorkspaceStore,
 )

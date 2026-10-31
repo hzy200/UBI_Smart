@@ -16,9 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from coding_agent.protocol.terminal_text import sanitize_terminal_text  # noqa: E402
-from coding_agent.sandbox.policy import classify  # noqa: E402
-from coding_agent.web.middleware import FixedWindowRateLimiter  # noqa: E402
+from ubismart.protocol.terminal_text import sanitize_terminal_text  # noqa: E402
+from ubismart.sandbox.policy import classify  # noqa: E402
+from ubismart.web.middleware import FixedWindowRateLimiter  # noqa: E402
 
 BASE_LIMITS = {
     "classify_20k": 10.0,

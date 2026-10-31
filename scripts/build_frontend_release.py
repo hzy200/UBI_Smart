@@ -27,10 +27,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FRONTEND = ROOT / "src" / "coding_agent" / "web" / "frontend"
-STATIC = ROOT / "src" / "coding_agent" / "web" / "static"
+FRONTEND = ROOT / "src" / "ubismart" / "web" / "frontend"
+STATIC = ROOT / "src" / "ubismart" / "web" / "static"
 VERSION_TS = FRONTEND / "src" / "version.ts"
-WEB_VERSION_PY = ROOT / "src" / "coding_agent" / "web" / "version.py"
+WEB_VERSION_PY = ROOT / "src" / "ubismart" / "web" / "version.py"
 
 # 图标随源图一起换内容，所以要参与哈希，否则 CDN/浏览器会一直用旧图标。
 HASH_EXTS = {".js", ".css", ".svg", ".png", ".woff", ".woff2"}
@@ -308,7 +308,7 @@ def build_release(
 
     manifest = {
         "schemaVersion": 1,
-        "name": "coding-agent-frontend",
+        "name": "ubismart-frontend",
         "version": version,
         "releaseId": release_id,
         "gitCommit": commit,

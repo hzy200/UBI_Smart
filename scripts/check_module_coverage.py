@@ -25,7 +25,7 @@ BUDGET_PATH = Path(__file__).resolve().parent / "coverage_budget.json"
 
 def _relative(filename: str) -> str:
     text = str(filename).replace("\\", "/")
-    marker = "coding_agent/"
+    marker = "ubismart/"
     index = text.rfind(marker)
     return text[index + len(marker) :] if index >= 0 else text
 

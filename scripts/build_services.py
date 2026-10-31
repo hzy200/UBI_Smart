@@ -4,8 +4,8 @@
     python scripts/build_services.py --target control
 
 产物：
-    dist/CodingAgentAgent/CodingAgentAgent(.exe)
-    dist/CodingAgentControl/CodingAgentControl(.exe)
+    dist/UBISmartAgent/UBISmartAgent(.exe)
+    dist/UBISmartControl/UBISmartControl(.exe)
 """
 
 from __future__ import annotations
@@ -16,19 +16,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STATIC = ROOT / "src" / "coding_agent" / "web" / "static"
-CONTROL_DIR = ROOT / "src" / "coding_agent" / "control"
+STATIC = ROOT / "src" / "ubismart" / "web" / "static"
+CONTROL_DIR = ROOT / "src" / "ubismart" / "control"
 MIGRATIONS = CONTROL_DIR / "migrations"
 ALEMBIC_INI = CONTROL_DIR / "alembic.ini"
 
 TARGETS = {
     "agent": (
-        ROOT / "src" / "coding_agent" / "agent_server.py",
-        "CodingAgentAgent",
+        ROOT / "src" / "ubismart" / "servers" / "agent_server.py",
+        "UBISmartAgent",
     ),
     "control": (
-        ROOT / "src" / "coding_agent" / "control_server.py",
-        "CodingAgentControl",
+        ROOT / "src" / "ubismart" / "servers" / "control_server.py",
+        "UBISmartControl",
     ),
 }
 
@@ -68,7 +68,7 @@ def build(target: str) -> int:
         "--paths",
         str(ROOT / "src"),
         "--add-data",
-        f"{STATIC}{sep}coding_agent/web/static",
+        f"{STATIC}{sep}ubismart/web/static",
         "--hidden-import",
         "uvicorn.logging",
         "--hidden-import",
@@ -84,9 +84,9 @@ def build(target: str) -> int:
         # 控制面启动时可能执行 Alembic 迁移，迁移脚本必须随包分发。
         args += [
             "--add-data",
-            f"{MIGRATIONS}{sep}coding_agent/control/migrations",
+            f"{MIGRATIONS}{sep}ubismart/control/migrations",
             "--add-data",
-            f"{ALEMBIC_INI}{sep}coding_agent/control",
+            f"{ALEMBIC_INI}{sep}ubismart/control",
             "--hidden-import",
             "alembic",
         ]

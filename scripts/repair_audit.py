@@ -24,8 +24,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from coding_agent.audit import AuditRecord, verify_audit_files  # noqa: E402
-from coding_agent.config import Settings  # noqa: E402
+from ubismart.audit import AuditRecord, verify_audit_files  # noqa: E402
+from ubismart.config import Settings  # noqa: E402
 
 
 def _bad_reason(line: bytes) -> str:

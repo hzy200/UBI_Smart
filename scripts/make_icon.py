@@ -23,13 +23,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (
     ROOT
     / "src"
-    / "coding_agent"
+    / "ubismart"
     / "web"
     / "frontend"
     / "assets"
     / "icon-source.png"
 )
-STATIC = ROOT / "src" / "coding_agent" / "web" / "static"
+STATIC = ROOT / "src" / "ubismart" / "web" / "static"
 
 # PNG 尺寸按各端实际需要给：iOS 要 180，PWA 清单要 192/512。
 PNG_SIZES = {

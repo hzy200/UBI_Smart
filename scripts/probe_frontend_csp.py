@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import webview
 
 ROOT = Path(__file__).resolve().parent.parent
-STATIC = ROOT / "src" / "coding_agent" / "web" / "static"
+STATIC = ROOT / "src" / "ubismart" / "web" / "static"
 
 CONFIG = {
     "schemaVersion": 1,

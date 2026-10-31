@@ -9,7 +9,7 @@
 
     wsl --import CodingAgent <dir> packaging/wsl/CodingAgent-rootfs.tar
     wsl -d CodingAgent -u root -- /opt/coding-agent/venv/bin/pip install \
-        --no-deps --force-reinstall /mnt/d/.../CodingAgent
+        --no-deps --force-reinstall /mnt/d/.../UBISmart
 
     python scripts/phase_g_e2e.py --source "D:\\User\\e2e-src"
 """
@@ -31,14 +31,14 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from coding_agent.config import Settings  # noqa: E402
-from coding_agent.control.agent_client import HttpAgentClient  # noqa: E402
-from coding_agent.desktop import supervisor  # noqa: E402
-from coding_agent.desktop.config import LauncherConfig  # noqa: E402
-from coding_agent.desktop.wsl import run  # noqa: E402
-from coding_agent.platform.paths import win_to_wsl  # noqa: E402
-from coding_agent.web import create_app  # noqa: E402
-from coding_agent.web.auth import AuthConfig  # noqa: E402
+from ubismart.config import Settings  # noqa: E402
+from ubismart.control.agent_client import HttpAgentClient  # noqa: E402
+from ubismart.desktop import supervisor  # noqa: E402
+from ubismart.desktop.config import LauncherConfig  # noqa: E402
+from ubismart.desktop.wsl import run  # noqa: E402
+from ubismart.platform.paths import win_to_wsl  # noqa: E402
+from ubismart.web import create_app  # noqa: E402
+from ubismart.web.auth import AuthConfig  # noqa: E402
 
 TOKEN = "e2e-token"
 USER = "alice"
@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     wsl_source = _wsl_source(str(source.resolve()))
 
-    work = Path(tempfile.mkdtemp(prefix="coding-agent-e2e-"))
+    work = Path(tempfile.mkdtemp(prefix="ubismart-e2e-"))
     hmac_key = secrets.token_hex(32) if args.hmac else ""
     if hmac_key:
         os.environ["AGENT_INTERNAL_HMAC_KEY"] = hmac_key

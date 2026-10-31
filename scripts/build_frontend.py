@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FRONTEND = ROOT / "src" / "coding_agent" / "web" / "frontend"
+FRONTEND = ROOT / "src" / "ubismart" / "web" / "frontend"
 
 
 def main() -> int:

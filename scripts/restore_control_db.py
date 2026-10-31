@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from coding_agent.control.backup import restore  # noqa: E402
+from ubismart.control.backup import restore  # noqa: E402
 
 
 def main() -> int:

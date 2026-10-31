@@ -408,7 +408,7 @@ def main() -> int:
         )
         module_dirs = [
             p
-            for p in (ROOT / "src" / "coding_agent").iterdir()
+            for p in (ROOT / "src" / "ubismart").iterdir()
             if p.is_dir() and p.name != "__pycache__"
         ]
         covered = [p for p in module_dirs if (p / "AGENTS.md").exists()]

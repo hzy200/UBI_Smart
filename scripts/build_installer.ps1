@@ -1,4 +1,4 @@
-# CodingAgent Phase 2 installer build.
+# UBISmart Phase 2 installer build.
 # 需要：conda agent、PyInstaller、Inno Setup 6、网络（首次下载 WebView2）。
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/build_installer.ps1
@@ -29,10 +29,10 @@ if (-not (Test-Path $WebView)) {
 }
 
 if ($env:CODESIGN_CERT) {
-  Write-Host "==> 签名 CodingAgent.exe"
+  Write-Host "==> 签名 UBISmart.exe"
   signtool sign /f $env:CODESIGN_CERT /p $env:CODESIGN_PASSWORD `
     /tr http://timestamp.digicert.com /td sha256 /fd sha256 `
-    "$Root\dist\CodingAgent\CodingAgent.exe"
+    "$Root\dist\UBISmart\UBISmart.exe"
 }
 
 $IsccCandidates = @(
@@ -47,14 +47,14 @@ if (-not $Iscc) {
 
 # 版本只有一个来源：包自己的 __version__。写死在这里会让安装包与
 # CHANGELOG / 前端版本各走各的（scripts/check_installer.py 会拦住）。
-$Version = (& python -c "import coding_agent; print(coding_agent.__version__)").Trim()
-if (-not $Version) { throw "无法从 coding_agent.__version__ 读取版本" }
+$Version = (& python -c "import ubismart; print(ubismart.__version__)").Trim()
+if (-not $Version) { throw "无法从 ubismart.__version__ 读取版本" }
 
 Write-Host "==> 构建安装包（版本 $Version）"
-& $Iscc "/DAppVersion=$Version" "packaging\installer\CodingAgent.iss"
+& $Iscc "/DAppVersion=$Version" "packaging\installer\UBISmart.iss"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup 构建失败" }
 
-$Setup = Join-Path $Root "dist\CodingAgent-Setup.exe"
+$Setup = Join-Path $Root "dist\UBISmart-Setup.exe"
 if ($env:CODESIGN_CERT -and (Test-Path $Setup)) {
   Write-Host "==> 签名安装包"
   signtool sign /f $env:CODESIGN_CERT /p $env:CODESIGN_PASSWORD `

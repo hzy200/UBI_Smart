@@ -17,9 +17,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.events import (
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     PlanCreated,
@@ -28,10 +28,10 @@ from coding_agent.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from coding_agent.runtime import HistoryMessage
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.local_exec import LocalLinuxSandbox
-from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
+from ubismart.runtime import HistoryMessage
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.local_exec import LocalLinuxSandbox
+from ubismart.sandbox.snapshots import RestoreResult, SnapshotEntry
 
 
 @dataclass
@@ -158,7 +158,7 @@ def main() -> None:
     assert fs.write_text("smoke.txt", "ok\n") == 3
     assert fs.read_text("smoke.txt", max_bytes=100).strip() == "ok"
 
-    from coding_agent.sandbox.snapshots import SnapshotStore
+    from ubismart.sandbox.snapshots import SnapshotStore
 
     snapshots = SnapshotStore(sandbox, fs, str(workspace))
     snapshots.save("smoke.txt", "ok\n")

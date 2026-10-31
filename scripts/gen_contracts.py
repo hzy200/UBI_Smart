@@ -2,7 +2,7 @@
 
 设计约束（都是为了能让 CI 用 `git diff --exit-code` 拦住漂移）：
 
-1. **生成与 `--check` 只用标准库**：不 import `coding_agent`，因此不需要装
+1. **生成与 `--check` 只用标准库**：不 import `ubismart`，因此不需要装
    langgraph/pydantic，任意 Python 3.11+ 都能跑。`--check-compat` 的 YAML 部分
    可选依赖 PyYAML；JSON 契约（events/config）不需要。
 2. **输出确定性**：不写时间戳、不写 git commit、不做字典序以外的排序。
@@ -27,10 +27,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src" / "coding_agent"
+SRC = ROOT / "src" / "ubismart"
 OUT = ROOT / "docs" / "contracts"
 FRONTEND_EVENTS = (
-    ROOT / "src" / "coding_agent" / "web" / "frontend" / "src" / "contracts"
+    ROOT / "src" / "ubismart" / "web" / "frontend" / "src" / "contracts"
     / "events.generated.ts"
 )
 
@@ -191,7 +191,7 @@ def render_events(events: list[dict[str, Any]]) -> tuple[str, str]:
     payload = {
         "contract": "coding-agent/events",
         "version": 1,
-        "source": "src/coding_agent/events.py",
+        "source": "src/ubismart/events.py",
         "note": (
             "前端唯一可消费的领域事件契约。前端只认识这里的事件，"
             "不认识 LangGraph，也拿不到 tools/ 与 sandbox/。"
@@ -205,7 +205,7 @@ def render_events(events: list[dict[str, Any]]) -> tuple[str, str]:
         "",
         "# 领域事件契约",
         "",
-        "事实源：`src/coding_agent/events.py`（pydantic 模型）。",
+        "事实源：`src/ubismart/events.py`（pydantic 模型）。",
         "机器可读版本：[`events.json`](events.json)。",
         "",
         "前端（CLI / TUI / Web / Desktop GUI）**只**消费这里的事件，"
@@ -294,7 +294,7 @@ def _ts_type(annotation: str) -> str:
 def render_frontend_events(events: list[dict[str, Any]]) -> str:
     """生成前端事件 union，避免手写契约字段漂移。"""
     lines = [
-        "/* 由 scripts/gen_contracts.py 从 src/coding_agent/events.py 生成，禁止手改。 */",
+        "/* 由 scripts/gen_contracts.py 从 src/ubismart/events.py 生成，禁止手改。 */",
         "",
     ]
     for event in events:
@@ -376,7 +376,7 @@ def collect_tools() -> dict[str, Any]:
     return {
         "contract": "coding-agent/tools",
         "version": 1,
-        "source": "src/coding_agent/graph/nodes/approve.py",
+        "source": "src/ubismart/graph/nodes/approve.py",
         "rule": (
             "新工具必须在 approve.py::tool_level 登记；"
             "未登记一律按 L3 危险处理（fail-closed，不是默认值偷懒）。"
@@ -489,7 +489,7 @@ def collect_audit() -> dict[str, Any]:
     return {
         "contract": "coding-agent/audit",
         "version": 1,
-        "source": "src/coding_agent/audit/models.py",
+        "source": "src/ubismart/audit/models.py",
         "rule": (
             "审计由 runtime 写，不由前端写 —— 任何界面都绕不过；"
             "写入失败会转成 RunFailed（宁可显式失败，也不静默丢记录）。"
@@ -591,7 +591,7 @@ def render_config(fields: list[dict[str, Any]], module_doc: str) -> tuple[str, s
     payload = {
         "contract": "coding-agent/config",
         "version": 1,
-        "source": "src/coding_agent/config.py",
+        "source": "src/ubismart/config.py",
         "priority": ["构造函数参数", ".env", "环境变量", "默认值"],
         "priority_note": (
             "刻意偏离「环境变量 > .env」的通用约定：某些工具链会在进程启动时注入"
@@ -609,7 +609,7 @@ def render_config(fields: list[dict[str, Any]], module_doc: str) -> tuple[str, s
         "",
         "# 配置契约",
         "",
-        "事实源：`src/coding_agent/config.py`。**这份是全量**，README 的配置表只是摘录。",
+        "事实源：`src/ubismart/config.py`。**这份是全量**，README 的配置表只是摘录。",
         "机器可读版本（可直接用来校验有没有捏造配置项）：[`config.json`](config.json)。",
         "",
         "优先级：" + " **>** ".join(payload["priority"]) + "。",

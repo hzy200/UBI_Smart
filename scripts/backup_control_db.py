@@ -19,8 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from coding_agent.control.backup import backup  # noqa: E402
-from coding_agent.control.credentials import (  # noqa: E402
+from ubismart.control.backup import backup  # noqa: E402
+from ubismart.control.credentials import (  # noqa: E402
     find_master_key_material,
     load_master_key,
 )

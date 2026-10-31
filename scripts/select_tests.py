@@ -1,6 +1,6 @@
 """按 git 改动选择受影响测试（增量测试）。
 
-思路：解析 `src/coding_agent` 内的 import 图，求反向依赖闭包——
+思路：解析 `src/ubismart` 内的 import 图，求反向依赖闭包——
 改了 `sandbox/policy.py`，所有（直接或间接）import 它的模块都算受影响，
 再选出 import 了这些模块的测试文件。
 
@@ -63,7 +63,7 @@ class Plan:
 
 
 def _module_for_path(relpath: str, src_root: Path = SRC) -> str | None:
-    """`src/coding_agent/a/b.py` → `coding_agent.a.b`；非 .py 返回 None。"""
+    """`src/ubismart/a/b.py` → `ubismart.a.b`；非 .py 返回 None。"""
     path = Path(relpath)
     if path.suffix != ".py":
         return None
@@ -122,7 +122,7 @@ def parse_imports(
                 if alias.name in known:
                     deps.add(alias.name)
                 else:
-                    # `import coding_agent.web` 已在 known；其余顶层前缀忽略。
+                    # `import ubismart.web` 已在 known；其余顶层前缀忽略。
                     for candidate in known:
                         if alias.name.startswith(candidate + "."):
                             deps.add(candidate)

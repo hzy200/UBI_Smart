@@ -25,9 +25,9 @@ sys.path.insert(0, str(ROOT / "tests" / "eval"))
 from harness import run_task, task_root  # noqa: E402
 from tasks_long import LONG_TASKS  # noqa: E402
 
-from coding_agent.config import get_settings  # noqa: E402
-from coding_agent.sandbox.fs import SandboxFs  # noqa: E402
-from coding_agent.sandbox.wsl_exec import (  # noqa: E402
+from ubismart.config import get_settings  # noqa: E402
+from ubismart.sandbox.fs import SandboxFs  # noqa: E402
+from ubismart.sandbox.wsl_exec import (  # noqa: E402
     WslSandbox,
     resolve_workspace,
 )

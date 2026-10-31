@@ -11,13 +11,13 @@ import json
 import tempfile
 from pathlib import Path
 
-from coding_agent.control.backup import backup
-from coding_agent.control.credentials import (
+from ubismart.control.backup import backup
+from ubismart.control.credentials import (
     CredentialError,
     CredentialStore,
     find_master_key_material,
 )
-from coding_agent.control.store import ControlStore
+from ubismart.control.store import ControlStore
 
 OLD = b"a" * 32
 NEW = b"b" * 32

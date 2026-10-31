@@ -50,7 +50,7 @@ AGENT = _find_agent()
 
 # 放在 Windows 可见的临时目录下：走 /mnt/c 映射，`-C` 直接吃 Windows 路径，
 # 不必用 wslpath 反查（那条路会被 WSL 自己的诊断输出污染）
-DEMO_WIN = Path(tempfile.gettempdir()) / "coding-agent-demo"
+DEMO_WIN = Path(tempfile.gettempdir()) / "ubismart-demo"
 
 BROKEN_CALC = """\
 def add(a, b):
@@ -140,7 +140,7 @@ def _wsl(script: str) -> tuple[int, str]:
     - WSL 自己的诊断（比如 localhost 代理提示）走 stderr，不能混进 stdout，
       否则「取最后一行当路径」会取到警告文案。
     """
-    from coding_agent.sandbox.wsl_exec import decode_wsl_output
+    from ubismart.sandbox.wsl_exec import decode_wsl_output
 
     proc = subprocess.run(
         ["wsl.exe", "-d", "Ubuntu", "--", "/bin/bash", "-lc", script],
@@ -154,7 +154,7 @@ def _wsl(script: str) -> tuple[int, str]:
 
 def setup() -> bool:
     """在 WSL 里铺一个带 bug 的小项目。"""
-    from coding_agent.sandbox.pathguard import win_to_wsl
+    from ubismart.sandbox.pathguard import win_to_wsl
 
     root = win_to_wsl(str(DEMO_WIN))
     code, out = _wsl(
@@ -211,7 +211,7 @@ def run_agent(args: list[str], env: dict[str, str]) -> int:
 
 def main() -> int:
     _configure_stdio()
-    parser = argparse.ArgumentParser(description="CodingAgent 典型场景演示")
+    parser = argparse.ArgumentParser(description="UBISmart 典型场景演示")
     parser.add_argument("--only", type=int, help="只跑第 N 个场景（从 1 开始）")
     parser.add_argument("--list", action="store_true", help="只列出场景，不执行")
     parser.add_argument("--keep", action="store_true", help="跑完保留演示工作区")
@@ -250,7 +250,7 @@ def main() -> int:
             run_agent([sub], scenario.get("env", {}))
 
     if not args.keep:
-        from coding_agent.sandbox.pathguard import win_to_wsl
+        from ubismart.sandbox.pathguard import win_to_wsl
 
         _wsl(f"rm -rf {win_to_wsl(str(DEMO_WIN))}")
         print("已清理演示工作区（--keep 可保留）")

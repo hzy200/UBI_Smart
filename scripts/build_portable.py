@@ -2,7 +2,7 @@
 
 先安装：pip install -e ".[web,desktop,build]"
 然后：python scripts/build_portable.py
-产物：dist/CodingAgent/CodingAgent.exe（onedir）
+产物：dist/UBISmart/UBISmart.exe（onedir）
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STATIC = ROOT / "src" / "coding_agent" / "web" / "static"
+STATIC = ROOT / "src" / "ubismart" / "web" / "static"
 
 
 def main() -> int:
@@ -26,9 +26,9 @@ def main() -> int:
 
     sep = os.pathsep
     args = [
-        str(ROOT / "src" / "coding_agent" / "desktop" / "launcher.py"),
+        str(ROOT / "src" / "ubismart" / "desktop" / "launcher.py"),
         "--name",
-        "CodingAgent",
+        "UBISmart",
         "--noconsole",
         "--clean",
         "--noconfirm",
@@ -37,7 +37,7 @@ def main() -> int:
         "--collect-all",
         "webview",
         "--add-data",
-        f"{STATIC}{sep}coding_agent/web/static",
+        f"{STATIC}{sep}ubismart/web/static",
         "--hidden-import",
         "uvicorn.logging",
         "--hidden-import",
@@ -76,7 +76,7 @@ def main() -> int:
         if exc.code:
             print(exc.code)
         return 1
-    out = ROOT / "dist" / "CodingAgent"
+    out = ROOT / "dist" / "UBISmart"
     rootfs = ROOT / "packaging" / "wsl" / "CodingAgent-rootfs.tar"
     if rootfs.is_file():
         target = out / "wsl"
@@ -86,7 +86,7 @@ def main() -> int:
         print("警告：未找到 packaging/wsl/CodingAgent-rootfs.tar")
 
     # A2 控制面必须是随包可执行的 onedir；否则打包后的 launcher 只能回退到
-    # `CodingAgent.exe -m coding_agent.servers.control_server`（GUI 入口不认识 -m）。
+    # `UBISmart.exe -m ubismart.servers.control_server`（GUI 入口不认识 -m）。
     print("构建并合并 A2 控制面")
     build = subprocess.run(
         [
@@ -100,14 +100,14 @@ def main() -> int:
     if build.returncode != 0:
         print("A2 控制面构建失败")
         return build.returncode or 1
-    control_src = ROOT / "dist" / "CodingAgentControl"
+    control_src = ROOT / "dist" / "UBISmartControl"
     control_dst = out / "control"
     if control_dst.exists():
         shutil.rmtree(control_dst)
     shutil.copytree(control_src, control_dst)
     print(f"已合并控制面：{control_dst}")
 
-    print(f"产物：{out / 'CodingAgent.exe'}")
+    print(f"产物：{out / 'UBISmart.exe'}")
     return 0
 
 

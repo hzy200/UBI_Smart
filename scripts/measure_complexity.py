@@ -13,7 +13,7 @@ docs/COMPLEXITY.md 里的数字必须能从源码重算，否则就是第二份�
 
 口径
 ----
-- 规模：`src/coding_agent/**/*.py` 的总行数（含空行与注释）。
+- 规模：`src/ubismart/**/*.py` 的总行数（含空行与注释）。
 - 函数：`FunctionDef` / `AsyncFunctionDef`，嵌套函数各自计数。
 - 圈复杂度：McCabe 近似 —— 基线 1，`if`/`for`/`while`/`except`/`assert`/
   `if` 表达式/推导式 `if` 各 +1，布尔表达式按操作数个数减一累加。
@@ -33,7 +33,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src" / "coding_agent"
+SRC = ROOT / "src" / "ubismart"
 TESTS = ROOT / "tests"
 
 
@@ -218,9 +218,9 @@ def _check(path: Path, data: dict) -> list[str]:
     return errors
 
 
-# 文档里的路径去掉了 `src/coding_agent/` 前缀（`runtime.py`、`web/app.py`）。
+# 文档里的路径去掉了 `src/ubismart/` 前缀（`runtime.py`、`web/app.py`）。
 def _short(path: str) -> str:
-    return path.split("src/coding_agent/", 1)[-1]
+    return path.split("src/ubismart/", 1)[-1]
 
 
 def _section(text: str, start: str, end: str) -> str:

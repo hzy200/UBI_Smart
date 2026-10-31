@@ -19,13 +19,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from coding_agent.control.backup import backup  # noqa: E402
-from coding_agent.control.credentials import (  # noqa: E402
+from ubismart.control.backup import backup  # noqa: E402
+from ubismart.control.credentials import (  # noqa: E402
     CredentialError,
     CredentialStore,
     load_master_key,
 )
-from coding_agent.control.store import ControlStore  # noqa: E402
+from ubismart.control.store import ControlStore  # noqa: E402
 
 
 def _key(raw: str, path: str) -> bytes:

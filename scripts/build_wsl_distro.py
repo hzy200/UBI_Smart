@@ -7,7 +7,7 @@
 流程：
   Ubuntu base rootfs → wsl --import CodingAgentBuild
   → apt 安装 Python/git/ripgrep/bubblewrap
-  → /opt/coding-agent/venv 安装 coding-agent[web]
+  → /opt/coding-agent/venv 安装 ubismart[web]
   → 创建 agent 用户、workspace、wsl.conf
   → wsl --export → packaging/wsl/CodingAgent-rootfs.tar
   → wsl --unregister CodingAgentBuild
@@ -26,7 +26,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from coding_agent.desktop.wsl import to_wsl_path
+from ubismart.desktop.wsl import to_wsl_path
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGING = ROOT / "packaging" / "wsl"
