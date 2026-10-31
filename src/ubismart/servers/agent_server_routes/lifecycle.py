@@ -10,8 +10,8 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.servers.agent_server_models import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.servers.agent_server_models import (
     CompactBody,
     ResumeBody,
     RunBody,

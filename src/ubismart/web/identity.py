@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from coding_agent.config import Settings
+from ubismart.config import Settings
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ def build_identity_stores(
             raise RuntimeError(
                 "AGENT_OIDC_ENABLED=true 需要企业账号与控制面数据库"
             )
-        from coding_agent.control.oidc import (
+        from ubismart.control.oidc import (
             OidcClient,
             OidcSettings,
             OidcStateStore,
@@ -57,7 +57,7 @@ def build_identity_stores(
             raise RuntimeError(
                 "AGENT_MFA_ENABLED=true 需要企业账号与控制面数据库"
             )
-        from coding_agent.control.mfa import (
+        from ubismart.control.mfa import (
             MfaChallengeStore,
             MfaStore,
         )
@@ -74,7 +74,7 @@ def build_identity_stores(
             raise RuntimeError(
                 "AGENT_APPROVAL_FOUR_EYES=true 需要企业账号与控制面数据库"
             )
-        from coding_agent.control.approvals import ApprovalStore
+        from ubismart.control.approvals import ApprovalStore
 
         approval_store = ApprovalStore(control_store.engine)
     return IdentityStores(

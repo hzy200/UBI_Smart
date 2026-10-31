@@ -16,46 +16,46 @@ import sys
 import typer
 from rich.console import Console
 
-from coding_agent.cli.admin import register_admin_commands
-from coding_agent.cli.commands import (
+from ubismart.cli.admin import register_admin_commands
+from ubismart.cli.commands import (
     audit as _audit_commands,
 )
-from coding_agent.cli.commands import (
+from ubismart.cli.commands import (
     desktop as _desktop_commands,
 )
-from coding_agent.cli.commands import (
+from ubismart.cli.commands import (
     memory as _memory_commands,
 )
-from coding_agent.cli.commands import (
+from ubismart.cli.commands import (
     rules as _rules_commands,
 )
-from coding_agent.cli.commands import (
+from ubismart.cli.commands import (
     run as _run_commands,
 )
-from coding_agent.cli.commands import (
+from ubismart.cli.commands import (
     sessions as _sessions_commands,
 )
-from coding_agent.cli.commands import (
+from ubismart.cli.commands import (
     setup as _setup_commands,
 )
-from coding_agent.cli.commands import (
+from ubismart.cli.commands import (
     version as _version_commands,
 )
-from coding_agent.cli.commands import (
+from ubismart.cli.commands import (
     web as _web_commands,
 )
-from coding_agent.cli.commands.audit import _audit_outcome as _audit_outcome
-from coding_agent.cli.commands.run import _ask_approval as _ask_approval
-from coding_agent.cli.commands.run import _make_renderer as _make_renderer
-from coding_agent.cli.commands.sessions import _diff_text as _diff_text
-from coding_agent.cli.commands.setup import _check_langsmith as _check_langsmith
-from coding_agent.cli.commands.setup import _report as _report
-from coding_agent.cli.commands.setup import _warn as _warn
-from coding_agent.cli.commands.version import _package_version as _package_version
-from coding_agent.cli.commands.web import _is_loopback_bind as _is_loopback_bind
-from coding_agent.config import get_settings as get_settings
-from coding_agent.llm.deepseek import MissingApiKeyError
-from coding_agent.runtime import AgentRuntime as AgentRuntime
+from ubismart.cli.commands.audit import _audit_outcome as _audit_outcome
+from ubismart.cli.commands.run import _ask_approval as _ask_approval
+from ubismart.cli.commands.run import _make_renderer as _make_renderer
+from ubismart.cli.commands.sessions import _diff_text as _diff_text
+from ubismart.cli.commands.setup import _check_langsmith as _check_langsmith
+from ubismart.cli.commands.setup import _report as _report
+from ubismart.cli.commands.setup import _warn as _warn
+from ubismart.cli.commands.version import _package_version as _package_version
+from ubismart.cli.commands.web import _is_loopback_bind as _is_loopback_bind
+from ubismart.config import get_settings as get_settings
+from ubismart.llm.deepseek import MissingApiKeyError
+from ubismart.runtime import AgentRuntime as AgentRuntime
 
 
 def _configure_stdio() -> None:

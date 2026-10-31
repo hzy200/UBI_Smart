@@ -33,9 +33,9 @@ def register_admin_commands(app: typer.Typer, console) -> None:
         email: str = typer.Option("", "--email", help="可选邮箱"),
     ) -> None:
         """冷启动创建**第一个**企业账号（日常管理走 A2 的 /api/admin/users）。"""
-        from coding_agent.config import get_settings
-        from coding_agent.control.accounts import AccountError
-        from coding_agent.control.bootstrap import create_first_admin
+        from ubismart.config import get_settings
+        from ubismart.control.accounts import AccountError
+        from ubismart.control.bootstrap import create_first_admin
 
         try:
             row = create_first_admin(

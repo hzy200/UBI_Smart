@@ -14,6 +14,45 @@ import { isWindowsPath, isWslPath } from '../ui/paths';
 import { includesQuery } from '../ui/search';
 import { fileIcon, treeGuides } from '../ui/file-icons';
 import { buildGitStatusMap, gitTreeFields } from '../ui/git';
+import { detectViewerKind } from './viewer-kind';
+import { buildFileView as buildViewerFileView } from './viewers/registry';
+import { PDF_DOCS, XLSX_BOOKS } from './viewers/state';
+import {
+  applySheetWindow,
+  selectXlsxCellData,
+  syncSpacerHeights,
+  XLSX_DEFAULT_VIEWPORT,
+} from './viewers/table';
+
+function escapeXmlAttr(text: string) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function pdfTextSegments(text: string, query: string) {
+  const source = String(text || '');
+  const needle = String(query || '').toLowerCase();
+  if (!needle) return [{ text: source, hit: false }];
+  const lower = source.toLowerCase();
+  const parts: Array<{ text: string; hit: boolean }> = [];
+  let start = 0;
+  while (start < source.length) {
+    const index = lower.indexOf(needle, start);
+    if (index < 0) {
+      parts.push({ text: source.slice(start), hit: false });
+      break;
+    }
+    if (index > start) {
+      parts.push({ text: source.slice(start, index), hit: false });
+    }
+    parts.push({ text: source.slice(index, index + needle.length), hit: true });
+    start = index + needle.length;
+  }
+  return parts.length ? parts : [{ text: source, hit: false }];
+}
 
 export const inspectorMixin = {
   async compactContext() {
@@ -349,6 +388,7 @@ export const inspectorMixin = {
       this.fileView = tab.fileView;
       this.mainTab = 'file';
       this.setMainTabFlags('file');
+      this.$nextTick(() => this.xlsxSyncSpacers());
       return;
     }
     this.diffText = tab.diffText;
@@ -375,10 +415,28 @@ export const inspectorMixin = {
     tab.diffPath = this.diffPath;
   },
 
+  releasePdfView(view) {
+    const key = view && view._pdfKey;
+    if (!key) return;
+    const doc = PDF_DOCS.get(key);
+    PDF_DOCS.delete(key);
+    try {
+      doc?.destroy?.();
+    } catch (err) {
+      // 文档已经释放时忽略。
+    }
+  },
+
   closeEditorTab(id) {
     const index = this.editorTabs.findIndex((tab) => tab.id === id);
     if (index < 0) return;
     const wasActive = this.activeEditorId === id;
+    const closing = this.editorTabs[index];
+    if (closing && closing.kind === 'file') {
+      this.releasePdfView(closing.fileView);
+      const xlsxKey = closing.fileView && closing.fileView._xlsxKey;
+      if (xlsxKey) XLSX_BOOKS.delete(xlsxKey);
+    }
     this.editorTabs = this.editorTabs.filter((tab) => tab.id !== id);
     if (this.mainTab === 'chat') {
       if (wasActive) this.activeEditorId = '';
@@ -397,6 +455,16 @@ export const inspectorMixin = {
       path: '', size: 0, _text: '', _html: '',
       _lang: '', _size: '', _lineNumbers: '', _crumb: '',
       _isImage: false, _isText: true, _imageNote: '',
+      _viewKind: 'code', _rawUrl: '', _note: '', blocks: [],
+      _pdfKey: '', _pdfPage: 0, _pdfPages: 0, _pdfImage: '',
+      _pdfTextSvg: '', _pdfScale: 1.5,
+      _pdfOutline: [], _pdfMeta: {},
+      _pdfSearch: '', _pdfSearchHits: [], _pdfSearchIndex: 0,
+      _pdfContinuous: false, _pdfContinuousPages: [],
+      _pdfContinuousLoading: false,
+      _slides: [],
+      _docxExtras: '',
+      _xlsxKey: '', _xlsxSheets: [], _activeSheet: 0, _xlsxFormula: null,
       data_url: '', mime: '',
     };
     this.diffText = '';
@@ -423,6 +491,12 @@ export const inspectorMixin = {
   },
 
   closeAllEditorTabs() {
+    for (const tab of this.editorTabs) {
+      if (tab.kind !== 'file') continue;
+      this.releasePdfView(tab.fileView);
+      const xlsxKey = tab.fileView && tab.fileView._xlsxKey;
+      if (xlsxKey) XLSX_BOOKS.delete(xlsxKey);
+    }
     this.editorTabs = [];
     this.activeEditorId = '';
     this.mainTab = 'chat';
@@ -431,6 +505,16 @@ export const inspectorMixin = {
       path: '', size: 0, _text: '', _html: '',
       _lang: '', _size: '', _lineNumbers: '', _crumb: '',
       _isImage: false, _isText: true, _imageNote: '',
+      _viewKind: 'code', _rawUrl: '', _note: '', blocks: [],
+      _pdfKey: '', _pdfPage: 0, _pdfPages: 0, _pdfImage: '',
+      _pdfTextSvg: '', _pdfScale: 1.5,
+      _pdfOutline: [], _pdfMeta: {},
+      _pdfSearch: '', _pdfSearchHits: [], _pdfSearchIndex: 0,
+      _pdfContinuous: false, _pdfContinuousPages: [],
+      _pdfContinuousLoading: false,
+      _slides: [],
+      _docxExtras: '',
+      _xlsxKey: '', _xlsxSheets: [], _activeSheet: 0, _xlsxFormula: null,
       data_url: '', mime: '',
     };
     this.diffText = '';
@@ -797,34 +881,7 @@ export const inspectorMixin = {
       });
       const response = await authFetch(`/api/file?${params.toString()}`);
       const data = await readJson(response, '读取文件失败');
-      const isImage = Boolean(data.image && data.data_url);
-      const text = isImage
-        ? `图片：${data.mime || ''}`
-        : data.image_too_large
-          ? '（图片超过 2MB，暂不预览）'
-          : data.binary
-            ? '（二进制文件，不展示内容）'
-            : data.content + (data.truncated ? '\n…（已截断）' : '');
-      const lines = text.split('\n').length;
-      const fileView = {
-        ...data,
-        _size: this.formatBytes(data.size),
-        _lang: this.fileLanguage(path),
-        _text: text,
-        _isImage: isImage,
-        _isText: !isImage,
-        _imageNote: data.image_too_large ? '图片超过 2MB，暂不预览' : '',
-        _html: isImage
-          ? ''
-          : this.highlightCode(path, text, data.binary),
-        _lineNumbers: isImage
-          ? ''
-          : Array.from(
-            { length: lines },
-            (_, index) => String(index + 1),
-          ).join('\n'),
-        _crumb: String(path || '').split('/').join(' › '),
-      };
+      const fileView = await this.buildFileView(path, data);
       if (existing) {
         existing.fileView = fileView;
         existing.path = data.path || path;
@@ -851,6 +908,517 @@ export const inspectorMixin = {
     } finally {
       this.fileLoading = false;
     }
+  },
+
+  viewerKind(path, data) {
+    return detectViewerKind(path, data);
+  },
+
+  async buildFileView(path, data) {
+    return buildViewerFileView(this, path, data);
+  },
+
+  async fetchRawBlob(path) {
+    const params = new URLSearchParams({
+      thread_id: this.threadId,
+      path,
+    });
+    const response = await authFetch(`/api/file/raw?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
+  async fetchRawUrl(path) {
+    return URL.createObjectURL(await this.fetchRawBlob(path));
+  },
+
+  async fetchRawBuffer(path) {
+    return (await this.fetchRawBlob(path)).arrayBuffer();
+  },
+
+  async renderPdfPageData(pdfDoc, page, scale, query = '') {
+    const pdfPage = await pdfDoc.getPage(page);
+    const viewport = pdfPage.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    await pdfPage.render({
+      canvasContext: canvas.getContext('2d'),
+      viewport,
+    }).promise;
+    const content = await pdfPage.getTextContent();
+    const styles = content.styles || {};
+    const texts: string[] = [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" `
+      + `viewBox="0 0 ${canvas.width} ${canvas.height}" `
+      + 'preserveAspectRatio="xMidYMid meet" xml:space="preserve">'
+      + '<g fill="transparent">',
+    ];
+    for (const item of content.items || []) {
+      if (!item || typeof item.str !== 'string' || !item.str) continue;
+      const tx = window.pdfjsLib.Util.transform(
+        viewport.transform,
+        item.transform,
+      );
+      const height = Math.hypot(tx[2], tx[3]);
+      const width = Math.max(1, Number(item.width || 0) * scale);
+      const matrix = (
+        `matrix(${tx[0].toFixed(4)},${tx[1].toFixed(4)},`
+        + `${tx[2].toFixed(4)},${tx[3].toFixed(4)},`
+        + `${tx[4].toFixed(2)},${tx[5].toFixed(2)})`
+      );
+      const fontFamily = String(
+        (styles[item.fontName] && styles[item.fontName].fontFamily) || '',
+      ).trim();
+      const segments = pdfTextSegments(item.str, query);
+      const body = segments.length === 1 && !segments[0].hit
+        ? escapeHtml(item.str)
+        : segments.map((segment) => (
+          segment.hit
+            ? `<tspan class="pdf-hit">${escapeHtml(segment.text)}</tspan>`
+            : `<tspan>${escapeHtml(segment.text)}</tspan>`
+        )).join('');
+      texts.push(
+        `<text transform="${matrix}" x="0" y="0" `
+        + `font-size="${height.toFixed(2)}" `
+        + (fontFamily ? `font-family="${escapeXmlAttr(fontFamily)}" ` : '')
+        + `textLength="${width.toFixed(2)}" `
+        + `lengthAdjust="spacing">${body}</text>`,
+      );
+    }
+    texts.push('</g></svg>');
+    return {
+      image: canvas.toDataURL('image/png'),
+      svg: texts.join(''),
+      width: canvas.width,
+      height: canvas.height,
+    };
+  },
+
+  async renderPdfPage(view, page) {
+    const pdfDoc = view && PDF_DOCS.get(view._pdfKey);
+    if (!pdfDoc) return;
+    try {
+      const target = Math.max(1, Math.min(view._pdfPages, Number(page) || 1));
+      const scale = Number(view._pdfScale) || 1.5;
+      const data = await this.renderPdfPageData(
+        pdfDoc, target, scale, String(view._pdfSearch || ''),
+      );
+      view._pdfImage = data.image;
+      view._pdfTextSvg = data.svg;
+      view._pdfPage = target;
+    } catch (err) {
+      view._pdfImage = '';
+      view._pdfTextSvg = '';
+    }
+  },
+
+  async pdfZoom(delta) {
+    const view = this.fileView;
+    if (!view || !PDF_DOCS.has(view._pdfKey)) return;
+    const next = Math.max(0.75, Math.min(3, Number(view._pdfScale || 1.5) + delta));
+    view._pdfScale = next;
+    await this.renderPdfPage(view, Number(view._pdfPage || 1));
+    this.fileView = { ...view };
+  },
+
+  async pdfZoomIn() {
+    await this.pdfZoom(0.25);
+  },
+
+  async pdfZoomOut() {
+    await this.pdfZoom(-0.25);
+  },
+
+  async pdfGo(delta) {
+    const view = this.fileView;
+    if (!view || !PDF_DOCS.has(view._pdfKey)) return;
+    await this.renderPdfPage(view, Number(view._pdfPage || 1) + delta);
+    this.fileView = { ...view };
+  },
+
+  async pdfPrev() {
+    await this.pdfGo(-1);
+  },
+
+  async pdfNext() {
+    await this.pdfGo(1);
+  },
+
+  async goToPdfPage(page) {
+    const view = this.fileView;
+    if (!view || !PDF_DOCS.has(view._pdfKey)) return;
+    const target = Number(page) || 1;
+    if (view._pdfContinuous) {
+      while ((view._pdfContinuousPages || []).length < target) {
+        await this.pdfLoadMoreContinuous();
+      }
+      view._pdfPage = target;
+      this.fileView = { ...view };
+      this.$nextTick(() => {
+        const element = document.querySelector(
+          `.pdf-continuous .pdf-page[data-page="${target}"]`,
+        ) as HTMLElement | null;
+        element?.scrollIntoView({ block: 'start' });
+      });
+      return;
+    }
+    await this.renderPdfPage(view, target);
+    this.fileView = { ...view };
+  },
+
+  onPdfSearchInput() {
+    const input = document.querySelector(
+      'input[data-role="pdf-search"]',
+    ) as HTMLInputElement | null;
+    this.pdfSearchQuery = input ? input.value : '';
+  },
+
+  async pdfSearch() {
+    const input = document.querySelector(
+      'input[data-role="pdf-search"]',
+    ) as HTMLInputElement | null;
+    if (input) this.pdfSearchQuery = input.value;
+    const view = this.fileView;
+    const query = String(this.pdfSearchQuery || '').trim().toLowerCase();
+    const pdf = view && PDF_DOCS.get(view._pdfKey);
+    if (!pdf || !query) return;
+    const hits: number[] = [];
+    const limit = Number(view._pdfPages || 0);
+    for (let pageNumber = 1; pageNumber <= limit; pageNumber += 1) {
+      try {
+        const page = await pdf.getPage(pageNumber);
+        const content = await page.getTextContent();
+        const text = (content.items || [])
+          .map((item) => String(item.str || ''))
+          .join(' ')
+          .toLowerCase();
+        if (text.includes(query)) hits.push(pageNumber);
+      } catch (err) {
+        // 单页搜索失败跳过。
+      }
+    }
+    view._pdfSearch = query;
+    view._pdfSearchHits = hits;
+    view._pdfSearchIndex = 0;
+    if (view._pdfContinuous && (view._pdfContinuousPages || []).length) {
+      const scale = Number(view._pdfScale) || 1.5;
+      for (const page of view._pdfContinuousPages) {
+        try {
+          const data = await this.renderPdfPageData(
+            pdf, page.page, scale, query,
+          );
+          page.image = data.image;
+          page.svg = data.svg;
+        } catch (err) {
+          // 单页高亮失败保留原文本层。
+        }
+      }
+    }
+    if (hits.length) {
+      await this.goToPdfPage(hits[0]);
+    } else {
+      this.fileView = { ...view };
+    }
+  },
+
+  async pdfSearchNext() {
+    const view = this.fileView;
+    const hits = (view && view._pdfSearchHits) || [];
+    if (!hits.length) return;
+    const next = ((Number(view._pdfSearchIndex || 0) + 1) % hits.length);
+    view._pdfSearchIndex = next;
+    await this.goToPdfPage(hits[next]);
+  },
+
+  async pdfToggleContinuous() {
+    const view = this.fileView;
+    const pdf = view && PDF_DOCS.get(view._pdfKey);
+    if (!pdf) return;
+    if (view._pdfContinuous) {
+      view._pdfContinuous = false;
+      view._pdfContinuousPages = [];
+      view._pdfContinuousLoading = false;
+      this.fileView = { ...view };
+      return;
+    }
+    view._pdfContinuous = true;
+    view._pdfContinuousPages = [];
+    view._pdfContinuousLoading = false;
+    this.fileView = { ...view };
+    await this.pdfLoadMoreContinuous();
+  },
+
+  async pdfLoadMoreContinuous() {
+    const view = this.fileView;
+    if (!view || !view._pdfContinuous || view._pdfContinuousLoading) return;
+    const pdf = PDF_DOCS.get(view._pdfKey);
+    if (!pdf) return;
+    const pages = view._pdfContinuousPages || [];
+    const total = Number(view._pdfPages || 0);
+    if (pages.length >= total) return;
+    const start = pages.length + 1;
+    const end = Math.min(total, start + 4);
+    const scale = Number(view._pdfScale) || 1.5;
+    const query = String(view._pdfSearch || '');
+    view._pdfContinuousLoading = true;
+    this.fileView = { ...view };
+    for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
+      try {
+        const data = await this.renderPdfPageData(
+          pdf, pageNumber, scale, query,
+        );
+        view._pdfContinuousPages.push({
+          page: pageNumber,
+          image: data.image,
+          svg: data.svg,
+          _key: pageNumber,
+        });
+        this.fileView = { ...view };
+      } catch (err) {
+        // 单页失败时继续下一批。
+      }
+    }
+    view._pdfContinuousLoading = false;
+    this.fileView = { ...view };
+    this.$nextTick(() => this.pdfContinuousMaybeFill());
+  },
+
+  pdfContinuousMaybeFill() {
+    const view = this.fileView;
+    if (!view || !view._pdfContinuous) return;
+    const container = document.querySelector(
+      '.pdf-continuous',
+    ) as HTMLElement | null;
+    if (
+      container
+      && container.scrollHeight <= container.clientHeight + 20
+      && (view._pdfContinuousPages || []).length < Number(view._pdfPages || 0)
+    ) {
+      void this.pdfLoadMoreContinuous();
+    }
+  },
+
+  pdfContinuousScroll(event) {
+    const element = event.target as HTMLElement | null;
+    if (!element) return;
+    if (
+      element.scrollTop + element.clientHeight
+      >= element.scrollHeight - 400
+    ) {
+      void this.pdfLoadMoreContinuous();
+    }
+  },
+
+  async fetchDocument(path, includeImages = false, includeLayout = false) {
+    const params = new URLSearchParams({
+      thread_id: this.threadId,
+      path,
+    });
+    if (includeImages) params.set('include_images', 'true');
+    if (includeLayout) params.set('include_layout', 'true');
+    const response = await authFetch(
+      `/api/file/document?${params.toString()}`,
+    );
+    return readJson(response, '读取文档失败');
+  },
+
+  get fileViewIsMarkdown() {
+    return Boolean(this.fileView && this.fileView._viewKind === 'markdown');
+  },
+
+  get fileViewIsPdf() {
+    return Boolean(this.fileView && this.fileView._viewKind === 'pdf');
+  },
+
+  get fileViewIsDocument() {
+    return Boolean(this.fileView && this.fileView._viewKind === 'document');
+  },
+
+  get fileViewIsHtml() {
+    return Boolean(this.fileView && this.fileView._viewKind === 'html');
+  },
+
+  get fileViewIsSlides() {
+    return Boolean(this.fileView && this.fileView._viewKind === 'slides');
+  },
+
+  get pdfHasImage() {
+    return Boolean(this.fileView && this.fileView._pdfImage);
+  },
+
+  get pdfHasFallback() {
+    return Boolean(
+      this.fileView
+      && this.fileView._viewKind === 'pdf'
+      && !this.fileView._pdfImage,
+    );
+  },
+
+  get pdfSearchLabel() {
+    if (!this.fileView || !String(this.pdfSearchQuery || '').trim()) {
+      return '';
+    }
+    const hits = this.fileView._pdfSearchHits || [];
+    if (!hits.length) return '未找到';
+    return `${Number(this.fileView._pdfSearchIndex || 0) + 1}/${hits.length} 个命中`;
+  },
+
+  get pdfSearchHasHits() {
+    return Boolean(
+      this.fileView && this.fileView._pdfSearchHits
+      && this.fileView._pdfSearchHits.length,
+    );
+  },
+
+  get pdfContinuousLabel() {
+    return this.fileView && this.fileView._pdfContinuous ? '单页' : '连续';
+  },
+
+  get pdfContinuousProgress() {
+    if (!this.fileView || !this.fileView._pdfContinuous) return '';
+    const loaded = (this.fileView._pdfContinuousPages || []).length;
+    const total = Number(this.fileView._pdfPages || 0);
+    return (
+      `已加载 ${loaded}/${total} 页`
+      + (this.fileView._pdfContinuousLoading ? ' · 加载中…' : '')
+    );
+  },
+
+  get pdfSingleVisible() {
+    return Boolean(this.fileView && this.fileView._pdfImage
+      && !this.fileView._pdfContinuous);
+  },
+
+  get pdfHasOutline() {
+    return Boolean(
+      this.fileView && this.fileView._pdfOutline
+      && this.fileView._pdfOutline.length,
+    );
+  },
+
+  get pdfOutlineItems() {
+    const items = (this.fileView && this.fileView._pdfOutline) || [];
+    const current = (this.fileView && this.fileView._pdfPage) || 0;
+    return items.map((item, index) => ({
+      ...item,
+      _key: `${index}:${item.title}`,
+      _cls: item.page === current ? 'active' : '',
+    }));
+  },
+
+  get pdfMetaText() {
+    const meta = (this.fileView && this.fileView._pdfMeta) || {};
+    return [
+      meta.title,
+      meta.author ? `作者：${meta.author}` : '',
+      meta.subject ? `主题：${meta.subject}` : '',
+      meta.keywords ? `关键词：${meta.keywords}` : '',
+    ].filter(Boolean).join(' · ');
+  },
+
+  get pdfPageLabel() {
+    if (!this.fileView || !this.fileView._pdfPages) return '';
+    return `${this.fileView._pdfPage || 1} / ${this.fileView._pdfPages}`;
+  },
+
+
+  get fileViewIsUnsupported() {
+    return Boolean(this.fileView && this.fileView._viewKind === 'unsupported');
+  },
+
+  get documentBlocks() {
+    if (!this.fileView) return [];
+    const sheets = this.fileView._xlsxSheets || [];
+    if (sheets.length) {
+      const sheet = sheets[this.fileView._activeSheet || 0] || sheets[0];
+      return sheet.blocks || [];
+    }
+    return this.fileView.blocks || [];
+  },
+
+  get fileViewIsXlsx() {
+    return Boolean(
+      this.fileView
+      && this.fileView._xlsxSheets
+      && this.fileView._xlsxSheets.length > 1,
+    );
+  },
+
+  get xlsxSheetTabs() {
+    const sheets = (this.fileView && this.fileView._xlsxSheets) || [];
+    const active = (this.fileView && this.fileView._activeSheet) || 0;
+    return sheets.map((sheet, index) => ({
+      ...sheet,
+      _cls: index === active ? 'active' : '',
+    }));
+  },
+
+  selectSheet(index) {
+    const view = this.fileView;
+    if (!view || !view._xlsxSheets || !view._xlsxSheets[index]) return;
+    view._activeSheet = index;
+    view._xlsxFormula = null;
+    const sheet = view._xlsxSheets[index];
+    const block = sheet && sheet.blocks && sheet.blocks[0];
+    if (block && block._xlsxWindow) {
+      applySheetWindow(block, 0, XLSX_DEFAULT_VIEWPORT);
+    }
+    this.fileView = { ...view };
+    this.$nextTick(() => this.xlsxSyncSpacers());
+  },
+
+  selectXlsxCell(row, col) {
+    const view = this.fileView;
+    const info = selectXlsxCellData(view, row, col);
+    if (!info) return;
+    view._xlsxFormula = info;
+    this.fileView = { ...view };
+  },
+
+  xlsxScroll(event) {
+    const view = this.fileView;
+    if (!view || !view._xlsxSheets) return;
+    const sheet = view._xlsxSheets[view._activeSheet || 0];
+    const block = sheet && sheet.blocks && sheet.blocks[0];
+    if (!block || !block._xlsxWindow) return;
+    const target = event && event.currentTarget;
+    const scrollTop = target ? Number(target.scrollTop) || 0 : 0;
+    const height = target && target.clientHeight
+      ? Number(target.clientHeight)
+      : XLSX_DEFAULT_VIEWPORT;
+    const changed = applySheetWindow(block, scrollTop, height);
+    syncSpacerHeights(block, target);
+    if (changed) {
+      this.fileView = { ...view };
+    }
+  },
+
+  xlsxSyncSpacers() {
+    const view = this.fileView;
+    if (!view || !view._xlsxSheets) return;
+    const sheet = view._xlsxSheets[view._activeSheet || 0];
+    const block = sheet && sheet.blocks && sheet.blocks[0];
+    const wrap = document.querySelector('.document-table-wrap');
+    if (!block || !block._xlsxWindow || !wrap) return;
+    applySheetWindow(
+      block,
+      wrap.scrollTop,
+      wrap.clientHeight || XLSX_DEFAULT_VIEWPORT,
+    );
+    syncSpacerHeights(block, wrap);
+  },
+
+  get xlsxFormulaText() {
+    const info = this.fileView && this.fileView._xlsxFormula;
+    if (!info) return '';
+    return `${info.ref}  ${info.formula || info.value}`;
+  },
+
+  get fileViewNote() {
+    return (this.fileView && this.fileView._note) || '';
   },
 
   async refreshActiveFile() {

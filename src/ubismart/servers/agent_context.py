@@ -11,16 +11,16 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.execution.host_backend import HostExecutionBackend
-from coding_agent.execution.host_file_access import HostFileAccess
-from coding_agent.execution.host_fs import HostFs
-from coding_agent.execution.host_snapshots import HostSnapshotStore
-from coding_agent.identity.access import normalize_access_mode
-from coding_agent.runtime import AgentRuntime
-from coding_agent.servers.agent_server_support import _ContextSecretStore, _safe_tenant
-from coding_agent.workspace.model import normalize_workspace_kind
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.execution.host_backend import HostExecutionBackend
+from ubismart.execution.host_file_access import HostFileAccess
+from ubismart.execution.host_fs import HostFs
+from ubismart.execution.host_snapshots import HostSnapshotStore
+from ubismart.identity.access import normalize_access_mode
+from ubismart.runtime import AgentRuntime
+from ubismart.servers.agent_server_support import _ContextSecretStore, _safe_tenant
+from ubismart.workspace.model import normalize_workspace_kind
 
 
 class AgentRuntimeFactory:

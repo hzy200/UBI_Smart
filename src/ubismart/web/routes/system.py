@@ -14,16 +14,16 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from coding_agent import __version__
-from coding_agent.config import Settings
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.platform.observability import inc
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.client_errors import append_client_error
-from coding_agent.web.dependencies import UserDep, current_user
-from coding_agent.web.models import ClientErrorReport
-from coding_agent.web.validation import check_thread_id
-from coding_agent.web.version import (
+from ubismart import __version__
+from ubismart.config import Settings
+from ubismart.identity.tenancy import WebTenant
+from ubismart.platform.observability import inc
+from ubismart.web.auth import AuthUser
+from ubismart.web.client_errors import append_client_error
+from ubismart.web.dependencies import UserDep, current_user
+from ubismart.web.models import ClientErrorReport
+from ubismart.web.validation import check_thread_id
+from ubismart.web.version import (
     CAPABILITIES_VERSION,
     MIN_API_VERSION,
     MIN_FRONTEND_VERSION,
@@ -104,7 +104,7 @@ def _readyz(app: FastAPI) -> Any:
 
 def _metrics(deps: SystemDeps, request: Request) -> PlainTextResponse:
     """`/metrics` 的实现：先认证，再刷新需要现算的 gauge。"""
-    from coding_agent.platform.observability import render, set_gauge
+    from ubismart.platform.observability import render, set_gauge
 
     token = str(deps.settings.metrics_token or "")
     if token:
@@ -308,7 +308,7 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
     @app.get("/api/health")
     async def health(user: UserDep) -> dict:
         """认证后的联通测试：不调用模型，只报配置是否齐备。"""
-        from coding_agent.llm.deepseek import MissingApiKeyError, build_llm
+        from ubismart.llm.deepseek import MissingApiKeyError, build_llm
 
         try:
             tenant = deps.tenants.for_user(user.name)

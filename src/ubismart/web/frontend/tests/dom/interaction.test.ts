@@ -980,17 +980,17 @@ test('jsdom 交互：会话、文件树、Problems、流式、审批与布局', 
       });
 
       data.notifyEnabled = true;
-      data.notify('CodingAgent 运行完成', '答案', {
+      data.notify('UBISmart 运行完成', '答案', {
         sessionId: 'thread-dom-test',
       });
       assert.equal(calls.length, 1);
-      assert.equal(calls[0].title, 'CodingAgent 运行完成');
+      assert.equal(calls[0].title, 'UBISmart 运行完成');
 
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,
         get: () => 'visible',
       });
-      data.notify('CodingAgent 运行失败', '错误');
+      data.notify('UBISmart 运行失败', '错误');
       assert.equal(calls.length, 1, '页面可见时不重复弹系统通知');
 
       data.notifyEnabled = false;

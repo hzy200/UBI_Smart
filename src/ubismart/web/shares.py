@@ -10,7 +10,7 @@ import html
 import re
 from typing import Any
 
-from coding_agent.security.secrets import redact_secrets
+from ubismart.security.secrets import redact_secrets
 
 MAX_MESSAGES = 200
 MAX_TEXT = 8000
@@ -82,7 +82,7 @@ def _role_label(role: str) -> str:
 
 
 def render_share_html(data: dict[str, Any]) -> str:
-    title = html.escape(str(data.get("title") or "CodingAgent 会话"))
+    title = html.escape(str(data.get("title") or "UBISmart 会话"))
     created = html.escape(str(data.get("created_at") or ""))
     expires = html.escape(str(data.get("expires_at") or ""))
     blocks: list[str] = []
@@ -129,7 +129,7 @@ def render_share_html(data: dict[str, Any]) -> str:
 {''.join(blocks) or '<p class="share-empty">这份分享没有可展示的消息。</p>'}
 </section>
 <footer class="share-foot">
-由 CodingAgent 生成；内容已脱敏，不包含工具原始输出与工作区绝对路径。
+由 UBISmart 生成；内容已脱敏，不包含工具原始输出与工作区绝对路径。
 </footer>
 </main>
 </body>

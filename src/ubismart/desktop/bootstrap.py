@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from coding_agent.config import Settings, get_settings
-from coding_agent.desktop.http import local_open, wait_health
-from coding_agent.identity.access import ACCESS_READ_ONLY
-from coding_agent.session.workspace_lock import WorkspaceLock
-from coding_agent.web import create_app
-from coding_agent.web.auth import AuthConfig
+from ubismart.config import Settings, get_settings
+from ubismart.desktop.http import local_open, wait_health
+from ubismart.identity.access import ACCESS_READ_ONLY
+from ubismart.session.workspace_lock import WorkspaceLock
+from ubismart.web import create_app
+from ubismart.web.auth import AuthConfig
 
 _LOCAL_USER = "local"
 
@@ -148,7 +148,7 @@ def start_server(
     server = uvicorn.Server(config)
     thread = threading.Thread(
         target=server.run,
-        name="coding-agent-desktop-server",
+        name="ubismart-desktop-server",
         daemon=True,
     )
     thread.start()
@@ -197,7 +197,7 @@ def run_desktop(
     )
     try:
         window = webview.create_window(
-            "CodingAgent",
+            "UBISmart",
             desktop.url,
             width=1440,
             height=920,

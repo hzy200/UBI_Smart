@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from coding_agent.desktop.config import LauncherConfig, config_path
-from coding_agent.desktop.wsl import (
+from ubismart.desktop.config import LauncherConfig, config_path
+from ubismart.desktop.wsl import (
     ensure_dir,
     home,
     list_distros,
@@ -28,7 +28,7 @@ pre{background:#161a23;border:1px solid #2b3242;padding:10px;border-radius:6px;w
 .note{color:#8b93a7;font-size:12px;white-space:pre-wrap}
 .bad{color:#ef6b73}.ok{color:#4cc38a}
 </style></head><body>
-<h2>CodingAgent 首次设置</h2>
+<h2>UBISmart 首次设置</h2>
 <div class="note">Agent 将运行在 WSL2 内。Windows 只负责窗口和启动。</div>
 <label>WSL 发行版</label>
 <select id="distro"></select>
@@ -190,7 +190,7 @@ def run_setup() -> LauncherConfig | None:
         ) from exc
     api = SetupApi()
     webview.create_window(
-        "CodingAgent 设置",
+        "UBISmart 设置",
         html=_HTML,
         js_api=api,
         width=760,

@@ -10,8 +10,8 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from coding_agent.audit import AuditLogger, read_records_many, verify_audit_files
-from coding_agent.cli.context import console, get_settings
+from ubismart.audit import AuditLogger, read_records_many, verify_audit_files
+from ubismart.cli.context import console, get_settings
 
 
 def audit(

@@ -5,7 +5,7 @@ checkpoint、工作区与 SSE。默认只绑 loopback，不暴露给浏览器。
 
 启动：
 
-    python -m coding_agent.servers.agent_server --port 8790
+    python -m ubismart.servers.agent_server --port 8790
     AGENT_INTERNAL_TOKEN=... AGENT_INTERNAL_URL=...（A2 侧）
 
 当前迁移范围是运行生命周期：runs / stream / resume / resume_steering /
@@ -32,49 +32,49 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
-from coding_agent import AGENT_API_VERSION, __version__
-from coding_agent.agent_protocol import (
+from ubismart import AGENT_API_VERSION, __version__
+from ubismart.agent_protocol import (
     AGENT_CAPABILITIES,
     AgentContext,
     verify_context,
 )
-from coding_agent.config import Settings, get_settings
-from coding_agent.events import (
+from ubismart.config import Settings, get_settings
+from ubismart.events import (
     Event,
     RunFailed,
 )
-from coding_agent.host_broker.acceptor import HostBrokerAcceptor
-from coding_agent.host_broker.devices import DeviceRegistry
-from coding_agent.host_broker.transport import (
+from ubismart.host_broker.acceptor import HostBrokerAcceptor
+from ubismart.host_broker.devices import DeviceRegistry
+from ubismart.host_broker.transport import (
     ServerTlsConfig,
     certificate_fingerprint,
 )
-from coding_agent.platform.paths import (
+from ubismart.platform.paths import (
     PathGuardError,
     ensure_inside,
     looks_like_windows_path,
 )
-from coding_agent.protocol.event_transport import build_event_transport
-from coding_agent.protocol.sse_stream import sse_headers
-from coding_agent.runtime import AgentRuntime
-from coding_agent.servers.agent_context import AgentRuntimeFactory
-from coding_agent.servers.agent_server_routes.lifecycle import (
+from ubismart.protocol.event_transport import build_event_transport
+from ubismart.protocol.sse_stream import sse_headers
+from ubismart.runtime import AgentRuntime
+from ubismart.servers.agent_context import AgentRuntimeFactory
+from ubismart.servers.agent_server_routes.lifecycle import (
     LifecycleDeps,
     register_lifecycle_routes,
 )
-from coding_agent.servers.agent_server_routes.state import (
+from ubismart.servers.agent_server_routes.state import (
     StateDeps,
     register_state_routes,
 )
-from coding_agent.servers.agent_server_routes.workspace import (
+from ubismart.servers.agent_server_routes.workspace import (
     WorkspaceDeps,
     register_workspace_routes,
 )
-from coding_agent.servers.agent_server_routes.workspace_import import (
+from ubismart.servers.agent_server_routes.workspace_import import (
     ImportDeps,
     register_import_routes,
 )
-from coding_agent.servers.agent_server_support import (
+from ubismart.servers.agent_server_support import (
     RunState,
     _is_suspended,
     _safe_tenant,
@@ -217,13 +217,13 @@ def create_agent_app(
                 acceptor.stop()
 
     app = FastAPI(
-        title="CodingAgent Agent Server",
+        title="UBISmart Agent Server",
         docs_url=None,
         redoc_url=None,
         lifespan=_lifespan,
     )
-    from coding_agent.platform.observability import configure_tracing
-    from coding_agent.platform.tracing import TracingMiddleware
+    from ubismart.platform.observability import configure_tracing
+    from ubismart.platform.tracing import TracingMiddleware
 
     otel_tracer = configure_tracing(settings)
     if otel_tracer is not None:
@@ -553,7 +553,7 @@ def create_agent_app(
         if not _probe_sandbox["built"]:
             _probe_sandbox["built"] = True
             try:
-                from coding_agent.sandbox.backend import build_sandbox
+                from ubismart.sandbox.backend import build_sandbox
 
                 _probe_sandbox["instance"] = build_sandbox(settings)
             except Exception as exc:  # noqa: BLE001 - 构建失败即未就绪
@@ -592,7 +592,7 @@ def create_agent_app(
     async def metrics(request: Request) -> PlainTextResponse:
         """Prometheus 文本导出；需要内部 token（指标含运行与失败计数）。"""
         _require_token(request)
-        from coding_agent.platform.observability import render
+        from ubismart.platform.observability import render
 
         return PlainTextResponse(
             render(), media_type="text/plain; version=0.0.4; charset=utf-8"
@@ -723,7 +723,7 @@ def create_agent_app(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="CodingAgent Agent Server")
+    parser = argparse.ArgumentParser(description="UBISmart Agent Server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--token", default="")
@@ -741,7 +741,7 @@ def main() -> None:
         print("必须设置 AGENT_INTERNAL_TOKEN 或传 --token", file=sys.stderr)
         raise SystemExit(2)
     settings = get_settings()
-    from coding_agent.platform.observability import configure_logging
+    from ubismart.platform.observability import configure_logging
 
     configure_logging(
         level=args.log_level,

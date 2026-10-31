@@ -8,11 +8,11 @@
 
 from __future__ import annotations
 
-from coding_agent.config import Settings
-from coding_agent.sandbox import probe as _probe
-from coding_agent.sandbox.probe import SandboxProbeError, ShellIdentity
-from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.sandbox.wsl_exec import resolve_workspace as _resolve_workspace
+from ubismart.config import Settings
+from ubismart.sandbox import probe as _probe
+from ubismart.sandbox.probe import SandboxProbeError, ShellIdentity
+from ubismart.sandbox.wsl_exec import WslSandbox
+from ubismart.sandbox.wsl_exec import resolve_workspace as _resolve_workspace
 
 # `SandboxProbeError` 在这里被转出：CLI 命令层不该直接 import `sandbox`，
 # 否则就绕过了"前端层只经窄接口触达沙箱"的约束。

@@ -748,9 +748,9 @@
       clear: "\u6E05\u7A7A\u901A\u77E5",
       empty: "\u8FD8\u6CA1\u6709\u901A\u77E5",
       unread: "{count} \u6761\u672A\u8BFB",
-      runFinished: "CodingAgent \u8FD0\u884C\u5B8C\u6210",
-      runFailed: "CodingAgent \u8FD0\u884C\u5931\u8D25",
-      approval: "CodingAgent \u9700\u8981\u5BA1\u6279"
+      runFinished: "UBISmart \u8FD0\u884C\u5B8C\u6210",
+      runFailed: "UBISmart \u8FD0\u884C\u5931\u8D25",
+      approval: "UBISmart \u9700\u8981\u5BA1\u6279"
     }
   };
 
@@ -1473,9 +1473,9 @@
       clear: "Clear notifications",
       empty: "No notifications yet",
       unread: "{count} unread",
-      runFinished: "CodingAgent run finished",
-      runFailed: "CodingAgent run failed",
-      approval: "CodingAgent needs approval"
+      runFinished: "UBISmart run finished",
+      runFailed: "UBISmart run failed",
+      approval: "UBISmart needs approval"
     }
   };
 
@@ -1777,8 +1777,8 @@
         const hit = this.entries.get(key);
         if (hit && this.now() - hit.at <= ttlMs) return hit.value;
       }
-      const pending = options.force ? null : this.inflight.get(key);
-      if (pending) return pending;
+      const pending2 = options.force ? null : this.inflight.get(key);
+      if (pending2) return pending2;
       const generation = this.generation;
       let task;
       task = (async () => {
@@ -2251,12 +2251,12 @@
           return;
         }
         const data = await readJson(response, "\u8BFB\u53D6\u6388\u6743\u8BF7\u6C42\u5931\u8D25");
-        const pending = (data.pending || []).map((item) => ({
+        const pending2 = (data.pending || []).map((item) => ({
           ...item,
           _verbsText: this.consentVerbs(item.verbs)
         }));
-        const hasNew = pending.length > this.consents.length;
-        this.consents = pending;
+        const hasNew = pending2.length > this.consents.length;
+        this.consents = pending2;
         if (hasNew) this.scrollBottom();
       } catch (err) {
       }
@@ -4807,6 +4807,30 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         _isImage: false,
         _isText: true,
         _imageNote: "",
+        _viewKind: "code",
+        _rawUrl: "",
+        _note: "",
+        blocks: [],
+        _pdfKey: "",
+        _pdfPage: 0,
+        _pdfPages: 0,
+        _pdfImage: "",
+        _pdfTextSvg: "",
+        _pdfScale: 1.5,
+        _pdfOutline: [],
+        _pdfMeta: {},
+        _pdfSearch: "",
+        _pdfSearchHits: [],
+        _pdfSearchIndex: 0,
+        _pdfContinuous: false,
+        _pdfContinuousPages: [],
+        _pdfContinuousLoading: false,
+        _slides: [],
+        _docxExtras: "",
+        _xlsxKey: "",
+        _xlsxSheets: [],
+        _activeSheet: 0,
+        _xlsxFormula: null,
         data_url: "",
         mime: ""
       };
@@ -7169,7 +7193,514 @@ ${paths}`);
     };
   }
 
+  // src/features/viewer-kind.ts
+  var DOCUMENT_EXTS = ["docx", "xlsx", "xlsm", "xls", "pptx"];
+  var LEGACY_EXTS = ["doc", "ppt"];
+  var MARKDOWN_EXTS = ["md", "markdown"];
+  function detectViewerKind(path, data) {
+    const ext = String(path || "").split(".").pop().toLowerCase();
+    if (ext === "svg") return "code";
+    if (data && data.image && data.data_url) return "image";
+    if (ext === "pdf") return "pdf";
+    if (DOCUMENT_EXTS.includes(ext)) return "document";
+    if (LEGACY_EXTS.includes(ext)) return "unsupported";
+    if (MARKDOWN_EXTS.includes(ext)) return "markdown";
+    if (data && (data.image_too_large || data.binary)) return "unsupported";
+    return "code";
+  }
+
+  // src/features/viewers/basic.ts
+  function buildImageView(base, data) {
+    return {
+      ...base,
+      _viewKind: "image",
+      _isImage: true,
+      _text: `\u56FE\u7247\uFF1A${data.mime || ""}`,
+      _imageNote: data.image_too_large ? "\u56FE\u7247\u8D85\u8FC7 2MB\uFF0C\u6682\u4E0D\u9884\u89C8" : ""
+    };
+  }
+  function buildUnsupportedView(base, ext, data) {
+    return {
+      ...base,
+      _viewKind: "unsupported",
+      _note: ["doc", "ppt"].includes(ext) ? "\u6682\u4E0D\u652F\u6301\u76F4\u63A5\u9884\u89C8\u65E7\u7248 .doc/.ppt\uFF0C\u8BF7\u5148\u53E6\u5B58\u4E3A .docx/.pptx\u3002" : data.image_too_large ? "\u56FE\u7247\u8D85\u8FC7 2MB\uFF0C\u6682\u4E0D\u9884\u89C8\u3002" : "\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u6682\u4E0D\u5C55\u793A\u5185\u5BB9\u3002"
+    };
+  }
+  function buildMarkdownView(base, data) {
+    const text = String(data.content || "") + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "");
+    return {
+      ...base,
+      _viewKind: "markdown",
+      _text: text,
+      _html: renderMarkdown(text)
+    };
+  }
+  function buildCodeView(ctx, base, path, data) {
+    const text = String(data.content || "") + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "");
+    const lines = text.split("\n").length;
+    return {
+      ...base,
+      _viewKind: "code",
+      _isText: true,
+      _text: text,
+      _html: ctx.highlightCode(path, text, data.binary),
+      _lineNumbers: Array.from(
+        { length: lines },
+        (_, index) => String(index + 1)
+      ).join("\n")
+    };
+  }
+
+  // src/features/vendor-loader.ts
+  var VENDOR = {
+    mammoth: {
+      src: "/static/vendor/mammoth.browser.min.js",
+      integrity: "sha384-/cXAMbzovUIKbBERjPmR3SnPTh8siWr5lsvFYj1Uq4XP0yaJUZJmsh0YXyGv5P0y"
+    },
+    xlsx: {
+      src: "/static/vendor/xlsx.full.min.js",
+      integrity: "sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw"
+    },
+    pdfjs: {
+      src: "/static/vendor/pdf.min.js",
+      integrity: "sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e"
+    }
+  };
+  var pending = {};
+  function loadVendor(name) {
+    if (pending[name]) return pending[name];
+    const entry = VENDOR[name];
+    const promise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = entry.src;
+      script.integrity = entry.integrity;
+      script.async = true;
+      script.onload = () => {
+        if (name === "pdfjs" && window.pdfjsLib) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = "/static/vendor/pdf.worker.min.js";
+        }
+        resolve();
+      };
+      script.onerror = () => reject(new Error(`\u52A0\u8F7D ${entry.src} \u5931\u8D25`));
+      document.head.appendChild(script);
+    });
+    pending[name] = promise;
+    promise.catch(() => {
+      delete pending[name];
+    });
+    return promise;
+  }
+
+  // src/features/viewers/docx.ts
+  async function buildDocxView(ctx, base, path) {
+    try {
+      const buffer = await ctx.fetchRawBuffer(path);
+      await loadVendor("mammoth");
+      const result = await window.mammoth.convertToHtml({
+        arrayBuffer: buffer
+      });
+      const html = window.DOMPurify ? window.DOMPurify.sanitize(result.value, {
+        USE_PROFILES: { html: true }
+      }) : escapeHtml(result.value);
+      let extras = "";
+      try {
+        const model = await ctx.fetchDocument(path);
+        extras = (model.blocks || []).filter((block) => ["header", "footer", "section", "note"].includes(block.kind)).map((block) => `[${block.anchor}] ${block.text}`).join("\n");
+      } catch (err) {
+        extras = "";
+      }
+      return {
+        ...base,
+        _viewKind: "html",
+        _text: "Word \u6587\u6863",
+        _html: html,
+        _docxExtras: extras
+      };
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // src/features/viewers/state.ts
+  var PDF_DOCS = /* @__PURE__ */ new Map();
+  var XLSX_BOOKS = /* @__PURE__ */ new Map();
+
+  // src/features/viewers/table.ts
+  var XLSX_ROW_HEIGHT = 24;
+  var XLSX_OVERSCAN = 12;
+  var XLSX_DEFAULT_VIEWPORT = 480;
+  function renderRows(slice, start) {
+    return slice.map((cells, offset) => ({
+      _key: `r${start + offset}`,
+      _index: start + offset,
+      cells
+    }));
+  }
+  function decorateTableBlock(block, xlsxWindow = false) {
+    const rows = Array.isArray(block.rows) ? block.rows.map((row) => Array.isArray(row) ? row : []) : [];
+    const colCount = rows.reduce(
+      (max, row) => Math.max(max, row.length),
+      0
+    );
+    return {
+      ...block,
+      _isTable: true,
+      _isImage: false,
+      _isTextBlock: false,
+      _visibleRows: renderRows(rows, 0),
+      _rowStart: 0,
+      _rowEnd: rows.length,
+      _colCount: colCount || 1,
+      _xlsxWindow: xlsxWindow
+    };
+  }
+  function applySheetWindow(block, scrollTop, viewportHeight) {
+    const rows = Array.isArray(block.rows) ? block.rows : [];
+    const total = rows.length;
+    const height = Math.max(1, Number(viewportHeight) || XLSX_DEFAULT_VIEWPORT);
+    const visible = Math.max(
+      1,
+      Math.ceil(height / XLSX_ROW_HEIGHT) + XLSX_OVERSCAN * 2
+    );
+    const first = Math.max(
+      0,
+      Math.floor(Math.max(0, Number(scrollTop) || 0) / XLSX_ROW_HEIGHT) - XLSX_OVERSCAN
+    );
+    const start = Math.min(Math.max(0, total - visible), first);
+    const end = Math.min(total, start + visible);
+    const changed = start !== block._rowStart || end !== block._rowEnd;
+    block._rowStart = start;
+    block._rowEnd = end;
+    block._visibleRows = renderRows(rows.slice(start, end), start);
+    return changed;
+  }
+  function syncSpacerHeights(block, container) {
+    if (!container) return;
+    const top = container.querySelector(
+      ".xlsx-spacer-top"
+    );
+    const bottom = container.querySelector(
+      ".xlsx-spacer-bottom"
+    );
+    if (top) top.style.height = `${block._rowStart * XLSX_ROW_HEIGHT}px`;
+    if (bottom) {
+      const total = Array.isArray(block.rows) ? block.rows.length : 0;
+      bottom.style.height = `${Math.max(0, total - block._rowEnd) * XLSX_ROW_HEIGHT}px`;
+    }
+  }
+  function selectXlsxCellData(view, row, col) {
+    if (!view) return null;
+    const sheet = view._xlsxSheets && view._xlsxSheets[view._activeSheet || 0];
+    const workbook = XLSX_BOOKS.get(view._xlsxKey);
+    if (!sheet || !workbook) return null;
+    const worksheet = workbook.Sheets[sheet.name];
+    const ref = window.XLSX.utils.encode_cell({ r: row, c: col });
+    const cell = worksheet && worksheet[ref] || {};
+    return {
+      ref,
+      formula: cell.f ? `=${cell.f}` : "",
+      value: String(cell.w ?? cell.v ?? "")
+    };
+  }
+
+  // src/features/viewers/document.ts
+  function decorateBlock(block, index) {
+    const key = `${index}:${block.anchor || block.kind}`;
+    if (block.kind === "table" || block.kind === "sheet") {
+      return decorateTableBlock({ ...block, _key: key });
+    }
+    const isImage = block.kind === "image" && Boolean(block.meta && block.meta.data_url);
+    return {
+      ...block,
+      _key: key,
+      _isTable: false,
+      _isImage: isImage,
+      _dataUrl: isImage ? block.meta.data_url : "",
+      _isTextBlock: !isImage
+    };
+  }
+  async function buildDocumentView(ctx, base, path, ext) {
+    try {
+      const model = await ctx.fetchDocument(
+        path,
+        ext === "pptx",
+        ext === "pptx"
+      );
+      if (ext === "pptx" && (model.slide_layouts || []).length) {
+        return {
+          ...base,
+          _viewKind: "slides",
+          _slides: model.slide_layouts.map((slide) => ({
+            ...slide,
+            _key: `slide-${slide.page}`
+          })),
+          _note: (model.warnings || []).join("\n")
+        };
+      }
+      const blocks = (model.blocks || []).map(decorateBlock);
+      return {
+        ...base,
+        ...model,
+        _viewKind: "document",
+        blocks,
+        _note: (model.warnings || []).join("\n")
+      };
+    } catch (err) {
+      return {
+        ...base,
+        _viewKind: "unsupported",
+        _note: `\u6587\u6863\u89E3\u6790\u5931\u8D25\uFF1A${err}`
+      };
+    }
+  }
+
+  // src/features/viewers/pdf.ts
+  async function flattenPdfOutline(pdf, items, depth = 0, out = []) {
+    for (const item of items || []) {
+      let page = 0;
+      try {
+        const dest = typeof item.dest === "string" ? await pdf.getDestination(item.dest) : item.dest;
+        if (Array.isArray(dest) && dest[0]) {
+          page = await pdf.getPageIndex(dest[0]) + 1;
+        }
+      } catch (err) {
+        page = 0;
+      }
+      const title = String(item.title || "").trim();
+      if (title) {
+        out.push({
+          title,
+          page,
+          depth,
+          _label: `${"  ".repeat(depth)}${title}${page ? `\uFF08\u7B2C ${page} \u9875\uFF09` : ""}`
+        });
+      }
+      if (item.items && item.items.length) {
+        await flattenPdfOutline(pdf, item.items, depth + 1, out);
+      }
+    }
+    return out;
+  }
+  async function buildPdfView(ctx, base, path) {
+    let rawUrl = "";
+    try {
+      rawUrl = await ctx.fetchRawUrl(path);
+    } catch (err) {
+      return {
+        ...base,
+        _viewKind: "unsupported",
+        _note: `PDF \u9884\u89C8\u5931\u8D25\uFF1A${err}`
+      };
+    }
+    try {
+      const buffer = await ctx.fetchRawBuffer(path);
+      await loadVendor("pdfjs");
+      const pdf = await window.pdfjsLib.getDocument({
+        data: new Uint8Array(buffer),
+        isEvalSupported: false
+      }).promise;
+      const oldDoc = PDF_DOCS.get(path);
+      if (oldDoc && oldDoc !== pdf) {
+        try {
+          oldDoc.destroy?.();
+        } catch (err) {
+        }
+      }
+      PDF_DOCS.set(path, pdf);
+      let outline = [];
+      let meta = {};
+      try {
+        outline = await flattenPdfOutline(pdf, await pdf.getOutline());
+      } catch (err) {
+        outline = [];
+      }
+      try {
+        const info = (await pdf.getMetadata()).info || {};
+        for (const [key, name] of [
+          ["Title", "title"],
+          ["Author", "author"],
+          ["Subject", "subject"],
+          ["Keywords", "keywords"],
+          ["Creator", "creator"],
+          ["Producer", "producer"]
+        ]) {
+          const value = String(info[key] || "").trim();
+          if (value) meta[name] = value;
+        }
+      } catch (err) {
+        meta = {};
+      }
+      const view = {
+        ...base,
+        _viewKind: "pdf",
+        _rawUrl: rawUrl,
+        _pdfKey: path,
+        _pdfPage: 1,
+        _pdfPages: Number(pdf.numPages || 1),
+        _pdfImage: "",
+        _pdfOutline: outline,
+        _pdfMeta: meta
+      };
+      await ctx.renderPdfPage(view, 1);
+      return view;
+    } catch (err) {
+      return { ...base, _viewKind: "pdf", _rawUrl: rawUrl, _pdfImage: "" };
+    }
+  }
+
+  // src/features/viewers/sheet.ts
+  async function buildSheetView(ctx, base, path) {
+    try {
+      const buffer = await ctx.fetchRawBuffer(path);
+      await loadVendor("xlsx");
+      const workbook = window.XLSX.read(buffer, {
+        type: "array",
+        cellFormula: true,
+        cellNF: true
+      });
+      XLSX_BOOKS.set(path, workbook);
+      let truncated = "";
+      const sheets = workbook.SheetNames.map((name, index) => {
+        const worksheet = workbook.Sheets[name];
+        const rows = window.XLSX.utils.sheet_to_json(
+          worksheet,
+          { header: 1, raw: false, defval: "" }
+        ).slice(0, 2e3).map((row) => (row || []).slice(0, 200).map((cell) => String(cell ?? "")));
+        const range = window.XLSX.utils.decode_range(
+          String(worksheet["!ref"] || "A1")
+        );
+        if (range.e.r + 1 > 2e3 || range.e.c + 1 > 200) {
+          truncated = "\uFF08\u5927\u8868\u4EC5\u663E\u793A\u524D 2000 \u884C \xD7 200 \u5217\uFF09";
+        }
+        for (const merge of worksheet["!merges"] || []) {
+          const row = rows[merge.s.r];
+          if (!row) continue;
+          const value = row[merge.s.c] ?? "";
+          for (let r = merge.s.r; r <= merge.e.r; r += 1) {
+            if (!rows[r]) continue;
+            for (let c = merge.s.c; c <= merge.e.c; c += 1) {
+              rows[r][c] = value;
+            }
+          }
+        }
+        const block = decorateTableBlock({
+          kind: "sheet",
+          anchor: `sheet=${name}!A1`,
+          text: `\u5DE5\u4F5C\u8868 ${name}`,
+          rows,
+          _key: `${index}:sheet:${name}`
+        }, true);
+        applySheetWindow(block, 0, XLSX_DEFAULT_VIEWPORT);
+        return { name, blocks: [block] };
+      });
+      return {
+        ...base,
+        _viewKind: "document",
+        _xlsxKey: path,
+        _xlsxSheets: sheets,
+        _activeSheet: 0,
+        _xlsxFormula: null,
+        blocks: sheets[0] ? sheets[0].blocks : [],
+        _note: truncated
+      };
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // src/features/viewers/registry.ts
+  function baseFileView(ctx, path, data) {
+    return {
+      ...data,
+      _size: ctx.formatBytes(data.size),
+      _lang: ctx.fileLanguage(path),
+      _text: "",
+      _isImage: false,
+      _isText: false,
+      _imageNote: "",
+      _html: "",
+      _lineNumbers: "",
+      _crumb: String(path || "").split("/").join(" \u203A "),
+      _viewKind: "code",
+      _rawUrl: "",
+      _note: "",
+      _pdfKey: "",
+      _pdfPage: 0,
+      _pdfPages: 0,
+      _pdfImage: "",
+      _pdfTextSvg: "",
+      _pdfScale: 1.5,
+      _pdfOutline: [],
+      _pdfMeta: {},
+      _pdfSearch: "",
+      _pdfSearchHits: [],
+      _pdfSearchIndex: 0,
+      _pdfContinuous: false,
+      _pdfContinuousPages: [],
+      _slides: [],
+      _docxExtras: "",
+      _xlsxKey: "",
+      _xlsxSheets: [],
+      _activeSheet: 0,
+      _xlsxFormula: null,
+      blocks: []
+    };
+  }
+  async function buildFileView(ctx, path, data) {
+    const ext = String(path || "").split(".").pop().toLowerCase();
+    const base = baseFileView(ctx, path, data);
+    const kind = detectViewerKind(path, data);
+    if (kind === "image") {
+      return buildImageView(base, data);
+    }
+    if (kind === "unsupported") {
+      return buildUnsupportedView(base, ext, data);
+    }
+    if (kind === "pdf") {
+      return buildPdfView(ctx, base, path);
+    }
+    if (kind === "document" && ext === "docx") {
+      const view = await buildDocxView(ctx, base, path);
+      if (view) return view;
+    }
+    if (kind === "document" && ["xlsx", "xlsm", "xls"].includes(ext)) {
+      const view = await buildSheetView(ctx, base, path);
+      if (view) return view;
+    }
+    if (kind === "document") {
+      return buildDocumentView(ctx, base, path, ext);
+    }
+    if (kind === "markdown") {
+      return buildMarkdownView(base, data);
+    }
+    return buildCodeView(ctx, base, path, data);
+  }
+
   // src/features/inspector.ts
+  function escapeXmlAttr(text) {
+    return String(text || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function pdfTextSegments(text, query) {
+    const source = String(text || "");
+    const needle = String(query || "").toLowerCase();
+    if (!needle) return [{ text: source, hit: false }];
+    const lower = source.toLowerCase();
+    const parts = [];
+    let start = 0;
+    while (start < source.length) {
+      const index = lower.indexOf(needle, start);
+      if (index < 0) {
+        parts.push({ text: source.slice(start), hit: false });
+        break;
+      }
+      if (index > start) {
+        parts.push({ text: source.slice(start, index), hit: false });
+      }
+      parts.push({ text: source.slice(index, index + needle.length), hit: true });
+      start = index + needle.length;
+    }
+    return parts.length ? parts : [{ text: source, hit: false }];
+  }
   var inspectorMixin = {
     async compactContext() {
       if (!this.threadId || this.busy) return;
@@ -7478,6 +8009,7 @@ ${paths}
         this.fileView = tab.fileView;
         this.mainTab = "file";
         this.setMainTabFlags("file");
+        this.$nextTick(() => this.xlsxSyncSpacers());
         return;
       }
       this.diffText = tab.diffText;
@@ -7502,10 +8034,26 @@ ${paths}
       tab.diffExpanded = this.diffExpanded;
       tab.diffPath = this.diffPath;
     },
+    releasePdfView(view) {
+      const key = view && view._pdfKey;
+      if (!key) return;
+      const doc = PDF_DOCS.get(key);
+      PDF_DOCS.delete(key);
+      try {
+        doc?.destroy?.();
+      } catch (err) {
+      }
+    },
     closeEditorTab(id) {
       const index = this.editorTabs.findIndex((tab) => tab.id === id);
       if (index < 0) return;
       const wasActive = this.activeEditorId === id;
+      const closing = this.editorTabs[index];
+      if (closing && closing.kind === "file") {
+        this.releasePdfView(closing.fileView);
+        const xlsxKey = closing.fileView && closing.fileView._xlsxKey;
+        if (xlsxKey) XLSX_BOOKS.delete(xlsxKey);
+      }
       this.editorTabs = this.editorTabs.filter((tab) => tab.id !== id);
       if (this.mainTab === "chat") {
         if (wasActive) this.activeEditorId = "";
@@ -7532,6 +8080,30 @@ ${paths}
         _isImage: false,
         _isText: true,
         _imageNote: "",
+        _viewKind: "code",
+        _rawUrl: "",
+        _note: "",
+        blocks: [],
+        _pdfKey: "",
+        _pdfPage: 0,
+        _pdfPages: 0,
+        _pdfImage: "",
+        _pdfTextSvg: "",
+        _pdfScale: 1.5,
+        _pdfOutline: [],
+        _pdfMeta: {},
+        _pdfSearch: "",
+        _pdfSearchHits: [],
+        _pdfSearchIndex: 0,
+        _pdfContinuous: false,
+        _pdfContinuousPages: [],
+        _pdfContinuousLoading: false,
+        _slides: [],
+        _docxExtras: "",
+        _xlsxKey: "",
+        _xlsxSheets: [],
+        _activeSheet: 0,
+        _xlsxFormula: null,
         data_url: "",
         mime: ""
       };
@@ -7556,6 +8128,12 @@ ${paths}
       this.editorTabs = active ? [active] : [];
     },
     closeAllEditorTabs() {
+      for (const tab of this.editorTabs) {
+        if (tab.kind !== "file") continue;
+        this.releasePdfView(tab.fileView);
+        const xlsxKey = tab.fileView && tab.fileView._xlsxKey;
+        if (xlsxKey) XLSX_BOOKS.delete(xlsxKey);
+      }
       this.editorTabs = [];
       this.activeEditorId = "";
       this.mainTab = "chat";
@@ -7572,6 +8150,30 @@ ${paths}
         _isImage: false,
         _isText: true,
         _imageNote: "",
+        _viewKind: "code",
+        _rawUrl: "",
+        _note: "",
+        blocks: [],
+        _pdfKey: "",
+        _pdfPage: 0,
+        _pdfPages: 0,
+        _pdfImage: "",
+        _pdfTextSvg: "",
+        _pdfScale: 1.5,
+        _pdfOutline: [],
+        _pdfMeta: {},
+        _pdfSearch: "",
+        _pdfSearchHits: [],
+        _pdfSearchIndex: 0,
+        _pdfContinuous: false,
+        _pdfContinuousPages: [],
+        _pdfContinuousLoading: false,
+        _slides: [],
+        _docxExtras: "",
+        _xlsxKey: "",
+        _xlsxSheets: [],
+        _activeSheet: 0,
+        _xlsxFormula: null,
         data_url: "",
         mime: ""
       };
@@ -7897,24 +8499,7 @@ ${paths}
         });
         const response = await authFetch(`/api/file?${params.toString()}`);
         const data = await readJson(response, "\u8BFB\u53D6\u6587\u4EF6\u5931\u8D25");
-        const isImage = Boolean(data.image && data.data_url);
-        const text = isImage ? `\u56FE\u7247\uFF1A${data.mime || ""}` : data.image_too_large ? "\uFF08\u56FE\u7247\u8D85\u8FC7 2MB\uFF0C\u6682\u4E0D\u9884\u89C8\uFF09" : data.binary ? "\uFF08\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u4E0D\u5C55\u793A\u5185\u5BB9\uFF09" : data.content + (data.truncated ? "\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09" : "");
-        const lines = text.split("\n").length;
-        const fileView = {
-          ...data,
-          _size: this.formatBytes(data.size),
-          _lang: this.fileLanguage(path),
-          _text: text,
-          _isImage: isImage,
-          _isText: !isImage,
-          _imageNote: data.image_too_large ? "\u56FE\u7247\u8D85\u8FC7 2MB\uFF0C\u6682\u4E0D\u9884\u89C8" : "",
-          _html: isImage ? "" : this.highlightCode(path, text, data.binary),
-          _lineNumbers: isImage ? "" : Array.from(
-            { length: lines },
-            (_, index) => String(index + 1)
-          ).join("\n"),
-          _crumb: String(path || "").split("/").join(" \u203A ")
-        };
+        const fileView = await this.buildFileView(path, data);
         if (existing) {
           existing.fileView = fileView;
           existing.path = data.path || path;
@@ -7941,6 +8526,435 @@ ${paths}
       } finally {
         this.fileLoading = false;
       }
+    },
+    viewerKind(path, data) {
+      return detectViewerKind(path, data);
+    },
+    async buildFileView(path, data) {
+      return buildFileView(this, path, data);
+    },
+    async fetchRawBlob(path) {
+      const params = new URLSearchParams({
+        thread_id: this.threadId,
+        path
+      });
+      const response = await authFetch(`/api/file/raw?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.blob();
+    },
+    async fetchRawUrl(path) {
+      return URL.createObjectURL(await this.fetchRawBlob(path));
+    },
+    async fetchRawBuffer(path) {
+      return (await this.fetchRawBlob(path)).arrayBuffer();
+    },
+    async renderPdfPageData(pdfDoc, page, scale, query = "") {
+      const pdfPage = await pdfDoc.getPage(page);
+      const viewport = pdfPage.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      await pdfPage.render({
+        canvasContext: canvas.getContext("2d"),
+        viewport
+      }).promise;
+      const content = await pdfPage.getTextContent();
+      const styles = content.styles || {};
+      const texts = [
+        `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 ${canvas.width} ${canvas.height}" preserveAspectRatio="xMidYMid meet" xml:space="preserve"><g fill="transparent">`
+      ];
+      for (const item of content.items || []) {
+        if (!item || typeof item.str !== "string" || !item.str) continue;
+        const tx = window.pdfjsLib.Util.transform(
+          viewport.transform,
+          item.transform
+        );
+        const height = Math.hypot(tx[2], tx[3]);
+        const width = Math.max(1, Number(item.width || 0) * scale);
+        const matrix = `matrix(${tx[0].toFixed(4)},${tx[1].toFixed(4)},${tx[2].toFixed(4)},${tx[3].toFixed(4)},${tx[4].toFixed(2)},${tx[5].toFixed(2)})`;
+        const fontFamily = String(
+          styles[item.fontName] && styles[item.fontName].fontFamily || ""
+        ).trim();
+        const segments = pdfTextSegments(item.str, query);
+        const body = segments.length === 1 && !segments[0].hit ? escapeHtml(item.str) : segments.map((segment) => segment.hit ? `<tspan class="pdf-hit">${escapeHtml(segment.text)}</tspan>` : `<tspan>${escapeHtml(segment.text)}</tspan>`).join("");
+        texts.push(
+          `<text transform="${matrix}" x="0" y="0" font-size="${height.toFixed(2)}" ` + (fontFamily ? `font-family="${escapeXmlAttr(fontFamily)}" ` : "") + `textLength="${width.toFixed(2)}" lengthAdjust="spacing">${body}</text>`
+        );
+      }
+      texts.push("</g></svg>");
+      return {
+        image: canvas.toDataURL("image/png"),
+        svg: texts.join(""),
+        width: canvas.width,
+        height: canvas.height
+      };
+    },
+    async renderPdfPage(view, page) {
+      const pdfDoc = view && PDF_DOCS.get(view._pdfKey);
+      if (!pdfDoc) return;
+      try {
+        const target = Math.max(1, Math.min(view._pdfPages, Number(page) || 1));
+        const scale = Number(view._pdfScale) || 1.5;
+        const data = await this.renderPdfPageData(
+          pdfDoc,
+          target,
+          scale,
+          String(view._pdfSearch || "")
+        );
+        view._pdfImage = data.image;
+        view._pdfTextSvg = data.svg;
+        view._pdfPage = target;
+      } catch (err) {
+        view._pdfImage = "";
+        view._pdfTextSvg = "";
+      }
+    },
+    async pdfZoom(delta) {
+      const view = this.fileView;
+      if (!view || !PDF_DOCS.has(view._pdfKey)) return;
+      const next = Math.max(0.75, Math.min(3, Number(view._pdfScale || 1.5) + delta));
+      view._pdfScale = next;
+      await this.renderPdfPage(view, Number(view._pdfPage || 1));
+      this.fileView = { ...view };
+    },
+    async pdfZoomIn() {
+      await this.pdfZoom(0.25);
+    },
+    async pdfZoomOut() {
+      await this.pdfZoom(-0.25);
+    },
+    async pdfGo(delta) {
+      const view = this.fileView;
+      if (!view || !PDF_DOCS.has(view._pdfKey)) return;
+      await this.renderPdfPage(view, Number(view._pdfPage || 1) + delta);
+      this.fileView = { ...view };
+    },
+    async pdfPrev() {
+      await this.pdfGo(-1);
+    },
+    async pdfNext() {
+      await this.pdfGo(1);
+    },
+    async goToPdfPage(page) {
+      const view = this.fileView;
+      if (!view || !PDF_DOCS.has(view._pdfKey)) return;
+      const target = Number(page) || 1;
+      if (view._pdfContinuous) {
+        while ((view._pdfContinuousPages || []).length < target) {
+          await this.pdfLoadMoreContinuous();
+        }
+        view._pdfPage = target;
+        this.fileView = { ...view };
+        this.$nextTick(() => {
+          const element = document.querySelector(
+            `.pdf-continuous .pdf-page[data-page="${target}"]`
+          );
+          element?.scrollIntoView({ block: "start" });
+        });
+        return;
+      }
+      await this.renderPdfPage(view, target);
+      this.fileView = { ...view };
+    },
+    onPdfSearchInput() {
+      const input = document.querySelector(
+        'input[data-role="pdf-search"]'
+      );
+      this.pdfSearchQuery = input ? input.value : "";
+    },
+    async pdfSearch() {
+      const input = document.querySelector(
+        'input[data-role="pdf-search"]'
+      );
+      if (input) this.pdfSearchQuery = input.value;
+      const view = this.fileView;
+      const query = String(this.pdfSearchQuery || "").trim().toLowerCase();
+      const pdf = view && PDF_DOCS.get(view._pdfKey);
+      if (!pdf || !query) return;
+      const hits = [];
+      const limit = Number(view._pdfPages || 0);
+      for (let pageNumber = 1; pageNumber <= limit; pageNumber += 1) {
+        try {
+          const page = await pdf.getPage(pageNumber);
+          const content = await page.getTextContent();
+          const text = (content.items || []).map((item) => String(item.str || "")).join(" ").toLowerCase();
+          if (text.includes(query)) hits.push(pageNumber);
+        } catch (err) {
+        }
+      }
+      view._pdfSearch = query;
+      view._pdfSearchHits = hits;
+      view._pdfSearchIndex = 0;
+      if (view._pdfContinuous && (view._pdfContinuousPages || []).length) {
+        const scale = Number(view._pdfScale) || 1.5;
+        for (const page of view._pdfContinuousPages) {
+          try {
+            const data = await this.renderPdfPageData(
+              pdf,
+              page.page,
+              scale,
+              query
+            );
+            page.image = data.image;
+            page.svg = data.svg;
+          } catch (err) {
+          }
+        }
+      }
+      if (hits.length) {
+        await this.goToPdfPage(hits[0]);
+      } else {
+        this.fileView = { ...view };
+      }
+    },
+    async pdfSearchNext() {
+      const view = this.fileView;
+      const hits = view && view._pdfSearchHits || [];
+      if (!hits.length) return;
+      const next = (Number(view._pdfSearchIndex || 0) + 1) % hits.length;
+      view._pdfSearchIndex = next;
+      await this.goToPdfPage(hits[next]);
+    },
+    async pdfToggleContinuous() {
+      const view = this.fileView;
+      const pdf = view && PDF_DOCS.get(view._pdfKey);
+      if (!pdf) return;
+      if (view._pdfContinuous) {
+        view._pdfContinuous = false;
+        view._pdfContinuousPages = [];
+        view._pdfContinuousLoading = false;
+        this.fileView = { ...view };
+        return;
+      }
+      view._pdfContinuous = true;
+      view._pdfContinuousPages = [];
+      view._pdfContinuousLoading = false;
+      this.fileView = { ...view };
+      await this.pdfLoadMoreContinuous();
+    },
+    async pdfLoadMoreContinuous() {
+      const view = this.fileView;
+      if (!view || !view._pdfContinuous || view._pdfContinuousLoading) return;
+      const pdf = PDF_DOCS.get(view._pdfKey);
+      if (!pdf) return;
+      const pages = view._pdfContinuousPages || [];
+      const total = Number(view._pdfPages || 0);
+      if (pages.length >= total) return;
+      const start = pages.length + 1;
+      const end = Math.min(total, start + 4);
+      const scale = Number(view._pdfScale) || 1.5;
+      const query = String(view._pdfSearch || "");
+      view._pdfContinuousLoading = true;
+      this.fileView = { ...view };
+      for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
+        try {
+          const data = await this.renderPdfPageData(
+            pdf,
+            pageNumber,
+            scale,
+            query
+          );
+          view._pdfContinuousPages.push({
+            page: pageNumber,
+            image: data.image,
+            svg: data.svg,
+            _key: pageNumber
+          });
+          this.fileView = { ...view };
+        } catch (err) {
+        }
+      }
+      view._pdfContinuousLoading = false;
+      this.fileView = { ...view };
+      this.$nextTick(() => this.pdfContinuousMaybeFill());
+    },
+    pdfContinuousMaybeFill() {
+      const view = this.fileView;
+      if (!view || !view._pdfContinuous) return;
+      const container = document.querySelector(
+        ".pdf-continuous"
+      );
+      if (container && container.scrollHeight <= container.clientHeight + 20 && (view._pdfContinuousPages || []).length < Number(view._pdfPages || 0)) {
+        void this.pdfLoadMoreContinuous();
+      }
+    },
+    pdfContinuousScroll(event) {
+      const element = event.target;
+      if (!element) return;
+      if (element.scrollTop + element.clientHeight >= element.scrollHeight - 400) {
+        void this.pdfLoadMoreContinuous();
+      }
+    },
+    async fetchDocument(path, includeImages = false, includeLayout = false) {
+      const params = new URLSearchParams({
+        thread_id: this.threadId,
+        path
+      });
+      if (includeImages) params.set("include_images", "true");
+      if (includeLayout) params.set("include_layout", "true");
+      const response = await authFetch(
+        `/api/file/document?${params.toString()}`
+      );
+      return readJson(response, "\u8BFB\u53D6\u6587\u6863\u5931\u8D25");
+    },
+    get fileViewIsMarkdown() {
+      return Boolean(this.fileView && this.fileView._viewKind === "markdown");
+    },
+    get fileViewIsPdf() {
+      return Boolean(this.fileView && this.fileView._viewKind === "pdf");
+    },
+    get fileViewIsDocument() {
+      return Boolean(this.fileView && this.fileView._viewKind === "document");
+    },
+    get fileViewIsHtml() {
+      return Boolean(this.fileView && this.fileView._viewKind === "html");
+    },
+    get fileViewIsSlides() {
+      return Boolean(this.fileView && this.fileView._viewKind === "slides");
+    },
+    get pdfHasImage() {
+      return Boolean(this.fileView && this.fileView._pdfImage);
+    },
+    get pdfHasFallback() {
+      return Boolean(
+        this.fileView && this.fileView._viewKind === "pdf" && !this.fileView._pdfImage
+      );
+    },
+    get pdfSearchLabel() {
+      if (!this.fileView || !String(this.pdfSearchQuery || "").trim()) {
+        return "";
+      }
+      const hits = this.fileView._pdfSearchHits || [];
+      if (!hits.length) return "\u672A\u627E\u5230";
+      return `${Number(this.fileView._pdfSearchIndex || 0) + 1}/${hits.length} \u4E2A\u547D\u4E2D`;
+    },
+    get pdfSearchHasHits() {
+      return Boolean(
+        this.fileView && this.fileView._pdfSearchHits && this.fileView._pdfSearchHits.length
+      );
+    },
+    get pdfContinuousLabel() {
+      return this.fileView && this.fileView._pdfContinuous ? "\u5355\u9875" : "\u8FDE\u7EED";
+    },
+    get pdfContinuousProgress() {
+      if (!this.fileView || !this.fileView._pdfContinuous) return "";
+      const loaded = (this.fileView._pdfContinuousPages || []).length;
+      const total = Number(this.fileView._pdfPages || 0);
+      return `\u5DF2\u52A0\u8F7D ${loaded}/${total} \u9875` + (this.fileView._pdfContinuousLoading ? " \xB7 \u52A0\u8F7D\u4E2D\u2026" : "");
+    },
+    get pdfSingleVisible() {
+      return Boolean(this.fileView && this.fileView._pdfImage && !this.fileView._pdfContinuous);
+    },
+    get pdfHasOutline() {
+      return Boolean(
+        this.fileView && this.fileView._pdfOutline && this.fileView._pdfOutline.length
+      );
+    },
+    get pdfOutlineItems() {
+      const items = this.fileView && this.fileView._pdfOutline || [];
+      const current = this.fileView && this.fileView._pdfPage || 0;
+      return items.map((item, index) => ({
+        ...item,
+        _key: `${index}:${item.title}`,
+        _cls: item.page === current ? "active" : ""
+      }));
+    },
+    get pdfMetaText() {
+      const meta = this.fileView && this.fileView._pdfMeta || {};
+      return [
+        meta.title,
+        meta.author ? `\u4F5C\u8005\uFF1A${meta.author}` : "",
+        meta.subject ? `\u4E3B\u9898\uFF1A${meta.subject}` : "",
+        meta.keywords ? `\u5173\u952E\u8BCD\uFF1A${meta.keywords}` : ""
+      ].filter(Boolean).join(" \xB7 ");
+    },
+    get pdfPageLabel() {
+      if (!this.fileView || !this.fileView._pdfPages) return "";
+      return `${this.fileView._pdfPage || 1} / ${this.fileView._pdfPages}`;
+    },
+    get fileViewIsUnsupported() {
+      return Boolean(this.fileView && this.fileView._viewKind === "unsupported");
+    },
+    get documentBlocks() {
+      if (!this.fileView) return [];
+      const sheets = this.fileView._xlsxSheets || [];
+      if (sheets.length) {
+        const sheet = sheets[this.fileView._activeSheet || 0] || sheets[0];
+        return sheet.blocks || [];
+      }
+      return this.fileView.blocks || [];
+    },
+    get fileViewIsXlsx() {
+      return Boolean(
+        this.fileView && this.fileView._xlsxSheets && this.fileView._xlsxSheets.length > 1
+      );
+    },
+    get xlsxSheetTabs() {
+      const sheets = this.fileView && this.fileView._xlsxSheets || [];
+      const active = this.fileView && this.fileView._activeSheet || 0;
+      return sheets.map((sheet, index) => ({
+        ...sheet,
+        _cls: index === active ? "active" : ""
+      }));
+    },
+    selectSheet(index) {
+      const view = this.fileView;
+      if (!view || !view._xlsxSheets || !view._xlsxSheets[index]) return;
+      view._activeSheet = index;
+      view._xlsxFormula = null;
+      const sheet = view._xlsxSheets[index];
+      const block = sheet && sheet.blocks && sheet.blocks[0];
+      if (block && block._xlsxWindow) {
+        applySheetWindow(block, 0, XLSX_DEFAULT_VIEWPORT);
+      }
+      this.fileView = { ...view };
+      this.$nextTick(() => this.xlsxSyncSpacers());
+    },
+    selectXlsxCell(row, col) {
+      const view = this.fileView;
+      const info = selectXlsxCellData(view, row, col);
+      if (!info) return;
+      view._xlsxFormula = info;
+      this.fileView = { ...view };
+    },
+    xlsxScroll(event) {
+      const view = this.fileView;
+      if (!view || !view._xlsxSheets) return;
+      const sheet = view._xlsxSheets[view._activeSheet || 0];
+      const block = sheet && sheet.blocks && sheet.blocks[0];
+      if (!block || !block._xlsxWindow) return;
+      const target = event && event.currentTarget;
+      const scrollTop = target ? Number(target.scrollTop) || 0 : 0;
+      const height = target && target.clientHeight ? Number(target.clientHeight) : XLSX_DEFAULT_VIEWPORT;
+      const changed = applySheetWindow(block, scrollTop, height);
+      syncSpacerHeights(block, target);
+      if (changed) {
+        this.fileView = { ...view };
+      }
+    },
+    xlsxSyncSpacers() {
+      const view = this.fileView;
+      if (!view || !view._xlsxSheets) return;
+      const sheet = view._xlsxSheets[view._activeSheet || 0];
+      const block = sheet && sheet.blocks && sheet.blocks[0];
+      const wrap = document.querySelector(".document-table-wrap");
+      if (!block || !block._xlsxWindow || !wrap) return;
+      applySheetWindow(
+        block,
+        wrap.scrollTop,
+        wrap.clientHeight || XLSX_DEFAULT_VIEWPORT
+      );
+      syncSpacerHeights(block, wrap);
+    },
+    get xlsxFormulaText() {
+      const info = this.fileView && this.fileView._xlsxFormula;
+      if (!info) return "";
+      return `${info.ref}  ${info.formula || info.value}`;
+    },
+    get fileViewNote() {
+      return this.fileView && this.fileView._note || "";
     },
     async refreshActiveFile() {
       if (this.mainTab !== "file") return;
@@ -9815,14 +10829,14 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         return;
       }
       const views = Object.values(this.sessionViews || {});
-      const pending = views.find(
+      const pending2 = views.find(
         (view2) => view2 && view2.approvals && view2.approvals.length
       );
-      if (pending) {
-        if (pending.threadId && pending.threadId !== this.threadId) {
-          this.activateSessionView(pending.threadId);
+      if (pending2) {
+        if (pending2.threadId && pending2.threadId !== this.threadId) {
+          this.activateSessionView(pending2.threadId);
         }
-        this.showNextApproval(pending);
+        this.showNextApproval(pending2);
         return;
       }
       const view = this.activeView;
@@ -10106,6 +11120,15 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
           break;
         case "editor-tab":
           this.onEditorTabAction(data.op, data.id);
+          break;
+        case "sheet-tab":
+          this.selectSheet(Number(data.index));
+          break;
+        case "pdf-outline":
+          this.goToPdfPage(Number(data.page));
+          break;
+        case "xlsx-cell":
+          this.selectXlsxCell(Number(data.row), Number(data.col));
           break;
         case "file":
           this.onFileAction(data.op, data.key, data.snapshot, data.path);
@@ -10825,10 +11848,35 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         _isImage: false,
         _isText: true,
         _imageNote: "",
+        _viewKind: "code",
+        _rawUrl: "",
+        _note: "",
+        blocks: [],
+        _pdfKey: "",
+        _pdfPage: 0,
+        _pdfPages: 0,
+        _pdfImage: "",
+        _pdfTextSvg: "",
+        _pdfScale: 1.5,
+        _pdfOutline: [],
+        _pdfMeta: {},
+        _pdfSearch: "",
+        _pdfSearchHits: [],
+        _pdfSearchIndex: 0,
+        _pdfContinuous: false,
+        _pdfContinuousPages: [],
+        _pdfContinuousLoading: false,
+        _slides: [],
+        _docxExtras: "",
+        _xlsxKey: "",
+        _xlsxSheets: [],
+        _activeSheet: 0,
+        _xlsxFormula: null,
         data_url: "",
         mime: ""
       },
       fileLineInput: "",
+      pdfSearchQuery: "",
       fileLoading: false,
       messages: [],
       virtualStart: 0,
@@ -10907,6 +11955,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     "diffViewClasses",
     "fileView",
     "fileLineInput",
+    "pdfSearchQuery",
     "fileLoading",
     "messages",
     "virtualStart",
@@ -11076,9 +12125,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       if (this._draftTimer) clearTimeout(this._draftTimer);
       this._draftTimer = setTimeout(() => {
         this._draftTimer = null;
-        const pending = this._draftPending;
+        const pending2 = this._draftPending;
         this._draftPending = null;
-        if (pending) saveDraft(pending.threadId, pending.value);
+        if (pending2) saveDraft(pending2.threadId, pending2.value);
       }, DRAFT_DEBOUNCE_MS);
     },
     flushDraft(threadId = this.threadId) {
@@ -11086,9 +12135,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         clearTimeout(this._draftTimer);
         this._draftTimer = null;
       }
-      const pending = this._draftPending;
+      const pending2 = this._draftPending;
       this._draftPending = null;
-      if (pending) saveDraft(pending.threadId, pending.value);
+      if (pending2) saveDraft(pending2.threadId, pending2.value);
       else if (this.prompt) saveDraft(threadId, this.prompt);
     },
     restoreDraft(threadId = this.threadId) {

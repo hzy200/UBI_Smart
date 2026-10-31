@@ -9,9 +9,9 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from coding_agent.control.api_tokens import SCOPES, normalize_scopes
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
+from ubismart.control.api_tokens import SCOPES, normalize_scopes
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
 
 
 class TokenRequest(BaseModel):

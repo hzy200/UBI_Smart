@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
 
-from coding_agent.web.dependencies import UserDep
+from ubismart.web.dependencies import UserDep
 
 REQUEST_TTL_S = 900.0
 RESOLVED_TTL_S = 300.0

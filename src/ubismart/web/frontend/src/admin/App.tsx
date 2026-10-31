@@ -196,7 +196,7 @@ export function App() {
             />
           </span>
           <div>
-            <strong>CodingAgent</strong>
+            <strong>UBISmart</strong>
             <small>{t('brand')}</small>
           </div>
           <button

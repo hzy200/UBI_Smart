@@ -14,17 +14,17 @@ from collections import deque
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from coding_agent.platform.request_context import (
+from ubismart.platform.request_context import (
     REQUEST_ID_HEADER,
     reset_request_id,
     set_request_id,
 )
-from coding_agent.web.errors import (
+from ubismart.web.errors import (
     ensure_request_id,
     problem_response,
     request_id_from_scope,
 )
-from coding_agent.web.version import frontend_is_too_old
+from ubismart.web.version import frontend_is_too_old
 
 _LOG = logging.getLogger(__name__)
 
@@ -63,6 +63,9 @@ _CSP = (
     "style-src 'self'; "
     "connect-src 'self'; "
     "img-src 'self' data:; "
+    # PDF viewer 使用前端生成的同源 blob URL；不允许外部 frame。
+    "frame-src 'self' blob:; "
+    "worker-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'none'; "
     "form-action 'self'; "
@@ -138,7 +141,7 @@ class HttpMetricsMiddleware:
         try:
             await self.app(scope, receive, send_with_status)
         finally:
-            from coding_agent.platform.observability import inc
+            from ubismart.platform.observability import inc
 
             route = scope.get("route")
             template = str(getattr(route, "path", "") or "unmatched")

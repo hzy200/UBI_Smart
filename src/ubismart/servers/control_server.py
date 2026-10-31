@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from coding_agent.config import get_settings
+from ubismart.config import get_settings
 
 
 def _internal_url_is_remote(settings: Any) -> bool:
@@ -32,8 +32,8 @@ def _handshake(settings: Any) -> tuple[Any | None, dict[str, Any]]:
     if not str(settings.agent_internal_url or "").strip():
         return None, {"state": "in_process"}
 
-    from coding_agent.agent_protocol import check_compatibility
-    from coding_agent.control.agent_client import HttpAgentClient
+    from ubismart.agent_protocol import check_compatibility
+    from ubismart.control.agent_client import HttpAgentClient
 
     client = HttpAgentClient(
         settings.agent_internal_url,
@@ -73,7 +73,7 @@ def _migrate_control_db(settings: Any) -> int:
         )
         return 0
 
-    from coding_agent.control.migrate import upgrade
+    from ubismart.control.migrate import upgrade
 
     backup_dir = os.environ.get("AGENT_CONTROL_BACKUP_DIR", "").strip()
     try:
@@ -164,7 +164,7 @@ def _validate_startup(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="CodingAgent Control Plane")
+    parser = argparse.ArgumentParser(description="UBISmart Control Plane")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8780)
     parser.add_argument("--write", action="store_true")
@@ -202,7 +202,7 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = get_settings()
-    from coding_agent.platform.observability import configure_logging
+    from ubismart.platform.observability import configure_logging
 
     configure_logging(
         level=args.log_level,
@@ -216,7 +216,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
-        from coding_agent.control.backup import backup
+        from ubismart.control.backup import backup
 
         try:
             result = backup(
@@ -256,8 +256,8 @@ def main() -> int:
     # 只有真正启动 HTTP 服务时才加载 web/runtime 栈；--migrate-only 不需要。
     import uvicorn
 
-    from coding_agent.web import create_app
-    from coding_agent.web.auth import AuthConfig
+    from ubismart.web import create_app
+    from ubismart.web.auth import AuthConfig
 
     token = sys.stdin.readline().strip() if args.token_stdin else ""
     auth = (

@@ -8,7 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from coding_agent.platform.paths import strip_wsl_scheme
+from ubismart.platform.paths import strip_wsl_scheme
 
 _WIN_DRIVE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
 # 刚 import 完或 WSL 服务刚唤醒时，wsl.exe 可能返回 0xC0000142
@@ -117,7 +117,7 @@ def home(distro: str) -> str:
 def python_status(distro: str, python: str) -> tuple[bool, str]:
     script = (
         f"{shlex.quote(python)} -c "
-        "\"import fastapi, uvicorn, langgraph, pydantic, coding_agent; "
+        "\"import fastapi, uvicorn, langgraph, pydantic, ubismart; "
         "print('ok')\" 2>&1"
     )
     try:

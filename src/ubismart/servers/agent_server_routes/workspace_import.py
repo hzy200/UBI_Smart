@@ -45,22 +45,22 @@ from fastapi import (
     UploadFile,
 )
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.platform.paths import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.platform.paths import (
     PathGuardError,
     ensure_inside,
     is_within,
     normalize_root,
 )
-from coding_agent.servers.agent_server_models import (
+from ubismart.servers.agent_server_models import (
     WorkspaceArchiveDeleteBody,
     WorkspaceImportBody,
     WorkspaceRestoreBody,
     WorkspaceRollbackBody,
 )
-from coding_agent.workspace.archive import ExtractLimits, safe_extract
-from coding_agent.workspace.scan import ScanUnavailable, build_scanner
+from ubismart.workspace.archive import ExtractLimits, safe_extract
+from ubismart.workspace.scan import ScanUnavailable, build_scanner
 
 
 @dataclass(frozen=True)
@@ -554,9 +554,9 @@ def _create_revision(
         "GIT_CONFIG_COUNT=2 "
         "GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null "
         "GIT_CONFIG_KEY_1=commit.gpgsign GIT_CONFIG_VALUE_1=false "
-        "GIT_AUTHOR_NAME=coding-agent "
+        "GIT_AUTHOR_NAME=ubismart "
         "GIT_AUTHOR_EMAIL=agent@localhost "
-        "GIT_COMMITTER_NAME=coding-agent "
+        "GIT_COMMITTER_NAME=ubismart "
         "GIT_COMMITTER_EMAIL=agent@localhost"
     )
     message = f"{label}:{workspace_id}"

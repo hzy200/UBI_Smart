@@ -6,14 +6,16 @@ import importlib.metadata as metadata
 
 import typer
 
-from coding_agent.cli.context import console
+from ubismart.cli.context import console
 
 
 def _package_version() -> str:
-    try:
-        return metadata.version("coding-agent")
-    except metadata.PackageNotFoundError:
-        return "unknown"
+    for dist in ("ubismart", "coding-agent"):
+        try:
+            return metadata.version(dist)
+        except metadata.PackageNotFoundError:
+            continue
+    return "unknown"
 
 def _version_callback(value: bool) -> None:
     if value:

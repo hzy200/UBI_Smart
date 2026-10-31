@@ -13,24 +13,24 @@ from typing import Annotated, Any
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
-from coding_agent.agent_protocol import AgentRunRequest
-from coding_agent.config import Settings
-from coding_agent.control.idempotency import IdempotencyInFlight
-from coding_agent.control.leases import LeaseHeartbeat
-from coding_agent.control.webhooks import schedule_webhooks
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.platform.observability import inc_gauge, note_silent_failure
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
-from coding_agent.web.models import ResumeRequest, RunRequest, SteerRequest
-from coding_agent.web.push import schedule_push
-from coding_agent.web.routes.notifications import notification_payload
-from coding_agent.web.transcripts import (
+from ubismart.agent_protocol import AgentRunRequest
+from ubismart.config import Settings
+from ubismart.control.idempotency import IdempotencyInFlight
+from ubismart.control.leases import LeaseHeartbeat
+from ubismart.control.webhooks import schedule_webhooks
+from ubismart.identity.tenancy import WebTenant
+from ubismart.platform.observability import inc_gauge, note_silent_failure
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
+from ubismart.web.models import ResumeRequest, RunRequest, SteerRequest
+from ubismart.web.push import schedule_push
+from ubismart.web.routes.notifications import notification_payload
+from ubismart.web.transcripts import (
     clean_transcript,
     load_transcript,
     save_transcript,
 )
-from coding_agent.web.validation import check_thread_id
+from ubismart.web.validation import check_thread_id
 
 _LOG = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
                 ttl_s=int(deps.quota_ttl_s or 3600),
             )
         except Exception as exc:  # noqa: BLE001
-            from coding_agent.control.store import QuotaExceeded
+            from ubismart.control.store import QuotaExceeded
 
             if isinstance(exc, QuotaExceeded):
                 raise HTTPException(
@@ -244,7 +244,7 @@ def register_run_routes(app: FastAPI, deps: RunDeps) -> None:
     ) -> str:
         if deps.run_leases is None:
             return ""
-        from coding_agent.control.leases import LeaseHeld
+        from ubismart.control.leases import LeaseHeld
 
         try:
             return deps.run_leases.acquire(

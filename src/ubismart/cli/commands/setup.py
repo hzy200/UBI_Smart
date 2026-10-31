@@ -9,14 +9,14 @@ from pathlib import Path
 import typer
 from rich.markup import escape
 
-from coding_agent.cli.context import console, get_settings
-from coding_agent.cli.platform import (
+from ubismart.cli.context import console, get_settings
+from ubismart.cli.platform import (
     SandboxProbe,
     SandboxProbeError,
     resolve_workspace,
 )
-from coding_agent.config import Settings, shadowed_env_keys
-from coding_agent.memory.embeddings import embedding_status
+from ubismart.config import Settings, shadowed_env_keys
+from ubismart.memory.embeddings import embedding_status
 
 _DISTRIBUTIONS = (
     "langgraph",
@@ -71,7 +71,7 @@ def _check_langsmith(settings: Settings) -> list[bool]:
 
 def _check_host_isolation(settings: Settings) -> list[bool]:
     """A2L 隔离能力：可选能力 WARN，配置依赖缺失才 FAIL。"""
-    from coding_agent.host_broker.availability import probe_isolation
+    from ubismart.host_broker.availability import probe_isolation
 
     if not settings.host_broker_enabled:
         return [_report("A2L host 隔离", True, "未启用")]
@@ -156,7 +156,7 @@ def _check_file_locks(settings: Settings) -> list[bool]:
     不支持时不阻断运行：审计/steering/journal 是协调数据，降级为线程互斥
     仍然可用；但必须让用户知道跨进程保护已经失效。
     """
-    from coding_agent.platform.filelock import FileLock
+    from ubismart.platform.filelock import FileLock
 
     path = settings.resolved_audit_dir / ".doctor.lock"
     try:

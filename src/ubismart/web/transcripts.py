@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from coding_agent.identity.tenancy import WebTenant
+from ubismart.identity.tenancy import WebTenant
 
 MAX_MESSAGES = 500
 MAX_CHARS = 4_000_000

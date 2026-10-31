@@ -7,7 +7,7 @@ import os
 import typer
 from rich.markup import escape
 
-from coding_agent.cli.context import console, get_settings
+from ubismart.cli.context import console, get_settings
 
 
 def gui(
@@ -37,7 +37,7 @@ def gui(
     """
     try:
         if os.name == "nt" and not host_mode:
-            from coding_agent.desktop.launcher import main as launch
+            from ubismart.desktop.launcher import main as launch
 
             argv = ["--setup"] if setup else []
             if workspace:
@@ -48,7 +48,7 @@ def gui(
             if code:
                 raise typer.Exit(code=code)
             return
-        from coding_agent.desktop import run_desktop
+        from ubismart.desktop import run_desktop
     except ImportError as exc:
         hint = escape('pip install -e ".[web,desktop]"')
         console.print(f"[red]未安装桌面依赖。请运行：{hint}[/]")
@@ -79,7 +79,7 @@ def tui(
 ) -> None:
     """启动终端界面（Textual）。"""
     try:
-        from coding_agent.tui import AgentTuiApp
+        from ubismart.tui import AgentTuiApp
     except ImportError as exc:
         # 必须转义 [ui]：不转义的话 rich 会把它当样式标记吞掉，
         # 用户看到的是一条坏掉的安装命令

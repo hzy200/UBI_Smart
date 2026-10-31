@@ -1,6 +1,6 @@
 """CLI 命令模块的晚绑定入口。
 
-测试会 monkeypatch `coding_agent.cli.app.console` 与 `.get_settings`。
+测试会 monkeypatch `ubismart.cli.app.console` 与 `.get_settings`。
 命令模块若在 import 时直接绑定这两个名字，补丁就只作用在 app 模块上，
 命令仍走旧对象。这里用代理把每次访问转发到 app 模块的当前值。
 """
@@ -12,7 +12,7 @@ from typing import Any
 
 
 def _app() -> Any:
-    return sys.modules["coding_agent.cli.app"]
+    return sys.modules["ubismart.cli.app"]
 
 
 class _ConsoleProxy:

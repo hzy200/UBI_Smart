@@ -1,4 +1,4 @@
-/* 由 scripts/gen_contracts.py 从 src/coding_agent/events.py 生成，禁止手改。 */
+/* 由 scripts/gen_contracts.py 从 src/ubismart/events.py 生成，禁止手改。 */
 
 export interface ApprovalRequestedEvent {
   type: "approval_requested";
@@ -165,6 +165,13 @@ export interface SubAgentStartedEvent {
   goal: string;
 }
 
+export interface TaskBlockedEvent {
+  type: "task_blocked";
+  task_id: string;
+  role: string;
+  reason: string;
+}
+
 export interface TaskGraphCreatedEvent {
   type: "task_graph_created";
   tasks: Array<Record<string, any>>;
@@ -277,6 +284,7 @@ export type AgentEvent =
   | StepStartedEvent
   | SubAgentFinishedEvent
   | SubAgentStartedEvent
+  | TaskBlockedEvent
   | TaskGraphCreatedEvent
   | TaskGraphExtendedEvent
   | ToolCallFinishedEvent
@@ -307,6 +315,7 @@ export const AGENT_EVENT_TYPES = [
   "step_started",
   "subagent_finished",
   "subagent_started",
+  "task_blocked",
   "task_graph_created",
   "task_graph_extended",
   "tool_call_finished",

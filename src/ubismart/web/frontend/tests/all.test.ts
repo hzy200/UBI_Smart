@@ -26,4 +26,5 @@ import './theme.test';
 import './upload.test';
 import './url-state.test';
 import './usage.test';
+import './viewers.test';
 import './virtual.test';

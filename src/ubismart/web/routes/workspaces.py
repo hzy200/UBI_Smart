@@ -26,16 +26,16 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.control.idempotency import IdempotencyInFlight
-from coding_agent.control.workspaces import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.control.idempotency import IdempotencyInFlight
+from ubismart.control.workspaces import (
     WorkspaceError,
     WorkspaceNotFound,
 )
-from coding_agent.platform.paths import PathGuardError, is_within, normalize_root
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
+from ubismart.platform.paths import PathGuardError, is_within, normalize_root
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
 
 
 class WorkspaceCreateRequest(BaseModel):

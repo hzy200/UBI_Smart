@@ -8,8 +8,8 @@ from pathlib import Path
 import typer
 from rich.markup import escape
 
-from coding_agent.cli.context import console, get_settings
-from coding_agent.config import apply_security_profile
+from ubismart.cli.context import console, get_settings
+from ubismart.config import apply_security_profile
 
 _RULES_ADD_OPTION = typer.Option(
     None, "--add", help="添加规则，可重复，如 shell_exec:git status*"

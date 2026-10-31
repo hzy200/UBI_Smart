@@ -12,9 +12,9 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
-from coding_agent.cli.context import AgentRuntime, console, get_settings
-from coding_agent.cli.options import _WORKSPACE_OPTION
-from coding_agent.memory.sessions import SessionIndex, format_table_rows
+from ubismart.cli.context import AgentRuntime, console, get_settings
+from ubismart.cli.options import _WORKSPACE_OPTION
+from ubismart.memory.sessions import SessionIndex, format_table_rows
 
 
 def snapshots(

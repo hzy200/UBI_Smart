@@ -17,15 +17,15 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from coding_agent import __version__
-from coding_agent.desktop.config import (
+from ubismart import __version__
+from ubismart.desktop.config import (
     LauncherConfig,
     app_home,
     config_path,
     logs_dir,
     state_dir,
 )
-from coding_agent.desktop.wsl import home, list_distros, run
+from ubismart.desktop.wsl import home, list_distros, run
 
 MAX_LOG_BYTES = 2 * 1024 * 1024
 
@@ -110,7 +110,7 @@ def collect_diagnostics(
     target_dir = app_home() / "diagnostics"
     target_dir.mkdir(parents=True, exist_ok=True)
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
-    path = target_dir / f"CodingAgent-diagnostics-{stamp}.zip"
+    path = target_dir / f"UBISmart-diagnostics-{stamp}.zip"
     summary = {
         "version": __version__,
         "python": platform.python_version(),
@@ -143,7 +143,7 @@ def collect_diagnostics(
         archive.writestr("wsl.txt", sanitize(_wsl_info(config)))
         archive.writestr(
             "README.txt",
-            "CodingAgent 诊断包：版本、配置、日志尾部与 WSL 概况。\n"
+            "UBISmart 诊断包：版本、配置、日志尾部与 WSL 概况。\n"
             "日志已做基本密钥脱敏；不包含工作区源码或 API Key。\n",
         )
     return path

@@ -53,6 +53,7 @@ export const SESSION_VIEW_FIELDS = [
   'diffViewClasses',
   'fileView',
   'fileLineInput',
+  'pdfSearchQuery',
   'fileLoading',
   'messages',
   'virtualStart',

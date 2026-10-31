@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from coding_agent.web.dependencies import UserDep
+from ubismart.web.dependencies import UserDep
 
 
 @dataclass(frozen=True)

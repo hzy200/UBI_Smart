@@ -11,22 +11,22 @@ import typer
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from rich.markup import escape
 
-from coding_agent.audit import AuditError
-from coding_agent.audit.logger import now_iso
-from coding_agent.cli.context import AgentRuntime, console, get_settings
-from coding_agent.cli.renderer import CliRenderer
-from coding_agent.config import (
+from ubismart.audit import AuditError
+from ubismart.audit.logger import now_iso
+from ubismart.cli.context import AgentRuntime, console, get_settings
+from ubismart.cli.renderer import CliRenderer
+from ubismart.config import (
     PRODUCTION_PROFILES,
     Settings,
     apply_security_profile,
 )
-from coding_agent.events import ApprovalRequested, Event
-from coding_agent.llm.deepseek import build_llm
-from coding_agent.llm.prompts import SYSTEM_PROMPT
-from coding_agent.protocol.messages import text_of
-from coding_agent.protocol.terminal_text import sanitize_terminal_text
-from coding_agent.runtime import submit_steering_command
-from coding_agent.session.steering import SteeringCommand
+from ubismart.events import ApprovalRequested, Event
+from ubismart.llm.deepseek import build_llm
+from ubismart.llm.prompts import SYSTEM_PROMPT
+from ubismart.protocol.messages import text_of
+from ubismart.protocol.terminal_text import sanitize_terminal_text
+from ubismart.runtime import submit_steering_command
+from ubismart.session.steering import SteeringCommand
 
 
 def _emit(text: str) -> None:
@@ -89,7 +89,7 @@ def _make_renderer() -> Callable[[Event], None]:
 
     具体映射在 `cli/renderer.py` 的表驱动实现里；TUI / Web 各写一份自己的。
     """
-    from coding_agent.session.costs import CurrencyConfig
+    from ubismart.session.costs import CurrencyConfig
 
     return CliRenderer(
         console,

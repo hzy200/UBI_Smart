@@ -345,6 +345,13 @@ const server = createServer(async (req, res) => {
     const body = await readFile(file);
     res.statusCode = 200;
     res.setHeader('Content-Type', contentType(file));
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self'; "
+      + "connect-src 'self'; img-src 'self' data:; "
+      + "frame-src 'self' blob:; worker-src 'self'; "
+      + "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    );
     res.end(body);
   } catch (err) {
     res.statusCode = 404;

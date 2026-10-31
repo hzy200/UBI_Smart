@@ -15,20 +15,20 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.control.agent_client import AgentClientError
-from coding_agent.identity.access import normalize_access_mode
-from coding_agent.identity.provider_profiles import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.control.agent_client import AgentClientError
+from ubismart.identity.access import normalize_access_mode
+from ubismart.identity.provider_profiles import (
     ProviderProfileStore,
     merge_provider_items,
 )
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.memory.sessions import SessionIndex
-from coding_agent.platform.secrets_store import SecretStore
-from coding_agent.protocol.sse_stream import sse_headers, with_heartbeat_bytes
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.models import SessionConfig
+from ubismart.identity.tenancy import WebTenant
+from ubismart.memory.sessions import SessionIndex
+from ubismart.platform.secrets_store import SecretStore
+from ubismart.protocol.sse_stream import sse_headers, with_heartbeat_bytes
+from ubismart.web.auth import AuthUser
+from ubismart.web.models import SessionConfig
 
 _LOG = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class ProviderService:
             else SecretStore()
         )
         if self.credentials is not None:
-            from coding_agent.control.credentials import ScopedSecretStore
+            from ubismart.control.credentials import ScopedSecretStore
 
             return ScopedSecretStore(
                 self.credentials,
@@ -102,7 +102,7 @@ class ProviderService:
             else SecretStore()
         )
         if self.credentials is not None:
-            from coding_agent.control.credentials import ScopedSecretStore
+            from ubismart.control.credentials import ScopedSecretStore
 
             return ScopedSecretStore(
                 self.credentials,
@@ -397,7 +397,7 @@ class AgentGateway:
         on_event: Any | None = None,
     ) -> StreamingResponse:
         async def body() -> AsyncIterator[bytes]:
-            from coding_agent.platform.observability import inc_gauge
+            from ubismart.platform.observability import inc_gauge
 
             buffer = b""
             event_buf = b""
@@ -454,6 +454,28 @@ class AgentGateway:
                 path,
                 params=params,
                 json=json_body,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise self.failure(exc) from exc
+
+    async def raw(
+        self,
+        user: AuthUser,
+        tenant: WebTenant,
+        config: SessionConfig | None,
+        path: str,
+        *,
+        params: dict | None = None,
+        range_header: str = "",
+        if_none_match: str = "",
+    ) -> tuple[int, dict[str, str], bytes]:
+        try:
+            return await self.agent_client.raw_request(
+                self.context(user, tenant, config),
+                path,
+                params=params,
+                range_header=range_header,
+                if_none_match=if_none_match,
             )
         except Exception as exc:  # noqa: BLE001
             raise self.failure(exc) from exc

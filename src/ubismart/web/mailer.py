@@ -9,7 +9,7 @@ import logging
 import smtplib
 from email.message import EmailMessage
 
-from coding_agent.platform.observability import note_silent_failure
+from ubismart.platform.observability import note_silent_failure
 
 _LOG = logging.getLogger(__name__)
 
@@ -27,11 +27,11 @@ def send_password_reset(
         str(getattr(settings, "smtp_user", "") or "").strip() or host
     )
     message = EmailMessage()
-    message["Subject"] = "CodingAgent 密码重置"
+    message["Subject"] = "UBISmart 密码重置"
     message["From"] = sender
     message["To"] = target
     message.set_content(
-        "你请求重置 CodingAgent 密码。\n\n"
+        "你请求重置 UBISmart 密码。\n\n"
         f"{token_or_link}\n\n"
         "如果不是你本人操作，请忽略本邮件。链接/令牌默认 30 分钟内有效。"
     )

@@ -1,6 +1,6 @@
 {
-  "name": "CodingAgent",
-  "short_name": "CodingAgent",
+  "name": "UBISmart",
+  "short_name": "UBISmart",
   "description": "Terminal coding agent with a local web UI",
   "start_url": "/",
   "scope": "/",

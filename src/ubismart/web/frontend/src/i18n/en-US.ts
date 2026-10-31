@@ -718,8 +718,8 @@ export const enUS: Messages = {
     clear: 'Clear notifications',
     empty: 'No notifications yet',
     unread: '{count} unread',
-    runFinished: 'CodingAgent run finished',
-    runFailed: 'CodingAgent run failed',
-    approval: 'CodingAgent needs approval',
+    runFinished: 'UBISmart run finished',
+    runFailed: 'UBISmart run failed',
+    approval: 'UBISmart needs approval',
   },
 };

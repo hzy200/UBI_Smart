@@ -16,10 +16,10 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from coding_agent.protocol.sse_stream import sse_headers, with_heartbeat
-from coding_agent.security.secrets import redact_secrets
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
+from ubismart.protocol.sse_stream import sse_headers, with_heartbeat
+from ubismart.security.secrets import redact_secrets
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
 
 
 def notification_payload(

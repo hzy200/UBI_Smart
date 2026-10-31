@@ -15,14 +15,14 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.control.mfa import MfaError, otpauth_uri
-from coding_agent.control.oidc import OidcError
-from coding_agent.platform.observability import inc
-from coding_agent.session.costs import CurrencyConfig
-from coding_agent.web.auth import AuthConfig, AuthUser
-from coding_agent.web.dependencies import UserDep
-from coding_agent.web.mailer import send_password_reset
+from ubismart.config import Settings
+from ubismart.control.mfa import MfaError, otpauth_uri
+from ubismart.control.oidc import OidcError
+from ubismart.platform.observability import inc
+from ubismart.session.costs import CurrencyConfig
+from ubismart.web.auth import AuthConfig, AuthUser
+from ubismart.web.dependencies import UserDep
+from ubismart.web.mailer import send_password_reset
 
 _LOG = logging.getLogger(__name__)
 # 按账号的失败锁定：与按 IP/用户名的分钟限流互补，避免换 IP 继续撞库。

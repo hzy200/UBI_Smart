@@ -16,14 +16,14 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
-from coding_agent.control.webhooks import schedule_webhooks
-from coding_agent.events import ApprovalRequested, Event, RunFailed, RunFinished
-from coding_agent.platform.observability import note_silent_failure
-from coding_agent.protocol.sse_stream import sse_headers, with_heartbeat
-from coding_agent.web.local_runtime import RuntimeEntry
-from coding_agent.web.push import schedule_push
-from coding_agent.web.routes.notifications import notification_payload
-from coding_agent.web.sse import (
+from ubismart.control.webhooks import schedule_webhooks
+from ubismart.events import ApprovalRequested, Event, RunFailed, RunFinished
+from ubismart.platform.observability import note_silent_failure
+from ubismart.protocol.sse_stream import sse_headers, with_heartbeat
+from ubismart.web.local_runtime import RuntimeEntry
+from ubismart.web.push import schedule_push
+from ubismart.web.routes.notifications import notification_payload
+from ubismart.web.sse import (
     StreamEntry,
     event_is_terminal,
     event_key,
@@ -333,4 +333,4 @@ class StreamManager:
         )
 
 
-_LOG = logging.getLogger("coding_agent.web.streaming")
+_LOG = logging.getLogger("ubismart.web.streaming")

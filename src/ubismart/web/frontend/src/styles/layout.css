@@ -691,6 +691,231 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   background: var(--panel);
   box-shadow: var(--shadow-sm);
 }
+.markdown-preview,
+.document-preview,
+.unsupported-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px;
+  background: var(--bg);
+}
+.markdown-body {
+  max-width: 920px;
+  margin: 0 auto;
+  line-height: 1.7;
+  color: var(--text);
+}
+.docx-extras {
+  margin-top: 24px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+.markdown-body pre {
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-family: var(--mono);
+}
+.pdf-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.pdf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.pdf-meta {
+  padding: 4px 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pdf-outline {
+  max-height: 160px;
+  overflow: auto;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.pdf-outline-item {
+  display: block;
+  width: 100%;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+  white-space: pre;
+}
+.pdf-outline-item.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+.pdf-continuous {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+.pdf-continuous .pdf-page {
+  margin: 0 auto 12px;
+}
+.pdf-page {
+  position: relative;
+  margin: 0 auto;
+  max-width: 100%;
+  overflow: auto;
+}
+.pdf-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--panel);
+}
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.pdf-text-layer svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pdf-text-layer text {
+  pointer-events: auto;
+  cursor: text;
+  user-select: text;
+}
+.pdf-text-layer .pdf-hit {
+  fill: #ffd54f;
+  font-weight: 700;
+}
+.slides-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  background: var(--bg);
+}
+.slide-page {
+  position: relative;
+  max-width: 960px;
+  margin: 0 auto 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+.slide-svg svg { display: block; width: 100%; height: auto; }
+.slide-number {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  color: #666;
+  font-size: 11px;
+}
+.xlsx-formula {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.document-table tr {
+  height: 24px;
+}
+.xlsx-spacer {
+  width: 100%;
+}
+.sheet-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.sheet-tab {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.sheet-tab.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pdf-preview iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  border: 0;
+  background: var(--bg);
+}
+.document-note {
+  margin: 0 0 12px;
+  color: var(--text-3);
+  white-space: pre-wrap;
+}
+.document-block { margin-bottom: 18px; }
+.document-anchor {
+  margin-bottom: 4px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.document-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: var(--code-size);
+  line-height: 1.55;
+}
+.document-image {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  margin: 8px 0;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.document-table-wrap {
+  overflow: auto;
+  max-width: 100%;
+  max-height: 60vh;
+}
+.document-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.document-table td {
+  border: 1px solid var(--border);
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.unsupported-preview {
+  color: var(--text-3);
+  white-space: pre-wrap;
+}
 .diff-sign {
   flex: 0 0 14px;
   color: var(--muted);

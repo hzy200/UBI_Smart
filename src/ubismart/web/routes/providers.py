@@ -13,19 +13,19 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.identity.provider_profiles import (
+from ubismart.config import Settings
+from ubismart.identity.provider_profiles import (
     ProviderProfileStore,
     profile_from_payload,
 )
-from coding_agent.platform.secrets_store import SecretStoreUnavailable
-from coding_agent.security.netguard import (
+from ubismart.platform.secrets_store import SecretStoreUnavailable
+from ubismart.security.netguard import (
     OutboundBlocked,
     PinnedTarget,
     resolve_outbound_target,
 )
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
 
 
 class ProviderKeyRequest(BaseModel):

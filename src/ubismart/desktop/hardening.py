@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from coding_agent.desktop.wsl import run
+from ubismart.desktop.wsl import run
 
 
 @dataclass(frozen=True, slots=True)

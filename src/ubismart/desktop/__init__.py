@@ -4,6 +4,6 @@
 生成的随机 token，避免本机其他进程直接调用 API。
 """
 
-from coding_agent.desktop.bootstrap import DesktopServer, run_desktop
+from ubismart.desktop.bootstrap import DesktopServer, run_desktop
 
 __all__ = ["DesktopServer", "run_desktop"]

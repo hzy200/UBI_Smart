@@ -15,14 +15,14 @@ import sys
 
 import uvicorn
 
-from coding_agent.config import get_settings
-from coding_agent.identity.access import ACCESS_READ_ONLY
-from coding_agent.web import create_app
-from coding_agent.web.auth import AuthConfig
+from ubismart.config import get_settings
+from ubismart.identity.access import ACCESS_READ_ONLY
+from ubismart.web import create_app
+from ubismart.web.auth import AuthConfig
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="CodingAgent WSL/Linux server")
+    parser = argparse.ArgumentParser(description="UBISmart WSL/Linux server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--workspace", default="", help="WSL 内工作区绝对路径")

@@ -10,20 +10,30 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.execution.host_file_access import HostFileAccess
-from coding_agent.identity.project_env import probe_project
-from coding_agent.servers.agent_server_models import DeleteUploadBody, RestoreBody
-from coding_agent.workspace.browse import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.execution.file_access import LocalFileAccess
+from ubismart.execution.host_file_access import HostFileAccess
+from ubismart.identity.project_env import probe_project
+from ubismart.servers.agent_server_models import DeleteUploadBody, RestoreBody
+from ubismart.tools.documents import DocumentLimits
+from ubismart.workspace.browse import (
     MAX_READ_BYTES,
     BrowseError,
     git_summary,
     list_directory,
     read_text_file,
     search_workspace,
+)
+from ubismart.workspace.file_preview import (
+    INLINE_MIME_ALLOWLIST,
+    RAW_MAX_BYTES,
+    PreviewError,
+    raw_response_parts,
+    read_document,
+    read_raw,
 )
 
 
@@ -131,6 +141,72 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             )
         except BrowseError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def _access(app: FastAPI, context: AgentContext):
+        if context.workspace_kind == "host":
+            return _host_access(app, context)
+        return LocalFileAccess(context.workspace)
+
+    @app.get("/v1/file/raw")
+    async def file_raw(request: Request, path: str) -> Response:
+        context = deps.context(request)
+        access = _access(app, context)
+        try:
+            raw = await asyncio.to_thread(
+                read_raw,
+                access,
+                path,
+                max_bytes=min(
+                    RAW_MAX_BYTES,
+                    int(getattr(deps.settings, "document_max_bytes", RAW_MAX_BYTES)),
+                ),
+                allow_mime=INLINE_MIME_ALLOWLIST,
+            )
+        except PreviewError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - host/A2L 错误转 HTTP
+            raise _host_error(exc) from exc
+        status, headers, body = raw_response_parts(
+            raw,
+            request.headers.get("range", ""),
+            request.headers.get("if-none-match", ""),
+        )
+        return Response(
+            content=body,
+            status_code=status,
+            media_type=raw.mime,
+            headers=headers,
+        )
+
+    @app.get("/v1/file/document")
+    async def file_document(
+        request: Request, path: str, include_images: bool = False
+    ) -> dict:
+        context = deps.context(request)
+        access = _access(app, context)
+        limits = DocumentLimits(
+            max_bytes=int(
+                getattr(deps.settings, "document_max_bytes", 20 * 1024 * 1024)
+            ),
+            max_pages=int(getattr(deps.settings, "document_max_pages", 200)),
+            max_cells=int(getattr(deps.settings, "document_max_cells", 20_000)),
+            max_chars=int(
+                getattr(deps.settings, "document_max_chars", 2_000_000)
+            ),
+        )
+        try:
+            model = await asyncio.to_thread(
+                read_document,
+                access,
+                path,
+                limits=limits,
+                include_images=include_images,
+            )
+        except PreviewError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - host/A2L 错误转 HTTP
+            raise _host_error(exc) from exc
+        return model.model_dump()
 
     @app.get("/v1/search")
     async def search(

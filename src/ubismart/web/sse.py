@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from coding_agent.events import ApprovalRequested, Event, SteeringApplied
+from ubismart.events import ApprovalRequested, Event, SteeringApplied
 
 
 @dataclass

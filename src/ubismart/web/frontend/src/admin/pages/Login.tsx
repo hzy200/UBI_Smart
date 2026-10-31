@@ -77,7 +77,7 @@ export function Login({ onSuccess }: { onSuccess: () => void | Promise<void> }) 
             <svg viewBox="0 0 24 24"><path d="M7 6l5 6-5 6" /><path d="M14 18h4" /></svg>
           </span>
           <div>
-            <strong>CodingAgent</strong>
+            <strong>UBISmart</strong>
             <small>{t('brand')}</small>
           </div>
           <div className="segmented" role="group" aria-label={t('language')}>

@@ -42,6 +42,11 @@ export const cspMixin = {
       case 'share': this.onShareAction(data.op, data.id); break;
       case 'copy-share': this.copyText(this.shareUrl); break;
       case 'editor-tab': this.onEditorTabAction(data.op, data.id); break;
+      case 'sheet-tab': this.selectSheet(Number(data.index)); break;
+      case 'pdf-outline': this.goToPdfPage(Number(data.page)); break;
+      case 'xlsx-cell':
+        this.selectXlsxCell(Number(data.row), Number(data.col));
+        break;
       case 'file': this.onFileAction(data.op, data.key, data.snapshot, data.path); break;
       case 'checkpoint': this.onCheckpointAction(data.op, data.id); break;
       case 'revision': this.onRevisionAction(data.op, data.id); break;

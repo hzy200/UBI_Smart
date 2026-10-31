@@ -8,10 +8,10 @@ from pathlib import Path
 import typer
 from rich.markup import escape
 
-from coding_agent.cli.context import console, get_settings
-from coding_agent.cli.options import _WORKSPACE_OPTION
-from coding_agent.config import apply_security_profile
-from coding_agent.session.workspace_lock import WorkspaceLock
+from ubismart.cli.context import console, get_settings
+from ubismart.cli.options import _WORKSPACE_OPTION
+from ubismart.config import apply_security_profile
+from ubismart.session.workspace_lock import WorkspaceLock
 
 
 def _is_loopback_bind(host: str) -> bool:
@@ -63,8 +63,8 @@ def web(
         console.print(f"[red]未安装 Web 依赖。请运行：{hint}[/]")
         raise typer.Exit(code=2) from exc
 
-    from coding_agent.web import create_app
-    from coding_agent.web.auth import AuthConfig
+    from ubismart.web import create_app
+    from ubismart.web.auth import AuthConfig
 
     settings = get_settings()
     updates: dict[str, object] = {"security_profile": security_profile}

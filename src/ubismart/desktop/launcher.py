@@ -12,20 +12,20 @@ import threading
 import time
 from pathlib import Path
 
-from coding_agent.desktop.api import (
+from ubismart.desktop.api import (
     DesktopApi,
     is_loopback_origin,
     origin_of,
 )
-from coding_agent.desktop.config import (
+from ubismart.desktop.config import (
     LauncherConfig,
     bundled_rootfs,
     logs_dir,
     state_dir,
     wsl_install_dir,
 )
-from coding_agent.desktop.setup import run_setup
-from coding_agent.desktop.supervisor import (
+from ubismart.desktop.setup import run_setup
+from ubismart.desktop.supervisor import (
     AgentServer,
     ControlServer,
     HostBrokerProc,
@@ -33,11 +33,11 @@ from coding_agent.desktop.supervisor import (
     start_control,
     start_host_broker,
 )
-from coding_agent.desktop.watchdog import WatchTarget, supervise_many
-from coding_agent.desktop.wsl import distro_exists, import_distro, to_wsl_path
-from coding_agent.session.workspace_lock import WorkspaceLock
+from ubismart.desktop.watchdog import WatchTarget, supervise_many
+from ubismart.desktop.wsl import distro_exists, import_distro, to_wsl_path
+from ubismart.session.workspace_lock import WorkspaceLock
 
-_LOG = logging.getLogger("coding_agent.desktop")
+_LOG = logging.getLogger("ubismart.desktop")
 
 
 def _logging() -> None:
@@ -51,7 +51,7 @@ def _logging() -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="CodingAgent desktop launcher")
+    parser = argparse.ArgumentParser(description="UBISmart desktop launcher")
     parser.add_argument("--setup", action="store_true", help="重新运行配置向导")
     parser.add_argument(
         "--host-mode",
@@ -117,7 +117,7 @@ def _open_window(
     if not is_loopback_origin(origin):
         raise RuntimeError(f"桌面窗口只允许加载 loopback 页面：{control.url}")
     window = webview.create_window(
-        "CodingAgent",
+        "UBISmart",
         control.url,
         width=1440,
         height=920,
@@ -320,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     _logging()
     if args.host_mode:
-        from coding_agent.desktop.bootstrap import run_desktop
+        from ubismart.desktop.bootstrap import run_desktop
 
         run_desktop()
         return 0
@@ -423,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
 
     lock = WorkspaceLock(state_dir(), "desktop-launcher")
     if not lock.acquire():
-        _LOG.error("已有 CodingAgent 实例在运行")
+        _LOG.error("已有 UBISmart 实例在运行")
         return 2
     try:
         agent = start_agent(config, log_path=logs_dir() / "agent.log")
@@ -477,9 +477,9 @@ def main(argv: list[str] | None = None) -> int:
             import webview
 
             webview.create_window(
-                "CodingAgent 启动失败",
+                "UBISmart 启动失败",
                 html=(
-                    "<h3>CodingAgent 启动失败</h3>"
+                    "<h3>UBISmart 启动失败</h3>"
                     f"<pre>{html.escape(type(exc).__name__ + ': ' + str(exc))}</pre>"
                     f"<p>日志：{html.escape(str(logs_dir() / 'launcher.log'))}</p>"
                 ),

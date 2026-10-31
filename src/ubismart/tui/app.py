@@ -22,9 +22,9 @@ from textual.screen import ModalScreen
 from textual.suggester import SuggestFromList
 from textual.widgets import Footer, Header, Input, RichLog, Static, TextArea
 
-from coding_agent.audit import read_records_many
-from coding_agent.config import Settings, get_settings
-from coding_agent.events import (
+from ubismart.audit import read_records_many
+from ubismart.config import Settings, get_settings
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     CostReport,
@@ -53,9 +53,9 @@ from coding_agent.events import (
     WorkflowRevised,
     WorkflowSelected,
 )
-from coding_agent.protocol.terminal_text import sanitize_terminal_text
-from coding_agent.runtime import AgentRuntime
-from coding_agent.session.costs import CurrencyConfig
+from ubismart.protocol.terminal_text import sanitize_terminal_text
+from ubismart.runtime import AgentRuntime
+from ubismart.session.costs import CurrencyConfig
 
 HELP_TEXT = """\
 /help              显示本帮助
@@ -348,7 +348,7 @@ class ApprovalScreen(ModalScreen[str]):
 class AgentTuiApp(App[None]):
     """终端原生编程智能体的 TUI。"""
 
-    TITLE = "CodingAgent"
+    TITLE = "UBISmart"
 
     CSS = """
     #body { height: 1fr; }

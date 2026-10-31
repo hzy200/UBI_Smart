@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from coding_agent.config import Settings
+from ubismart.config import Settings
 
 STATIC_DIR = Path(__file__).parent / "static"
 

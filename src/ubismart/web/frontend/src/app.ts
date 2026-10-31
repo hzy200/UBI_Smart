@@ -1,4 +1,4 @@
-/* CodingAgent GUI entry.
+/* UBISmart GUI entry.
  *
  * 只消费后端领域事件，不接触 LangGraph / 工具 / 沙箱。
  * Alpine 使用 CSP 构建：模板里尽量只调用组件方法，避免 eval。

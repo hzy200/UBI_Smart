@@ -21,8 +21,8 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
-from coding_agent.desktop.config import LauncherConfig
-from coding_agent.desktop.wsl import home, run, to_wsl_path
+from ubismart.desktop.config import LauncherConfig
+from ubismart.desktop.wsl import home, run, to_wsl_path
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -348,7 +348,7 @@ class DesktopApi:
     @_requires_trust(_DENIED)
     def collect_diagnostics(self) -> dict:
         try:
-            from coding_agent.desktop.diagnostics import (
+            from ubismart.desktop.diagnostics import (
                 collect_diagnostics,
             )
 
@@ -360,7 +360,7 @@ class DesktopApi:
     @_requires_trust(_DENIED)
     def reveal_diagnostics(self, path: str) -> dict:
         """在资源管理器中选中诊断包；只允许 app_home 下的文件。"""
-        from coding_agent.desktop.config import app_home
+        from ubismart.desktop.config import app_home
 
         target = Path(str(path or "")).resolve()
         try:
@@ -379,7 +379,7 @@ class DesktopApi:
 
     @_requires_trust(_DENIED)
     def check_update(self) -> dict:
-        from coding_agent.desktop.update import (
+        from ubismart.desktop.update import (
             check_update,
             manifest_url,
         )
@@ -392,7 +392,7 @@ class DesktopApi:
                 "available": False,
                 "message": "未配置 AGENT_UPDATE_MANIFEST_URL",
             }
-        from coding_agent import __version__
+        from ubismart import __version__
 
         return check_update(__version__, url)
 

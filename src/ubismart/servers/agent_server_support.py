@@ -14,8 +14,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-from coding_agent.events import ApprovalRequested, Event, SteeringApplied
-from coding_agent.runtime import AgentRuntime
+from ubismart.events import ApprovalRequested, Event, SteeringApplied
+from ubismart.runtime import AgentRuntime
 
 
 class _ContextSecretStore:

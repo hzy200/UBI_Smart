@@ -8,11 +8,11 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
-from coding_agent.web.models import CompactRequest, SessionConfig
-from coding_agent.web.validation import check_thread_id
+from ubismart.identity.tenancy import WebTenant
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
+from ubismart.web.models import CompactRequest, SessionConfig
+from ubismart.web.validation import check_thread_id
 
 
 @dataclass(frozen=True)

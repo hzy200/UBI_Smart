@@ -22,11 +22,11 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from coding_agent.desktop.config import LauncherConfig
-from coding_agent.desktop.http import local_open, wait_health
-from coding_agent.desktop.wsl import ensure_dir, home
+from ubismart.desktop.config import LauncherConfig
+from ubismart.desktop.http import local_open, wait_health
+from ubismart.desktop.wsl import ensure_dir, home
 
-_LOG = logging.getLogger("coding_agent.desktop")
+_LOG = logging.getLogger("ubismart.desktop")
 
 DEFAULT_AGENT_PORT = 8790
 DEFAULT_CONTROL_PORT = 8780
@@ -121,19 +121,19 @@ def _port_available(port: int) -> bool:
 
 
 def _control_prefix() -> list[str]:
-    """打包后优先用随包分发的 CodingAgentControl.exe，开发模式用 -m。
+    """打包后优先用随包分发的 UBISmartControl.exe，开发模式用 -m。
 
     便携版把控制面放在 `control/` 子目录（onedir 需要自己的 `_internal`），
     因此同时接受同目录与 `control/` 两种布局。
     """
     base = Path(sys.executable).resolve().parent
     for exe in (
-        base / "CodingAgentControl.exe",
-        base / "control" / "CodingAgentControl.exe",
+        base / "UBISmartControl.exe",
+        base / "control" / "UBISmartControl.exe",
     ):
         if exe.is_file():
             return [str(exe)]
-    return [sys.executable, "-m", "coding_agent.servers.control_server"]
+    return [sys.executable, "-m", "ubismart.servers.control_server"]
 
 
 _WORKSPACE_ENV_KEYS = (
@@ -206,7 +206,7 @@ def build_command(
         *[f"{key}={value}" for key, value in env.items()],
         config.python,
         "-m",
-        "coding_agent.servers.agent_server",
+        "ubismart.servers.agent_server",
         "--host",
         "127.0.0.1",
         "--port",
@@ -327,7 +327,7 @@ def start_agent(
         os.environ.get("AGENT_WSL_REQUIRE_HARDENING")
     ) or _truthy(os.environ.get("AGENT_WORKSPACE_REGISTRY"))
     if require_hardening:
-        from coding_agent.desktop import hardening
+        from ubismart.desktop import hardening
 
         try:
             report = hardening.check(
@@ -398,7 +398,7 @@ def build_host_broker_command(
     command = [
         sys.executable,
         "-m",
-        "coding_agent.host_broker",
+        "ubismart.host_broker",
         "--url",
         url,
         "--workspace-root",

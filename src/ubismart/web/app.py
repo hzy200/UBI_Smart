@@ -29,32 +29,32 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from coding_agent.config import Settings, apply_security_profile, get_settings
-from coding_agent.identity.access import (
+from ubismart.config import Settings, apply_security_profile, get_settings
+from ubismart.identity.access import (
     ACCESS_READ_ONLY,
     ACCESS_WRITE_AUTO,
     clamp_access_mode,
     normalize_access_mode,
 )
-from coding_agent.identity.tenancy import TenantError, TenantManager, WebTenant
-from coding_agent.platform.concurrency import ConcurrencyGovernor
-from coding_agent.platform.tracing import TracingMiddleware
-from coding_agent.protocol.sse_stream import (
+from ubismart.identity.tenancy import TenantError, TenantManager, WebTenant
+from ubismart.platform.concurrency import ConcurrencyGovernor
+from ubismart.platform.tracing import TracingMiddleware
+from ubismart.protocol.sse_stream import (
     SSE_HEARTBEAT_MS,
 )
-from coding_agent.web.assets import resolve_frontend_dirs
-from coding_agent.web.auth import AuthConfig, AuthUser
-from coding_agent.web.cors import StrictCORSMiddleware, parse_allowed_origins
-from coding_agent.web.errors import (
+from ubismart.web.assets import resolve_frontend_dirs
+from ubismart.web.auth import AuthConfig, AuthUser
+from ubismart.web.cors import StrictCORSMiddleware, parse_allowed_origins
+from ubismart.web.errors import (
     is_retryable_status,
     problem_response,
     status_error_code,
 )
-from coding_agent.web.identity import (
+from ubismart.web.identity import (
     build_identity_stores as _build_identity_stores,
 )
-from coding_agent.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
-from coding_agent.web.middleware import (
+from ubismart.web.local_runtime import LocalRuntimeRegistry, RuntimeEntry
+from ubismart.web.middleware import (
     ApiVersionRewriteMiddleware,
     AuditorReadOnlyMiddleware,
     BodySizeLimitMiddleware,
@@ -65,63 +65,63 @@ from coding_agent.web.middleware import (
     RequestIdMiddleware,
     SecurityHeadersMiddleware,
 )
-from coding_agent.web.models import (
+from ubismart.web.models import (
     SessionConfig,
 )
-from coding_agent.web.push import PushService
-from coding_agent.web.routes.admin import AdminDeps, register_admin_routes
-from coding_agent.web.routes.auth import AuthRouteDeps, register_auth_routes
-from coding_agent.web.routes.compact import CompactDeps, register_compact_routes
-from coding_agent.web.routes.desktop import (
+from ubismart.web.push import PushService
+from ubismart.web.routes.admin import AdminDeps, register_admin_routes
+from ubismart.web.routes.auth import AuthRouteDeps, register_auth_routes
+from ubismart.web.routes.compact import CompactDeps, register_compact_routes
+from ubismart.web.routes.desktop import (
     DesktopDeps,
     register_desktop_routes,
 )
-from coding_agent.web.routes.notifications import (
+from ubismart.web.routes.notifications import (
     NotificationDeps,
     register_notification_routes,
 )
-from coding_agent.web.routes.ops import OpsDeps, register_ops_routes
-from coding_agent.web.routes.providers import ProviderDeps, register_provider_routes
-from coding_agent.web.routes.push import PushDeps, register_push_routes
-from coding_agent.web.routes.runs import RunDeps, register_run_routes
-from coding_agent.web.routes.sessions import (
+from ubismart.web.routes.ops import OpsDeps, register_ops_routes
+from ubismart.web.routes.providers import ProviderDeps, register_provider_routes
+from ubismart.web.routes.push import PushDeps, register_push_routes
+from ubismart.web.routes.runs import RunDeps, register_run_routes
+from ubismart.web.routes.sessions import (
     SessionDeps,
     register_session_routes,
 )
-from coding_agent.web.routes.shares import ShareDeps, register_share_routes
-from coding_agent.web.routes.snapshots import (
+from ubismart.web.routes.shares import ShareDeps, register_share_routes
+from ubismart.web.routes.snapshots import (
     SnapshotDeps,
     register_snapshot_routes,
 )
-from coding_agent.web.routes.system import SystemDeps, register_system_routes
-from coding_agent.web.routes.tokens import TokenDeps, register_token_routes
-from coding_agent.web.routes.uploads import (
+from ubismart.web.routes.system import SystemDeps, register_system_routes
+from ubismart.web.routes.tokens import TokenDeps, register_token_routes
+from ubismart.web.routes.uploads import (
     UploadDeps,
     register_upload_routes,
 )
-from coding_agent.web.routes.webhooks import (
+from ubismart.web.routes.webhooks import (
     WebhookDeps,
     register_webhook_routes,
 )
-from coding_agent.web.routes.workspace import (
+from ubismart.web.routes.workspace import (
     WorkspaceDeps,
     register_workspace_routes,
 )
-from coding_agent.web.routes.workspaces import (
+from ubismart.web.routes.workspaces import (
     WorkspaceRegistryDeps,
     register_workspace_registry_routes,
 )
-from coding_agent.web.services import (
+from ubismart.web.services import (
     AgentGateway,
     ProviderService,
     SessionCatalog,
 )
-from coding_agent.web.sse import (
+from ubismart.web.sse import (
     event_key as _event_key,
 )
-from coding_agent.web.streaming import StreamManager
-from coding_agent.web.transcripts import load_transcript
-from coding_agent.web.version import (
+from ubismart.web.streaming import StreamManager
+from ubismart.web.transcripts import load_transcript
+from ubismart.web.version import (
     MIN_API_VERSION,
     MIN_FRONTEND_VERSION,
     WEB_API_VERSION,
@@ -170,7 +170,7 @@ def create_app(
     auth = auth or AuthConfig.from_settings(settings)
     openapi_enabled = bool(getattr(settings, "web_openapi", False))
     app = FastAPI(
-        title="CodingAgent",
+        title="UBISmart",
         docs_url="/docs" if openapi_enabled else None,
         redoc_url=None,
         openapi_url="/openapi.json" if openapi_enabled else None,
@@ -262,7 +262,7 @@ def create_app(
     control_db_url = str(settings.control_db_url or "").strip()
     control_db_status: dict[str, Any] = {"state": "disabled"}
     if control_db_url:
-        from coding_agent.control.store import ControlStore
+        from ubismart.control.store import ControlStore
 
         try:
             control_store = ControlStore(
@@ -289,8 +289,8 @@ def create_app(
             control_store.purge_expired_reservations()
         except Exception:  # noqa: BLE001 - 清理失败不阻断启动
             _LOG.warning("清理配额预留失败", exc_info=True)
-        from coding_agent.control.shares import ShareStore
-        from coding_agent.control.webhooks import (
+        from ubismart.control.shares import ShareStore
+        from ubismart.control.webhooks import (
             WebhookService,
             WebhookStore,
         )
@@ -323,13 +323,13 @@ def create_app(
     password_resets = None
     credential_store = None
     if control_store is not None and settings.web_accounts_enabled:
-        from coding_agent.control.credentials import CredentialStore
+        from ubismart.control.credentials import CredentialStore
 
         credential_store = CredentialStore.from_settings(
             control_store.engine, settings
         )
     if control_store is not None and settings.web_accounts_enabled:
-        from coding_agent.control.accounts import (
+        from ubismart.control.accounts import (
             AuthEventStore,
             PasswordResetStore,
             SessionStore,
@@ -353,7 +353,7 @@ def create_app(
         )
         auth.bind_accounts(account_store, session_store)
         if account_store is not None:
-            from coding_agent.control.api_tokens import ApiTokenStore
+            from ubismart.control.api_tokens import ApiTokenStore
 
             api_token_store = ApiTokenStore(control_store.engine)
             auth.api_tokens = api_token_store
@@ -409,8 +409,8 @@ def create_app(
     idempotency = None
     app_instance_id = uuid.uuid4().hex[:12]
     if control_store is not None:
-        from coding_agent.control.idempotency import IdempotencyStore
-        from coding_agent.control.leases import RunLeaseStore
+        from ubismart.control.idempotency import IdempotencyStore
+        from ubismart.control.leases import RunLeaseStore
 
         run_leases = RunLeaseStore(control_store.engine)
         idempotency = IdempotencyStore(control_store.engine)
@@ -423,7 +423,7 @@ def create_app(
                 "工作区注册表已启用，但控制面数据库不可用；注册表不可用"
             )
         else:
-            from coding_agent.control.workspaces import (
+            from ubismart.control.workspaces import (
                 WorkspacePolicy,
                 WorkspaceStore,
             )
@@ -480,13 +480,13 @@ def create_app(
             "server/control/desktop 入口已默认开启"
         )
     if stream_buffer and transport is None:
-        from coding_agent.protocol.event_transport import build_event_transport
+        from ubismart.protocol.event_transport import build_event_transport
 
         transport = build_event_transport(settings)
 
     # A2 → A3：配置了内部 URL 时，运行生命周期走独立 Agent Server。
     if agent_client is None and str(settings.agent_internal_url or "").strip():
-        from coding_agent.control.agent_client import HttpAgentClient
+        from ubismart.control.agent_client import HttpAgentClient
 
         agent_client = HttpAgentClient(
             settings.agent_internal_url,
@@ -798,7 +798,7 @@ def create_app(
             ],
             max_age=600,
         )
-    from coding_agent.platform.observability import configure_tracing
+    from ubismart.platform.observability import configure_tracing
 
     otel_tracer = configure_tracing(settings)
     if otel_tracer is not None:
@@ -821,7 +821,7 @@ def create_app(
         "state": "in_process" if agent_client is None else "unknown"
     }
     if agent_client is not None:
-        from coding_agent.agent_protocol import check_compatibility
+        from ubismart.agent_protocol import check_compatibility
 
         async def _probe_agent_forever() -> None:
             while True:
@@ -986,7 +986,7 @@ def create_app(
         ),
     )
 
-    from coding_agent.session.costs import CurrencyConfig
+    from ubismart.session.costs import CurrencyConfig
 
     currency = CurrencyConfig.from_settings(settings)
     register_auth_routes(
@@ -1110,7 +1110,7 @@ def create_app(
 
     def _local_audit_records(tenant: WebTenant) -> list[dict[str, Any]]:
         """本地运行没有 A3 HTTP，直接从租户审计目录取最近记录。"""
-        from coding_agent.audit import audit_files_by_day, read_records_many
+        from ubismart.audit import audit_files_by_day, read_records_many
 
         groups = audit_files_by_day(tenant.settings.resolved_audit_dir)
         paths: list[Any] = []
@@ -1180,7 +1180,7 @@ def create_app(
 
     consent_token = str(settings.consent_bridge_token or "").strip()
     if desktop_mode and consent_token:
-        from coding_agent.web.consent_bridge import register_consent_bridge
+        from ubismart.web.consent_bridge import register_consent_bridge
 
         register_consent_bridge(app, token=consent_token)
 
@@ -1250,6 +1250,8 @@ def create_app(
             default_access=default_access,
             allow_write=allow_write,
             desktop_mode=desktop_mode,
+            settings=settings,
+            agent_raw=gateway.raw,
         ),
     )
 

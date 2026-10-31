@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f1115">
-<title>CodingAgent</title>
+<title>UBISmart</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
@@ -16,7 +16,7 @@
 <div id="app-root">
 <div id="boot" x-show="bootVisible" x-cloak>
   <div class="login-box">
-    <h2>CodingAgent</h2>
+    <h2>UBISmart</h2>
     <p x-text="bootText"></p>
   </div>
 </div>
@@ -43,7 +43,7 @@
 
 <div id="login" x-show="loginVisible" x-cloak>
   <div class="login-box">
-    <h2>CodingAgent</h2>
+    <h2>UBISmart</h2>
     <p x-text="loginMessage"></p>
     <input type="text" x-model="loginUsername" autocomplete="username"
            placeholder="用户名" x-show="authLocalVisible">
@@ -218,7 +218,7 @@
     <span class="brand-mark" aria-hidden="true">
       <svg viewBox="0 0 24 24"><path d="M7 6l5 6-5 6"/><path d="M14 18h4"/></svg>
     </span>
-    <span class="name">CodingAgent</span>
+    <span class="name">UBISmart</span>
   </div>
   <span class="meta model" :title="modelLabel" x-text="modelLabel"></span>
   <span class="badge" :class="badgeClasses" x-text="accessLabel"></span>
@@ -706,6 +706,106 @@
       <div class="editor-code-wrap" x-show="fileView._isText">
         <pre class="editor-gutter" x-text="fileView._lineNumbers"></pre>
         <pre class="editor-code"><code x-html="fileView._html"></code></pre>
+      </div>
+      <div class="markdown-preview" x-show="fileViewIsMarkdown">
+        <div class="markdown-body" x-html="fileView._html"></div>
+      </div>
+      <div class="markdown-preview" x-show="fileViewIsHtml">
+        <div class="markdown-body" x-html="fileView._html"></div>
+        <pre class="docx-extras" x-show="fileView._docxExtras"
+             x-text="fileView._docxExtras"></pre>
+      </div>
+      <div class="slides-preview" x-show="fileViewIsSlides">
+        <template x-for="slide in fileView._slides" :key="slide._key">
+          <div class="slide-page">
+            <div class="slide-svg" x-html="slide.svg"></div>
+            <div class="slide-number" x-text="slide.page"></div>
+          </div>
+        </template>
+      </div>
+      <div class="pdf-preview" x-show="fileViewIsPdf">
+        <div class="pdf-toolbar" x-show="pdfHasImage">
+          <button @click="pdfPrev">上一页</button>
+          <span class="note" x-text="pdfPageLabel"></span>
+          <button @click="pdfNext">下一页</button>
+          <span class="spacer"></span>
+          <input class="line-input" data-role="pdf-search"
+                 @input="onPdfSearchInput"
+                 @keydown.enter.prevent="pdfSearch" placeholder="搜索">
+          <button @click="pdfSearch">搜索</button>
+          <button @click="pdfSearchNext" x-show="pdfSearchHasHits">下一个</button>
+          <span class="note pdf-search-label" x-text="pdfSearchLabel"></span>
+          <button @click="pdfZoomOut">缩小</button>
+          <button @click="pdfZoomIn">放大</button>
+          <button @click="pdfToggleContinuous" x-text="pdfContinuousLabel"></button>
+        </div>
+        <div class="pdf-meta" x-show="pdfMetaText" x-text="pdfMetaText"></div>
+        <div class="pdf-outline" x-show="pdfHasOutline">
+          <template x-for="item in pdfOutlineItems" :key="item._key">
+            <button class="pdf-outline-item" :class="item._cls"
+                    data-action="pdf-outline" :data-page="item.page"
+                    @click="onAction" x-text="item._label"></button>
+          </template>
+        </div>
+        <div class="pdf-page" x-show="pdfSingleVisible">
+          <img class="pdf-canvas" :src="fileView._pdfImage" alt="PDF">
+          <div class="pdf-text-layer" x-html="fileView._pdfTextSvg"></div>
+        </div>
+        <div class="pdf-continuous" x-show="fileView._pdfContinuous"
+             @scroll="pdfContinuousScroll">
+          <div class="note" x-text="pdfContinuousProgress"></div>
+          <template x-for="p in fileView._pdfContinuousPages" :key="p.page">
+            <div class="pdf-page" :data-page="p.page">
+              <img class="pdf-canvas" :src="p.image" alt="PDF">
+              <div class="pdf-text-layer" x-html="p.svg"></div>
+            </div>
+          </template>
+        </div>
+        <iframe x-show="pdfHasFallback" :src="fileView._rawUrl" title="PDF"></iframe>
+      </div>
+      <div class="sheet-tabs" x-show="fileViewIsXlsx">
+        <template x-for="(sheet, index) in xlsxSheetTabs" :key="sheet.name">
+          <button class="sheet-tab" :class="sheet._cls"
+                  data-action="sheet-tab" :data-index="index"
+                  @click="onAction" x-text="sheet.name"></button>
+        </template>
+      </div>
+      <div class="xlsx-formula" x-show="xlsxFormulaText" x-text="xlsxFormulaText"></div>
+      <div class="document-preview" x-show="fileViewIsDocument">
+        <p class="document-note" x-show="fileViewNote" x-text="fileViewNote"></p>
+        <template x-for="block in documentBlocks" :key="block._key">
+          <section class="document-block">
+            <div class="document-anchor" x-text="block.anchor"></div>
+            <template x-if="block._isTable">
+              <div class="document-table-wrap" @scroll="xlsxScroll">
+                <div class="xlsx-spacer xlsx-spacer-top"></div>
+                <table class="document-table">
+                  <tbody>
+                    <template x-for="row in block._visibleRows" :key="row._key">
+                      <tr>
+                        <template x-for="(cell, cellIndex) in row.cells" :key="cellIndex">
+                          <td data-action="xlsx-cell" :data-row="row._index"
+                              :data-col="cellIndex" @click="onAction"
+                              x-text="cell"></td>
+                        </template>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <div class="xlsx-spacer xlsx-spacer-bottom"></div>
+              </div>
+            </template>
+            <template x-if="block._isImage">
+              <img class="document-image" :src="block._dataUrl" :alt="block.text">
+            </template>
+            <template x-if="block._isTextBlock">
+              <pre class="document-text" x-text="block.text"></pre>
+            </template>
+          </section>
+        </template>
+      </div>
+      <div class="unsupported-preview" x-show="fileViewIsUnsupported">
+        <p x-text="fileViewNote"></p>
       </div>
     </section>
 

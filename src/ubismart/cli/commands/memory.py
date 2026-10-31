@@ -6,8 +6,8 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from coding_agent.cli.context import AgentRuntime, console, get_settings
-from coding_agent.cli.options import _WORKSPACE_OPTION
+from ubismart.cli.context import AgentRuntime, console, get_settings
+from ubismart.cli.options import _WORKSPACE_OPTION
 
 
 def memory(

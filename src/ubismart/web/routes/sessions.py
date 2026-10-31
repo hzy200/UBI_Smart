@@ -11,18 +11,18 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 
-from coding_agent.identity.access import (
+from ubismart.identity.access import (
     ACCESS_READ_ONLY,
     ACCESS_WRITE_AUTO,
     clamp_access_mode,
     normalize_access_mode,
 )
-from coding_agent.identity.tenancy import TenantError, WebTenant
-from coding_agent.memory.sessions import SessionIndex
-from coding_agent.platform.observability import note_silent_failure
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
-from coding_agent.web.models import (
+from ubismart.identity.tenancy import TenantError, WebTenant
+from ubismart.memory.sessions import SessionIndex
+from ubismart.platform.observability import note_silent_failure
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
+from ubismart.web.models import (
     ModelRequest,
     RenameRequest,
     SessionConfig,
@@ -30,12 +30,12 @@ from coding_agent.web.models import (
     SessionMetaRequest,
     SessionRequest,
 )
-from coding_agent.web.transcripts import (
+from ubismart.web.transcripts import (
     clean_transcript,
     load_transcript,
     save_transcript,
 )
-from coding_agent.web.validation import check_thread_id
+from ubismart.web.validation import check_thread_id
 
 _LOG = logging.getLogger(__name__)
 

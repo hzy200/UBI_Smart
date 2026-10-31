@@ -10,11 +10,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
-from coding_agent.web.shares import build_share_payload, render_share_html
-from coding_agent.web.validation import check_thread_id
+from ubismart.identity.tenancy import WebTenant
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
+from ubismart.web.shares import build_share_payload, render_share_html
+from ubismart.web.validation import check_thread_id
 
 
 class ShareRequest(BaseModel):

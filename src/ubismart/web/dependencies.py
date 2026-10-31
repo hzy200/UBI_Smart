@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
 
-from coding_agent.web.auth import AuthConfig, AuthUser
+from ubismart.web.auth import AuthConfig, AuthUser
 
 
 def current_user(request: Request) -> AuthUser:

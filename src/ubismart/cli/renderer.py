@@ -12,7 +12,7 @@ from typing import Any
 from rich.console import Console
 from rich.markup import escape
 
-from coding_agent.events import (
+from ubismart.events import (
     AssistantToken,
     CostReport,
     FileChanged,
@@ -35,8 +35,8 @@ from coding_agent.events import (
     WorkerStarted,
     WorkflowSelected,
 )
-from coding_agent.protocol.terminal_text import sanitize_terminal_text
-from coding_agent.session.costs import CurrencyConfig
+from ubismart.protocol.terminal_text import sanitize_terminal_text
+from ubismart.session.costs import CurrencyConfig
 
 
 def _safe(value: object) -> str:

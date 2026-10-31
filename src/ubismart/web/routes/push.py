@@ -12,8 +12,8 @@ from typing import Any
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
 
 
 class SubscriptionKeys(BaseModel):

@@ -5,7 +5,7 @@
 
     {
       "version": "0.2.0",
-      "download_url": "https://example.com/CodingAgent-Setup.exe",
+      "download_url": "https://example.com/UBISmart-Setup.exe",
       "sha256": "...",
       "notes": "修复 ..."
     }
@@ -57,7 +57,7 @@ def check_update(
         }
     try:
         request = urllib.request.Request(
-            url, headers={"User-Agent": "CodingAgent-updater"}
+            url, headers={"User-Agent": "UBISmart-updater"}
         )
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read(256 * 1024).decode("utf-8"))

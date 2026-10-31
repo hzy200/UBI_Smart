@@ -1,10 +1,10 @@
-/* CodingAgent 应用外壳 Service Worker。
+/* UBISmart 应用外壳 Service Worker。
  *
  * 只缓存同源静态资源与首页；API、config、healthz、SSE 永远走网络，
  * 避免把认证数据或事件流写进缓存。
  */
 
-const CACHE = 'codingagent-shell-v3';
+const CACHE = 'codingagent-shell-v4';
 const SHELL = [
   '/',
   '/static/index.html',
@@ -19,6 +19,10 @@ const SHELL = [
   '/static/vendor/highlight.min.js',
   '/static/vendor/marked.min.js',
   '/static/vendor/purify.min.js',
+  '/static/vendor/mammoth.browser.min.js',
+  '/static/vendor/xlsx.full.min.js',
+  '/static/vendor/pdf.min.js',
+  '/static/vendor/pdf.worker.min.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -100,9 +104,9 @@ self.addEventListener('push', (event) => {
   try {
     payload = event.data ? event.data.json() : {};
   } catch (err) {
-    payload = { title: 'CodingAgent', body: '' };
+    payload = { title: 'UBISmart', body: '' };
   }
-  const title = String(payload.title || 'CodingAgent');
+  const title = String(payload.title || 'UBISmart');
   event.waitUntil(
     self.registration.showNotification(title, {
       body: String(payload.body || ''),

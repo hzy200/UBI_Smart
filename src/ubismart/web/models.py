@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from coding_agent.identity.access import ACCESS_READ_ONLY
+from ubismart.identity.access import ACCESS_READ_ONLY
 
 
 class RunRequest(BaseModel):

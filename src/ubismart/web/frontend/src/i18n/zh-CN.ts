@@ -716,9 +716,9 @@ export const zhCN = {
     clear: '清空通知',
     empty: '还没有通知',
     unread: '{count} 条未读',
-    runFinished: 'CodingAgent 运行完成',
-    runFailed: 'CodingAgent 运行失败',
-    approval: 'CodingAgent 需要审批',
+    runFinished: 'UBISmart 运行完成',
+    runFailed: 'UBISmart 运行失败',
+    approval: 'UBISmart 需要审批',
   },
 };
 

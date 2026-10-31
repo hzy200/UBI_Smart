@@ -16,21 +16,21 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.control.accounts import AccountError
-from coding_agent.control.approvals import SelfApprovalError
-from coding_agent.platform.observability import inc, snapshot
-from coding_agent.platform.secrets_store import SecretStoreUnavailable
-from coding_agent.protocol.sse_stream import sse_headers, with_heartbeat
-from coding_agent.session.costs import CurrencyConfig
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import (
+from ubismart.config import Settings
+from ubismart.control.accounts import AccountError
+from ubismart.control.approvals import SelfApprovalError
+from ubismart.platform.observability import inc, snapshot
+from ubismart.platform.secrets_store import SecretStoreUnavailable
+from ubismart.protocol.sse_stream import sse_headers, with_heartbeat
+from ubismart.session.costs import CurrencyConfig
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import (
     AdminDep,
     ApprovalReadDep,
     ApproverDep,
     AuditorDep,
 )
-from coding_agent.web.version import WEB_API_VERSION
+from ubismart.web.version import WEB_API_VERSION
 
 
 class CreateUserRequest(BaseModel):

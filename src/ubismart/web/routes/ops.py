@@ -11,12 +11,12 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from coding_agent.audit import read_records_many
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.memory.sessions import SessionIndex
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
-from coding_agent.web.validation import check_thread_id
+from ubismart.audit import read_records_many
+from ubismart.identity.tenancy import WebTenant
+from ubismart.memory.sessions import SessionIndex
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
+from ubismart.web.validation import check_thread_id
 
 _LOG = logging.getLogger(__name__)
 

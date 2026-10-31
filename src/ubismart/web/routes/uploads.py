@@ -12,12 +12,12 @@ from typing import Annotated, Any
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.control.idempotency import IdempotencyInFlight
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
-from coding_agent.web.validation import check_thread_id
+from ubismart.config import Settings
+from ubismart.control.idempotency import IdempotencyInFlight
+from ubismart.identity.tenancy import WebTenant
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
+from ubismart.web.validation import check_thread_id
 
 
 class UploadDeleteRequest(BaseModel):

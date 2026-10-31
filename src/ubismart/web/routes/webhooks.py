@@ -9,9 +9,9 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from coding_agent.control.webhooks import EVENTS, WebhookError
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import UserDep
+from ubismart.control.webhooks import EVENTS, WebhookError
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import UserDep
 
 
 class WebhookRequest(BaseModel):

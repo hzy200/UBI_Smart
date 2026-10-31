@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
-from coding_agent.config import Settings
+from ubismart.config import Settings
 
 _BEARER_PREFIX = "bearer "
 _USER_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
