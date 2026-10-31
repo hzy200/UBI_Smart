@@ -20,9 +20,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.artifacts import CallArtifact, ShellArtifact, pack
+from ubismart.config import Settings
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.artifacts import CallArtifact, ShellArtifact, pack
 
 RUN_TESTS_TOOL = "run_tests"
 

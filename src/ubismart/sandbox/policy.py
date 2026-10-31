@@ -20,12 +20,12 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
 
-from coding_agent.identity.access import (
+from ubismart.identity.access import (
     ACCESS_READ_ONLY,
     ACCESS_WRITE_ASK,
     ACCESS_WRITE_AUTO,
 )
-from coding_agent.security.read_policy import (
+from ubismart.security.read_policy import (
     is_protected_read_path,
     might_reference_secret,
 )

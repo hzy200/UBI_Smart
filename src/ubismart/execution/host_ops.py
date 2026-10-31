@@ -29,6 +29,10 @@ HOST_KINDS: dict[str, tuple[str, ...]] = {
     "git_patch_prepare": ("git add ", "git diff "),
     # 写 worker 前置检查脚本（一次进程完成多条只读 git 查询）
     "git_probe": ("inside=$(git",),
+    # 顺序写：读取主工作区 tracked/untracked 改动，生成基线补丁
+    "git_seed_probe": ("git diff ", "git ls-files "),
+    # 顺序写：在 worktree 内记录 seed 后的基线树（不移动 HEAD）
+    "git_seed_baseline": ("git add ", "git write-tree", "git reset"),
     # worktree 目录准备与清理
     "worktree_prepare": ("mkdir -p ",),
     "worktree_cleanup": ("rm -rf ",),

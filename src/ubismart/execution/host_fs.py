@@ -10,7 +10,7 @@ import base64
 from collections.abc import MutableMapping
 from typing import Any
 
-from coding_agent.execution.host_file_access import (
+from ubismart.execution.host_file_access import (
     CHUNK_BYTES,
     HostCallerProtocol,
     HostFileAccess,
@@ -18,8 +18,8 @@ from coding_agent.execution.host_file_access import (
     HostFileTooLarge,
     _relative,
 )
-from coding_agent.sandbox.fs import FileStat
-from coding_agent.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.fs import FileStat
+from ubismart.sandbox.pathguard import SandboxPathError
 
 
 class HostFs:

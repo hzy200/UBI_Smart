@@ -18,19 +18,19 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, StructuredTool
 
-from coding_agent.config import Settings
-from coding_agent.execution.file_access import FileAccess, SandboxFileAccess
-from coding_agent.platform.observability import note_silent_failure
-from coding_agent.protocol.diffing import count_changes, unified_diff
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError, SandboxFsTooLarge
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.security.read_policy import protected_read_reason
-from coding_agent.security.secrets import redact_secrets
-from coding_agent.security.write_policy import protected_write_reason
-from coding_agent.tools.artifacts import CallArtifact, FileArtifact, pack
-from coding_agent.tools.file_models import (
+from ubismart.config import Settings
+from ubismart.execution.file_access import FileAccess, SandboxFileAccess
+from ubismart.platform.observability import note_silent_failure
+from ubismart.protocol.diffing import count_changes, unified_diff
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError, SandboxFsTooLarge
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.security.read_policy import protected_read_reason
+from ubismart.security.secrets import redact_secrets
+from ubismart.security.write_policy import protected_write_reason
+from ubismart.tools.artifacts import CallArtifact, FileArtifact, pack
+from ubismart.tools.file_models import (
     DEFAULT_READ_LINES,
     CopyInput,
     DeleteInput,
@@ -43,10 +43,10 @@ from coding_agent.tools.file_models import (
     RestoreInput,
     WriteInput,
 )
-from coding_agent.tools.file_support import (
+from ubismart.tools.file_support import (
     _changed_since_read as _changed_since_read,
 )
-from coding_agent.tools.file_support import _relpath
+from ubismart.tools.file_support import _relpath
 
 READ_TOOL_NAME = "file_read"
 WRITE_TOOL_NAME = "file_write"

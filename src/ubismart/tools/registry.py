@@ -18,18 +18,22 @@ from typing import Any
 
 from langchain_core.tools import BaseTool
 
-from coding_agent.config import Settings, get_settings
-from coding_agent.sandbox.backend import build_sandbox
-from coding_agent.tools.artifacts import pack, unpack
-from coding_agent.tools.code_intel import build_code_intel_tool
-from coding_agent.tools.deps import build_deps_tools
-from coding_agent.tools.files import build_file_tools
-from coding_agent.tools.git import build_git_tools
-from coding_agent.tools.memory import build_memory_tools
-from coding_agent.tools.search import build_search_tools
-from coding_agent.tools.shell import build_shell_tool
-from coding_agent.tools.symbols import build_symbol_tool
-from coding_agent.tools.testrun import build_test_tool
+from ubismart.config import Settings, get_settings
+from ubismart.sandbox.backend import build_sandbox
+from ubismart.tools.artifacts import pack, unpack
+from ubismart.tools.code_intel import build_code_intel_tool
+from ubismart.tools.deps import build_deps_tools
+from ubismart.tools.documents import build_document_tools
+from ubismart.tools.files import build_file_tools
+from ubismart.tools.git import build_git_tools
+from ubismart.tools.knowledge import build_knowledge_tools
+from ubismart.tools.memory import build_memory_tools
+from ubismart.tools.report import build_report_tools
+from ubismart.tools.search import build_search_tools
+from ubismart.tools.shell import build_shell_tool
+from ubismart.tools.symbols import build_symbol_tool
+from ubismart.tools.testrun import build_test_tool
+from ubismart.tools.vision import build_vision_tools
 
 
 def build_tools(
@@ -79,6 +83,31 @@ def build_tools(
             snapshots=host_snapshots,
             root=host_root,
         )
+        host_tools += build_document_tools(
+            settings,
+            sandbox,
+            allow_write=host_write,
+            file_access=file_access,
+            fs=host_fs,
+            root=host_root,
+            snapshots=host_snapshots,
+        )
+        host_tools += build_vision_tools(
+            settings,
+            sandbox,
+            file_access=file_access,
+            fs=host_fs,
+            root=host_root,
+        )
+        host_tools += build_report_tools(
+            settings,
+            sandbox,
+            allow_write=host_write,
+            file_access=file_access,
+            fs=host_fs,
+            root=host_root,
+            snapshots=host_snapshots,
+        )
         host_tools += [
             tool
             for tool in build_search_tools(
@@ -92,7 +121,7 @@ def build_tools(
             and settings.host_broker_exec_enabled
             and profile not in {"untrusted", "production", "ops"}
         ):
-            from coding_agent.tools.host_exec import build_host_exec_tool
+            from ubismart.tools.host_exec import build_host_exec_tool
 
             host_tools.append(build_host_exec_tool(host_exec))
         return [_instrument(tool) for tool in host_tools]
@@ -107,6 +136,23 @@ def build_tools(
         allow_write=allow_write,
         write_scope=write_scope,
         read_cache=read_cache,
+        file_access=file_access,
+    )
+    tools += build_document_tools(
+        settings,
+        sandbox,
+        allow_write=allow_write,
+        write_scope=write_scope,
+        file_access=file_access,
+    )
+    tools += build_vision_tools(
+        settings, sandbox, file_access=file_access
+    )
+    tools += build_report_tools(
+        settings,
+        sandbox,
+        allow_write=allow_write,
+        write_scope=write_scope,
         file_access=file_access,
     )
     tools += build_memory_tools(
@@ -131,6 +177,11 @@ def build_tools(
         )
     )
     tools.append(build_test_tool(settings, sandbox))
+    if (
+        settings.deep_workflows_enabled
+        and settings.knowledge_artifacts_enabled
+    ):
+        tools += build_knowledge_tools(settings, sandbox)
     return [_instrument(tool) for tool in tools]
 
 

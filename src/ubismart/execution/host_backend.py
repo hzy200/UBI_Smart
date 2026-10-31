@@ -10,8 +10,8 @@ import base64
 import os
 from typing import Any, Protocol
 
-from coding_agent.execution.contracts import ExecutionError
-from coding_agent.execution.host_file_access import (
+from ubismart.execution.contracts import ExecutionError
+from ubismart.execution.host_file_access import (
     CHUNK_BYTES,
     HostFileAccess,
 )

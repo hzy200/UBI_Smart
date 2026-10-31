@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from coding_agent.config import Settings
-from coding_agent.platform.concurrency import SyncLeasePool
-from coding_agent.sandbox.local_exec import LocalLinuxSandbox
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.config import Settings
+from ubismart.platform.concurrency import SyncLeasePool
+from ubismart.sandbox.local_exec import LocalLinuxSandbox
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 
 def resolve_execution_backend(settings: Settings) -> str:

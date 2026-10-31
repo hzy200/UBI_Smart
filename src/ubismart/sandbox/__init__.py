@@ -1,7 +1,7 @@
-from coding_agent.sandbox.backend import build_sandbox
-from coding_agent.sandbox.fs import FileStat, SandboxFs, SandboxFsError
-from coding_agent.sandbox.local_exec import LocalLinuxSandbox
-from coding_agent.sandbox.pathguard import (
+from ubismart.sandbox.backend import build_sandbox
+from ubismart.sandbox.fs import FileStat, SandboxFs, SandboxFsError
+from ubismart.sandbox.local_exec import LocalLinuxSandbox
+from ubismart.sandbox.pathguard import (
     SandboxPathError,
     ensure_inside,
     looks_like_windows_path,
@@ -9,8 +9,8 @@ from coding_agent.sandbox.pathguard import (
     win_to_wsl,
     wsl_to_win,
 )
-from coding_agent.sandbox.policy import CommandLevel, Verdict, classify
-from coding_agent.sandbox.wsl_exec import (
+from ubismart.sandbox.policy import CommandLevel, Verdict, classify
+from ubismart.sandbox.wsl_exec import (
     ExecResult,
     WslSandbox,
     WslUnavailableError,

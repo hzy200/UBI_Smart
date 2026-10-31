@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.execution.context import current_tool_execution
-from coding_agent.execution.contracts import ExecutionRequest
-from coding_agent.execution.service import ExecutionService
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.execution.context import current_tool_execution
+from ubismart.execution.contracts import ExecutionRequest
+from ubismart.execution.service import ExecutionService
+from ubismart.sandbox.wsl_exec import ExecResult
 
 
 class ExecutionSandbox:

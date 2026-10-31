@@ -17,14 +17,14 @@ from dataclasses import dataclass
 from typing import TypeVar, cast
 from uuid import uuid4
 
-from coding_agent.config import Settings, get_settings
-from coding_agent.platform.concurrency import ResourceTimeout, SyncLeasePool
-from coding_agent.sandbox.limits import (
+from ubismart.config import Settings, get_settings
+from ubismart.platform.concurrency import ResourceTimeout, SyncLeasePool
+from ubismart.sandbox.limits import (
     TIMEOUT_EXIT_CODE,
     ResourceLimits,
     wrap_with_limits,
 )
-from coding_agent.sandbox.pathguard import normalize_root
+from ubismart.sandbox.pathguard import normalize_root
 
 # 外层 subprocess 比沙箱内的 timeout 多留一点余量，正常由内层先触发
 OUTER_TIMEOUT_GRACE = 10

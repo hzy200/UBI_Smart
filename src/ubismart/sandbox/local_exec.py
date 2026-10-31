@@ -15,15 +15,15 @@ import time
 from collections.abc import Callable
 from typing import TypeVar, cast
 
-from coding_agent.config import Settings, get_settings
-from coding_agent.platform.concurrency import SyncLeasePool
-from coding_agent.sandbox.limits import (
+from ubismart.config import Settings, get_settings
+from ubismart.platform.concurrency import SyncLeasePool
+from ubismart.sandbox.limits import (
     TIMEOUT_EXIT_CODE,
     ResourceLimits,
     wrap_with_limits,
 )
-from coding_agent.sandbox.pathguard import normalize_root
-from coding_agent.sandbox.wsl_exec import (
+from ubismart.sandbox.pathguard import normalize_root
+from ubismart.sandbox.wsl_exec import (
     OUTER_TIMEOUT_GRACE,
     ExecResult,
     build_bwrap_script,

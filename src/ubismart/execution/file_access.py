@@ -10,6 +10,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import posixpath
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -28,6 +29,8 @@ class FileAccess(Protocol):
     def stat(self, path: str) -> Any: ...
 
     def read_text(self, path: str, *, max_bytes: int) -> str: ...
+
+    def read_bytes(self, path: str, *, max_bytes: int) -> bytes: ...
 
     def list_dir(
         self, path: str, *, max_depth: int = 1, limit: int = 200
@@ -63,6 +66,9 @@ class SandboxFileAccess:
 
     def read_text(self, path: str, *, max_bytes: int) -> str:
         return self._fs.read_text(path, max_bytes=max_bytes)
+
+    def read_bytes(self, path: str, *, max_bytes: int) -> bytes:
+        return self._fs.read_bytes(path, max_bytes=max_bytes)
 
     def list_dir(
         self, path: str, *, max_depth: int = 1, limit: int = 200
@@ -122,3 +128,99 @@ class SandboxFileAccess:
                             break
         found.sort()
         return found[:cap]
+
+
+class LocalFileAccess:
+    """宿主本地目录的只读 FileAccess。
+
+    用于没有 WSL 沙箱、也没有 A2L 回调的场景（脚本、单测、宿主侧文档解析）。
+    与 SandboxFileAccess 的差别只有底层实现；路径语义保持一致：
+    入参是工作区相对路径，解析后必须仍在 root 内。
+    """
+
+    def __init__(self, root: str) -> None:
+        self.root = str(Path(root).resolve())
+
+    def _resolve(self, path: str) -> Path:
+        text = str(path or "").replace("\\", "/").strip()
+        if "\x00" in text or text.startswith("/"):
+            raise ValueError("路径必须是工作区内的相对路径")
+        candidate = Path(self.root, text).resolve()
+        try:
+            candidate.relative_to(self.root)
+        except ValueError as exc:
+            raise ValueError(f"路径不在工作区内：{path}") from exc
+        return candidate
+
+    def lexical(self, path: str) -> str:
+        return str(self._resolve(path))
+
+    def stat(self, path: str) -> dict[str, Any]:
+        target = self._resolve(path)
+        try:
+            info = target.lstat()
+        except OSError as exc:
+            return {"exists": False, "is_file": False, "size": 0, "error": str(exc)}
+        return {
+            "exists": info.st_size >= 0,
+            "is_file": target.is_file(),
+            "size": info.st_size,
+            "real_path": self.relative_to_root(str(target.resolve())),
+        }
+
+    def read_text(self, path: str, *, max_bytes: int) -> str:
+        return self.read_bytes(path, max_bytes=max_bytes).decode("utf-8")
+
+    def read_bytes(self, path: str, *, max_bytes: int) -> bytes:
+        target = self._resolve(path)
+        size = target.stat().st_size
+        if size > max_bytes:
+            raise ValueError(f"文件过大：{size} 字节（本次上限 {max_bytes} 字节）")
+        return target.read_bytes()
+
+    def list_dir(
+        self, path: str, *, max_depth: int = 1, limit: int = 200
+    ) -> list[tuple[str, str]]:
+        root = self._resolve(path)
+        rows: list[tuple[str, str]] = []
+        for current, dirs, files in os.walk(root, followlinks=False):
+            depth = len(Path(current).relative_to(root).parts)
+            if depth >= max_depth:
+                dirs[:] = []
+            for name in sorted(dirs):
+                child = Path(current, name)
+                rows.append(("d", self.relative_to_root(str(child))))
+            for name in sorted(files):
+                child = Path(current, name)
+                rows.append(("f", self.relative_to_root(str(child))))
+            if len(rows) >= limit:
+                break
+        return rows[:limit]
+
+    def find_files(
+        self,
+        pattern: str,
+        *,
+        path: str | None = None,
+        limit: int = 200,
+    ) -> list[str]:
+        root = self._resolve(path or ".")
+        found: list[str] = []
+        for target in root.rglob("*"):
+            if not target.is_file() or target.is_symlink():
+                continue
+            rel = self.relative_to_root(str(target))
+            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(target.name, pattern):
+                found.append(rel)
+                if len(found) >= limit:
+                    break
+        found.sort()
+        return found[:limit]
+
+    def relative_to_root(self, path: str) -> str:
+        target = Path(path).resolve()
+        root = Path(self.root)
+        try:
+            return target.relative_to(root).as_posix()
+        except ValueError as exc:
+            raise ValueError(f"路径不在工作区内：{path}") from exc

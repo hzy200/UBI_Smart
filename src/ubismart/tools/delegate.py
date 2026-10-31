@@ -13,11 +13,14 @@ from __future__ import annotations
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from coding_agent.tools.code_intel import CODE_INTEL
-from coding_agent.tools.files import LIST_TOOL_NAME, READ_TOOL_NAME
-from coding_agent.tools.memory import MEMORY_SEARCH
-from coding_agent.tools.search import FIND_FILES, SEARCH_CODE
-from coding_agent.tools.symbols import SYMBOL_SEARCH
+from ubismart.tools.code_intel import CODE_INTEL
+from ubismart.tools.documents import DOCUMENT_READ, PDF_PAGE_IMAGE
+from ubismart.tools.files import LIST_TOOL_NAME, READ_TOOL_NAME
+from ubismart.tools.knowledge import KNOWLEDGE_READ, KNOWLEDGE_SEARCH
+from ubismart.tools.memory import MEMORY_SEARCH
+from ubismart.tools.search import FIND_FILES, SEARCH_CODE
+from ubismart.tools.symbols import SYMBOL_SEARCH
+from ubismart.tools.vision import IMAGE_INSPECT
 
 DELEGATE_EXPLORE = "delegate_explore"
 
@@ -31,12 +34,17 @@ DELEGATE_EXPLORE = "delegate_explore"
 EXPLORE_TOOL_NAMES = frozenset(
     {
         READ_TOOL_NAME,
+        DOCUMENT_READ,
+        PDF_PAGE_IMAGE,
+        IMAGE_INSPECT,
         LIST_TOOL_NAME,
         SEARCH_CODE,
         FIND_FILES,
         SYMBOL_SEARCH,
         CODE_INTEL,
         MEMORY_SEARCH,
+        KNOWLEDGE_READ,
+        KNOWLEDGE_SEARCH,
     }
 )
 

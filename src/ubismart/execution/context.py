@@ -28,7 +28,7 @@ class ToolExecution:
 
 
 _CURRENT: ContextVar[ToolExecution | None] = ContextVar(
-    "coding_agent_tool_execution", default=None
+    "ubismart_tool_execution", default=None
 )
 
 

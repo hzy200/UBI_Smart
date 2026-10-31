@@ -106,6 +106,86 @@ class InterruptedArtifact(ToolArtifact):
     replayed: bool = False
 
 
+class DocumentArtifact(ToolArtifact):
+    """一次文档解析的产物。
+
+    只记录元数据与锚点统计，不记录文档正文 —— 正文已经在工具文本里，
+    审计/事件层需要的是「读了什么、读了多少、有没有截断」。
+    """
+
+    kind: Literal["document"] = "document"
+
+    path: str = ""
+    format: str = ""
+    ok: bool = False
+    rejected: bool = False
+    size: int = 0
+    sha256: str = ""
+    title: str = ""
+    pages: int = 0
+    sheets: int = 0
+    slides: int = 0
+    blocks: int = 0
+    chars: int = 0
+    truncated: bool = False
+    needs_ocr: bool = False
+    scanned_pages: int = 0
+    cached: bool = False
+    image_path: str = ""
+    image_paths: list[str] = Field(default_factory=list)
+    attachments: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class VisionArtifact(ToolArtifact):
+    """一次图像理解的产物。"""
+
+    kind: Literal["vision"] = "vision"
+
+    path: str = ""
+    ok: bool = False
+    rejected: bool = False
+    mime: str = ""
+    size: int = 0
+    width: int = 0
+    height: int = 0
+    description: str = ""
+    findings: list[str] = Field(default_factory=list)
+    error: str = ""
+
+
+class DocumentEditArtifact(FileArtifact):
+    """一次 Office 文档编辑的产物。
+
+    继承 FileArtifact，复用 create/overwrite 的 FileChanged 事件与审计桥。
+    编辑只写新路径，因此 action 固定为 create。
+    """
+
+    kind: Literal["document_edit"] = "document_edit"
+    format: str = ""
+    operations: int = 0
+    replacements: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ReportArtifact(FileArtifact):
+    """报告导出/校验的产物。
+
+    继承 FileArtifact，让报告写入复用既有的 FileChanged 事件与审计桥；
+    `action` 由导出工具设为 create/overwrite。校验产物使用 action="read"，
+    不会触发文件变更事件。
+    """
+
+    kind: Literal["report"] = "report"
+
+    # FileArtifact 已有 path / ok / rejected / snapshot_id 等字段。
+    format: str = ""
+    size: int = 0
+    pages: int = 0
+    font: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+
 class SubAgentArtifact(ToolArtifact):
     """一次子智能体运行的产物。
 
@@ -126,6 +206,8 @@ class SubAgentArtifact(ToolArtifact):
     summary: str = ""
     relevant_files: list[str] = Field(default_factory=list)
     findings: list[str] = Field(default_factory=list)
+    # file:line 证据；宿主在回灌主模型前已校验路径存在。
+    citations: list[dict[str, Any]] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     recommended_next_steps: list[str] = Field(default_factory=list)
     # Phase 4D：只读 worker 建议追加的任务（host 会校验/去重/限量）。
@@ -145,6 +227,10 @@ _ARTIFACT_TYPES: dict[str, type[ToolArtifact]] = {
     "file": FileArtifact,
     "call": CallArtifact,
     "interrupted": InterruptedArtifact,
+    "document": DocumentArtifact,
+    "document_edit": DocumentEditArtifact,
+    "vision": VisionArtifact,
+    "report": ReportArtifact,
     "subagent": SubAgentArtifact,
 }
 

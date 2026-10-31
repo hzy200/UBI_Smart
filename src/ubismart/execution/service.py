@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
-from coding_agent.execution.contracts import (
+from ubismart.execution.contracts import (
     ExecutionBackend,
     ExecutionConflict,
     ExecutionError,
@@ -19,9 +19,9 @@ from coding_agent.execution.contracts import (
     ExecutionResult,
     normalize_execution_target,
 )
-from coding_agent.execution.host_ops import HOST_ORIGIN, host_run
-from coding_agent.sandbox.pathguard import ensure_inside
-from coding_agent.workspace.model import normalize_workspace_kind
+from ubismart.execution.host_ops import HOST_ORIGIN, host_run
+from ubismart.sandbox.pathguard import ensure_inside
+from ubismart.workspace.model import normalize_workspace_kind
 
 DEFAULT_MAX_READ_BYTES = 1024 * 1024
 

@@ -9,12 +9,12 @@ from __future__ import annotations
 import base64
 from typing import Any
 
-from coding_agent.execution.host_file_access import (
+from ubismart.execution.host_file_access import (
     CHUNK_BYTES,
     HostCallerProtocol,
     _relative,
 )
-from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
+from ubismart.sandbox.snapshots import RestoreResult, SnapshotEntry
 
 
 class HostSnapshotStore:

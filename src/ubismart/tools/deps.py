@@ -19,10 +19,10 @@ import time
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.policy import CommandLevel
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.artifacts import ShellArtifact, pack
+from ubismart.config import Settings
+from ubismart.sandbox.policy import CommandLevel
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.artifacts import ShellArtifact, pack
 
 DEPS_INSTALL = "deps_install"
 DEPS_LIST = "deps_list"

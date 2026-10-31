@@ -20,37 +20,37 @@ import re
 import time
 from collections.abc import Iterable, Mapping, MutableMapping
 
-from coding_agent.sandbox.fs_scripts import (
+from ubismart.sandbox.fs_scripts import (
     WRITE_RETRY_ATTEMPTS as _WRITE_RETRY_ATTEMPTS,
 )
-from coding_agent.sandbox.fs_scripts import (
+from ubismart.sandbox.fs_scripts import (
     WRITE_RETRY_DELAYS as _WRITE_RETRY_DELAYS,
 )
-from coding_agent.sandbox.fs_scripts import (
+from ubismart.sandbox.fs_scripts import (
     FileStat,
     SandboxFsError,
     SandboxFsTooLarge,
     parse_stat,
     stat_script,
 )
-from coding_agent.sandbox.fs_scripts import (
+from ubismart.sandbox.fs_scripts import (
     is_retryable_write_failure as _is_retryable_write_failure,
 )
-from coding_agent.sandbox.fs_scripts import (
+from ubismart.sandbox.fs_scripts import (
     parse_kv as _parse_kv,
 )
-from coding_agent.sandbox.fs_scripts import (
+from ubismart.sandbox.fs_scripts import (
     quote as _quote,
 )
-from coding_agent.sandbox.fs_scripts import (
+from ubismart.sandbox.fs_scripts import (
     wrap as _wrap,
 )
-from coding_agent.sandbox.pathguard import (
+from ubismart.sandbox.pathguard import (
     SandboxPathError,
     ensure_inside,
     is_within,
 )
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 # `collect_sources` 的返回标记：脚本最后一行是 `标记 + json`。
 SOURCES_MARKER = "AGENT_INDEX_JSON:"

@@ -15,9 +15,9 @@ import re
 import shlex
 from dataclasses import dataclass
 
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 # 拼进 `command -v` 的名字：只允许普通命令名，杜绝空格/分隔符/重定向。
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.+-]{1,64}$")

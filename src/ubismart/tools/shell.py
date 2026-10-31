@@ -15,13 +15,13 @@ from collections.abc import MutableMapping
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
-from coding_agent.sandbox.pathguard import SandboxPathError, ensure_inside
-from coding_agent.sandbox.policy import CommandLevel, classify
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.security.secrets import redact_secrets
-from coding_agent.tools.artifacts import ShellArtifact, pack
+from ubismart.config import Settings
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError
+from ubismart.sandbox.pathguard import SandboxPathError, ensure_inside
+from ubismart.sandbox.policy import CommandLevel, classify
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.security.secrets import redact_secrets
+from ubismart.tools.artifacts import ShellArtifact, pack
 
 SHELL_TOOL_NAME = "shell_exec"
 

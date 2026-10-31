@@ -8,19 +8,19 @@ import time
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from coding_agent.codeintel.lsp import (
+from ubismart.codeintel.lsp import (
     LspClient,
     command_from_settings,
 )
-from coding_agent.codeintel.python_index import collect_python_sources
-from coding_agent.codeintel.symbols import (
+from ubismart.codeintel.python_index import collect_python_sources
+from ubismart.codeintel.symbols import (
     Symbol,
     extract_symbols,
     render_symbols,
 )
-from coding_agent.config import Settings
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.artifacts import CallArtifact, pack
+from ubismart.config import Settings
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.artifacts import CallArtifact, pack
 
 SYMBOL_SEARCH = "symbol_search"
 

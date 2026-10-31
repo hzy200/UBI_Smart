@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
-from coding_agent.workspace.model import WorkspaceKind
+from ubismart.workspace.model import WorkspaceKind
 
 ExecutionTarget = Literal["auto", "host", "sandbox"]
 

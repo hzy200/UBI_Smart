@@ -20,14 +20,14 @@ import shlex
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.pathguard import SandboxPathError, ensure_inside, is_within
-from coding_agent.sandbox.policy import CommandLevel
-from coding_agent.sandbox.snapshots import AGENT_STATE_DIRNAME
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.security.read_policy import protected_read_reason
-from coding_agent.security.secrets import redact_secrets
-from coding_agent.tools.artifacts import ShellArtifact, pack
+from ubismart.config import Settings
+from ubismart.sandbox.pathguard import SandboxPathError, ensure_inside, is_within
+from ubismart.sandbox.policy import CommandLevel
+from ubismart.sandbox.snapshots import AGENT_STATE_DIRNAME
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.security.read_policy import protected_read_reason
+from ubismart.security.secrets import redact_secrets
+from ubismart.tools.artifacts import ShellArtifact, pack
 
 GIT_STATUS = "git_status"
 GIT_DIFF = "git_diff"

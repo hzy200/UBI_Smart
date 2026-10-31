@@ -17,8 +17,8 @@ from collections.abc import MutableMapping
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.memory.longterm import (
+from ubismart.config import Settings
+from ubismart.memory.longterm import (
     MAX_FACT_CHARS,
     MAX_FACTS,
     LayeredMemory,
@@ -27,10 +27,10 @@ from coding_agent.memory.longterm import (
     resolve_global_memory_root,
     resolve_memory_root,
 )
-from coding_agent.memory.semantic import wrap_memory
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox, resolve_workspace
-from coding_agent.tools.artifacts import CallArtifact, pack
+from ubismart.memory.semantic import wrap_memory
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox, resolve_workspace
+from ubismart.tools.artifacts import CallArtifact, pack
 
 MEMORY_SEARCH = "memory_search"
 MEMORY_SAVE = "memory_save"

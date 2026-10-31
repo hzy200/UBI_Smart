@@ -13,8 +13,8 @@ from typing import Any
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from coding_agent.security.secrets import redact_secrets
-from coding_agent.tools.artifacts import CallArtifact, pack
+from ubismart.security.secrets import redact_secrets
+from ubismart.tools.artifacts import CallArtifact, pack
 
 HOST_EXEC_TOOL_NAME = "host_exec"
 

@@ -38,8 +38,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from coding_agent.sandbox.snapshots import ABSENT_SUFFIX, BACKUP_DIRNAME
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.sandbox.snapshots import ABSENT_SUFFIX, BACKUP_DIRNAME
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 BLOCKING = "blocking"
 WARNING = "warning"

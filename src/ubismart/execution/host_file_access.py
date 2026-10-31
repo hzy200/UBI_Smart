@@ -11,8 +11,8 @@ import os
 from collections.abc import MutableMapping
 from typing import Any, Protocol
 
-from coding_agent.sandbox.fs import SandboxFsError, SandboxFsTooLarge
-from coding_agent.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.fs import SandboxFsError, SandboxFsTooLarge
+from ubismart.sandbox.pathguard import SandboxPathError
 
 # 单帧上限 1 MiB；512 KiB 原始字节 base64 后约 683 KiB，仍留有余量。
 # 与服务端 ops.MAX_CHUNK_BYTES 对齐：1 MB 文件从 5 次 RPC 降到 3 次。

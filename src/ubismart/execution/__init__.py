@@ -4,7 +4,7 @@
 逐步迁移，当前先提供进程内适配与 run/文件读写契约。
 """
 
-from coding_agent.execution.contracts import (
+from ubismart.execution.contracts import (
     ExecutionBackend,
     ExecutionConflict,
     ExecutionRequest,
@@ -12,16 +12,16 @@ from coding_agent.execution.contracts import (
     ExecutionTarget,
     normalize_execution_target,
 )
-from coding_agent.execution.file_access import FileAccess, SandboxFileAccess
-from coding_agent.execution.host_backend import (
+from ubismart.execution.file_access import FileAccess, SandboxFileAccess
+from ubismart.execution.host_backend import (
     HostCaller,
     HostCallError,
     HostExecutionBackend,
 )
-from coding_agent.execution.host_file_access import HostFileAccess
-from coding_agent.execution.sandbox_backend import SandboxExecutionBackend
-from coding_agent.execution.sandbox_proxy import ExecutionSandbox
-from coding_agent.execution.service import ExecutionService
+from ubismart.execution.host_file_access import HostFileAccess
+from ubismart.execution.sandbox_backend import SandboxExecutionBackend
+from ubismart.execution.sandbox_proxy import ExecutionSandbox
+from ubismart.execution.service import ExecutionService
 
 __all__ = [
     "ExecutionBackend",
