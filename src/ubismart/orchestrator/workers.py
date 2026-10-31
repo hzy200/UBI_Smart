@@ -14,22 +14,23 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from coding_agent.agents.explore import DelegateRunner
-from coding_agent.config import Settings
-from coding_agent.identity.instructions import load_project_instructions
-from coding_agent.memory.longterm import (
+from ubismart.agents.explore import DelegateRunner
+from ubismart.config import Settings
+from ubismart.identity.instructions import load_project_instructions
+from ubismart.memory.longterm import (
     LayeredMemory,
     LongTermMemory,
     resolve_global_memory_root,
     resolve_memory_root,
 )
-from coding_agent.memory.semantic import wrap_memory
-from coding_agent.orchestrator.contracts import WorkerResult
-from coding_agent.orchestrator.implement import ImplementRunner
-from coding_agent.orchestrator.retry import format_retry_context
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.tools.testrun import run_verification
+from ubismart.memory.semantic import wrap_memory
+from ubismart.orchestrator.contracts import WorkerResult
+from ubismart.orchestrator.implement import ImplementRunner
+from ubismart.orchestrator.retry import format_retry_context
+from ubismart.platform.read_cache import ReadCache
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox
+from ubismart.tools.testrun import run_verification
 
 WorkerRunner = Callable[..., Awaitable[WorkerResult]]
 
@@ -39,21 +40,34 @@ def make_worker_runner(
     explore_runner: DelegateRunner | None,
     review_runner: DelegateRunner | None = None,
     implement_runner: ImplementRunner | None = None,
+    explore_fallback_runner: DelegateRunner | None = None,
+    review_fallback_runner: DelegateRunner | None = None,
+    implement_fallback_runner: ImplementRunner | None = None,
+    document_runner: Callable[..., Awaitable[WorkerResult]] | None = None,
+    vision_runner: Callable[..., Awaitable[WorkerResult]] | None = None,
+    author_runner: Callable[..., Awaitable[WorkerResult]] | None = None,
+    report_review_runner: Callable[..., Awaitable[WorkerResult]] | None = None,
     sandbox: WslSandbox,
     root: str,
     memory_top_k: int = 8,
     settings: Settings | None = None,
 ) -> WorkerRunner:
     # 并发 worker 共享同一份记忆读取；只读文件，不持有业务状态。
+    # 这里用**独立的** ReadCache：工作区与记忆根目录的相对路径可能同名
+    # （例如都有一个 AGENTS.md），与主 agent 的 workspace cache 混用会串内容。
+    # implement worker 则在独立 worktree 中，内容可能与主工作区不同，保留各自缓存。
     effective = settings or Settings(_env_file=None)
+    memory_cache = ReadCache(effective.read_cache_max_bytes)
     memory_root = resolve_memory_root(effective, sandbox, root)
     project_memory = LongTermMemory(
-        SandboxFs(sandbox, memory_root), root, state_root=memory_root
+        SandboxFs(sandbox, memory_root, cache=memory_cache),
+        root,
+        state_root=memory_root,
     )
     global_root = resolve_global_memory_root(effective, sandbox)
     global_memory = (
         LongTermMemory(
-            SandboxFs(sandbox, global_root),
+            SandboxFs(sandbox, global_root, cache=memory_cache),
             global_root,
             state_root=global_root,
         )
@@ -96,6 +110,7 @@ def make_worker_runner(
         cwd: str,
         config: RunnableConfig | None = None,
         cancel: Callable[[], bool] | None = None,
+        dependency_context: dict[str, Any] | None = None,
     ) -> WorkerResult:
         task_id = str(task.get("id", ""))
         role = str(task.get("role", "explore"))
@@ -103,9 +118,31 @@ def make_worker_runner(
         retry_note = format_retry_context(task)
         worker_id = f"{role}:{task_id}"
         memories = _memories(task, parent_request)
+        escalate = bool(task.get("escalate"))
 
         if role in {"explore", "review"}:
+            report_inputs = any(
+                str(item).lower().endswith((".md", ".docx", ".pdf"))
+                for item in (task.get("inputs") or [])
+            )
+            if role == "review" and report_inputs and report_review_runner is not None:
+                return await report_review_runner(
+                    task,
+                    parent_request=parent_request,
+                    session_brief=session_brief,
+                    cwd=cwd,
+                    config=config,
+                    cancel=cancel,
+                    dependency_context=dependency_context or {},
+                )
             runner = explore_runner if role == "explore" else review_runner
+            fallback = (
+                explore_fallback_runner
+                if role == "explore"
+                else review_fallback_runner
+            )
+            if escalate and fallback is not None:
+                runner = fallback
             if runner is None:
                 return WorkerResult(
                     task_id=task_id,
@@ -140,6 +177,7 @@ def make_worker_runner(
                 summary=artifact.summary,
                 files=list(artifact.relevant_files),
                 findings=list(artifact.findings),
+                citations=list(artifact.citations),
                 proposed_tasks=list(artifact.proposed_tasks),
                 input_tokens=artifact.input_tokens,
                 output_tokens=artifact.output_tokens,
@@ -158,7 +196,10 @@ def make_worker_runner(
             )
 
         if role == "implement":
-            if implement_runner is None:
+            active_runner = implement_runner
+            if escalate and implement_fallback_runner is not None:
+                active_runner = implement_fallback_runner
+            if active_runner is None:
                 return WorkerResult(
                     task_id=task_id,
                     role=role,
@@ -167,13 +208,40 @@ def make_worker_runner(
                     status="failed",
                     summary="实现 worker 未配置（需要开启写编排 + --write + 干净 git 仓库）",
                 )
-            return await implement_runner(
+            return await active_runner(
                 task,
                 parent_request=parent_request,
                 cwd=cwd,
                 config=config,
                 cancel=cancel,
                 session_brief=session_brief,
+                memories=memories,
+                instructions=_instructions(),
+            )
+
+        if role in {"document", "vision", "author"}:
+            runner = {
+                "document": document_runner,
+                "vision": vision_runner,
+                "author": author_runner,
+            }.get(role)
+            if runner is None:
+                return WorkerResult(
+                    task_id=task_id,
+                    role=role,
+                    worker_id=worker_id,
+                    goal=goal,
+                    status="failed",
+                    summary=f"{role} worker 未配置",
+                )
+            return await runner(
+                task,
+                parent_request=parent_request,
+                session_brief=session_brief,
+                cwd=cwd,
+                config=config,
+                cancel=cancel,
+                dependency_context=dependency_context or {},
                 memories=memories,
                 instructions=_instructions(),
             )

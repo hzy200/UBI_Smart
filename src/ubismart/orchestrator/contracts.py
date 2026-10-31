@@ -11,7 +11,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-TaskRole = Literal["explore", "test", "review", "implement"]
+TaskRole = Literal[
+    "explore", "test", "review", "implement", "document", "vision", "author"
+]
 WorkerStatus = Literal["success", "partial", "failed", "blocked", "cancelled"]
 
 
@@ -45,6 +47,17 @@ class TaskSpec(BaseModel):
     max_tokens: int | None = None
     # 宿主可覆盖的调度优先级（越大越先启动）；模型给出的值会被 clamp。
     priority: int | None = None
+    # 阶段屏障：高 stage 的汇总/撰写任务必须等低 stage 任务收敛。
+    stage: int = Field(default=0, ge=0)
+    # 报告交付：md/docx/pdf；仅 author 使用。
+    output_format: str = ""
+    output_path: str = ""
+    # 可选报告模板：工作区相对路径或内联模板。
+    template: str = ""
+    # author/review 的必需章节；report_check 会校验缺失。
+    required_sections: list[str] = Field(default_factory=list)
+    # document/vision 任务的证据来源（path + anchor）。
+    sources: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class TaskGraph(BaseModel):
@@ -55,7 +68,11 @@ class TaskGraph(BaseModel):
 
 class WorkflowDecision(BaseModel):
     workflow: Literal[
-        "direct", "parallel_readonly", "orchestrated_implement"
+        "direct",
+        "parallel_readonly",
+        "orchestrated_implement",
+        "document_pipeline",
+        "architecture_change",
     ] = "direct"
     reason: str = ""
 
@@ -69,8 +86,20 @@ class WorkerResult(BaseModel):
     summary: str = ""
     files: list[str] = Field(default_factory=list)
     findings: list[str] = Field(default_factory=list)
+    # 只读 worker 提供的 file:line 证据；宿主已校验路径存在。
+    citations: list[dict[str, Any]] = Field(default_factory=list)
     # 只读 worker 建议追加的任务；由 extend_tasks 统一校验后进入 pending。
     proposed_tasks: list[dict[str, Any]] = Field(default_factory=list)
+    # 文档/图片 worker 产出的证据锚点，供 fan-in 与 author 使用。
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    # 文档覆盖报告：{status, documents:[{path,pages,read_ranges,unread,reason}]}。
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    # 每篇文档的固定槽位矩阵：problem/method/algorithm/experiments/...
+    matrix: list[dict[str, Any]] = Field(default_factory=list)
+    # 跨文档归属校验：{mentioned:[path], cited:[path], text:"..."}
+    attribution_issues: list[dict[str, Any]] = Field(default_factory=list)
+    output_format: str = ""
+    output_path: str = ""
     verification: dict[str, Any] = Field(default_factory=dict)
     input_tokens: int = 0
     output_tokens: int = 0
@@ -90,6 +119,11 @@ class WorkerResult(BaseModel):
     # ---- Phase 5：调度 / 成本 / 审计指标 ----
     # 从进入 ready 队列到真正拿到并发槽位的等待时间。
     queue_wait_ms: int = 0
+    # 从 worker 完成到补丁真正合并进主工作区的等待时间。
+    merge_wait_ms: int = 0
+    # 顺序写/修复轮注入 worktree 的基线文件与字节数（审计用）。
+    seed_files: list[str] = Field(default_factory=list)
+    seed_bytes: int = 0
     # LLM 与工具分别占用的时间；用于定位成本/延迟来源。
     llm_ms: int = 0
     tool_ms: int = 0
@@ -105,3 +139,5 @@ class WorkerResult(BaseModel):
     priority: int = 0
     # 本任务实际消耗的预算摘要（tokens / rounds / seconds）。
     budget_used: dict[str, int] = Field(default_factory=dict)
+    # 结果来自 worker journal（上次运行已完成），本次没有重新执行。
+    reused: bool = False

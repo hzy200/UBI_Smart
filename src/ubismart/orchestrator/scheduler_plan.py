@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.orchestrator.contracts import WorkerResult
+from ubismart.orchestrator.contracts import WorkerResult
 
 
 def deps_met(task: dict[str, Any], status: dict[str, str]) -> bool:
@@ -44,9 +44,13 @@ def wire_implement_dependents(tasks: list[dict[str, Any]]) -> None:
     for task in tasks:
         if task.get("role") not in {"test", "review"}:
             continue
-        if task.get("depends_on"):
-            continue
-        task["depends_on"] = list(implement_ids)
+        # 保留模型给出的既有依赖（例如先 explore 再 review），同时补上
+        # implement。否则 review 可能在补丁合并前就启动，看到旧代码。
+        deps = [str(dep) for dep in (task.get("depends_on") or [])]
+        for implement_id in implement_ids:
+            if implement_id not in deps:
+                deps.append(implement_id)
+        task["depends_on"] = deps
         task["depends_mode"] = "any"
 
 

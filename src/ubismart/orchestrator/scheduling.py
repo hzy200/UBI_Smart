@@ -11,13 +11,31 @@ import time
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from ubismart.session.recovery import (
+    FATAL,
+    SEMANTIC,
+    classify_failure_text,
+)
+
 # 角色默认优先级（越大越先启动）。任务可用 `priority` 覆盖。
-ROLE_PRIORITY = {"implement": 30, "test": 20, "review": 20, "explore": 10}
+ROLE_PRIORITY = {
+    # 文档管线：先并行提取，再汇总/撰写/校验。
+    "document": 40,
+    "vision": 35,
+    "implement": 30,
+    "test": 20,
+    "author": 15,
+    "review": 14,
+    "explore": 10,
+}
 
 # 派发前的 token 预留估计。真实用量在 worker 返回后结算；这里只需要一个
 # 保守上界，避免把预算全部押在一个大任务上。
 ROLE_TOKEN_RESERVE = {
     "implement": 8_000,
+    "document": 6_000,
+    "author": 4_000,
+    "vision": 3_000,
     "review": 3_000,
     "explore": 2_000,
     "test": 500,
@@ -30,6 +48,19 @@ _RATE_LIMIT_HINTS = (
     "too many requests",
     "quota",
     "overloaded",
+)
+
+# 这些失败由任务/环境的前置条件决定，重试同一份输入只会再烧一次预算。
+# 只列明确文案；其它失败默认仍可重试，避免把瞬时错误误判成终态。
+_NON_RETRYABLE_HINTS = (
+    "没有 write_scope",
+    "write_scope 外",
+    "不是 git 仓库",
+    "不是 git 仓库根目录",
+    "还没有 HEAD",
+    "有未提交改动",
+    "worker 未配置",
+    "拒绝执行",
 )
 
 
@@ -73,6 +104,18 @@ def is_rate_limited(record: dict[str, Any]) -> bool:
     return any(hint in text for hint in _RATE_LIMIT_HINTS)
 
 
+def is_retryable(record: Mapping[str, Any]) -> bool:
+    """确定性/语义/致命失败不重试；瞬时、环境与未知失败可重试。
+
+    文本分类与 `session/recovery.py` 同源，避免 orchestrator 维护另一份
+    口径而把「上下文超长」「认证失败」这类确定性错误再烧一轮预算。
+    """
+    text = f"{record.get('summary', '')} {record.get('error', '')}".lower()
+    if any(hint in text for hint in _NON_RETRYABLE_HINTS):
+        return False
+    return classify_failure_text(text) not in {SEMANTIC, FATAL}
+
+
 def usage_tokens(record: dict[str, Any]) -> int:
     return int(record.get("input_tokens") or 0) + int(
         record.get("output_tokens") or 0
@@ -93,10 +136,30 @@ def ewma_usage(
     最近一次结果权重最高。调度器只需一个保守的派发前估算，真实用量
     在 worker 返回后由 `TokenBudget.settle` 结算。
     """
+    # 只采信成功/部分成功的结果：失败或早停的 worker 往往只用了很少 token，
+    # 把它们算进来会系统性低估预留，导致预算超卖。同一任务重试时只取最新
+    # 一次尝试，但保留它在原序列中的位置，让 EWMA 的“越新权重越高”仍然成立。
+    chosen: dict[str, tuple[int, int, int]] = {}
+    for index, result in enumerate(results):
+        if str(result.get("role", "")) != role:
+            continue
+        if str(result.get("status", "")) not in {"success", "partial"}:
+            continue
+        usage = usage_tokens(result)
+        if usage <= 0:
+            continue
+        task_id = str(result.get("task_id") or f"__idx{index}")
+        try:
+            attempt = int(result.get("attempt", 1) or 1)
+        except (TypeError, ValueError):
+            attempt = 1
+        previous = chosen.get(task_id)
+        if previous is None or attempt >= previous[0]:
+            chosen[task_id] = (attempt, index, usage)
     samples = [
-        usage_tokens(result)
-        for result in results
-        if str(result.get("role", "")) == role and usage_tokens(result) > 0
+        usage for _attempt, _index, usage in sorted(
+            chosen.values(), key=lambda item: item[1]
+        )
     ]
     if not samples:
         return 0

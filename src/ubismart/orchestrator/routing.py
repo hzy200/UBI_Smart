@@ -13,6 +13,11 @@ def route_after_select(state: dict[str, Any]) -> str:
     return (
         "plan_tasks"
         if state.get("workflow")
-        in {"parallel_readonly", "orchestrated_implement"}
+        in {
+            "parallel_readonly",
+            "orchestrated_implement",
+            "document_pipeline",
+            "architecture_change",
+        }
         else "planner"
     )

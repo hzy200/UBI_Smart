@@ -15,9 +15,9 @@ import posixpath
 import re
 from typing import Any
 
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 ARTIFACT_DIRNAME = ".agent/artifacts"
 MAX_ARTIFACT_CHARS = 200_000

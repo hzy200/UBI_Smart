@@ -14,12 +14,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
-from coding_agent.config import Settings
-from coding_agent.graph.state import AgentState
-from coding_agent.orchestrator.artifacts import ArtifactStore, make_run_id
-from coding_agent.orchestrator.graph import mark_blocked
-from coding_agent.protocol.messages import text_of
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.config import Settings
+from ubismart.graph.state import AgentState
+from ubismart.orchestrator.artifacts import ArtifactStore, make_run_id
+from ubismart.orchestrator.graph import mark_blocked
+from ubismart.protocol.messages import text_of
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 _FANIN_STATUS_ORDER = {
     "failed": 0,
@@ -69,6 +69,13 @@ def _handoff_entry(
         "findings": [
             str(item) for item in (result.get("findings") or [])[:10]
         ],
+        "sources": [
+            dict(item)
+            for item in (result.get("sources") or [])[:50]
+            if isinstance(item, dict)
+        ],
+        "output_format": str(result.get("output_format") or ""),
+        "output_path": str(result.get("output_path") or ""),
         "verification_status": str(verification.get("status") or ""),
         "verification_summary": str(
             verification.get("summary") or ""
@@ -79,6 +86,11 @@ def _handoff_entry(
         "input_tokens": int(result.get("input_tokens") or 0),
         "output_tokens": int(result.get("output_tokens") or 0),
         "duration_ms": int(result.get("duration_ms") or 0),
+        "merge_wait_ms": int(result.get("merge_wait_ms") or 0),
+        "seed_files": [
+            str(item) for item in (result.get("seed_files") or [])[:50]
+        ],
+        "seed_bytes": int(result.get("seed_bytes") or 0),
         "timed_out": bool(result.get("timed_out")),
         "scope_violations": [
             str(item) for item in (result.get("scope_violations") or [])[:20]
@@ -196,6 +208,17 @@ def make_synthesize_node(
                 block_lines.append(
                     "  发现：" + "；".join(str(f) for f in findings[:5])
                 )
+            sources = result.get("sources") or []
+            if sources:
+                rendered = []
+                for source in sources[:8]:
+                    if not isinstance(source, dict):
+                        continue
+                    rendered.append(
+                        f"{source.get('path', '')}#{source.get('anchor', '')}"
+                    )
+                if rendered:
+                    block_lines.append("  引用：" + "、".join(rendered))
             block = "\n".join(block_lines)
             artifact = artifact_by_key.get((str(task_id), attempt), "")
             artifact_line = (
@@ -207,14 +230,15 @@ def make_synthesize_node(
             blocks.append(block + artifact_line)
 
         head = [
-            "[编排器汇总]"
-            + (
-                "\n注意：以下实现任务已由 worker 完成并合并到主工作区；"
-                "优先验证与最小修复，不要重做已完成部分。"
-                if merged_count
-                else ""
-            )
+            "[编排器汇总]\n"
+            "注意：以下为 worker 已确认的只读事实；"
+            "直接据此规划与实现，不要重复探索。"
         ]
+        if merged_count:
+            head[0] += (
+                "\n以下实现任务已由 worker 完成并合并到主工作区；"
+                "优先验证与最小修复，不要重做已完成部分。"
+            )
         if overlaps:
             head.append("多 worker 关注同一文件：")
             for path, task_ids in list(overlaps.items())[:10]:

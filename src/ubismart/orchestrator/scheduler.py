@@ -24,13 +24,13 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from coding_agent.config import Settings
-from coding_agent.orchestrator.workers import WorkerRunner
-from coding_agent.platform.concurrency import (
+from ubismart.config import Settings
+from ubismart.orchestrator.workers import WorkerRunner
+from ubismart.platform.concurrency import (
     ConcurrencyGovernor,
 )
-from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.session.steering import SteeringController
+from ubismart.sandbox.wsl_exec import WslSandbox
+from ubismart.session.steering import SteeringController
 
 SCHEDULER = "scheduler"
 
@@ -43,11 +43,14 @@ def make_scheduler_node(
     root: str = "",
     steering: SteeringController | None = None,
     governor: ConcurrencyGovernor | None = None,
+    patch_reviewer: (
+        Callable[[dict[str, Any], str, RunnableConfig | None], Any] | None
+    ) = None,
 ) -> Callable[[dict[str, Any], RunnableConfig], Any]:
     async def scheduler(
         state: dict[str, Any], config: RunnableConfig
     ) -> dict[str, Any]:
-        from coding_agent.orchestrator.scheduler_run import SchedulerRun
+        from ubismart.orchestrator.scheduler_run import SchedulerRun
 
         run = SchedulerRun(
             state,
@@ -58,6 +61,7 @@ def make_scheduler_node(
             root=root,
             steering=steering,
             governor=governor,
+            patch_reviewer=patch_reviewer,
         )
         return await run.run()
 

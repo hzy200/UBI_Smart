@@ -10,8 +10,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from coding_agent.orchestrator.merge import merge_implement_patches_atomic
-from coding_agent.orchestrator.merge_journal import MergeJournal
+from ubismart.orchestrator.merge import (
+    merge_implement_patches_atomic,
+    select_mergeable_components,
+)
+from ubismart.orchestrator.merge_journal import MergeJournal
 
 Finalize = Callable[[dict[str, Any]], None]
 
@@ -33,6 +36,22 @@ class MergeQueue:
     def add(self, record: dict[str, Any]) -> None:
         """加入待合并批次；真正的合并等到没有 implement 在飞时。"""
         self._pending.append(record)
+
+    def drop(self, records: list[dict[str, Any]]) -> None:
+        """移除已由调用方处理过的记录（例如审查拒绝并已 finalize）。
+
+        不负责 finalize —— 审查路径需要先把 findings/事件写进记录再调用。
+        """
+        task_ids = {
+            str(record.get("task_id", "")) for record in records
+        }
+        if not task_ids:
+            return
+        self._pending = [
+            record
+            for record in self._pending
+            if str(record.get("task_id", "")) not in task_ids
+        ]
 
     def discard(self, reason: str, finalize: Finalize) -> None:
         """取消/失败路径：未合并的补丁一律丢弃。"""
@@ -65,6 +84,36 @@ class MergeQueue:
             if task_id in in_flight
         )
 
+    def take_mergeable(
+        self,
+        *,
+        blocked_paths: set[str],
+        paths_by_task: dict[str, list[str]],
+    ) -> list[dict[str, Any]]:
+        """取出与在飞路径不相交的完整分量；路径不全时返回空（保守回退）。"""
+        if not self._pending:
+            return []
+        task_ids = {
+            str(record.get("task_id", "")) for record in self._pending
+        }
+        # 任一补丁路径未知都无法证明不相交；交给调用方等整批 flush。
+        if any(not paths_by_task.get(task_id) for task_id in task_ids):
+            return []
+        selected = select_mergeable_components(
+            self._pending, paths_by_task, blocked_paths
+        )
+        if not selected:
+            return []
+        selected_ids = {
+            str(record.get("task_id", "")) for record in selected
+        }
+        self._pending = [
+            record
+            for record in self._pending
+            if str(record.get("task_id", "")) not in selected_ids
+        ]
+        return selected
+
     async def flush(
         self,
         *,
@@ -73,11 +122,36 @@ class MergeQueue:
         allow_overlap: bool,
         finalize: Finalize,
     ) -> bool:
-        """原子合并当前批次；返回是否真的有补丁落进主工作区。"""
-        if not self._pending:
+        """原子合并当前全部待合并批次；返回是否真有补丁落进主工作区。"""
+        return await self.flush_records(
+            list(self._pending),
+            sandbox=sandbox,
+            root=root,
+            allow_overlap=allow_overlap,
+            finalize=finalize,
+        )
+
+    async def flush_records(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        sandbox: Any,
+        root: str,
+        allow_overlap: bool,
+        finalize: Finalize,
+    ) -> bool:
+        """合并指定记录（增量批次）；未选中的记录留在 pending。"""
+        if not records:
             return False
-        batch = list(self._pending)
-        self._pending.clear()
+        batch = list(records)
+        selected_ids = {
+            str(record.get("task_id", "")) for record in batch
+        }
+        self._pending = [
+            record
+            for record in self._pending
+            if str(record.get("task_id", "")) not in selected_ids
+        ]
         if sandbox is None or not root:
             for record in batch:
                 finalize(record)

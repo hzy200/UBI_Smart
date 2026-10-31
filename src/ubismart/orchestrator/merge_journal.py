@@ -24,7 +24,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from coding_agent.sandbox.fs import SandboxFs
+from ubismart.sandbox.fs import SandboxFs
 
 JOURNAL_REL_PATH = ".agent/merge-journal.json"
 

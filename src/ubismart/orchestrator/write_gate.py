@@ -15,8 +15,8 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
-from coding_agent.config import Settings
-from coding_agent.graph.state import AgentState
+from ubismart.config import Settings
+from ubismart.graph.state import AgentState
 
 WRITE_GATE = "write_gate"
 
@@ -29,7 +29,10 @@ def make_write_gate_node(
     ) -> dict[str, Any]:
         if not settings.orchestrator_write_plan_approval:
             return {}
-        if state.get("workflow") != "orchestrated_implement":
+        if state.get("workflow") not in {
+            "orchestrated_implement",
+            "architecture_change",
+        }:
             return {}
         status = dict(state.get("task_status") or {})
         implement = [

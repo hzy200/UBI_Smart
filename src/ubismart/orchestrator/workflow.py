@@ -14,19 +14,29 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from coding_agent.config import Settings
-from coding_agent.graph.state import AgentState
-from coding_agent.llm.deepseek import with_json_output
-from coding_agent.orchestrator.contracts import TaskSpec, WorkflowDecision
-from coding_agent.orchestrator.state import request_of
-from coding_agent.session.recovery import retry_async
+from ubismart.config import Settings
+from ubismart.graph.state import AgentState
+from ubismart.llm.deepseek import with_json_output
+from ubismart.orchestrator.contracts import TaskSpec, WorkflowDecision
+from ubismart.orchestrator.parallelism import (
+    dedupe_readonly_tasks,
+    worth_parallelizing,
+)
+from ubismart.orchestrator.state import request_of
+from ubismart.orchestrator.survey import compact_repo_summary
+from ubismart.orchestrator.workflow_builder import build_dynamic_plan
+from ubismart.session.recovery import retry_async
 
 
 class WorkflowPlan(BaseModel):
     """工作流选择 + 任务图一次返回，避免模糊请求付两次 LLM 往返。"""
 
     workflow: Literal[
-        "direct", "parallel_readonly", "orchestrated_implement"
+        "direct",
+        "parallel_readonly",
+        "orchestrated_implement",
+        "document_pipeline",
+        "architecture_change",
     ] = "direct"
     reason: str = ""
     tasks: list[TaskSpec] = Field(default_factory=list)
@@ -50,8 +60,30 @@ _MULTI_HINTS = (
     "都要",
 )
 
+_DOCUMENT_HINTS = (
+    "pdf",
+    "word",
+    "docx",
+    "excel",
+    "xlsx",
+    "xls",
+    "ppt",
+    "pptx",
+    "markdown",
+    "文档",
+    "报告",
+    "提炼",
+    "总结",
+    "归纳",
+    "图片",
+    "图像",
+    "截图",
+    "扫描件",
+    "表格",
+)
+
 WORKFLOW_PROMPT = """\
-你是编码智能体的编排器。根据用户请求和仓库画像，在三种工作流中选择：
+你是编码智能体的编排器。根据用户请求和仓库画像，在四种工作流中选择：
 
 - `direct`：单 agent 直接执行。适合单点修改、单一功能线、小范围任务。
 - `parallel_readonly`：先生成 2–4 个只读子任务（explore/test/review），并发收集
@@ -60,13 +92,17 @@ WORKFLOW_PROMPT = """\
 - `orchestrated_implement`：生成多个**互相独立**的 implement 任务，各自在 git
   worktree 中并发修改，最后由宿主合并补丁。仅在写编排已开启、工作区是干净的
   git 仓库、且任务能拆成**写范围不重叠**的独立块时选择。
+- `document_pipeline`：阅读 PDF/Office/图片，按文档并行提取，再用 author 写报告。
+  适用于上传了文档/图片、或请求明确要求提炼/总结/撰写报告。写权限不可用时
+  仍可运行，只是不生成报告文件。
 
 判断要保守：如果一条功能线是连贯的、改几个文件就能完成，选 `direct`；
 只有确实能拆成互不依赖的区域时才选并行模板。写任务之间不能有依赖，
 write_scope 不能重叠。
 
 只输出 JSON：
-{"workflow": "direct|parallel_readonly|orchestrated_implement", "reason": "一句话"}
+{"workflow": "direct|parallel_readonly|orchestrated_implement|document_pipeline",
+ "reason": "一句话"}
 """
 
 
@@ -78,6 +114,21 @@ def rule_workflow(
     write_available: bool = False,
 ) -> WorkflowDecision | None:
     """返回确定性的选择；None 表示规则不确定，交给模型。"""
+    lowered = request.lower()
+    uploads = [str(item) for item in (summary.get("uploads") or [])]
+    pipeline_enabled = bool(
+        getattr(settings, "document_pipeline_enabled", True)
+    )
+    if pipeline_enabled and (
+        uploads or any(hint in lowered for hint in _DOCUMENT_HINTS)
+    ):
+        return WorkflowDecision(
+            workflow="document_pipeline",
+            reason=(
+                "请求涉及文档/图片阅读或报告撰写"
+                + (f"（本会话有 {len(uploads)} 个上传）" if uploads else "")
+            ),
+        )
     file_count = int(summary.get("file_count") or 0)
     if not file_count or file_count < settings.orchestrator_min_files:
         return WorkflowDecision(
@@ -100,9 +151,9 @@ def rule_workflow(
 def make_select_workflow_node(
     llm: BaseChatModel, settings: Settings, *, allow_write: bool = False
 ) -> Callable[[AgentState, RunnableConfig], Awaitable[dict[str, Any]]]:
-    structured = with_json_output(llm, WorkflowPlan).with_retry(
-        stop_after_attempt=2
-    )
+    # 重试统一由外层 retry_async 负责；内层再 with_retry 会乘出
+    # 2 × retry_attempts 次调用，既不省时也不省钱。
+    structured = with_json_output(llm, WorkflowPlan)
 
     async def select_workflow(
         state: AgentState, config: RunnableConfig
@@ -111,13 +162,48 @@ def make_select_workflow_node(
         summary = state.get("repo_summary") or {}
         session_brief = str(state.get("session_brief") or "").strip()
         recovery_notice = str(state.get("recovery_notice") or "").strip()
+        fix_mode = bool(state.get("orchestrator_fix_mode"))
         write_available = bool(
             settings.orchestrator_write_enabled
             and allow_write
             and summary.get("git")
             and summary.get("git_root")
-            and summary.get("git_clean")
+            and (summary.get("git_clean") or fix_mode)
         )
+        forced = str(state.get("force_workflow") or "").strip()
+        if forced in {
+            "direct",
+            "parallel_readonly",
+            "orchestrated_implement",
+            "document_pipeline",
+            "architecture_change",
+        }:
+            if forced == "orchestrated_implement" and not write_available:
+                forced = "parallel_readonly"
+            return {
+                "workflow": forced,
+                "workflow_reason": "修复轮强制工作流",
+                "prefetched_tasks": [],
+                "prefetched_degraded": False,
+                "force_workflow": "",
+                "transient_retries": 0,
+            }
+        built = build_dynamic_plan(
+            request,
+            summary,
+            settings,
+            write_available=write_available,
+        )
+        if built is not None:
+            return {
+                "workflow": built["workflow"],
+                "workflow_reason": built["reason"],
+                "prefetched_tasks": built["tasks"],
+                "prefetched_degraded": False,
+                "force_workflow": "",
+                "transient_retries": 0,
+            }
+
         decision = rule_workflow(
             request, summary, settings, write_available=write_available
         )
@@ -128,14 +214,23 @@ def make_select_workflow_node(
         if decision is None:
             # 规则不确定时一次调用同时拿到 workflow 和任务图，省掉
             # select → plan 的第二次 LLM 往返。
-            from coding_agent.orchestrator.plan import (
+            from ubismart.orchestrator.plan import (
                 _IMPLEMENT_ROLE_NOTES,
                 _IMPLEMENT_RULES,
+                _NO_SEQUENTIAL_WRITE_RULES,
                 _READ_ONLY_ROLE_NOTES,
                 _READ_ONLY_RULES,
+                _SEQUENTIAL_WRITE_RULES,
                 PLAN_TASKS_PROMPT,
             )
 
+            write_rules = _READ_ONLY_RULES
+            if write_available:
+                write_rules = _IMPLEMENT_RULES + "\n" + (
+                    _SEQUENTIAL_WRITE_RULES
+                    if settings.orchestrator_sequential_writes
+                    else _NO_SEQUENTIAL_WRITE_RULES
+                )
             task_prompt = PLAN_TASKS_PROMPT.format(
                 max_tasks=settings.orchestrator_max_tasks,
                 role_notes=(
@@ -143,12 +238,15 @@ def make_select_workflow_node(
                     if write_available
                     else _READ_ONLY_ROLE_NOTES
                 ),
-                write_rules=(
-                    _IMPLEMENT_RULES
-                    if write_available
-                    else _READ_ONLY_RULES
-                ),
+                write_rules=write_rules,
             )
+            workflow_prompt = WORKFLOW_PROMPT
+            if settings.orchestrator_sequential_writes:
+                workflow_prompt += (
+                    "\n写任务允许按 stage 分波：后一波 implement 可以依赖"
+                    " stage 更小的 implement；同一 stage 仍必须写范围不重叠"
+                    "且不能互相依赖。"
+                )
             body = (
                 f"用户请求：{request}\n\n"
                 + (
@@ -162,10 +260,10 @@ def make_select_workflow_node(
                     if recovery_notice
                     else ""
                 )
-                + f"仓库画像：{summary}\n\n"
+                + f"仓库画像：{compact_repo_summary(summary)}\n\n"
                 "请先选择 workflow，再给出任务图。"
                 "输出 JSON："
-                '{"workflow": "direct|parallel_readonly|orchestrated_implement",'
+                '{"workflow": "direct|parallel_readonly|orchestrated_implement|document_pipeline",'
                 ' "reason": "一句话", "tasks": [...]}'
             )
             try:
@@ -173,7 +271,7 @@ def make_select_workflow_node(
                     lambda: structured.ainvoke(
                         [
                             SystemMessage(
-                                content=WORKFLOW_PROMPT + "\n\n" + task_prompt
+                                content=workflow_prompt + "\n\n" + task_prompt
                             ),
                             HumanMessage(content=body),
                         ],
@@ -202,6 +300,33 @@ def make_select_workflow_node(
             decision = WorkflowDecision(
                 workflow="direct", reason="工作流选择失败，回退 direct"
             )
+
+        # 预取任务先去重；完全相同的只读任务没有必要各跑一个 worker。
+        if prefetched:
+            prefetched, deduped = dedupe_readonly_tasks(prefetched)
+            if deduped:
+                decision = WorkflowDecision(
+                    workflow=decision.workflow,
+                    reason=(
+                        f"{decision.reason}；去重只读任务 {len(deduped)} 个"
+                    ).strip("；"),
+                )
+        # 链式任务的并行收益接近 1：走 direct 更便宜，也不会更慢。
+        if (
+            decision.workflow == "parallel_readonly"
+            and prefetched
+            and not worth_parallelizing(
+                prefetched, settings.orchestrator_min_parallel_gain
+            )
+        ):
+            decision = WorkflowDecision(
+                workflow="direct",
+                reason=(
+                    f"并行收益不足（{len(prefetched)} 个任务的关键路径"
+                    f"接近串行），回退 direct"
+                ),
+            )
+            prefetched = []
 
         # 模型可能无视条件选择写模板；这里做硬性兜底。
         if decision.workflow == "orchestrated_implement" and not write_available:

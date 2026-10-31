@@ -17,7 +17,7 @@ from typing import Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 
-from coding_agent.protocol.messages import last_human_text
+from ubismart.protocol.messages import last_human_text
 
 
 class OrchestratorState(TypedDict, total=False):
@@ -34,6 +34,8 @@ class OrchestratorState(TypedDict, total=False):
 
     # ---- survey / select / plan ----
     repo_summary: dict[str, Any]
+    # 知识产物 run 作用域（RFC-0009）；未开启时为空。
+    knowledge_run_id: str
     workflow: str
     workflow_reason: str
     prefetched_tasks: list[dict[str, Any]]
@@ -43,6 +45,12 @@ class OrchestratorState(TypedDict, total=False):
     task_attempts: dict[str, int]
     orchestrator_degraded: bool
     orchestrator_round: int
+    # 任务图的并行收益预估（只读/观测用；决策在 workflow/plan 阶段完成）。
+    orchestrator_parallel_width: int
+    orchestrator_parallel_gain: float
+    # 跨模块变更契约与波次 gate 结果（RFC-0009 / ADR-0031）。
+    change_contract: dict[str, Any]
+    wave_gates: list[dict[str, Any]]
     # 瞬时错误重试次数；与父图同名，runtime 统一累加。
     transient_retries: int
     workflow_revised_reason: str
@@ -58,6 +66,13 @@ class OrchestratorState(TypedDict, total=False):
     task_extensions_seen: int
     task_extensions_applied: list[dict[str, Any]]
     task_extension_errors: list[str]
+
+    # ---- 修复轮（RFC-0008）----
+    orchestrator_fix_eligible: bool
+    orchestrator_fix_mode: bool
+    orchestrator_fix_rounds_used: int
+    orchestrator_fix_request: str
+    force_workflow: str
 
     # ---- fan-in ----
     worker_context: str
@@ -79,6 +94,14 @@ class OrchestratorState(TypedDict, total=False):
     scheduler_done: bool
     scheduler_continue: bool
     scheduler_deadline: float
+    # 孤儿 worktree 清理是 run 级动作；checkpoint 边界重入 scheduler 时
+    # 不再重复扫描/删除。
+    worktrees_pruned: bool
+    # 已成功合并到主工作区的文件路径；顺序写的 stage>0 worker 用它做
+    # 基线注入与脏文件归属校验。
+    merged_paths: list[str]
+    # 本 run 的合并批次审计（最近 20 批）：任务 id、是否增量、合并结果。
+    merge_batches: list[dict[str, Any]]
     # 自适应并发/退避状态（墙钟 + 计数），跨 checkpoint 边界保留。
     scheduler_rate_limit: dict[str, float]
     token_budget_limit: int

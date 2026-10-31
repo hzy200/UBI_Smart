@@ -12,39 +12,44 @@ stream 上报事件。`write_gate` 默认 no-op，只在显式开启写计划审
 
 from __future__ import annotations
 
+from typing import Any
+
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.config import Settings
+from ubismart.config import Settings
 
 # 与 graph/nodes/steering.py 的节点工厂同名，避免两套 steering 语义。
-from coding_agent.graph.nodes.steering import (
+from ubismart.graph.nodes.steering import (
     make_steering_dispatch_node,
     make_steering_plan_node,
 )
-from coding_agent.graph.routing import (
+from ubismart.graph.routing import (
     PLAN_TASKS,
     STEERING_DISPATCH,
     STEERING_PLAN,
     SYNTHESIZE,
     route_after_steering_plan,
 )
-from coding_agent.graph.routing import WRITE_GATE as WRITE_GATE_NODE
-from coding_agent.orchestrator.fanin import make_fan_in_node
-from coding_agent.orchestrator.plan import make_plan_tasks_node
-from coding_agent.orchestrator.routing import route_after_select
-from coding_agent.orchestrator.scheduler import SCHEDULER, make_scheduler_node
-from coding_agent.orchestrator.state import OrchestratorState
-from coding_agent.orchestrator.survey import make_survey_node
-from coding_agent.orchestrator.workers import WorkerRunner
-from coding_agent.orchestrator.workflow import make_select_workflow_node
-from coding_agent.orchestrator.write_gate import (
+from ubismart.graph.routing import WRITE_GATE as WRITE_GATE_NODE
+from ubismart.orchestrator.fanin import make_fan_in_node
+from ubismart.orchestrator.plan import make_plan_tasks_node
+from ubismart.orchestrator.routing import route_after_select
+from ubismart.orchestrator.scheduler import SCHEDULER, make_scheduler_node
+from ubismart.orchestrator.state import OrchestratorState
+from ubismart.orchestrator.survey import (
+    build_repo_map_summary,
+    make_survey_node,
+)
+from ubismart.orchestrator.workers import WorkerRunner
+from ubismart.orchestrator.workflow import make_select_workflow_node
+from ubismart.orchestrator.write_gate import (
     WRITE_GATE,
     make_write_gate_node,
 )
-from coding_agent.platform.concurrency import ConcurrencyGovernor
-from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.session.steering import SteeringController
+from ubismart.platform.concurrency import ConcurrencyGovernor
+from ubismart.sandbox.wsl_exec import WslSandbox
+from ubismart.session.steering import SteeringController
 
 
 def _route_after_scheduler_gate(state: OrchestratorState) -> str:
@@ -70,18 +75,33 @@ def build_orchestrator_subgraph(
     steering: SteeringController,
     allow_write: bool = False,
     governor: ConcurrencyGovernor | None = None,
+    planning_llm: BaseChatModel | None = None,
+    patch_reviewer: Any = None,
 ):
     """组装并编译独立子图。checkpointer 由父图持有。"""
     graph = StateGraph(OrchestratorState)
+    planner_llm = planning_llm or llm
+    repo_map_builder = None
+    if bool(getattr(settings, "orchestrator_repo_map_lazy", False)):
+        repo_map_builder = lambda: build_repo_map_summary(  # noqa: E731
+            sandbox, root, settings
+        )
 
     graph.add_node("survey", make_survey_node(sandbox, root, settings))
     graph.add_node(
         "select_workflow",
-        make_select_workflow_node(llm, settings, allow_write=allow_write),
+        make_select_workflow_node(
+            planner_llm, settings, allow_write=allow_write
+        ),
     )
     graph.add_node(
         PLAN_TASKS,
-        make_plan_tasks_node(llm, settings, allow_write=allow_write),
+        make_plan_tasks_node(
+            planner_llm,
+            settings,
+            allow_write=allow_write,
+            repo_map_builder=repo_map_builder,
+        ),
     )
     graph.add_node(
         STEERING_PLAN,
@@ -101,6 +121,7 @@ def build_orchestrator_subgraph(
             root=root,
             steering=steering,
             governor=governor,
+            patch_reviewer=patch_reviewer,
         ),
     )
     graph.add_node(

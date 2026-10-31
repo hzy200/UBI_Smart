@@ -14,11 +14,11 @@ import shlex
 from typing import Any
 from uuid import uuid4
 
-from coding_agent.execution.contracts import ExecutionRequest
-from coding_agent.execution.host_ops import HOST_ORIGIN, host_run
-from coding_agent.sandbox.fs import SandboxFs, SandboxFsError, SandboxPathError
-from coding_agent.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
-from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
+from ubismart.execution.contracts import ExecutionRequest
+from ubismart.execution.host_ops import HOST_ORIGIN, host_run
+from ubismart.sandbox.fs import SandboxFs, SandboxFsError, SandboxPathError
+from ubismart.sandbox.snapshots import MAX_OPERATIONAL_BYTES, SnapshotStore
+from ubismart.sandbox.wsl_exec import ExecResult, WslSandbox
 
 
 def _git(
@@ -383,6 +383,63 @@ def _patch_components(
         seen.add(root_id)
         ordered.append(grouped[root_id])
     return ordered
+
+
+def preflight_patch_paths(
+    sandbox: WslSandbox, patch_path: str, root: str
+) -> tuple[list[str], str]:
+    """只解析补丁会碰到的路径，不做 apply。
+
+    给增量合并判定用：拿不到路径时调用方必须回退到整批 flush，不能猜。
+    """
+    return _patch_paths(sandbox, patch_path, root)
+
+
+def _paths_conflict(paths: set[str], blocked: set[str]) -> bool:
+    """文件路径与"文件或目录"阻塞集合是否相交。"""
+    for path in paths:
+        for item in blocked:
+            normalized = item.rstrip("/")
+            if not normalized:
+                continue
+            if path == normalized:
+                return True
+            if path.startswith(normalized + "/"):
+                return True
+            if normalized.startswith(path.rstrip("/") + "/"):
+                return True
+    return False
+
+
+def select_mergeable_components(
+    records: list[dict[str, Any]],
+    paths_by_task: dict[str, list[str]],
+    blocked_paths: set[str],
+) -> list[dict[str, Any]]:
+    """选出与在飞路径不相交的完整连通分量。
+
+    分量内部共享文件，必须整组一起走；只选分量的一部分会让后续补丁
+    在未 3-way 的情况下覆盖前一条。`paths_by_task` 缺任一记录时调用方
+    应先回退整批，这里只处理路径齐全的情况。
+    """
+    # `paths_by_task` 可能还带着已合并/已移除任务的缓存；分量算法只认
+    # 当前 records，多余的 task_id 会让 union-find 找不到节点。
+    record_ids = {str(record.get("task_id", "")) for record in records}
+    paths_by_task = {
+        task_id: paths
+        for task_id, paths in paths_by_task.items()
+        if task_id in record_ids
+    }
+    selected: list[dict[str, Any]] = []
+    for component in _patch_components(records, paths_by_task):
+        component_paths: set[str] = set()
+        for record in component:
+            component_paths.update(
+                paths_by_task.get(str(record.get("task_id", "")), [])
+            )
+        if not _paths_conflict(component_paths, blocked_paths):
+            selected.extend(component)
+    return selected
 
 
 async def _merge_component(

@@ -27,27 +27,27 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
-from coding_agent.codeintel.python_index import (
+from ubismart.codeintel.python_index import (
     build_index,
     collect_python_sources,
     related_test_files,
 )
-from coding_agent.config import Settings
-from coding_agent.execution.context import tool_execution_context
-from coding_agent.execution.host_ops import HOST_ORIGIN, host_run
-from coding_agent.llm.prompts import (
+from ubismart.config import Settings
+from ubismart.execution.context import tool_execution_context
+from ubismart.execution.host_ops import HOST_ORIGIN, host_run
+from ubismart.llm.prompts import (
     IMPLEMENT_WORKER_PROMPT,
     format_verification_feedback,
 )
-from coding_agent.orchestrator.contracts import WorkerResult
-from coding_agent.orchestrator.retry import format_retry_context
-from coding_agent.platform.read_cache import ReadCache
-from coding_agent.protocol.messages import text_of
-from coding_agent.sandbox.fs import SandboxFs
-from coding_agent.sandbox.wsl_exec import WslSandbox
-from coding_agent.session.recovery import retry_async
-from coding_agent.tools.artifacts import unpack
-from coding_agent.tools.files import (
+from ubismart.orchestrator.contracts import WorkerResult
+from ubismart.orchestrator.retry import format_retry_context
+from ubismart.platform.read_cache import ReadCache
+from ubismart.protocol.messages import text_of
+from ubismart.sandbox.fs import SandboxFs
+from ubismart.sandbox.wsl_exec import WslSandbox
+from ubismart.session.recovery import retry_async
+from ubismart.tools.artifacts import unpack
+from ubismart.tools.files import (
     COPY_TOOL_NAME,
     EDIT_MANY_TOOL_NAME,
     EDIT_TOOL_NAME,
@@ -57,9 +57,9 @@ from coding_agent.tools.files import (
     READ_TOOL_NAME,
     WRITE_TOOL_NAME,
 )
-from coding_agent.tools.registry import build_tools
-from coding_agent.tools.search import FIND_FILES, SEARCH_CODE
-from coding_agent.tools.testrun import run_verification
+from ubismart.tools.registry import build_tools
+from ubismart.tools.search import FIND_FILES, SEARCH_CODE
+from ubismart.tools.testrun import run_verification
 
 # 注意：**不含 file_delete**。删除在主管道路径是 L2（逐条确认），而 worker
 # 直接调用工具、不经过 approval_gate；把它留给主 agent，避免并发写 worker
@@ -165,11 +165,51 @@ def prune_orphan_worktrees(sandbox: WslSandbox, root: str) -> None:
         return
 
 
-def _git_ready(sandbox: WslSandbox, root: str) -> tuple[bool, str]:
+def _workspace_changed_paths(
+    sandbox: WslSandbox, root: str
+) -> set[str] | None:
+    """主工作区当前改动路径；读取失败返回 None（调用方 fail closed）。"""
+    excludes = stage_args()
+    tracked = host_run(
+        sandbox,
+        f"git diff --name-only -z HEAD -- . {excludes}",
+        origin=HOST_ORIGIN,
+        kind="git_seed_probe",
+        cwd=root,
+    )
+    untracked = host_run(
+        sandbox,
+        f"git ls-files --others --exclude-standard -z -- . {excludes}",
+        origin=HOST_ORIGIN,
+        kind="git_seed_probe",
+        cwd=root,
+    )
+    if not tracked.ok and not untracked.ok:
+        return None
+    paths: set[str] = set()
+    for result in (tracked, untracked):
+        if not result.ok:
+            continue
+        for item in result.stdout.split("\0"):
+            text = item.strip()
+            if text:
+                paths.add(text)
+    return paths
+
+
+def _git_ready(
+    sandbox: WslSandbox,
+    root: str,
+    *,
+    allow_dirty_paths: set[str] | None = None,
+) -> tuple[bool, str]:
     """一次 wsl.exe 完成 worktree 前置检查。
 
     原先拆成 5 条命令，4 个 implement worker 并发时就是 20 次进程启动；
     检查项本身不变，只是合并成一次脚本。
+
+    顺序写进入第二波时主工作区必然是 dirty；此时只允许"本 run 已合并路径"
+    造成的脏改动，其它路径一律拒绝（fail closed）。
     """
     script = f"""\
 inside=$(git rev-parse --is-inside-work-tree 2>/dev/null)
@@ -207,11 +247,25 @@ if [ -z "$dirty" ]; then echo "CLEAN=1"; else echo "CLEAN=0"; fi
     # `.agent/` 里是 worktree、patch、快照等 agent 自己的产物；并发 worker
     # 互相看到对方刚创建的 worktree 是正常现象，不能据此判定"用户工作区脏"。
     if flags.get("CLEAN") != "1":
-        return False, "工作区有未提交改动，写 worker 已禁用"
+        if allow_dirty_paths is None:
+            return False, "工作区有未提交改动，写 worker 已禁用"
+        actual = _workspace_changed_paths(sandbox, root)
+        if actual is None:
+            return False, "无法读取工作区改动，写 worker 已拒绝"
+        extra = sorted(actual - set(allow_dirty_paths))
+        if extra:
+            preview = "、".join(extra[:5])
+            more = f" 等 {len(extra)} 个" if len(extra) > 5 else ""
+            return False, (
+                "工作区存在不属于本次已合并结果的改动，"
+                f"写 worker 已拒绝：{preview}{more}"
+            )
     return True, ""
 
 
-def _changed_files(sandbox: WslSandbox, worktree: str) -> list[str]:
+def _changed_files(
+    sandbox: WslSandbox, worktree: str, base_ref: str = "HEAD"
+) -> list[str]:
     """本 worker 改动过的路径。
 
     用 `--name-status -M -z` 而不是 `--name-only`：重命名时后者只给新路径，
@@ -234,7 +288,7 @@ def _changed_files(sandbox: WslSandbox, worktree: str) -> list[str]:
         return []
     names = host_run(
         sandbox,
-        f"git diff --cached --name-status -M -z HEAD -- . {excludes}",
+        f"git diff --cached --name-status -M -z {shlex.quote(base_ref)} -- . {excludes}",
         origin=HOST_ORIGIN,
         kind="git_patch_prepare",
         cwd=worktree,
@@ -310,13 +364,182 @@ def _impacted_tests(
     return related_test_files(build_index(sources), changed)
 
 
+def _seed_worktree(
+    sandbox: WslSandbox,
+    root: str,
+    worktree: str,
+    task_id: str,
+    settings: Settings,
+) -> tuple[bool, str, str, list[str], int]:
+    """把主工作区已合并的未提交改动注入新 worktree，并返回基线树。
+
+    不 commit、不移动 HEAD：先用 `git diff` 生成补丁，apply 到 worktree 后
+    用 `git write-tree` 记录基线树，后续 worker 补丁以这棵树为 diff 基准。
+    返回值：(ok, error, base_ref, seed_files, seed_bytes)。
+    """
+    excludes = stage_args()
+    tracked = host_run(
+        sandbox,
+        f"git diff --binary HEAD -- . {excludes}",
+        origin=HOST_ORIGIN,
+        kind="git_seed_probe",
+        cwd=root,
+    )
+    if not tracked.ok:
+        return False, f"无法生成基线补丁：{tracked.render(300)}", "", [], 0
+    chunks = [tracked.stdout]
+
+    names = host_run(
+        sandbox,
+        f"git diff --name-only -z HEAD -- . {excludes}",
+        origin=HOST_ORIGIN,
+        kind="git_seed_probe",
+        cwd=root,
+    )
+    seed_paths = {
+        item.strip()
+        for item in (names.stdout.split("\0") if names.ok else [])
+        if item.strip()
+    }
+
+    listing = host_run(
+        sandbox,
+        f"git ls-files --others --exclude-standard -z -- . {excludes}",
+        origin=HOST_ORIGIN,
+        kind="git_seed_probe",
+        cwd=root,
+    )
+    if not listing.ok:
+        return False, f"无法列出未跟踪文件：{listing.render(300)}", "", [], 0
+    untracked = [item for item in listing.stdout.split("\0") if item.strip()]
+    seed_paths.update(untracked)
+    max_files = max(
+        int(getattr(settings, "orchestrator_seed_max_files", 200) or 0), 0
+    )
+    if len(seed_paths) > max_files:
+        return (
+            False,
+            f"seed 文件数 {len(seed_paths)} 超过上限 {max_files}",
+            "",
+            [],
+            0,
+        )
+    for path in untracked:
+        result = host_run(
+            sandbox,
+            f"git diff --no-index --binary -- /dev/null {shlex.quote(path)}",
+            origin=HOST_ORIGIN,
+            kind="git_seed_probe",
+            cwd=root,
+        )
+        # 有差异时 git 返回 exit=1，但 stdout 就是补丁。
+        if result.stdout:
+            chunks.append(result.stdout)
+        elif not result.ok:
+            return (
+                False,
+                f"无法读取未跟踪文件 {path}：{result.render(200)}",
+                "",
+                [],
+                0,
+            )
+
+    patch = "".join(chunks)
+    if not patch.strip():
+        return False, "未找到上一波已合并的改动，拒绝顺序写", "", [], 0
+    data = patch.encode("utf-8", errors="surrogateescape")
+    max_bytes = max(
+        int(getattr(settings, "orchestrator_seed_max_bytes", 5_000_000) or 0),
+        0,
+    )
+    if len(data) > max_bytes:
+        return (
+            False,
+            f"基线补丁 {len(data)} 字节超过上限 {max_bytes}",
+            "",
+            [],
+            0,
+        )
+
+    patch_rel = posixpath.join(
+        ".agent", "seeds", f"{_safe_id(task_id)}.patch"
+    )
+    patch_abs = posixpath.join(root, patch_rel)
+    try:
+        SandboxFs(sandbox, root).write_bytes(patch_rel, data)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"无法写入基线补丁：{exc}", "", [], 0
+    try:
+        applied = host_run(
+            sandbox,
+            f"git apply --binary {shlex.quote(patch_abs)}",
+            origin=HOST_ORIGIN,
+            kind="git_apply",
+            cwd=worktree,
+        )
+        if not applied.ok:
+            return (
+                False,
+                f"基线补丁应用失败：{applied.render(300)}",
+                "",
+                [],
+                0,
+            )
+        add = host_run(
+            sandbox,
+            f"git add -A -- . {excludes}",
+            origin=HOST_ORIGIN,
+            kind="git_seed_baseline",
+            cwd=worktree,
+        )
+        ignored_warning = "ignored by one of your .gitignore" in (
+            add.stderr or ""
+        ).lower()
+        if not add.ok and not ignored_warning:
+            return False, f"无法记录基线：{add.render(300)}", "", [], 0
+        tree = host_run(
+            sandbox,
+            "git write-tree",
+            origin=HOST_ORIGIN,
+            kind="git_seed_baseline",
+            cwd=worktree,
+        )
+        base_ref = (
+            tree.stdout.strip().splitlines()[-1].strip()
+            if tree.stdout.strip()
+            else ""
+        )
+        if not tree.ok or not base_ref:
+            return False, "无法记录基线树", "", [], 0
+        host_run(
+            sandbox,
+            "git reset -q",
+            origin=HOST_ORIGIN,
+            kind="git_reset",
+            cwd=worktree,
+        )
+        return True, "", base_ref, sorted(seed_paths), len(data)
+    finally:
+        host_run(
+            sandbox,
+            f"rm -f {shlex.quote(patch_abs)}",
+            origin=HOST_ORIGIN,
+            kind="merge_temp_cleanup",
+            cwd=root,
+        )
+
+
 def _make_patch(
-    sandbox: WslSandbox, worktree: str, root: str, task_id: str
+    sandbox: WslSandbox,
+    worktree: str,
+    root: str,
+    task_id: str,
+    base_ref: str = "HEAD",
 ) -> str:
     excludes = stage_args()
     diff = host_run(
         sandbox,
-        f"git diff --cached --binary HEAD -- . {excludes}",
+        f"git diff --cached --binary {shlex.quote(base_ref)} -- . {excludes}",
         origin=HOST_ORIGIN,
         kind="git_patch_prepare",
         cwd=worktree,
@@ -369,6 +592,12 @@ def _build_worker_messages(
         f"实现任务：{str(task.get('goal', '')).strip()}\n\n"
         f"write_scope：{', '.join(scopes)}"
         f"{retry_note}"
+        + (
+            "\n\n本任务的 worktree 已包含上一波已合并的改动；"
+            "不要重复实现这些内容，只在它们之上继续。"
+            if task.get("seed_from_workspace")
+            else ""
+        )
         + (
             f"\n\n仓库结构摘要（AST 生成，供定位）：\n{repo_map}"
             if repo_map
@@ -460,7 +689,23 @@ def make_implement_runner(
 
         if not scopes:
             return failed("implement 任务没有 write_scope，拒绝执行")
-        ready, reason = await asyncio.to_thread(_git_ready, sandbox, root)
+        # 修复轮的任务可能是 stage=0，但仍需要基线注入；调度器用
+        # seed_from_workspace 显式标记，而不是靠 stage 推断。
+        sequential = bool(task.get("seed_from_workspace"))
+        baseline_paths = {
+            str(path).strip()
+            for path in (task.get("baseline_paths") or [])
+            if str(path).strip()
+        }
+        if sequential:
+            ready, reason = await asyncio.to_thread(
+                _git_ready,
+                sandbox,
+                root,
+                allow_dirty_paths=baseline_paths,
+            )
+        else:
+            ready, reason = await asyncio.to_thread(_git_ready, sandbox, root)
         if not ready:
             return failed(reason)
 
@@ -535,6 +780,28 @@ def make_implement_runner(
             except asyncio.CancelledError:
                 remove_worktree()
                 raise
+
+        base_ref = "HEAD"
+        seed_files: list[str] = []
+        seed_bytes = 0
+        if sequential:
+            (
+                seeded,
+                seed_error,
+                base_ref,
+                seed_files,
+                seed_bytes,
+            ) = await asyncio.to_thread(
+                _seed_worktree,
+                sandbox,
+                root,
+                worktree,
+                task_id,
+                settings,
+            )
+            if not seeded:
+                await cleanup_worktree()
+                return failed(seed_error)
 
         scoped = settings.model_copy(update={"wsl_workspace": worktree})
         # 写时边界：文件工具在 I/O 之前就会拒绝 write_scope 外的路径。
@@ -690,7 +957,7 @@ def make_implement_runner(
                             return
 
                 changed = await asyncio.to_thread(
-                    _changed_files, sandbox, worktree
+                    _changed_files, sandbox, worktree, base_ref
                 )
                 if not changed:
                     return
@@ -750,6 +1017,8 @@ def make_implement_runner(
                     timed_out=timed_out,
                     scope_violations=list(scope_violations),
                     tool_calls=records,
+                    seed_files=list(seed_files),
+                    seed_bytes=seed_bytes,
                     budget_used={
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
@@ -757,7 +1026,9 @@ def make_implement_runner(
                     },
                 )
 
-            changed = await asyncio.to_thread(_changed_files, sandbox, worktree)
+            changed = await asyncio.to_thread(
+                _changed_files, sandbox, worktree, base_ref
+            )
             out_of_scope = [
                 path for path in changed if not _within_scope(path, scopes)
             ]
@@ -776,7 +1047,7 @@ def make_implement_runner(
                 error = error or "实现 worker 没有产生任何文件改动"
             else:
                 patch_path = await asyncio.to_thread(
-                    _make_patch, sandbox, worktree, root, task_id
+                    _make_patch, sandbox, worktree, root, task_id, base_ref
                 )
                 if not patch_path:
                     status = "failed"
@@ -816,6 +1087,8 @@ def make_implement_runner(
                 error=error,
                 patch_path=patch_path,
                 tool_calls=records,
+                seed_files=list(seed_files),
+                seed_bytes=seed_bytes,
                 scope_violations=sorted(
                     {*scope_violations, *out_of_scope}
                 ),
