@@ -2,7 +2,7 @@
 # last_reviewed: 2026-10-25
 # 这是纯文本的目录卡，元数据用注释形式写在头部。
 
-# CodingAgent
+# UBISmart
 
 > 基于 LangGraph 的终端原生编程智能体。核心设计只有一条：**宿主内置工具，
 > 模型只输出意图**。LLM 不直接接触操作系统，只产出结构化工具调用 `{tool, args}`，
@@ -32,15 +32,15 @@
 ## L1 指令（分层加载）
 
 - [AGENTS.md](AGENTS.md)：根级（命令 / 边界 / 禁区 / 敏感数据 / 提交规范）
-- [src/coding_agent/graph/AGENTS.md](src/coding_agent/graph/AGENTS.md)：主图与状态生命周期
-- [src/coding_agent/orchestrator/AGENTS.md](src/coding_agent/orchestrator/AGENTS.md)：harness 子图与并发写
-- [src/coding_agent/sandbox/AGENTS.md](src/coding_agent/sandbox/AGENTS.md)：执行安全层
-- [src/coding_agent/tools/AGENTS.md](src/coding_agent/tools/AGENTS.md)：能力层
-- [src/coding_agent/security/AGENTS.md](src/coding_agent/security/AGENTS.md)：脱敏 / 读写保护
-- [src/coding_agent/audit/AGENTS.md](src/coding_agent/audit/AGENTS.md)：审计与哈希链
-- [src/coding_agent/llm/AGENTS.md](src/coding_agent/llm/AGENTS.md)：provider 路由 / 限流 / 上下文预算
-- [src/coding_agent/agents/AGENTS.md](src/coding_agent/agents/AGENTS.md)：子智能体与委派策略
-- [src/coding_agent/memory/AGENTS.md](src/coding_agent/memory/AGENTS.md)：长期记忆 / checkpoint / 会话索引
+- [src/ubismart/graph/AGENTS.md](src/ubismart/graph/AGENTS.md)：主图与状态生命周期
+- [src/ubismart/orchestrator/AGENTS.md](src/ubismart/orchestrator/AGENTS.md)：harness 子图与并发写
+- [src/ubismart/sandbox/AGENTS.md](src/ubismart/sandbox/AGENTS.md)：执行安全层
+- [src/ubismart/tools/AGENTS.md](src/ubismart/tools/AGENTS.md)：能力层
+- [src/ubismart/security/AGENTS.md](src/ubismart/security/AGENTS.md)：脱敏 / 读写保护
+- [src/ubismart/audit/AGENTS.md](src/ubismart/audit/AGENTS.md)：审计与哈希链
+- [src/ubismart/llm/AGENTS.md](src/ubismart/llm/AGENTS.md)：provider 路由 / 限流 / 上下文预算
+- [src/ubismart/agents/AGENTS.md](src/ubismart/agents/AGENTS.md)：子智能体与委派策略
+- [src/ubismart/memory/AGENTS.md](src/ubismart/memory/AGENTS.md)：长期记忆 / checkpoint / 会话索引
 
 > `cli/` `tui/` `web/` `codeintel/` 不单独设模块 AGENTS：
 > 前端边界见根 AGENTS 第 3 节（只消费 events，不得绕过审批），

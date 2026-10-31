@@ -1,4 +1,4 @@
-# 注册 CodingAgent native 进程为 Windows 开机任务（SYSTEM）。
+# 注册 UBISmart native 进程为 Windows 开机任务（SYSTEM）。
 # 这不是 SCM 服务：进程由 Task Scheduler 启动/重启；需要真正的 Windows
 # Service 时可在外层套 NSSM 或 pywin32 服务包装。
 #
@@ -23,7 +23,7 @@ if ($Remove) {
   exit 0
 }
 
-$exeName = if ($Target -eq "agent") { "CodingAgentAgent" } else { "CodingAgentControl" }
+$exeName = if ($Target -eq "agent") { "UBISmartAgent" } else { "UBISmartControl" }
 $exe = Join-Path $InstallRoot "$exeName\$exeName.exe"
 if (-not (Test-Path $exe)) {
   throw "未找到 $exe；请先用 scripts/build_services.py --target $Target 构建并复制到 InstallRoot"

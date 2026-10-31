@@ -1,5 +1,5 @@
 [Unit]
-Description=CodingAgent Agent Server (A3+A4)
+Description=UBISmart Agent Server (A3+A4)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,7 @@ User=coding-agent
 Group=coding-agent
 EnvironmentFile=/etc/coding-agent/agent.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/coding-agent/bin/CodingAgentAgent --host 127.0.0.1 --port 8790
+ExecStart=/opt/coding-agent/bin/UBISmartAgent --host 127.0.0.1 --port 8790
 WorkingDirectory=/var/lib/coding-agent
 Restart=on-failure
 RestartSec=3

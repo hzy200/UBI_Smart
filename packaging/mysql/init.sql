@@ -1,4 +1,4 @@
--- CodingAgent 控制面数据库（MySQL 8.0/8.4）
+-- UBISmart 控制面数据库（MySQL 8.0/8.4）
 --
 --   mysql -u root -p < packaging/mysql/init.sql
 --
@@ -6,7 +6,7 @@
 --   1. 先把两个 change-me 密码换成随机值；
 --   2. 迁移账号只给 DDL + DML，运行账号只给 DML；
 --   3. 用迁移账号执行 `control_server --migrate` 或
---      `python -m coding_agent.control.migrate`。
+--      `python -m ubismart.control.migrate`。
 --
 -- 表由 Alembic 创建，不在本文件里手写 CREATE TABLE，避免与迁移漂移。
 

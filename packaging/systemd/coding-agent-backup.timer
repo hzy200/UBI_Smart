@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily CodingAgent control-plane backup
+Description=Daily UBISmart control-plane backup
 Requires=coding-agent-backup.service
 
 [Timer]

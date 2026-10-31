@@ -6,6 +6,27 @@
 
 ## [Unreleased]
 
+### 文档（长文档 / 多文档）
+
+- **章节感知切分**：map-reduce 按标题切分，超长章节再分段并保留标题；
+  `document_read` 的元信息头不再进入 map。
+- **引用跨度校验**：证据 quote 在归一化文本中定位，记录
+  `quote_verified` / `quote_span`；章节号、作者名、`page=13-15`、
+  `page=8 Table 2` 回写成真实 `page=N`，无法定位的证据不进入下游。
+- **结构化证据矩阵**：每篇固定 `problem/method/algorithm/experiments/
+  limitations/innovations/conclusion` 槽位，空槽位用已验证 claim 回填；
+  `AGENT_DOCUMENT_MATRIX_ENABLED` 默认关闭，按需开启。
+- **树状归并**：按 `AGENT_DOCUMENT_TREE_FANOUT`（默认 5）逐层归并，单次
+  输入受 `AGENT_DOCUMENT_TREE_INPUT_CHARS`（默认 16k）限制；最终答案附
+  紧凑证据矩阵与“已解析文档（N 篇）”头。
+- **跨文档归属校验**：`knowledge/attribution.py` 按句子检查“提到的文档”
+  与引用路径，错配写入 `attribution_issues`；评测默认要求 0 条。
+- **参考文献报告评测**：`tests/eval/papers.py` 新增 `papers/report`，真实执行
+  `document → author → report_check`，校验覆盖、章节、逐篇引用、矩阵槽位、
+  引用跨度、归属与长度；10 篇/230 页实测通过（报告 14,002 字）。
+- **多文档扩展**：输入上限 64，证据点上限随文档数放大，sources 按文档轮转；
+  修复长文档独占证据、后 4 篇证据为 0、引用补全只追加一次等问题。
+
 ### 安全（阻断项修复）
 
 - **修复多租户工作区越权**：`TenantManager.resolve_workspace` 在多用户模式下
@@ -98,7 +119,7 @@
   只留下用户态缓冲里的“已审计”假象。
 - **本地授权覆盖**：`host_broker/consent.py` 从 18.7% 提到 97%，覆盖 Tk
   面板、远程轮询、stdin 与失败关闭路径，并纳入覆盖率棘轮。
-- **版本与 SBOM**：`pyproject.toml` 改为从 `coding_agent.__version__`
+- **版本与 SBOM**：`pyproject.toml` 改为从 `ubismart.__version__`
   动态取版本；`scripts/check_version.py` 校验前端 `package.json` /
   `version.ts`；Security 流水线新增 CycloneDX SBOM artifact。
 
@@ -337,11 +358,11 @@
 ### CI（安装包编译演练）
 
 - **安装包进入 CI，但只做"编译演练"**：新增 `ci.yml::installer`（`windows-latest`），
-  装 Inno Setup 6 后用 stub 的 `dist/CodingAgent` 跑一次 `ISCC`。真包需要
+  装 Inno Setup 6 后用 stub 的 `dist/UBISmart` 跑一次 `ISCC`。真包需要
   WSL rootfs（`build_wsl_distro.py` 要跑 apt）与签名证书，托管 runner 做不了 ——
   所以这里守住的是"脚本还能编译"，**不是**"这个包能发"。
 - **版本号不再写死**：`build_installer.ps1` 原来 `"/DAppVersion=0.1.0"`，
-  现在从 `coding_agent.__version__` 读；新增 `scripts/check_installer.py`
+  现在从 `ubismart.__version__` 读；新增 `scripts/check_installer.py`
   校验这条链路，并顺带守住三条容易出事的属性 —— 免提权安装
   （`PrivilegesRequired=lowest`）、卸载不删 `%LOCALAPPDATA%`、`.iss` 引用的
   文件与图标存在。7 条反向用例确认校验器不是空转。
@@ -387,12 +408,12 @@
   空值仍复用普通 Web 认证。
 - `AGENT_LOG_FORMAT=json` 输出稳定字段（`ts/level/logger/message/request_id`），
   A2/A3 入口统一配置；不记录提示词/请求体/密钥。
-- 新增 `packaging/prometheus/coding-agent-alerts.yml` 与 `docs/OBSERVABILITY.md`：
+- 新增 `packaging/prometheus/ubismart-alerts.yml` 与 `docs/OBSERVABILITY.md`：
   审计写入失败、5xx 比例、审批积压、静默失败、在飞运行/SSE 连接告警基线。
 
 ### 备份与容灾（P1-7）
 
-- `CodingAgentControl --backup` 支持只备份后退出；新增
+- `UBISmartControl --backup` 支持只备份后退出；新增
   `packaging/systemd/coding-agent-backup.{service,timer}`，默认每天 03:30、
   保留 14 份，未配置控制面库时 `ExecCondition` 跳过。
 - 新增跨版本迁移用例：0011 的账号/用量升级到 0012 后保留；

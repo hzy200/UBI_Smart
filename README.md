@@ -1,6 +1,6 @@
 <!-- owner: 项目作者 · last_reviewed: 2026-10-28 · review_cadence: 命令、状态数字或架构变动时 -->
 
-# CodingAgent
+# UBISmart
 
 [![CI](https://github.com/hzy200/coding_agent/actions/workflows/ci.yml/badge.svg)](https://github.com/hzy200/coding_agent/actions/workflows/ci.yml)
 [![Docs](https://github.com/hzy200/coding_agent/actions/workflows/docs.yml/badge.svg)](https://github.com/hzy200/coding_agent/actions/workflows/docs.yml)
@@ -177,8 +177,8 @@ CLI / TUI / Web / Desktop GUI 因此都无法绕过命令分级审批。这条�
 ## 项目结构
 
 ```
-CodingAgent/
-├─ src/coding_agent/
+UBISmart/
+├─ src/ubismart/
 │  ├─ runtime/                 # 唯一编排入口：core + event_map + stream + 会话/记忆/审计 mixin
 │  ├─ events.py                # 前端契约：领域事件
 │  ├─ config.py                # 配置（.env > 环境变量 > 默认值）
@@ -596,9 +596,9 @@ BM25，`agent memory --vector-status/--reindex` 用于检查与重建索引。�
 复用 Web 的事件与审批链路。默认只读；会话可选择只读/审批写/自动写，按会话绑定工作区，
 支持 SSE、计划/工具/文件面板、审批、pause/cancel/add/replan、快照/diff/回滚、
 checkpoint/fork/rewind、模型选择、GUI 注入 API Key（OS 密钥环）与文件上传。
-当前拆分模式：Windows A2 `python -m coding_agent.control_server` +
-WSL A3 `python -m coding_agent.agent_server`；Windows 只通过 loopback/SSE
-访问，工具不再逐条启动 `wsl.exe`。旧 `python -m coding_agent.server` 保留兼容。
+当前拆分模式：Windows A2 `python -m ubismart.servers.control_server` +
+WSL A3 `python -m ubismart.servers.agent_server`；Windows 只通过 loopback/SSE
+访问，工具不再逐条启动 `wsl.exe`。旧命令名 `coding-agent-server` 等仍保留兼容。
 详见 [docs/GUI.md](docs/GUI.md)、[docs/PHASE0.md](docs/PHASE0.md)
 与 [docs/PHASE1.md](docs/PHASE1.md)、[docs/PHASE2.md](docs/PHASE2.md)、
 [docs/PHASE3.md](docs/PHASE3.md)、[docs/PHASE4.md](docs/PHASE4.md)、
@@ -673,7 +673,7 @@ Web 在 runtime 被 TTL 清理或进程重启后，会从 per-user checkpoint �
 mysql -u root -p < packaging/mysql/init.sql
 export AGENT_CONTROL_DB_URL='mysql+pymysql://coding_agent:***@127.0.0.1:3306/coding_agent'
 export AGENT_CONTROL_DB_AUTO_CREATE=false
-python -m coding_agent.control.migrate --backup
+python -m ubismart.control.migrate --backup
 export AGENT_WEB_ACCOUNTS_ENABLED=true
 export AGENT_SECRET_MASTER_KEY="$(openssl rand -base64 32)"
 agent admin create --username admin --role owner

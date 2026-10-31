@@ -64,7 +64,7 @@ conda activate agent                 # Python 3.11；不要用 uv run / uvx 建�
 ## 2. 目录结构与模块边界
 
 ```
-src/coding_agent/
+src/ubismart/
   runtime/          唯一编排入口：core + event_map + stream + sessions/memory/audit_bridge
   runtime_snapshots.py  AgentRuntime 的快照/回滚/差异 mixin
   platform/         基础设施：paths / filelock / read_cache / request_context / concurrency / observability / tracing / secrets_store
@@ -91,6 +91,7 @@ src/coding_agent/
   agents/           explore / review 子智能体循环
   llm/              DeepSeek 客户端 · 提示词 · 上下文裁剪 · provider 路由
   memory/           checkpoint · 会话索引 · 长期记忆
+  knowledge/        架构索引/简报/影响分析（RFC-0009，默认关闭）
   audit/            JSONL 审计 ★
   cli/ tui/ web/ desktop/  四种前端
 ```
@@ -126,7 +127,7 @@ runtime -> execution -> sandbox；tools -> sandbox
 A3 已不再依赖 `web/` 或 `control.agent_client`：`servers/agent_server.py` 使用
 `agent_protocol`、`protocol.event_transport` 与 `workspace.browse`。
 
-按子目录分层注入的模块级指令：`src/coding_agent/{graph,orchestrator,sandbox,tools}/AGENTS.md`。
+按子目录分层注入的模块级指令：`src/ubismart/{graph,orchestrator,sandbox,tools}/AGENTS.md`。
 
 ## 3. 禁区清单
 
@@ -206,6 +207,8 @@ A3 已不再依赖 `web/` 或 `control.agent_client`：`servers/agent_server.py`
 | 想新增跨模块能力或改安全边界 | `docs/rfc/`（先写 RFC，再落 ADR、契约与验收锚点） |
 | 想知道"哪里不许碰" | 本文件第 3 节 + `docs/THREAT_MODEL.md` |
 | 改某个子系统 | 该目录下的 `AGENTS.md`，再看 `docs/ARCHITECTURE.md` |
+| 改长文档/多文档阅读 | `docs/DOCUMENT_PIPELINE_PLAN.md` §12 + `docs/adr/0038-structured-document-matrix-and-attribution.md` |
+| 跑论文评测 | `tests/eval/README.md` 的“论文联合阅读标尺” |
 | 出问题了 | `docs/runbook.yaml` |
 | 验收某条需求 | `docs/acceptance/acceptance-criteria.yaml` |
 

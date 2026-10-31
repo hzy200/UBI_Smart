@@ -1,5 +1,5 @@
 [Unit]
-Description=CodingAgent Control Plane (A2)
+Description=UBISmart Control Plane (A2)
 After=network-online.target mysql.service mariadb.service coding-agent-agent.service
 Wants=network-online.target coding-agent-agent.service
 
@@ -10,8 +10,8 @@ Group=coding-agent
 EnvironmentFile=/etc/coding-agent/control.env
 Environment=PYTHONUNBUFFERED=1
 # 迁移失败即阻止 A2 启动；数据库未配置时该命令直接返回 0。
-ExecStartPre=/opt/coding-agent/bin/CodingAgentControl --migrate-only
-ExecStart=/opt/coding-agent/bin/CodingAgentControl --host 127.0.0.1 --port 8780
+ExecStartPre=/opt/coding-agent/bin/UBISmartControl --migrate-only
+ExecStart=/opt/coding-agent/bin/UBISmartControl --host 127.0.0.1 --port 8780
 WorkingDirectory=/var/lib/coding-agent
 Restart=on-failure
 RestartSec=3

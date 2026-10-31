@@ -11,10 +11,10 @@
 *                           @hzy200
 
 # 安全与执行边界
-/src/coding_agent/sandbox/       @hzy200
-/src/coding_agent/security/      @hzy200
-/src/coding_agent/audit/         @hzy200
-/src/coding_agent/workspace_lock.py @hzy200
+/src/ubismart/sandbox/       @hzy200
+/src/ubismart/security/      @hzy200
+/src/ubismart/audit/         @hzy200
+/src/ubismart/workspace_lock.py @hzy200
 
 # 契约与决策：禁止手改生成物，决策只增不改
 /docs/contracts/                 @hzy200

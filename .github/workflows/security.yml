@@ -50,15 +50,15 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: src/coding_agent/web/frontend/package-lock.json
+          cache-dependency-path: src/ubismart/web/frontend/package-lock.json
       - name: 安装前端依赖
-        working-directory: src/coding_agent/web/frontend
+        working-directory: src/ubismart/web/frontend
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: npm ci
       - name: 前端依赖漏洞审计
         # 只卡 critical/high：audit 的中低危噪声太大，靠 Dependabot 跟进。
-        working-directory: src/coding_agent/web/frontend
+        working-directory: src/ubismart/web/frontend
         run: npm audit --audit-level=high
 
   sbom:

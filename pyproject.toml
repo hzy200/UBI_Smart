@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "coding-agent"
+name = "ubismart"
 dynamic = ["version"]
 description = "LangGraph-based terminal-native coding agent with WSL2 sandbox"
 readme = "README.md"
@@ -78,22 +78,47 @@ webpush = [
 embeddings = [
     "fastembed>=0.3",
 ]
+# 文档读取：宿主侧二进制解析，不进入 WSL 沙箱。
+documents = [
+    "pypdf>=5",
+    "pdfplumber>=0.11",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
+    "python-pptx>=1.0",
+    "Pillow>=10",
+    "defusedxml>=0.7",
+    "pypdfium2>=4",
+]
+# 报告导出：Markdown/DOCX/PDF；PDF 运行期查找系统 CJK 字体，不附带字体文件。
+report = [
+    "python-docx>=1.1",
+    "markdown-it-py>=3",
+    "reportlab>=4",
+]
 
 [project.scripts]
-agent = "coding_agent.cli.app:main"
-coding-agent-server = "coding_agent.servers.server:main"
-coding-agent-desktop = "coding_agent.desktop.launcher:main"
-coding-agent-agent = "coding_agent.servers.agent_server:main"
-coding-agent-control = "coding_agent.servers.control_server:main"
-coding-agent-host-device = "coding_agent.host_broker.devices:main"
-coding-agent-host-policy = "coding_agent.host_broker.policy_doc:main"
+agent = "ubismart.cli.app:main"
+ubismart-server = "ubismart.servers.server:main"
+ubismart-desktop = "ubismart.desktop.launcher:main"
+ubismart-agent = "ubismart.servers.agent_server:main"
+ubismart-control = "ubismart.servers.control_server:main"
+ubismart-host-device = "ubismart.host_broker.devices:main"
+ubismart-host-policy = "ubismart.host_broker.policy_doc:main"
+# 兼容旧命令名：保留一个发布周期，便于现有脚本/服务平滑迁移。
+coding-agent-server = "ubismart.servers.server:main"
+coding-agent-desktop = "ubismart.desktop.launcher:main"
+coding-agent-agent = "ubismart.servers.agent_server:main"
+coding-agent-control = "ubismart.servers.control_server:main"
+coding-agent-host-device = "ubismart.host_broker.devices:main"
+coding-agent-host-policy = "ubismart.host_broker.policy_doc:main"
 
 [tool.hatch.version]
-# 单一版本源：`coding_agent.__version__`；打包/前端/发布脚本都从这里对齐。
-path = "src/coding_agent/__init__.py"
+# 单一版本源：`ubismart.__version__`；打包/前端/发布脚本都从这里对齐。
+path = "src/ubismart/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/coding_agent"]
+packages = ["src/ubismart"]
 
 [tool.pytest.ini_options]
 # "." 让 `from tests.eval...` 这类助手导入在 CI 的 console-script 入口下也成立
@@ -120,15 +145,15 @@ markers = [
 python_version = "3.11"
 strict = true
 files = [
-  "src/coding_agent/security",
-  "src/coding_agent/access.py",
-  "src/coding_agent/terminal_text.py",
+  "src/ubismart/security",
+  "src/ubismart/access.py",
+  "src/ubismart/terminal_text.py",
 ]
 # 存量模块尚未全量注解；先只对安全/终端边界做 strict 基线，逐步扩大。
 follow_imports = "normal"
 
 [tool.coverage.run]
-source = ["src/coding_agent"]
+source = ["src/ubismart"]
 
 [tool.coverage.report]
 # 把没被覆盖的行号打出来：沙箱层与能力层的缺口必须**看得见**，而不是藏在总数里
@@ -209,23 +234,23 @@ ignore = [
 # 必须要求 token"这些行为本身。真口令只从环境变量与密钥环来，不进仓库。
 "tests/**" = ["S104", "S105", "S106", "S107"]
 # 首次启动向导的 HTML 内嵌在 Python 字符串里，长行不可避免。
-"src/coding_agent/desktop/setup.py" = ["E501"]
+"src/ubismart/desktop/setup.py" = ["E501"]
 # 任务种子/测试是嵌在字符串里的 Python 源码，长行不可避免。
 "tests/eval/tasks_full.py" = ["E501"]
 # T201 print：这些是 **CLI 入口与命令行工具** —— stdout 就是它们的产品形态
 # （`agent migrate` 要打印迁移结果，`host_broker --policy-doc` 要产出文档）。
 # 服务/守护进程里的 print 不在豁免之列，走预算（容器化后日志采集会分裂）。
-"src/coding_agent/cli/**" = ["T201"]
-"src/coding_agent/tui/**" = ["T201"]
-"src/coding_agent/host_broker/__main__.py" = ["T201"]
-"src/coding_agent/host_broker/policy_doc.py" = ["T201"]
-"src/coding_agent/host_broker/devices.py" = ["T201"]
-"src/coding_agent/control/migrate.py" = ["T201"]
-"src/coding_agent/servers/control_server.py" = ["T201"]
-"src/coding_agent/servers/agent_server.py" = ["T201"]
-# 启动握手那行 JSON（event: coding_agent_*）是给 supervisor/launcher **解析**的，
+"src/ubismart/cli/**" = ["T201"]
+"src/ubismart/tui/**" = ["T201"]
+"src/ubismart/host_broker/__main__.py" = ["T201"]
+"src/ubismart/host_broker/policy_doc.py" = ["T201"]
+"src/ubismart/host_broker/devices.py" = ["T201"]
+"src/ubismart/control/migrate.py" = ["T201"]
+"src/ubismart/servers/control_server.py" = ["T201"]
+"src/ubismart/servers/agent_server.py" = ["T201"]
+# 启动握手那行 JSON（event: ubismart_*）是给 supervisor/launcher **解析**的，
 # 不是日志 —— 换 logging 会把协议改掉。
-"src/coding_agent/servers/server.py" = ["T201"]
+"src/ubismart/servers/server.py" = ["T201"]
 
 [tool.ruff.lint.mccabe]
 # 10 是 ruff 默认；这里不动它，让存量如实显形，靠预算棘轮收敛，

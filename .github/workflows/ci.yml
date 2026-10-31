@@ -18,10 +18,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: src/coding_agent/web/frontend/package-lock.json
+          cache-dependency-path: src/ubismart/web/frontend/package-lock.json
       - name: 安装前端依赖
         # 前端单测依赖 jsdom，构建依赖 esbuild；锁文件已入库，用 ci 保证可复现。
-        working-directory: src/coding_agent/web/frontend
+        working-directory: src/ubismart/web/frontend
         env:
           # E2E 使用 runner 自带的 Chrome（channel: chrome），不下载浏览器。
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
@@ -31,26 +31,26 @@ jobs:
         run: |
           python scripts/build_frontend.py
           git diff --exit-code -- \
-            src/coding_agent/web/static/app.js \
-            src/coding_agent/web/static/index.html \
-            src/coding_agent/web/static/style.css \
-            src/coding_agent/web/static/admin
+            src/ubismart/web/static/app.js \
+            src/ubismart/web/static/index.html \
+            src/ubismart/web/static/style.css \
+            src/ubismart/web/static/admin
       - name: 前端类型检查
-        working-directory: src/coding_agent/web/frontend
+        working-directory: src/ubismart/web/frontend
         run: npx tsc --noEmit
       - name: 前端单元测试
         # test.mjs / test-dom.mjs 依赖 cwd 解析 tests/*.test.ts，必须在
         # frontend 目录下执行；从仓库根直接跑会报 Could not resolve。
-        working-directory: src/coding_agent/web/frontend
+        working-directory: src/ubismart/web/frontend
         run: npm test
       - name: 前端真实浏览器 E2E
-        working-directory: src/coding_agent/web/frontend
+        working-directory: src/ubismart/web/frontend
         run: npx playwright test
       - name: 生成独立发布包
         run: python scripts/build_frontend_release.py --skip-build
       - name: 校验发布包
         run: |
-          version=$(sed -n "s/.*FRONTEND_VERSION = '\\([^']*\\)'.*/\\1/p" src/coding_agent/web/frontend/src/version.ts)
+          version=$(sed -n "s/.*FRONTEND_VERSION = '\\([^']*\\)'.*/\\1/p" src/ubismart/web/frontend/src/version.ts)
           python scripts/check_frontend_release.py --dir "dist/frontend/$version"
       - name: 上传前端独立产物
         uses: actions/upload-artifact@v4
@@ -69,7 +69,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: 安装（开发 + 界面 + 控制面数据库依赖）
-        run: pip install -e ".[dev,ui,web,db]"
+        run: pip install -e ".[dev,ui,web,db,documents,report]"
       - name: 依赖锁定新鲜度
         # `pyproject.toml` 改了而 `uv.lock` 没重生成 → 红灯。
         # 只做**校验**、不建环境：本仓库的开发环境是 conda + pip，不是 uv。
@@ -92,11 +92,15 @@ jobs:
       - name: 性能冒烟（策略/终端/限流热路径）
         # 阈值很宽松，只挡数量级退化；慢 runner 可用 --factor 进一步放宽。
         run: python scripts/perf_smoke.py
+      - name: 文档管线压测门槛
+        # 小规模样例（20 页 × 2 份）；阈值按页数放宽并再乘 factor=2，
+        # 只挡数量级退化，不作为容量基准。
+        run: python scripts/bench_documents.py --check --pages 20 --docs 2 --factor 2
       - name: SSE 并发冒烟（20 路 × 200 token）
         # 同进程 A3 + 假 runtime；不是容量基准，只挡并发流互相拖死。
         run: python scripts/sse_load_smoke.py
       - name: 版本一致性
-        # pyproject 从 `coding_agent.__version__` 动态取版本；前端两份文件
+        # pyproject 从 `ubismart.__version__` 动态取版本；前端两份文件
         # 无法 import Python，因此在 CI 里显式比对。
         run: python scripts/check_version.py
       - name: 密钥扫描（gitleaks）
@@ -154,7 +158,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: 安装（开发 + 界面 + 控制面数据库依赖）
-        run: pip install -e ".[dev,ui,web,db]"
+        run: pip install -e ".[dev,ui,web,db,documents,report]"
       - name: Python 3.11 快反馈
         run: pytest -m "not wsl and not wsl_env and not llm" -q
 
@@ -168,7 +172,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: 安装（开发 + 界面 + 控制面依赖）
-        run: pip install -e ".[dev,ui,web,db]"
+        run: pip install -e ".[dev,ui,web,db,documents,report]"
       - name: Windows 快反馈
         # 默认 addopts 是 `-n auto --dist loadfile`；Windows runner 上同样并行。
         run: pytest -m "not wsl and not wsl_env and not llm" -q
@@ -186,6 +190,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: 创建构建产物 stub（供静态校验）
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\UBISmart | Out-Null
+          Set-Content -Path dist\UBISmart\UBISmart.exe -Value "stub"
       - name: 静态校验（版本单一源 / 免提权 / 卸载保留数据 / 引用路径）
         run: python scripts/check_installer.py --check
       - name: 安装 Inno Setup 6
@@ -193,8 +202,8 @@ jobs:
       - name: 编译演练（stub 输入）
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist\CodingAgent | Out-Null
-          Set-Content -Path dist\CodingAgent\CodingAgent.exe -Value "stub"
+          New-Item -ItemType Directory -Force -Path dist\UBISmart | Out-Null
+          Set-Content -Path dist\UBISmart\UBISmart.exe -Value "stub"
           New-Item -ItemType Directory -Force -Path packaging\vendor | Out-Null
           Set-Content -Path packaging\vendor\MicrosoftEdgeWebView2Setup.exe -Value "stub"
           $iscc = @(
@@ -202,18 +211,18 @@ jobs:
             "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $iscc) { throw "ISCC.exe 未找到" }
-          & $iscc "/DAppVersion=9.9.9-ci" "packaging\installer\CodingAgent.iss"
+          & $iscc "/DAppVersion=9.9.9-ci" "packaging\installer\UBISmart.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败" }
-          if (-not (Test-Path dist\CodingAgent-Setup.exe)) {
-            throw "没有产出 dist\CodingAgent-Setup.exe"
+          if (-not (Test-Path dist\UBISmart-Setup.exe)) {
+            throw "没有产出 dist\UBISmart-Setup.exe"
           }
-          Write-Host "编译演练通过：$((Get-Item dist\CodingAgent-Setup.exe).Length) 字节"
+          Write-Host "编译演练通过：$((Get-Item dist\UBISmart-Setup.exe).Length) 字节"
       - name: 上传演练产物
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: installer-stub
-          path: dist/CodingAgent-Setup.exe
+          path: dist/UBISmart-Setup.exe
           retention-days: 7
           if-no-files-found: warn
 

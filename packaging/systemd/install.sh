@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# CodingAgent Linux 控制面 + Agent Server 安装脚本（Phase D4）。
+# UBISmart Linux 控制面 + Agent Server 安装脚本（Phase D4）。
 #
 #   sudo packaging/systemd/install.sh \
-#       --control-dir dist/CodingAgentControl \
-#       --agent-dir dist/CodingAgentAgent
+#       --control-dir dist/UBISmartControl \
+#       --agent-dir dist/UBISmartAgent
 #
 # 或从源码 venv 运行：
 #   sudo packaging/systemd/install.sh --python /opt/coding-agent/venv/bin/python
@@ -29,8 +29,8 @@ UNINSTALL=0
 usage() {
   cat <<'USAGE'
 用法：install.sh [选项]
-  --control-dir PATH  PyInstaller 控制面目录（默认 dist/CodingAgentControl）
-  --agent-dir PATH    PyInstaller Agent 目录（默认 dist/CodingAgentAgent）
+  --control-dir PATH  PyInstaller 控制面目录（默认 dist/UBISmartControl）
+  --agent-dir PATH    PyInstaller Agent 目录（默认 dist/UBISmartAgent）
   --python PATH       源码 venv 的 Python（与 --*-dir 二选一）
   --no-start          安装后不启动服务
   --uninstall         停止并移除程序与 systemd 单元（保留配置与数据）
@@ -100,28 +100,28 @@ install_binaries() {
       echo "Python 不可执行：$PYTHON" >&2
       exit 2
     fi
-    write_wrapper CodingAgentControl coding_agent.servers.control_server
-    write_wrapper CodingAgentAgent coding_agent.servers.agent_server
+    write_wrapper UBISmartControl ubismart.servers.control_server
+    write_wrapper UBISmartAgent ubismart.servers.agent_server
     return
   fi
 
-  CONTROL_DIR="${CONTROL_DIR:-$ROOT/dist/CodingAgentControl}"
-  AGENT_DIR="${AGENT_DIR:-$ROOT/dist/CodingAgentAgent}"
-  if [ ! -x "$CONTROL_DIR/CodingAgentControl" ]; then
-    echo "未找到 $CONTROL_DIR/CodingAgentControl；请先运行 scripts/build_services.py" >&2
+  CONTROL_DIR="${CONTROL_DIR:-$ROOT/dist/UBISmartControl}"
+  AGENT_DIR="${AGENT_DIR:-$ROOT/dist/UBISmartAgent}"
+  if [ ! -x "$CONTROL_DIR/UBISmartControl" ]; then
+    echo "未找到 $CONTROL_DIR/UBISmartControl；请先运行 scripts/build_services.py" >&2
     exit 2
   fi
-  if [ ! -x "$AGENT_DIR/CodingAgentAgent" ]; then
-    echo "未找到 $AGENT_DIR/CodingAgentAgent；请先运行 scripts/build_services.py" >&2
+  if [ ! -x "$AGENT_DIR/UBISmartAgent" ]; then
+    echo "未找到 $AGENT_DIR/UBISmartAgent；请先运行 scripts/build_services.py" >&2
     exit 2
   fi
   rm -rf "$INSTALL_ROOT/control" "$INSTALL_ROOT/agent"
   cp -a "$CONTROL_DIR" "$INSTALL_ROOT/control"
   cp -a "$AGENT_DIR" "$INSTALL_ROOT/agent"
-  ln -sfn "$INSTALL_ROOT/control/CodingAgentControl" \
-    "$INSTALL_ROOT/bin/CodingAgentControl"
-  ln -sfn "$INSTALL_ROOT/agent/CodingAgentAgent" \
-    "$INSTALL_ROOT/bin/CodingAgentAgent"
+  ln -sfn "$INSTALL_ROOT/control/UBISmartControl" \
+    "$INSTALL_ROOT/bin/UBISmartControl"
+  ln -sfn "$INSTALL_ROOT/agent/UBISmartAgent" \
+    "$INSTALL_ROOT/bin/UBISmartAgent"
 }
 
 write_env_files() {

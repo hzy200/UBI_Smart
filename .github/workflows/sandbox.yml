@@ -72,7 +72,7 @@ jobs:
         # 测试变成一堆难以归因的 timeout。
         run: python scripts/check_sandbox_gate.py --local
       - name: 安装（开发 + 界面 + 控制面数据库依赖）
-        run: pip install -e ".[dev,ui,web,db]"
+        run: pip install -e ".[dev,ui,web,db,documents,report]"
       - name: 沙箱层全量（真实 WSL，不调用模型）
         env:
           # 专用发行版；没有就用 runner 的默认发行版。
