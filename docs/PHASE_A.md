@@ -22,7 +22,7 @@ Phase A 只做**契约、归属与验收基线**，不改变现有行为。目�
 | 层 | 职责 | 当前代码锚点 | 目标归属 |
 |---|---|---|---|
 | A1 前端 | 对话、SSE 渲染、计划/任务/推理可视化、审批、文件/Git、设置 | `src/ubismart/web/static/`、`src/ubismart/tui/`、`src/ubismart/cli/` | 只调用 A2 API；桌面桥只做平台动作 |
-| A2 控制面 | 认证、租户、会话目录、运行索引、配额、Provider 档案、审计查询、恢复索引 | `src/ubismart/web/app.py`、`src/ubismart/web/auth.py`、`src/ubismart/tenancy.py` | 独立控制面；可接 MySQL；不执行工具 |
+| A2 控制面 | 认证、租户、会话目录、运行索引、配额、Provider 档案、审计查询、恢复索引 | `src/ubismart/web/app.py`、`src/ubismart/web/auth.py`、`src/ubismart/identity/tenancy.py` | 独立控制面；可接 MySQL；不执行工具 |
 | A3 编排面 | LangGraph、LLM、计划、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/ubismart/runtime/`、`src/ubismart/graph/`、`src/ubismart/orchestrator/`、`src/ubismart/llm/` | Agent 服务；保留全部编排能力 |
 | A4 执行面 | shell、文件 I/O、搜索、Git、测试、快照、worktree、上传落盘 | `src/ubismart/tools/`、`src/ubismart/sandbox/`、`src/ubismart/memory/` | 平台执行适配器；保留全部工具能力 |
 

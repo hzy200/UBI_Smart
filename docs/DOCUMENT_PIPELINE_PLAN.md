@@ -281,8 +281,8 @@ document_read(path, mode="auto", page_range="", sheet="", slide_range="",
 - **压缩会静默丢图**：`runtime/sessions.py:259-284` 用 `text_of()` 压平成字符串，
   compact 后图像全部消失。建议明确为「图片仅在当轮有效」并在 UI 提示，而非假装保留。
 
-**验收**：`tests/unit/test_vision_tool.py`（格式拒绝、缩放、端点报错）、
-`tests/unit/test_multimodal.py`（块形状）；真实 provider 的冒烟用例标 `@pytest.mark.llm`。
+**验收**：`tests/unit/test_vision_tool.py`（格式拒绝、缩放、端点报错、块形状）；
+真实 provider 的冒烟用例标 `@pytest.mark.llm`。
 
 ---
 
@@ -311,8 +311,7 @@ document_read(path, mode="auto", page_range="", sheet="", slide_range="",
 否则会破坏 `with_json_output` 依赖的形状假设（`deepseek.py:29-50`）。
 
 **验收**：`tests/unit/test_orchestrator_document_pipeline.py`（workflow 选择、角色校验、stage 屏障、依赖上下文）、
-`tests/unit/test_report_export.py`（格式解析、单文件输出、路径白名单、无字体错误路径）、
-`tests/unit/test_report_format.py`。
+`tests/unit/test_report_export.py`（格式解析、单文件输出、路径白名单、无字体错误路径）。
 
 ---
 

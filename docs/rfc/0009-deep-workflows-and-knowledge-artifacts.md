@@ -373,9 +373,9 @@ wave_gates: list[dict]
 
 | 任务 | 模块 | 验证 |
 |---|---|---|
-| P0-1 全文覆盖 + 覆盖报告 | `document_workers.py`、`config.py` | `tests/unit/test_document_full_coverage.py` |
-| P0-2 map-reduce 抽取 | `document_workers.py` | `test_document_map_reduce.py` |
-| P0-3 证据检索写作 | `document_workers.py`、`knowledge_*` 工具 | `test_author_evidence_retrieval.py` |
+| P0-1 全文覆盖 + 覆盖报告 | `document_workers.py`、`config.py` | `tests/unit/test_document_workers.py` |
+| P0-2 map-reduce 抽取 | `document_workers.py` | `tests/unit/test_document_workers.py` |
+| P0-3 证据检索写作 | `document_workers.py`、`knowledge_*` 工具 | `tests/unit/test_document_workers.py` |
 | P0-4 ArchIndex/Brief | `codeintel/python_index.py`、`orchestrator/architecture.py` | `test_arch_index.py`、`test_arch_brief.py` |
 | P0-5 影响分析 + 契约 | `orchestrator/impact.py` | `test_impact_analysis.py` |
 | P0-6 接口优先波次 | `orchestrator/plan.py`、`scheduler_run.py` | `test_interface_first_waves.py` |

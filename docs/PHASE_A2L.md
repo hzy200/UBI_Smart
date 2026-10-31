@@ -534,7 +534,7 @@ toolchain root 会被 AppContainer 授予 `RX` ACL；只应注册可信工具链
 | `src/ubismart/runtime/` | 按工作区 kind 注入 `HostFileAccess` 或 `SandboxFileAccess` |
 | `src/ubismart/agent_protocol.py` | A2/A3 上下文增加 `workspace_kind/a2l_id/root_handle` |
 | `src/ubismart/web/models.py` / `services.py` | 会话上下文透传 host 字段 |
-| `src/ubismart/agent_context.py` | host 工作区自动注入 `file_access/targets`，强制只读 |
+| `src/ubismart/servers/agent_context.py` | host 工作区自动注入 `file_access/targets`，强制只读 |
 | `src/ubismart/desktop/launcher.py` | 自动拉起/停止/守护 A2L，注入 host 环境 |
 | `src/ubismart/desktop/config.py` | host 工作区、handle、安全档字段 |
 | `src/ubismart/control/workspaces.py` | 工作区记录增加 `kind/a2l_id/root_handle`；host 不存绝对路径 |

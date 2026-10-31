@@ -184,7 +184,7 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 |---|---|---|
 | **A1 前端** | 渲染、SSE、审批交互、主题/字体、平台桥 | `src/ubismart/web/static/`、`src/ubismart/cli/`、`src/ubismart/tui/app.py` |
 | **A2L 宿主能力代理** | 客户端 `host` 工作区、本地 grant/ZX、工具链能力、本地同意与审计；只外连 | 规划中：`src/ubismart/host_broker/` |
-| **A2 控制面** | 认证、租户、会话目录、运行/审批索引、配额、Provider 档案、MySQL | `src/ubismart/web/app.py`、`src/ubismart/tenancy.py` |
+| **A2 控制面** | 认证、租户、会话目录、运行/审批索引、配额、Provider 档案、MySQL | `src/ubismart/web/app.py`、`src/ubismart/identity/tenancy.py` |
 | **A3 编排面** | 图、LLM、审批决定、checkpoint、steering、编排 worker、成本/限流 | `src/ubismart/runtime/`、`src/ubismart/graph/`、`src/ubismart/orchestrator/` |
 | **A4 执行面** | shell、文件、Git、测试、快照、worktree、上传落盘；按 `target` 路由 host/sandbox | `src/ubismart/tools/`、`src/ubismart/sandbox/`、`src/ubismart/execution/` |
 
