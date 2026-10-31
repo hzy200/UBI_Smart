@@ -12,16 +12,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from coding_agent.config import Settings
-from coding_agent.control.schema import Base, ControlUser
-from coding_agent.control.workspaces import (
+from ubismart.config import Settings
+from ubismart.control.schema import Base, ControlUser
+from ubismart.control.workspaces import (
     WorkspaceNotFound,
     WorkspacePolicy,
     WorkspaceStore,
 )
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import current_user
-from coding_agent.web.routes.workspaces import (
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import current_user
+from ubismart.web.routes.workspaces import (
     WorkspaceRegistryDeps,
     register_workspace_registry_routes,
 )

@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.wsl_exec import (
+from ubismart.config import Settings
+from ubismart.sandbox.wsl_exec import (
     ExecResult,
     WslSandbox,
     WslUnavailableError,
     resolve_workspace,
 )
-from coding_agent.tools.testrun import detect_test_command, run_verification
+from ubismart.tools.testrun import detect_test_command, run_verification
 
 
 def _sandbox_with_run(monkeypatch, stdout: str = "", exit_code: int = 0):

@@ -8,12 +8,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from coding_agent.config import Settings
-from coding_agent.control.schema import ControlShareLink
-from coding_agent.control.shares import ShareStore
-from coding_agent.control.store import ControlStore
-from coding_agent.web import app as web_app
-from coding_agent.web.shares import build_share_payload, render_share_html
+from ubismart.config import Settings
+from ubismart.control.schema import ControlShareLink
+from ubismart.control.shares import ShareStore
+from ubismart.control.store import ControlStore
+from ubismart.web import app as web_app
+from ubismart.web.shares import build_share_payload, render_share_html
 
 
 def _settings(tmp_path: Path) -> Settings:

@@ -8,12 +8,12 @@ import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.control.mfa import MfaError
-from coding_agent.control.oidc import OidcError
-from coding_agent.web.auth import AuthConfig, AuthUser
-from coding_agent.web.dependencies import current_user
-from coding_agent.web.routes.auth import (
+from ubismart.config import Settings
+from ubismart.control.mfa import MfaError
+from ubismart.control.oidc import OidcError
+from ubismart.web.auth import AuthConfig, AuthUser
+from ubismart.web.dependencies import current_user
+from ubismart.web.routes.auth import (
     AuthRouteDeps,
     _oidc_role,
     register_auth_routes,
@@ -677,7 +677,7 @@ class _Resets:
 
 
 def test_password_reset_request_and_confirm(monkeypatch) -> None:
-    import coding_agent.web.routes.auth as auth_routes
+    import ubismart.web.routes.auth as auth_routes
 
     sent: list[tuple[str, str]] = []
     monkeypatch.setattr(

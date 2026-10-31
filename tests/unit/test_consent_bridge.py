@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.consent_bridge import register_consent_bridge
-from coding_agent.web.dependencies import current_user
+from ubismart.web.auth import AuthUser
+from ubismart.web.consent_bridge import register_consent_bridge
+from ubismart.web.dependencies import current_user
 
 TOKEN = "internal-consent-token"
 

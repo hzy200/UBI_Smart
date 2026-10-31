@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from coding_agent.sandbox.limits import ResourceLimits, wrap_with_limits
+from ubismart.sandbox.limits import ResourceLimits, wrap_with_limits
 
 
 def test_defaults_limit_cpu_file_and_processes_but_not_memory() -> None:

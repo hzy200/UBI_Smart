@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import subprocess
 
-from coding_agent.desktop import api as desktop_api
-from coding_agent.desktop.config import LauncherConfig
+from ubismart.desktop import api as desktop_api
+from ubismart.desktop.config import LauncherConfig
 
 TRUSTED = "http://127.0.0.1:8780"
 

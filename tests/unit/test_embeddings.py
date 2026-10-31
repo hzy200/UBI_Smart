@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.memory import embeddings as embedding_module
-from coding_agent.memory.embeddings import (
+from ubismart.config import Settings
+from ubismart.memory import embeddings as embedding_module
+from ubismart.memory.embeddings import (
     EmbeddingError,
     HashEmbedder,
     RemoteOpenAIEmbeddingProvider,

@@ -12,13 +12,13 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.audit import AuditLogger, AuditRecord
-from coding_agent.audit.logger import now_iso
-from coding_agent.config import Settings
-from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
-from coding_agent.servers.agent_server_routes.state import StateDeps, register_state_routes
-from coding_agent.servers.agent_server_routes.workspace import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.audit import AuditLogger, AuditRecord
+from ubismart.audit.logger import now_iso
+from ubismart.config import Settings
+from ubismart.sandbox.snapshots import RestoreResult, SnapshotEntry
+from ubismart.servers.agent_server_routes.state import StateDeps, register_state_routes
+from ubismart.servers.agent_server_routes.workspace import (
     WorkspaceDeps,
     register_workspace_routes,
 )
@@ -353,7 +353,7 @@ def test_host_files_route_uses_a2l(tmp_path) -> None:
 
 
 def test_git_and_project_routes(tmp_path, monkeypatch) -> None:
-    from coding_agent.servers.agent_server_routes import workspace as routes
+    from ubismart.servers.agent_server_routes import workspace as routes
 
     runtime = _Runtime()
     client, _ = _workspace_client(tmp_path, runtime)

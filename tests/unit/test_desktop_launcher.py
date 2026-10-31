@@ -6,9 +6,9 @@ import sys
 
 import pytest
 
-from coding_agent.desktop.config import LauncherConfig
-from coding_agent.desktop.supervisor import build_command, build_control_command
-from coding_agent.desktop.wsl import to_wsl_path
+from ubismart.desktop.config import LauncherConfig
+from ubismart.desktop.supervisor import build_command, build_control_command
+from ubismart.desktop.wsl import to_wsl_path
 
 
 def test_to_wsl_path_handles_windows_and_posix() -> None:
@@ -26,7 +26,7 @@ def test_to_wsl_path_handles_windows_and_posix() -> None:
 
 def test_build_agent_command_uses_stdin_token_and_port(monkeypatch) -> None:
     monkeypatch.setattr(
-        "coding_agent.desktop.supervisor.home",
+        "ubismart.desktop.supervisor.home",
         lambda distro: "/home/me",
     )
     config = LauncherConfig(
@@ -43,7 +43,7 @@ def test_build_agent_command_uses_stdin_token_and_port(monkeypatch) -> None:
         "/home/me/ws",
         "--",
     ]
-    assert "coding_agent.servers.agent_server" in command
+    assert "ubismart.servers.agent_server" in command
     assert "--port" in command and command[command.index("--port") + 1] == "0"
     explicit = build_command(config, port=54321)
     assert explicit[explicit.index("--port") + 1] == "54321"
@@ -62,7 +62,7 @@ def test_build_control_command_enables_desktop() -> None:
     )
     command = build_control_command(config, port=8780)
     assert command[0] == sys.executable
-    assert command[1:3] == ["-m", "coding_agent.servers.control_server"]
+    assert command[1:3] == ["-m", "ubismart.servers.control_server"]
     assert "--desktop" in command
     assert "--token-stdin" in command
     assert command[command.index("--port") + 1] == "8780"
@@ -75,7 +75,7 @@ def test_build_control_command_enables_desktop() -> None:
 def test_run_retries_transient_wsl_startup_errors(monkeypatch) -> None:
     import subprocess
 
-    import coding_agent.desktop.wsl as wsl
+    import ubismart.desktop.wsl as wsl
 
     codes = iter([-1073741502, 0])
     calls: list[list[str]] = []
@@ -95,7 +95,7 @@ def test_run_retries_transient_wsl_startup_errors(monkeypatch) -> None:
 
 
 def test_start_agent_uses_explicit_port(tmp_path, monkeypatch) -> None:
-    import coding_agent.desktop.supervisor as supervisor
+    import ubismart.desktop.supervisor as supervisor
 
     calls: list[tuple[list[str], int, str]] = []
 
@@ -121,11 +121,11 @@ def test_start_agent_uses_explicit_port(tmp_path, monkeypatch) -> None:
     assert server.port == 41001
     assert calls[0][1] == 41001
     assert calls[0][2] == "coding_agent_agent_server"
-    assert "coding_agent.servers.agent_server" in calls[0][0]
+    assert "ubismart.servers.agent_server" in calls[0][0]
 
 
 def test_start_agent_rejects_occupied_port(tmp_path, monkeypatch) -> None:
-    import coding_agent.desktop.supervisor as supervisor
+    import ubismart.desktop.supervisor as supervisor
 
     monkeypatch.setattr(supervisor, "ensure_dir", lambda *a, **k: None)
     monkeypatch.setattr(supervisor, "home", lambda distro: "/home/me")

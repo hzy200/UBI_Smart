@@ -6,8 +6,8 @@ import threading
 
 import pytest
 
-from coding_agent.sandbox import wsl_exec
-from coding_agent.sandbox.wsl_exec import (
+from ubismart.sandbox import wsl_exec
+from ubismart.sandbox.wsl_exec import (
     ExecResult,
     _parse_session_output,
     _SessionError,

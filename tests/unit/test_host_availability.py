@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from coding_agent.host_broker.availability import (
+from ubismart.host_broker.availability import (
     appcontainer_required,
     probe_isolation,
 )

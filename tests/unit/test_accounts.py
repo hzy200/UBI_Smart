@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.control.accounts import (
+from ubismart.control.accounts import (
     AccountError,
     AuthEventStore,
     PasswordResetStore,
@@ -16,7 +16,7 @@ from coding_agent.control.accounts import (
     hash_password,
     verify_password,
 )
-from coding_agent.control.store import ControlStore
+from ubismart.control.store import ControlStore
 
 
 def _store(tmp_path: Path) -> ControlStore:
@@ -159,7 +159,7 @@ def test_short_password_is_rejected(tmp_path) -> None:
 def test_unknown_and_disabled_accounts_still_pay_scrypt(
     tmp_path, monkeypatch
 ) -> None:
-    import coding_agent.control.accounts as accounts
+    import ubismart.control.accounts as accounts
 
     calls: list[str] = []
     real = accounts.verify_password
@@ -211,8 +211,8 @@ def test_session_idle_timeout_renewal_and_absolute_cap(
 ) -> None:
     from sqlalchemy.orm import Session
 
-    import coding_agent.control.accounts as accounts
-    from coding_agent.control.schema import ControlAuthSession
+    import ubismart.control.accounts as accounts
+    from ubismart.control.schema import ControlAuthSession
 
     store = _store(tmp_path)
     users = UserStore(store.engine)
@@ -264,7 +264,7 @@ def test_session_idle_timeout_renewal_and_absolute_cap(
 
 
 def test_password_reset_token_is_single_use(tmp_path, monkeypatch) -> None:
-    import coding_agent.control.accounts as accounts
+    import ubismart.control.accounts as accounts
 
     store = _store(tmp_path)
     users = UserStore(store.engine)

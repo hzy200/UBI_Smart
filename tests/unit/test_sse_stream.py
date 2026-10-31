@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from coding_agent.protocol.sse_stream import (
+from ubismart.protocol.sse_stream import (
     sse_headers,
     with_heartbeat,
     with_heartbeat_bytes,

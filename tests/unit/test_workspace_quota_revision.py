@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from coding_agent.control.schema import Base
-from coding_agent.control.workspaces import (
+from ubismart.control.schema import Base
+from ubismart.control.workspaces import (
     WorkspaceError,
     WorkspacePolicy,
     WorkspaceQuotaExceeded,

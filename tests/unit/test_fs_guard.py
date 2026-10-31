@@ -11,14 +11,14 @@ import base64
 
 import pytest
 
-from coding_agent.sandbox.fs import (
+from ubismart.sandbox.fs import (
     SandboxFs,
     SandboxFsError,
     SandboxFsTooLarge,
     _is_retryable_write_failure,
 )
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.wsl_exec import ExecResult
 
 pytestmark = pytest.mark.regression
 
@@ -277,7 +277,7 @@ class _StubSandbox:
         self.runs = 0
 
     def run(self, command: str, *, cwd: str | None = None, timeout: int | None = None):
-        from coding_agent.sandbox.wsl_exec import ExecResult
+        from ubismart.sandbox.wsl_exec import ExecResult
 
         self.runs += 1
         # real_root 那条命令回答工作区自身路径

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.deps import resolve_manager
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.deps import resolve_manager
 
 
 class _FakeSandbox:

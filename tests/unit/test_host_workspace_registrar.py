@@ -6,10 +6,10 @@ import asyncio
 
 import pytest
 
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.protocol import CANCELLED
-from coding_agent.host_broker.store import WorkspaceRootStore
-from coding_agent.host_broker.workspace_registry import TkWorkspaceRegistrar
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.protocol import CANCELLED
+from ubismart.host_broker.store import WorkspaceRootStore
+from ubismart.host_broker.workspace_registry import TkWorkspaceRegistrar
 
 
 def test_register_returns_handle_and_stores_root(tmp_path) -> None:

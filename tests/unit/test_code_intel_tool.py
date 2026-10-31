@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.tools.artifacts import unpack
-from coding_agent.tools.code_intel import (
+from ubismart.config import Settings
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.tools.artifacts import unpack
+from ubismart.tools.code_intel import (
     _render_diagnostics,
     _render_locations,
     build_code_intel_tool,
@@ -62,7 +62,7 @@ class _Lsp:
 
 
 def _tool(monkeypatch, *, allow_lsp: bool = True, lsp_command: str = "lsp"):
-    import coding_agent.tools.code_intel as module
+    import ubismart.tools.code_intel as module
 
     fake = _Lsp()
     monkeypatch.setattr(module, "SandboxFs", lambda _sandbox, _root: _FS())
@@ -111,7 +111,7 @@ def test_file_errors_are_reported(monkeypatch) -> None:
         _FS.is_file = original
 
     tool, _ = _tool(monkeypatch)
-    import coding_agent.tools.code_intel as module
+    import ubismart.tools.code_intel as module
 
     class _Broken(_FS):
         def read_text(self, *_args, **_kwargs):

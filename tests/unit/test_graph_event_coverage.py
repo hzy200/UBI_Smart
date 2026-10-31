@@ -20,11 +20,11 @@ import textwrap
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
-from coding_agent.config import Settings
-from coding_agent.graph.build import build_graph
-from coding_agent.runtime.event_map import EventMapMixin
-from coding_agent.runtime.stream import StreamMixin
-from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
+from ubismart.config import Settings
+from ubismart.graph.build import build_graph
+from ubismart.runtime.event_map import EventMapMixin
+from ubismart.runtime.stream import StreamMixin
+from ubismart.sandbox.wsl_exec import ExecResult, WslSandbox
 
 # 建图时检索工具要探测 rg。给固定应答，让本用例不依赖真实 WSL
 # （它是一条约 200ms 的结构约束，不该被沙箱拖成集成测试）。
@@ -44,6 +44,9 @@ SILENT_NODES = {
     # --plan-only 的收尾节点只把 run_status 置为 finished；计划本身
     # 已由 planner 产出 PlanCreated，无需额外事件。
     "plan_preview",
+    # RFC-0008 的修复准备节点只改 state（清任务图、递增轮数）；随后进入
+    # orchestrator 子图，用户看到的是 WorkflowSelected / worker 事件。
+    "orchestrator_fix",
 }
 
 # 子图内部节点：运行时通过 subgraphs=True 看到它们，但父图拓扑里只有

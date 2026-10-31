@@ -14,11 +14,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 
-from coding_agent.graph.nodes.approve import make_approval_gate_node, tool_level
-from coding_agent.graph.nodes.tools import make_tools_node
-from coding_agent.graph.routing import APPROVE, TOOLS
-from coding_agent.graph.state import AgentState
-from coding_agent.sandbox.policy import (
+from ubismart.graph.nodes.approve import make_approval_gate_node, tool_level
+from ubismart.graph.nodes.tools import make_tools_node
+from ubismart.graph.routing import APPROVE, TOOLS
+from ubismart.graph.state import AgentState
+from ubismart.sandbox.policy import (
     APPROVAL_APPROVE,
     APPROVAL_ASK,
     APPROVAL_DENY,
@@ -30,7 +30,7 @@ from coding_agent.sandbox.policy import (
     classify,
     parse_allow_rules,
 )
-from coding_agent.tools.artifacts import ShellArtifact, pack
+from ubismart.tools.artifacts import ShellArtifact, pack
 
 pytestmark = pytest.mark.regression
 
@@ -70,6 +70,8 @@ def test_new_file_tool_levels() -> None:
     assert tool_level("file_mkdir", {}) == CommandLevel.LOW_WRITE
     # 删除是不可逆操作，走逐条确认。
     assert tool_level("file_delete", {}) == CommandLevel.MUTATE
+    assert tool_level("knowledge_read", {}) == CommandLevel.READ
+    assert tool_level("knowledge_search", {}) == CommandLevel.READ
 
 
 def test_memory_save_escalates_outside_local_profile() -> None:
@@ -474,14 +476,14 @@ def test_empty_or_duplicate_call_id_fails_closed(tool_calls: list[dict]) -> None
 
 
 def test_describe_covers_all_mutating_tools() -> None:
-    from coding_agent.graph.nodes.approve import _describe
-    from coding_agent.tools.delegate import DELEGATE_EXPLORE
-    from coding_agent.tools.deps import DEPS_INSTALL
-    from coding_agent.tools.git import GIT_ADD, GIT_COMMIT
-    from coding_agent.tools.host_exec import HOST_EXEC_TOOL_NAME
-    from coding_agent.tools.memory import MEMORY_SAVE
-    from coding_agent.tools.shell import SHELL_TOOL_NAME
-    from coding_agent.tools.testrun import RUN_TESTS_TOOL
+    from ubismart.graph.nodes.approve import _describe
+    from ubismart.tools.delegate import DELEGATE_EXPLORE
+    from ubismart.tools.deps import DEPS_INSTALL
+    from ubismart.tools.git import GIT_ADD, GIT_COMMIT
+    from ubismart.tools.host_exec import HOST_EXEC_TOOL_NAME
+    from ubismart.tools.memory import MEMORY_SAVE
+    from ubismart.tools.shell import SHELL_TOOL_NAME
+    from ubismart.tools.testrun import RUN_TESTS_TOOL
 
     assert _describe(SHELL_TOOL_NAME, {"command": "rm -rf build"}) == "rm -rf build"
     assert _describe(

@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from coding_agent.host_broker.toolchain import ToolchainRef, ToolchainRegistry
+from ubismart.host_broker.toolchain import ToolchainRef, ToolchainRegistry
 
 
 def test_summary_has_no_absolute_path() -> None:

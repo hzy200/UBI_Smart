@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 
-from coding_agent.codeintel.python_index import (
+from ubismart.codeintel.python_index import (
     build_index,
     build_repo_map,
     collect_python_sources,
     related_test_files,
 )
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.sandbox.wsl_exec import ExecResult
 
 SOURCES = {
     "src/app/core.py": "def compute():\n    return 1\n",

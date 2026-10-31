@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.audit import (
+from ubismart.audit import (
     AuditError,
     AuditLogger,
     AuditRecord,
     read_records,
     read_records_many,
 )
-from coding_agent.audit.logger import now_iso, sanitize_args, truncate
+from ubismart.audit.logger import now_iso, sanitize_args, truncate
 
 
 def _today() -> str:
@@ -37,7 +37,7 @@ def test_write_then_read(tmp_path) -> None:
 
 
 def test_write_fsyncs_each_record(tmp_path, monkeypatch) -> None:
-    import coding_agent.audit.logger as audit_logger
+    import ubismart.audit.logger as audit_logger
 
     calls: list[int] = []
     monkeypatch.setattr(
@@ -262,7 +262,7 @@ class _FakeSocket:
 
 
 def test_syslog_export_and_invalid_address(tmp_path, monkeypatch) -> None:
-    import coding_agent.audit.logger as audit_logger
+    import ubismart.audit.logger as audit_logger
 
     _FakeSocket.sent = []
     _FakeSocket.fail = False
@@ -287,8 +287,8 @@ def test_syslog_export_and_invalid_address(tmp_path, monkeypatch) -> None:
 
 
 def test_webhook_delivery_and_failure_count(tmp_path, monkeypatch) -> None:
-    import coding_agent.audit.logger as audit_logger
-    from coding_agent.platform import observability
+    import ubismart.audit.logger as audit_logger
+    from ubismart.platform import observability
 
     seen = {}
 

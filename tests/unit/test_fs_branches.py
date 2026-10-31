@@ -11,14 +11,14 @@ import json
 
 import pytest
 
-from coding_agent.sandbox.fs import (
+from ubismart.sandbox.fs import (
     SOURCES_MARKER,
     SandboxFs,
     SandboxFsError,
     SandboxFsTooLarge,
 )
-from coding_agent.sandbox.pathguard import SandboxPathError
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.sandbox.pathguard import SandboxPathError
+from ubismart.sandbox.wsl_exec import ExecResult
 
 pytestmark = pytest.mark.regression
 

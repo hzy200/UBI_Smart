@@ -8,11 +8,11 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.control.accounts import AccountError
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import current_user
-from coding_agent.web.routes.admin import (
+from ubismart.config import Settings
+from ubismart.control.accounts import AccountError
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import current_user
+from ubismart.web.routes.admin import (
     AdminDeps,
     _day,
     _EmptyStore,

@@ -6,10 +6,10 @@
 
 from __future__ import annotations
 
-from coding_agent.config import Settings
-from coding_agent.platform.read_cache import ReadCache
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.shell import build_shell_tool
+from ubismart.config import Settings
+from ubismart.platform.read_cache import ReadCache
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.shell import build_shell_tool
 
 ROOT = "/tmp/agent-read-cache"
 

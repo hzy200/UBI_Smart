@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.servers import agent_server, server
+from ubismart.config import Settings
+from ubismart.servers import agent_server, server
 
 pytestmark = pytest.mark.regression
 
@@ -67,7 +67,7 @@ def test_legacy_server_main_prints_handshake(
     monkeypatch.setattr(
         server.sys,
         "argv",
-        ["coding-agent-server", "--port", "0", "--token", "tok"],
+        ["ubismart-server", "--port", "0", "--token", "tok"],
     )
 
     server.main()

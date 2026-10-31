@@ -17,9 +17,9 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from coding_agent.host_broker.client import HostBrokerClient, HostBrokerError
-from coding_agent.host_broker.server import HostBrokerServer
-from coding_agent.host_broker.transport import (
+from ubismart.host_broker.client import HostBrokerClient, HostBrokerError
+from ubismart.host_broker.server import HostBrokerServer
+from ubismart.host_broker.transport import (
     ServerTlsConfig,
     TlsConfig,
     certificate_fingerprint,

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.config import Settings
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 
 def test_non_wsl_test_cannot_execute_real_sandbox_command() -> None:

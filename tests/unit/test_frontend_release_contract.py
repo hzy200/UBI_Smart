@@ -13,9 +13,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from coding_agent import __version__, web
-from coding_agent.config import Settings
-from coding_agent.web.version import (
+from ubismart import __version__, web
+from ubismart.config import Settings
+from ubismart.web.version import (
     CAPABILITIES_VERSION,
     MIN_API_VERSION,
     MIN_FRONTEND_VERSION,
@@ -24,7 +24,7 @@ from coding_agent.web.version import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-FRONTEND = ROOT / "src" / "coding_agent" / "web" / "frontend"
+FRONTEND = ROOT / "src" / "ubismart" / "web" / "frontend"
 
 
 def _frontend_version() -> str:
@@ -64,7 +64,7 @@ def test_versions_are_independently_releasable() -> None:
     assert "version" not in pyproject["project"]
     assert pyproject["project"]["dynamic"] == ["version"]
     assert pyproject["tool"]["hatch"]["version"]["path"] == (
-        "src/coding_agent/__init__.py"
+        "src/ubismart/__init__.py"
     )
     assert __version__
     assert isinstance(CAPABILITIES_VERSION, int)

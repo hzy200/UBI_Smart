@@ -12,7 +12,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.memory.checkpointer import CheckpointStore
+from ubismart.memory.checkpointer import CheckpointStore
 
 
 class CounterState(TypedDict, total=False):

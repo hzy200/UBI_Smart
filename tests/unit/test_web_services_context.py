@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import threading
 
-from coding_agent.config import Settings
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.models import SessionConfig
-from coding_agent.web.services import (
+from ubismart.config import Settings
+from ubismart.identity.tenancy import WebTenant
+from ubismart.web.auth import AuthUser
+from ubismart.web.models import SessionConfig
+from ubismart.web.services import (
     AgentGateway,
     ProviderService,
     SessionCatalog,

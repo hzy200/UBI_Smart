@@ -12,14 +12,15 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage
 
-from coding_agent.agents.explore import (
+from ubismart.agents.explore import (
+    Citation,
     ExploreReport,
     TaskProposal,
     make_explore_runner,
     make_review_runner,
 )
-from coding_agent.config import Settings
-from coding_agent.tools.artifacts import CallArtifact, pack
+from ubismart.config import Settings
+from ubismart.tools.artifacts import CallArtifact, pack
 
 
 class _FakeTool:
@@ -343,6 +344,87 @@ def test_cancelled_explore_skips_the_report_call() -> None:
     assert "取消" in artifact.summary
     assert llm.seen == []
     assert llm.structured.calls == 0
+
+
+def test_citations_are_validated_and_invalid_ones_dropped() -> None:
+    llm = _ScriptedLLM(
+        [AIMessage(content="看完了")],
+        report=ExploreReport(
+            summary="入口在 a.py",
+            findings=["main() 在 a.py:3"],
+            citations=[
+                Citation(path="a.py", line=3, note="入口"),
+                Citation(path="missing.py", line=1, note="编造的引用"),
+            ],
+        ),
+    )
+
+    def validator(path: str, line: int) -> bool:
+        return path == "a.py" and line >= 0
+
+    runner = make_explore_runner(
+        llm=llm,
+        tools=[_FakeTool("file_read")],
+        settings=_settings(explore_enabled=True),
+        citation_validator=validator,
+    )
+    artifact = _run(runner, args={"goal": "找入口"})
+
+    assert [item["path"] for item in artifact.citations] == ["a.py"]
+    assert artifact.status == "partial"
+    assert any("引用校验未通过" in item for item in artifact.findings)
+
+
+def test_citation_backed_by_successful_read_skips_validator() -> None:
+    probed: list[str] = []
+
+    def validator(path: str, line: int) -> bool:
+        probed.append(path)
+        return False
+
+    llm = _ScriptedLLM(
+        [
+            _ScriptedLLM.tool_call(
+                "file_read", {"path": "a.py", "reason": "看"}
+            ),
+            AIMessage(content="看完了"),
+        ],
+        report=ExploreReport(
+            summary="完成",
+            citations=[
+                Citation(path="a.py", line=1, note="读过的文件"),
+                Citation(path="b.py", line=1, note="没读过的文件"),
+            ],
+        ),
+    )
+    runner = make_explore_runner(
+        llm=llm,
+        tools=[_FakeTool("file_read")],
+        settings=_settings(explore_enabled=True),
+        citation_validator=validator,
+    )
+
+    artifact = _run(runner, args={"goal": "找入口"})
+
+    # a.py 有成功读取记录，不必探测；b.py 未知且校验失败被剔除。
+    assert probed == ["b.py"]
+    assert [item["path"] for item in artifact.citations] == ["a.py"]
+    assert artifact.status == "partial"
+
+
+def test_citations_are_capped_at_twenty() -> None:
+    citations = [
+        Citation(path=f"f{index}.py", line=1, note="x") for index in range(30)
+    ]
+    llm = _ScriptedLLM(
+        [AIMessage(content="看完了")],
+        report=ExploreReport(summary="完成", citations=citations),
+    )
+    runner = _runner(llm, [])
+
+    artifact = _run(runner, args={"goal": "找入口"})
+
+    assert len(artifact.citations) == 20
 
 
 def test_json_final_message_skips_the_second_report_call() -> None:

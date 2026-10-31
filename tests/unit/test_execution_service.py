@@ -6,14 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from coding_agent.execution import (
+from ubismart.execution import (
     ExecutionConflict,
     ExecutionRequest,
     ExecutionSandbox,
     ExecutionService,
 )
-from coding_agent.execution.context import tool_execution_context
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.execution.context import tool_execution_context
+from ubismart.sandbox.wsl_exec import ExecResult
 
 
 class FakeBackend:
@@ -325,7 +325,7 @@ def test_tool_context_produces_stable_op_ids_and_replays(tmp_path) -> None:
 
 
 def test_merge_git_path_uses_execution_service(tmp_path) -> None:
-    from coding_agent.orchestrator.merge import _git
+    from ubismart.orchestrator.merge import _git
 
     backend = FakeBackend()
     service = _service(tmp_path, backend)
@@ -390,7 +390,7 @@ class _HostBackend(FakeBackend):
 
 
 def test_host_run_uses_whitelist(tmp_path) -> None:
-    from coding_agent.execution.host_ops import HostExecutionDenied
+    from ubismart.execution.host_ops import HostExecutionDenied
 
     backend = _HostBackend()
     service = _service(tmp_path, backend)
@@ -407,7 +407,7 @@ def test_host_run_uses_whitelist(tmp_path) -> None:
 
 
 def test_host_run_requires_backend_sandbox(tmp_path) -> None:
-    from coding_agent.execution.contracts import ExecutionError
+    from ubismart.execution.contracts import ExecutionError
 
     service = _service(tmp_path)
     with pytest.raises(ExecutionError):

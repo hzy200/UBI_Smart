@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.execution.contracts import (
+from ubismart.execution.contracts import (
     ExecutionRequest,
     normalize_execution_target,
 )

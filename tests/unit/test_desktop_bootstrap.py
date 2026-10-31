@@ -5,8 +5,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.desktop.bootstrap import start_server
+from ubismart.config import Settings
+from ubismart.desktop.bootstrap import start_server
 
 
 @pytest.fixture

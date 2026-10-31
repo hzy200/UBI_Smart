@@ -7,16 +7,16 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
-from coding_agent.runtime import HistoryMessage
-from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
-from coding_agent.web import local_runtime
-from coding_agent.web import services as web_services
-from coding_agent.web.auth import AuthConfig
-from coding_agent.web.routes import providers as provider_routes
-from coding_agent.web.routes import workspace as workspace_routes
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.events import ApprovalRequested, RunFinished, RunStarted
+from ubismart.runtime import HistoryMessage
+from ubismart.sandbox.snapshots import RestoreResult, SnapshotEntry
+from ubismart.web import local_runtime
+from ubismart.web import services as web_services
+from ubismart.web.auth import AuthConfig
+from ubismart.web.routes import providers as provider_routes
+from ubismart.web.routes import workspace as workspace_routes
 
 
 class FakeRuntime:
@@ -219,7 +219,7 @@ def test_session_config_survives_app_restart(settings, runtime) -> None:
 
 
 def test_legacy_session_uses_audit_workspace(settings, runtime) -> None:
-    from coding_agent.audit import AuditLogger, AuditRecord
+    from ubismart.audit import AuditLogger, AuditRecord
 
     AuditLogger(settings.resolved_audit_dir).write(
         AuditRecord(

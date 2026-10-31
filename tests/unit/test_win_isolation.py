@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.host_broker.availability import appcontainer_required
-from coding_agent.host_broker.win_isolation import (
+from ubismart.host_broker.availability import appcontainer_required
+from ubismart.host_broker.win_isolation import (
     AppContainerRunner,
     JobLimits,
     JobObject,
@@ -43,7 +43,7 @@ def test_job_object_kills_child_on_close() -> None:
 
 def test_low_integrity_can_be_applied_in_child_process() -> None:
     code = (
-        "from coding_agent.host_broker.win_isolation import set_low_integrity;"
+        "from ubismart.host_broker.win_isolation import set_low_integrity;"
         "raise SystemExit(0 if set_low_integrity() else 1)"
     )
     result = subprocess.run(
@@ -95,13 +95,13 @@ def test_read_ops_use_appcontainer_runner(tmp_path: Path) -> None:
     available, reason = appcontainer_required()
     if not available:
         pytest.skip(reason)
-    from coding_agent.host_broker.ops import HostReadOnlyOps
-    from coding_agent.host_broker.paths import HostPathPolicy
-    from coding_agent.host_broker.policy import GrantStore, HostPolicy
-    from coding_agent.host_broker.protocol import (
+    from ubismart.host_broker.ops import HostReadOnlyOps
+    from ubismart.host_broker.paths import HostPathPolicy
+    from ubismart.host_broker.policy import GrantStore, HostPolicy
+    from ubismart.host_broker.protocol import (
         make_request,
     )
-    from coding_agent.host_broker.toolchain import ToolchainRegistry
+    from ubismart.host_broker.toolchain import ToolchainRegistry
 
     root = tmp_path / "project"
     root.mkdir()

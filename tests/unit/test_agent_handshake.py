@@ -8,15 +8,15 @@ import socket
 import httpx
 from fastapi.testclient import TestClient
 
-from coding_agent import AGENT_API_VERSION, __version__
-from coding_agent.config import Settings
-from coding_agent.control.agent_client import HttpAgentClient
-from coding_agent.control.protocol import (
+from ubismart import AGENT_API_VERSION, __version__
+from ubismart.config import Settings
+from ubismart.control.agent_client import HttpAgentClient
+from ubismart.control.protocol import (
     AGENT_CAPABILITIES,
     AgentMeta,
     check_compatibility,
 )
-from coding_agent.servers import agent_server, control_server
+from ubismart.servers import agent_server, control_server
 
 
 def _settings(tmp_path, **updates) -> Settings:
@@ -96,7 +96,7 @@ def test_compatibility_rules() -> None:
 
 
 def test_control_healthz_exposes_agent_state(tmp_path) -> None:
-    from coding_agent import web
+    from ubismart import web
 
     app = web.create_app(_settings(tmp_path))
     client = TestClient(app)

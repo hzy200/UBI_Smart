@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from coding_agent.config import Settings
-from coding_agent.llm import billing
+from ubismart.config import Settings
+from ubismart.llm import billing
 
 
 class _Response:

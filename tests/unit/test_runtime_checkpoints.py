@@ -13,9 +13,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
-from coding_agent.config import Settings
-from coding_agent.memory.checkpointer import CheckpointStore
-from coding_agent.runtime import AgentRuntime
+from ubismart.config import Settings
+from ubismart.memory.checkpointer import CheckpointStore
+from ubismart.runtime import AgentRuntime
 
 
 class _State(TypedDict):

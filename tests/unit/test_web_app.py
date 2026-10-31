@@ -11,9 +11,9 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.events import (
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     PlanCreated,
@@ -23,8 +23,8 @@ from coding_agent.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from coding_agent.runtime import HistoryMessage
-from coding_agent.web import local_runtime
+from ubismart.runtime import HistoryMessage
+from ubismart.web import local_runtime
 
 SCRIPT = [
     RunStarted(thread_id="t"),
@@ -130,7 +130,7 @@ def _frames(text: str) -> list[dict]:
 def test_index_page_is_served(settings) -> None:
     resp = TestClient(web.create_app(settings)).get("/")
     assert resp.status_code == 200
-    assert "CodingAgent" in resp.text
+    assert "UBISmart" in resp.text
     assert "text/event-stream" not in resp.text  # 是页面不是流
 
 
@@ -257,7 +257,7 @@ def test_health_survives_broken_sandbox(monkeypatch, settings) -> None:
 # ---------------- 会话列表 ----------------
 
 def test_sessions_are_listed(settings, tmp_path) -> None:
-    from coding_agent.audit import AuditLogger, AuditRecord
+    from ubismart.audit import AuditLogger, AuditRecord
 
     logger = AuditLogger(settings.resolved_audit_dir)
     logger.write(AuditRecord(ts="2026-10-03T10:00:00+00:00", kind="run_start",
@@ -282,7 +282,7 @@ def test_sessions_empty(settings) -> None:
 
 
 def test_sessions_respects_limit(settings, monkeypatch) -> None:
-    from coding_agent.audit import AuditLogger, AuditRecord
+    from ubismart.audit import AuditLogger, AuditRecord
 
     logger = AuditLogger(settings.resolved_audit_dir)
     for i in range(5):
@@ -863,14 +863,14 @@ def test_importing_the_module_does_not_build_an_app() -> None:
     import 就建 app 并读 settings 是副作用 —— `cli web` 导入 `create_app` 时
     会凭空多造一个默认 app（那个 app 永远不会被用到，却已经读了配置）。
     """
-    import coding_agent.web.app as module
+    import ubismart.web.app as module
 
     assert not hasattr(module, "app"), "模块级不该有 app 对象（用 create_app 自己建）"
 
 
 def test_local_run_writes_server_notification(monkeypatch, tmp_path) -> None:
     """本地 runtime 路径也要写通知，不能只在 A2→A3 代理路径生效。"""
-    from coding_agent.control.store import ControlStore
+    from ubismart.control.store import ControlStore
 
     settings = Settings(
         _env_file=None,

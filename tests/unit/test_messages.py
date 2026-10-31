@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from coding_agent.protocol.messages import (
+from ubismart.protocol.messages import (
     last_human_text,
     recover_dangling_tool_calls,
     text_of,

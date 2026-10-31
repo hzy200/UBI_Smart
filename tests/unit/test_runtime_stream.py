@@ -15,11 +15,12 @@ from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langgraph.errors import GraphRecursionError
 from langgraph.types import Interrupt
 
-from coding_agent.audit import AuditLogger, read_records
-from coding_agent.config import Settings
-from coding_agent.events import (
+from ubismart.audit import AuditLogger, read_records
+from ubismart.config import Settings
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     Event,
@@ -36,8 +37,8 @@ from coding_agent.events import (
     Verification,
     WorkflowSelected,
 )
-from coding_agent.runtime import AgentRuntime
-from coding_agent.tools.artifacts import CallArtifact, FileArtifact, ShellArtifact
+from ubismart.runtime import AgentRuntime
+from ubismart.tools.artifacts import CallArtifact, FileArtifact, ShellArtifact
 
 THREAD = "t-1"
 
@@ -684,6 +685,18 @@ def test_pending_call_args_survive_a_process_restart(tmp_path) -> None:
     call = next(r for r in read_records(runtime.audit_path) if r.kind == "tool_call")
     assert call.args["command"] == "pip install x"
     assert call.args["reason"] == "装依赖"
+
+
+def test_graph_recursion_error_reports_actionable_message(tmp_path) -> None:
+    error = GraphRecursionError("Recursion limit reached")
+    runtime, _ = _runtime(tmp_path, [("updates", error)], error=error)
+
+    events = _run(_collect(runtime))
+
+    failed = [event for event in events if isinstance(event, RunFailed)]
+    assert failed
+    assert "recursion_limit" in failed[-1].message
+    assert "checkpoint" in failed[-1].message
 
 
 def test_a_second_concurrent_stream_is_rejected(tmp_path) -> None:

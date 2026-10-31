@@ -7,13 +7,14 @@ from typing import Any
 
 import pytest
 
-from coding_agent.orchestrator import merge_queue as merge_queue_module
-from coding_agent.orchestrator.merge_queue import MergeQueue
-from coding_agent.orchestrator.scheduling import (
+from ubismart.orchestrator import merge_queue as merge_queue_module
+from ubismart.orchestrator.merge_queue import MergeQueue
+from ubismart.orchestrator.scheduling import (
     RateLimitState,
     TokenBudget,
     aged_priority,
     ewma_usage,
+    is_retryable,
     task_priority,
     task_token_reserve,
 )
@@ -118,14 +119,80 @@ def test_task_priority_and_reserve_can_be_overridden() -> None:
 
 def test_ewma_usage_weights_recent_results_and_filters_role() -> None:
     results = [
-        {"role": "explore", "input_tokens": 1_000, "output_tokens": 0},
-        {"role": "explore", "input_tokens": 4_000, "output_tokens": 1_000},
-        {"role": "implement", "input_tokens": 99_999, "output_tokens": 0},
+        {
+            "role": "explore",
+            "status": "success",
+            "input_tokens": 1_000,
+            "output_tokens": 0,
+        },
+        {
+            "role": "explore",
+            "status": "success",
+            "input_tokens": 4_000,
+            "output_tokens": 1_000,
+        },
+        {
+            "role": "implement",
+            "status": "success",
+            "input_tokens": 99_999,
+            "output_tokens": 0,
+        },
     ]
 
     # 1000 → 0.3 * 5000 + 0.7 * 1000 = 2200，不受其它角色影响。
     assert ewma_usage(results, "explore") == 2_200
     assert ewma_usage(results, "review") == 0
+
+
+def test_ewma_ignores_failed_and_stale_attempts() -> None:
+    results = [
+        {
+            "task_id": "a",
+            "attempt": 1,
+            "role": "explore",
+            "status": "failed",
+            "input_tokens": 100,
+            "output_tokens": 0,
+        },
+        {
+            "task_id": "a",
+            "attempt": 2,
+            "role": "explore",
+            "status": "success",
+            "input_tokens": 1_000,
+            "output_tokens": 0,
+        },
+        {
+            "task_id": "b",
+            "attempt": 1,
+            "role": "explore",
+            "status": "success",
+            "input_tokens": 3_000,
+            "output_tokens": 0,
+        },
+    ]
+
+    # 失败样本 100 被丢弃；a 只取 attempt=2 的 1000。
+    # 1000 → 0.3 * 3000 + 0.7 * 1000 = 1600。
+    assert ewma_usage(results, "explore") == 1_600
+
+
+def test_is_retryable_separates_deterministic_failures() -> None:
+    assert is_retryable(
+        {"status": "failed", "summary": "worker 异常：TimeoutError"}
+    )
+    assert not is_retryable(
+        {
+            "status": "failed",
+            "summary": "implement 任务没有 write_scope，拒绝执行",
+        }
+    )
+    assert not is_retryable(
+        {
+            "status": "failed",
+            "error": "工作区有未提交改动，写 worker 已禁用",
+        }
+    )
 
 
 def test_merge_queue_discard_reports_cancelled() -> None:
@@ -153,6 +220,68 @@ def test_merge_queue_only_waits_for_in_flight_implement_workers() -> None:
     assert not queue.has_active_implement(
         in_flight=set(), status=status, by_id=by_id
     )
+
+
+def test_take_mergeable_selects_disjoint_components() -> None:
+    queue = MergeQueue()
+    for task_id in ("i1", "i2", "i3"):
+        queue.add({"task_id": task_id, "status": "success"})
+
+    selected = queue.take_mergeable(
+        blocked_paths={"b.py"},
+        paths_by_task={
+            "i1": ["a.py"],
+            "i2": ["b.py"],
+            "i3": ["a.py"],
+        },
+    )
+
+    # i1 与 i3 共享 a.py，必须整组选中；i2 与在飞任务冲突，留下。
+    assert {record["task_id"] for record in selected} == {"i1", "i3"}
+    assert [record["task_id"] for record in queue.pending] == ["i2"]
+
+
+def test_take_mergeable_falls_back_when_paths_are_unknown() -> None:
+    queue = MergeQueue()
+    queue.add({"task_id": "i1", "status": "success"})
+    queue.add({"task_id": "i2", "status": "success"})
+
+    selected = queue.take_mergeable(
+        blocked_paths=set(),
+        paths_by_task={"i1": ["a.py"]},
+    )
+
+    assert selected == []
+    assert [record["task_id"] for record in queue.pending] == ["i1", "i2"]
+
+
+def test_take_mergeable_ignores_stale_cache_entries() -> None:
+    queue = MergeQueue()
+    queue.add({"task_id": "i1", "status": "success"})
+
+    # merge_paths 里可能残留已合并任务的路径；不能让它参与分量计算。
+    selected = queue.take_mergeable(
+        blocked_paths=set(),
+        paths_by_task={
+            "i1": ["a.py"],
+            "already-merged": ["b.py"],
+        },
+    )
+
+    assert [record["task_id"] for record in selected] == ["i1"]
+
+
+def test_take_mergeable_treats_directory_scope_as_conflict() -> None:
+    queue = MergeQueue()
+    queue.add({"task_id": "i1", "status": "success"})
+
+    selected = queue.take_mergeable(
+        blocked_paths={"app"},
+        paths_by_task={"i1": ["app/x.py"]},
+    )
+
+    assert selected == []
+    assert [record["task_id"] for record in queue.pending] == ["i1"]
 
 
 def test_merge_queue_flush_marks_merged_results(

@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from coding_agent.host_broker.policy import (
+from ubismart.host_broker.policy import (
     DENIED_SCOPE,
     DENIED_VERB,
     DENIED_ZX,
@@ -140,7 +140,7 @@ def test_normalize_scope_rejects_home_root() -> None:
 
 
 def test_from_settings_keeps_defaults_and_adds_extras(tmp_path) -> None:
-    from coding_agent.config import Settings
+    from ubismart.config import Settings
 
     extra = tmp_path / "extra"
     settings = Settings(

@@ -5,10 +5,10 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.audit import AuditLogger, AuditRecord
-from coding_agent.audit.logger import now_iso
-from coding_agent.servers.agent_server_routes.state import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.audit import AuditLogger, AuditRecord
+from ubismart.audit.logger import now_iso
+from ubismart.servers.agent_server_routes.state import (
     StateDeps,
     register_state_routes,
 )

@@ -8,12 +8,12 @@ import pytest
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import Session
 
-from coding_agent.control.idempotency import (
+from ubismart.control.idempotency import (
     IdempotencyInFlight,
     IdempotencyStore,
     normalize_key,
 )
-from coding_agent.control.schema import Base, IdempotencyKey
+from ubismart.control.schema import Base, IdempotencyKey
 
 
 @pytest.fixture()

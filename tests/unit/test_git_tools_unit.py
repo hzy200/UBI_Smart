@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.config import Settings
-from coding_agent.tools.artifacts import ShellArtifact, unpack
-from coding_agent.tools.git import (
+from ubismart.config import Settings
+from ubismart.tools.artifacts import ShellArtifact, unpack
+from ubismart.tools.git import (
     GIT_ADD,
     GIT_COMMIT,
     GIT_DIFF,

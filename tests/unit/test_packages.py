@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.tools.deps import PackageSpecError, validate_package
+from ubismart.tools.deps import PackageSpecError, validate_package
 
 
 @pytest.mark.parametrize(

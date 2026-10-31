@@ -7,16 +7,16 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.control.transport import MemoryEventTransport
-from coding_agent.events import (
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.control.transport import MemoryEventTransport
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     RunFinished,
     RunStarted,
 )
-from coding_agent.web import local_runtime
+from ubismart.web import local_runtime
 
 
 class FakeRuntime:
@@ -161,7 +161,7 @@ def test_buffer_evicts_old_events_by_size(settings, monkeypatch) -> None:
             yield AssistantToken(node="act", text="y" * 300)
             yield RunFinished(thread_id=thread_id, answer="done")
 
-    from coding_agent.web import streaming
+    from ubismart.web import streaming
 
     monkeypatch.setattr(streaming, "STREAM_BUFFER_MAX_CHARS", 500)
     monkeypatch.setattr(local_runtime, "AgentRuntime", lambda *a, **k: BigRuntime())
@@ -175,9 +175,9 @@ def test_buffer_evicts_old_events_by_size(settings, monkeypatch) -> None:
 
 
 def test_events_after_only_scans_from_the_tail() -> None:
-    from coding_agent.events import AssistantToken
-    from coding_agent.web.sse import StreamEntry
-    from coding_agent.web.sse import events_after as _events_after
+    from ubismart.events import AssistantToken
+    from ubismart.web.sse import StreamEntry
+    from ubismart.web.sse import events_after as _events_after
 
     class CountingList(list):
         reads = 0

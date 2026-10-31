@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.memory.longterm import LayeredMemory, LongTermMemory
+from ubismart.config import Settings
+from ubismart.memory.longterm import LayeredMemory, LongTermMemory
 
 
 def test_memory_state_root_can_be_outside_the_workspace() -> None:
@@ -29,7 +29,7 @@ class _FakeFs:
 
     def read_text(self, path: str, *, max_bytes: int) -> str:
         if path not in self.files:
-            from coding_agent.sandbox.fs import SandboxFsError
+            from ubismart.sandbox.fs import SandboxFsError
 
             raise SandboxFsError("not found")
         return self.files[path]
@@ -106,7 +106,7 @@ def test_search_on_empty_memory() -> None:
 
 def test_add_rejects_secrets() -> None:
     """记忆会进入每次运行的 system prompt，密钥不能写进去。"""
-    from coding_agent.memory.longterm import MemoryError
+    from ubismart.memory.longterm import MemoryError
 
     memory = _memory()
     with pytest.raises(MemoryError, match="密钥"):
@@ -169,7 +169,7 @@ def test_layered_memory_without_global_scope_rejects_writes() -> None:
 
 
 def test_read_time_secret_scan_blocks_injection() -> None:
-    from coding_agent.memory.longterm import HEADER
+    from ubismart.memory.longterm import HEADER
 
     fs = _FakeFs()
     fs.files["/work/.agent/memory.md"] = (
@@ -265,7 +265,7 @@ def test_backup_history_and_restore() -> None:
 
 @pytest.fixture
 def memory_tools(monkeypatch):
-    from coding_agent.tools import memory as memory_tools
+    from ubismart.tools import memory as memory_tools
 
     fs = _FakeFs()
     monkeypatch.setattr(
@@ -319,7 +319,7 @@ class _LockFs(_FakeFs):
         return self.attempts >= self.acquire_after
 
     def stat(self, path: str):
-        from coding_agent.sandbox.fs import FileStat
+        from ubismart.sandbox.fs import FileStat
 
         if not path.endswith("memory.lock.d"):
             return FileStat(exists=False, is_file=False, size=0, real_path=path)
@@ -361,9 +361,9 @@ def test_fresh_lock_is_not_stolen_and_write_still_proceeds() -> None:
 
 
 def test_user_memory_writes_are_audited(tmp_path) -> None:
-    from coding_agent.audit import AuditLogger, read_records
-    from coding_agent.memory.longterm import LayeredMemory
-    from coding_agent.runtime import AgentRuntime
+    from ubismart.audit import AuditLogger, read_records
+    from ubismart.memory.longterm import LayeredMemory
+    from ubismart.runtime import AgentRuntime
 
     runtime = AgentRuntime.__new__(AgentRuntime)
     runtime._memory = LayeredMemory(  # type: ignore[assignment]
@@ -383,7 +383,7 @@ def test_user_memory_writes_are_audited(tmp_path) -> None:
 
 
 def test_memory_save_is_not_exposed_without_write(monkeypatch) -> None:
-    from coding_agent.tools import memory as memory_tools
+    from ubismart.tools import memory as memory_tools
 
     monkeypatch.setattr(
         memory_tools, "SandboxFs", lambda sandbox, root, cache=None: _FakeFs()

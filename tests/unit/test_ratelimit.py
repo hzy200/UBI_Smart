@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from coding_agent.llm.ratelimit import RateLimitCoordinator
+from ubismart.llm.ratelimit import RateLimitCoordinator
 
 
 def _pair(tmp_path) -> tuple[RateLimitCoordinator, RateLimitCoordinator]:
@@ -109,7 +109,7 @@ def test_resume_without_reset_keeps_the_usage(tmp_path) -> None:
 
 
 def test_old_runs_are_pruned(tmp_path, monkeypatch) -> None:
-    import coding_agent.llm.ratelimit as module
+    import ubismart.llm.ratelimit as module
 
     monkeypatch.setattr(module, "MAX_RUNS", 3)
     coordinator = RateLimitCoordinator(path=tmp_path / "rate.json")
@@ -143,6 +143,54 @@ def test_run_usage_is_reconciled_per_provider(tmp_path) -> None:
     assert usage["output_tokens"] == 15
     assert usage["cost_usd"] == pytest.approx(0.03)
     assert set(usage["providers"]) == {"provider-a", "provider-b"}
+
+
+def test_session_usage_accumulates_across_run_resets(tmp_path) -> None:
+    """会话累计不被 start_run(reset=True) 清零；run 用量仍然按轮清零。"""
+    first, second = _pair(tmp_path)
+
+    first.start_run("thread-1")
+    first.record_usage(
+        "provider-a",
+        input_tokens=100,
+        output_tokens=10,
+        cost_usd=0.5,
+        run_id="thread-1",
+    )
+    first.start_run("thread-1", reset=True)
+    first.record_usage(
+        "provider-a",
+        input_tokens=7,
+        output_tokens=3,
+        cost_usd=0.1,
+        run_id="thread-1",
+    )
+
+    assert first.run_usage("thread-1")["input_tokens"] == 7
+    session = second.session_usage("thread-1")
+    assert session["input_tokens"] == 107
+    assert session["output_tokens"] == 13
+    assert session["cost_usd"] == pytest.approx(0.6)
+
+
+def test_session_usage_is_visible_to_another_coordinator(tmp_path) -> None:
+    first, second = _pair(tmp_path)
+    first.record_usage(
+        "provider-a", input_tokens=5, cost_usd=0.2, run_id="thread-9"
+    )
+
+    session = second.session_usage("thread-9")
+    assert session["input_tokens"] == 5
+    assert session["cost_usd"] == pytest.approx(0.2)
+
+
+def test_reset_clears_sessions(tmp_path) -> None:
+    first, _second = _pair(tmp_path)
+    first.record_usage("provider-a", cost_usd=0.3, run_id="thread-1")
+
+    first.reset()
+
+    assert first.session_usage("thread-1")["cost_usd"] == 0.0
 
 
 def test_reset_clears_the_shared_file(tmp_path) -> None:

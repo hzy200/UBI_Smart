@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from coding_agent.tools.file_models import (
+from ubismart.tools.file_models import (
     DEFAULT_READ_LINES,
     MAX_READ_LINES,
     ReadInput,

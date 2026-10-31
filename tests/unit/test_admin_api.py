@@ -10,12 +10,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.control.accounts import UserStore
-from coding_agent.control.approvals import ApprovalStore
-from coding_agent.control.mfa import _totp
-from coding_agent.control.store import ControlStore
-from coding_agent.web import app as web_app
+from ubismart.config import Settings
+from ubismart.control.accounts import UserStore
+from ubismart.control.approvals import ApprovalStore
+from ubismart.control.mfa import _totp
+from ubismart.control.store import ControlStore
+from ubismart.web import app as web_app
 
 MASTER = base64.b64encode(b"k" * 32).decode("ascii")
 
@@ -291,7 +291,7 @@ def test_admin_cannot_approve_own_request(tmp_path) -> None:
 
 
 def test_admin_mfa_reset_disables_and_revokes(tmp_path) -> None:
-    from coding_agent.control.mfa import MfaStore
+    from ubismart.control.mfa import MfaStore
 
     settings = _settings(tmp_path).model_copy(
         update={"mfa_enabled": True}

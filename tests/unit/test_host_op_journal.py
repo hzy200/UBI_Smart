@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.host_broker.op_journal import (
+from ubismart.host_broker.op_journal import (
     OP_FAILED,
     OP_FINISHED,
     OP_STARTED,

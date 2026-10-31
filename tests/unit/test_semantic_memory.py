@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from coding_agent.config import Settings
-from coding_agent.memory.embeddings import EmbeddingError
-from coding_agent.memory.longterm import LayeredMemory, LongTermMemory
-from coding_agent.memory.semantic import SemanticMemory
-from coding_agent.sandbox.fs import SandboxFsError
+from ubismart.config import Settings
+from ubismart.memory.embeddings import EmbeddingError
+from ubismart.memory.longterm import LayeredMemory, LongTermMemory
+from ubismart.memory.semantic import SemanticMemory
+from ubismart.sandbox.fs import SandboxFsError
 
 
 class _FakeFs:

@@ -7,20 +7,20 @@ from typing import Any
 
 import pytest
 
-from coding_agent.execution.contracts import ExecutionError
-from coding_agent.execution.host_backend import (
+from ubismart.execution.contracts import ExecutionError
+from ubismart.execution.host_backend import (
     HostExecutionBackend,
 )
-from coding_agent.execution.host_file_access import HostFileAccess
-from coding_agent.execution.host_fs import HostFs
-from coding_agent.execution.host_snapshots import HostSnapshotStore
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.ops import HostReadOnlyOps
-from coding_agent.host_broker.paths import HostPathPolicy
-from coding_agent.host_broker.policy import GrantStore, HostPolicy
-from coding_agent.host_broker.protocol import make_request
-from coding_agent.host_broker.snapshots import HostSnapshotStore as BrokerSnapshots
-from coding_agent.host_broker.toolchain import ToolchainRegistry
+from ubismart.execution.host_file_access import HostFileAccess
+from ubismart.execution.host_fs import HostFs
+from ubismart.execution.host_snapshots import HostSnapshotStore
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.ops import HostReadOnlyOps
+from ubismart.host_broker.paths import HostPathPolicy
+from ubismart.host_broker.policy import GrantStore, HostPolicy
+from ubismart.host_broker.protocol import make_request
+from ubismart.host_broker.snapshots import HostSnapshotStore as BrokerSnapshots
+from ubismart.host_broker.toolchain import ToolchainRegistry
 
 
 class Caller:

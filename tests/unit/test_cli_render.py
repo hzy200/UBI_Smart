@@ -13,9 +13,9 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from coding_agent.audit import AuditRecord
-from coding_agent.cli import app as cli_app
-from coding_agent.events import (
+from ubismart.audit import AuditRecord
+from ubismart.cli import app as cli_app
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     FileChanged,
@@ -330,14 +330,14 @@ def test_diff_text_handles_empty_input() -> None:
 
 
 def test_format_table_rows_shape() -> None:
-    from coding_agent.memory.sessions import SessionInfo
+    from ubismart.memory.sessions import SessionInfo
 
     info = SessionInfo(
         thread_id="abc", title="改一下 README", workspace="/w",
         started_at="2026-10-03T10:00:00+00:00", last_active="2026-10-03T11:00:00+00:00",
         prompts=2, tool_calls=5,
     )
-    from coding_agent.memory.sessions import format_table_rows
+    from ubismart.memory.sessions import format_table_rows
 
     rows = format_table_rows([info])
     assert rows[0] == ("abc", "2026-10-03 11:00:00", "2", "5", "改一下 README")
@@ -346,7 +346,7 @@ def test_format_table_rows_shape() -> None:
 # ---------------- 配置来源告警 ----------------
 
 def test_shadowed_keys_reports_dotenv_winner(tmp_path, monkeypatch, output) -> None:
-    from coding_agent.config import shadowed_env_keys
+    from ubismart.config import shadowed_env_keys
 
     env_file = tmp_path / ".env"
     env_file.write_text("LANGSMITH_API_KEY=from_dotenv\n", encoding="utf-8")
@@ -426,7 +426,7 @@ def test_ask_approval_without_reason(output) -> None:
 # ---------------- LangSmith 自检 ----------------
 
 def test_langsmith_check_when_disabled(output) -> None:
-    from coding_agent.config import Settings
+    from ubismart.config import Settings
 
     results = cli_app._check_langsmith(Settings(_env_file=None, langsmith_tracing=False))
     assert results == [True]
@@ -434,7 +434,7 @@ def test_langsmith_check_when_disabled(output) -> None:
 
 
 def test_langsmith_check_missing_key(output) -> None:
-    from coding_agent.config import Settings
+    from ubismart.config import Settings
 
     settings = Settings(_env_file=None, langsmith_tracing=True, langsmith_api_key="")
     assert cli_app._check_langsmith(settings) == [False]
@@ -449,7 +449,7 @@ def test_langsmith_check_unreachable_credentials(monkeypatch, output) -> None:
     """
     import langsmith
 
-    from coding_agent.config import Settings
+    from ubismart.config import Settings
 
     class _BoomClient:
         def __init__(self, *args, **kwargs) -> None:

@@ -13,14 +13,14 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from coding_agent.config import Settings
-from coding_agent.graph.build import build_graph
-from coding_agent.graph.nodes.approve import tool_level
-from coding_agent.graph.nodes.tools import make_tools_node
-from coding_agent.sandbox.policy import CommandLevel
-from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
-from coding_agent.tools.artifacts import SubAgentArtifact
-from coding_agent.tools.delegate import DELEGATE_EXPLORE, build_delegate_tool
+from ubismart.config import Settings
+from ubismart.graph.build import build_graph
+from ubismart.graph.nodes.approve import tool_level
+from ubismart.graph.nodes.tools import make_tools_node
+from ubismart.sandbox.policy import CommandLevel
+from ubismart.sandbox.wsl_exec import ExecResult, WslSandbox
+from ubismart.tools.artifacts import SubAgentArtifact
+from ubismart.tools.delegate import DELEGATE_EXPLORE, build_delegate_tool
 
 
 class _FakeTool:

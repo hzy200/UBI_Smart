@@ -5,17 +5,17 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from coding_agent.config import Settings
-from coding_agent.orchestrator.contracts import (
+from ubismart.config import Settings
+from ubismart.orchestrator.contracts import (
     TaskGraph,
     TaskSpec,
     WorkerResult,
     WorkflowDecision,
 )
-from coding_agent.orchestrator.subgraph import build_orchestrator_subgraph
-from coding_agent.orchestrator.workflow import WorkflowPlan
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.session.steering import SteeringController
+from ubismart.orchestrator.subgraph import build_orchestrator_subgraph
+from ubismart.orchestrator.workflow import WorkflowPlan
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.session.steering import SteeringController
 
 
 class _Structured:

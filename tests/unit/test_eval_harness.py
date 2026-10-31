@@ -988,7 +988,7 @@ def test_long_budget_overrides_reach_real_settings_fields(task) -> None:
     `Settings.model_copy(update=...)` 不做校验，塞一个不存在的键只会多出一个
     无用的属性，而预算看起来"配了"其实没生效。这种静默失效正是这一轮在治的病。
     """
-    from coding_agent.config import Settings
+    from ubismart.config import Settings
 
     assert task.budget, f"{task.id} 长程任务必须显式声明预算（探路实测它会撞上限）"
     unknown = set(task.budget) - set(Settings.model_fields)
@@ -999,7 +999,7 @@ def test_long_budget_overrides_reach_real_settings_fields(task) -> None:
 
 def test_long_budget_is_larger_than_the_default() -> None:
     """抬预算是为了把「被预算卡住」与「真做不成」分开，所以必须**确实更大**。"""
-    from coding_agent.config import Settings
+    from ubismart.config import Settings
 
     defaults = Settings(_env_file=None)
     budget = LONG_TASKS[0].budget or {}
@@ -1088,11 +1088,11 @@ def test_the_baseline_file_itself_does_not_count_as_dirty() -> None:
     # 第一版这里用的是绝对 Windows 路径，而真实输出是 `?? tests/eval/...` ——
     # 「绝对路径 endswith 绝对路径」恰好为真，于是**测试通过而功能是坏的**。
     target = "tests/eval/baseline_long.json"
-    porcelain = "\n".join([" M src/coding_agent/runtime.py", f"?? {target}", ""])
+    porcelain = "\n".join([" M src/ubismart/runtime.py", f"?? {target}", ""])
 
     assert _dirty_entries(porcelain) != []  # 默认算脏
     # 只忽略目标文件，其余照旧
-    assert _dirty_entries(porcelain, ignore=(target,)) == [" M src/coding_agent/runtime.py"]
+    assert _dirty_entries(porcelain, ignore=(target,)) == [" M src/ubismart/runtime.py"]
     assert _dirty_entries(f"?? {target}\n", ignore=(target,)) == []
 
 

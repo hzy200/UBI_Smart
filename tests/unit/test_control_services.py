@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.control.secrets import (
+from ubismart.config import Settings
+from ubismart.control.secrets import (
     KeyringSecretProvider,
     SystemdCredsSecretProvider,
     build_secret_provider,
 )
-from coding_agent.control.transport import (
+from ubismart.control.transport import (
     MemoryEventTransport,
     RedisStreamEventTransport,
 )
-from coding_agent.platform.secrets_store import SecretStoreUnavailable
+from ubismart.platform.secrets_store import SecretStoreUnavailable
 
 
 def test_keyring_provider_delegates_to_store(monkeypatch) -> None:
@@ -37,7 +37,7 @@ def test_keyring_provider_delegates_to_store(monkeypatch) -> None:
             return bool(self.get(name))
 
     monkeypatch.setattr(
-        "coding_agent.control.secrets.SecretStore", FakeStore
+        "ubismart.control.secrets.SecretStore", FakeStore
     )
     provider = KeyringSecretProvider("coding-agent:alice")
     provider.set("deepseek", "sk-test")

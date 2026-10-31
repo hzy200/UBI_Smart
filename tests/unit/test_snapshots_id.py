@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from coding_agent.sandbox.snapshots import _new_snapshot_id
+from ubismart.sandbox.snapshots import _new_snapshot_id
 
 
 def test_snapshot_ids_are_monotonic() -> None:

@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import asyncio
 
-from coding_agent.host_broker.client import HostBrokerClient, HostBrokerOffline
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.client import HostBrokerClient, HostBrokerOffline
+from ubismart.host_broker.protocol import (
     encode_frame,
     make_request,
     make_response,
 )
-from coding_agent.host_broker.server import HostBrokerServer
-from coding_agent.host_broker.transport import memory_transport_pair
+from ubismart.host_broker.server import HostBrokerServer
+from ubismart.host_broker.transport import memory_transport_pair
 
 
 def _workspace() -> dict[str, str]:

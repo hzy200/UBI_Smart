@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.orchestrator.retry import format_retry_context
+from ubismart.orchestrator.retry import format_retry_context
 
 
 def test_empty_context_returns_empty_string() -> None:

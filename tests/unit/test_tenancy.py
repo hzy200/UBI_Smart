@@ -6,9 +6,9 @@ import re
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.identity.tenancy import TenantError, TenantManager
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.config import Settings
+from ubismart.identity.tenancy import TenantError, TenantManager
+from ubismart.sandbox.wsl_exec import ExecResult
 
 _REALPATH_RE = re.compile(r"^realpath -m -- (.*)$")
 _PATH_ASSIGN_RE = re.compile(r"^p=(.*)$", re.MULTILINE)

@@ -6,15 +6,15 @@ import base64
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.execution.contracts import ExecutionError, ExecutionRequest
-from coding_agent.execution.host_backend import (
+from ubismart.config import Settings
+from ubismart.execution.contracts import ExecutionError, ExecutionRequest
+from ubismart.execution.host_backend import (
     HostCallError,
     HostExecutionBackend,
 )
-from coding_agent.execution.service import ExecutionService
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.registry import build_tools
+from ubismart.execution.service import ExecutionService
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.registry import build_tools
 
 
 class FakeCaller:
@@ -128,9 +128,9 @@ def test_service_routes_by_workspace_kind(tmp_path) -> None:
 
 
 def test_host_chunk_stays_within_frame_limit() -> None:
-    from coding_agent.execution.host_file_access import CHUNK_BYTES
-    from coding_agent.host_broker.ops import MAX_CHUNK_BYTES
-    from coding_agent.host_broker.protocol import MAX_FRAME_BYTES
+    from ubismart.execution.host_file_access import CHUNK_BYTES
+    from ubismart.host_broker.ops import MAX_CHUNK_BYTES
+    from ubismart.host_broker.protocol import MAX_FRAME_BYTES
 
     assert CHUNK_BYTES <= MAX_CHUNK_BYTES
     # base64 膨胀 4/3；留 1 KiB 给 JSON 包装字段。
@@ -185,6 +185,12 @@ def test_host_mode_exposes_only_readonly_file_tools() -> None:
         "file_read",
         "file_list",
         "find_files",
+        # 只读文档/图片能力同样走 host 文件访问；不包含写工具。
+        "document_read",
+        "pdf_page_image",
+        "image_inspect",
+        "report_check",
+        "report_read",
     }
 
 

@@ -6,10 +6,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.control.store import ControlStore
-from coding_agent.web import app as web_app
-from coding_agent.web.push import PushService
+from ubismart.config import Settings
+from ubismart.control.store import ControlStore
+from ubismart.web import app as web_app
+from ubismart.web.push import PushService
 
 
 def _settings(tmp_path: Path) -> Settings:

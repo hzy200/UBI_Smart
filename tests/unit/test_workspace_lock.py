@@ -8,7 +8,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from coding_agent.session.workspace_lock import WorkspaceLock
+from ubismart.session.workspace_lock import WorkspaceLock
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 
@@ -53,7 +53,7 @@ def test_lock_is_exclusive_across_processes(tmp_path) -> None:
         f"""\
         import sys, time
         sys.path.insert(0, {str(SRC)!r})
-        from coding_agent.session.workspace_lock import WorkspaceLock
+        from ubismart.session.workspace_lock import WorkspaceLock
 
         lock = WorkspaceLock({str(tmp_path)!r}, {workspace!r})
         print("ACQUIRED" if lock.acquire() else "BUSY", flush=True)

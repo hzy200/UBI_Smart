@@ -8,15 +8,15 @@ from typing import Any
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.fs import (
+from ubismart.config import Settings
+from ubismart.sandbox.fs import (
     FileStat,
     SandboxFsError,
     SandboxFsTooLarge,
 )
-from coding_agent.sandbox.pathguard import ensure_inside
-from coding_agent.tools import files as files_module
-from coding_agent.tools.files import _STALE_READ_MESSAGE
+from ubismart.sandbox.pathguard import ensure_inside
+from ubismart.tools import files as files_module
+from ubismart.tools.files import _STALE_READ_MESSAGE
 
 pytestmark = pytest.mark.regression
 

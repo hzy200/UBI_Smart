@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.desktop import supervisor
-from coding_agent.desktop.config import LauncherConfig
+from ubismart.desktop import supervisor
+from ubismart.desktop.config import LauncherConfig
 
 pytestmark = pytest.mark.regression
 
@@ -121,7 +121,7 @@ def test_post_swallows_transport_errors(monkeypatch) -> None:
 
 
 def test_control_prefix_prefers_packaged_binary(tmp_path, monkeypatch) -> None:
-    exe = tmp_path / "CodingAgentControl.exe"
+    exe = tmp_path / "UBISmartControl.exe"
     exe.write_text("", encoding="utf-8")
     monkeypatch.setattr(
         supervisor.sys, "executable", str(tmp_path / "python.exe")
@@ -129,7 +129,7 @@ def test_control_prefix_prefers_packaged_binary(tmp_path, monkeypatch) -> None:
     assert supervisor._control_prefix() == [str(exe.resolve())]
 
     exe.unlink()
-    nested = tmp_path / "control" / "CodingAgentControl.exe"
+    nested = tmp_path / "control" / "UBISmartControl.exe"
     nested.parent.mkdir()
     nested.write_text("", encoding="utf-8")
     assert supervisor._control_prefix() == [str(nested.resolve())]
@@ -138,7 +138,7 @@ def test_control_prefix_prefers_packaged_binary(tmp_path, monkeypatch) -> None:
     assert supervisor._control_prefix() == [
         str(tmp_path / "python.exe"),
         "-m",
-        "coding_agent.servers.control_server",
+        "ubismart.servers.control_server",
     ]
 
 
@@ -311,7 +311,7 @@ def test_launcher_config_roundtrip_workspace_fields(
 ) -> None:
     import json
 
-    from coding_agent.desktop import config as desktop_config
+    from ubismart.desktop import config as desktop_config
 
     path = tmp_path / "launcher.json"
     monkeypatch.setattr(desktop_config, "config_path", lambda: path)
@@ -363,7 +363,7 @@ def test_start_control_injects_config_db(tmp_path, monkeypatch) -> None:
 def test_start_agent_fails_closed_on_hardening(
     tmp_path, monkeypatch
 ) -> None:
-    from coding_agent.desktop import hardening
+    from ubismart.desktop import hardening
 
     monkeypatch.setenv("AGENT_WORKSPACE_REGISTRY", "true")
     monkeypatch.setattr(supervisor, "ensure_dir", lambda *a, **k: None)
@@ -386,7 +386,7 @@ def test_start_agent_fails_closed_on_hardening(
 def test_old_launcher_json_is_compatible(tmp_path, monkeypatch) -> None:
     import json
 
-    from coding_agent.desktop import config as desktop_config
+    from ubismart.desktop import config as desktop_config
 
     path = tmp_path / "launcher.json"
     monkeypatch.setattr(desktop_config, "config_path", lambda: path)

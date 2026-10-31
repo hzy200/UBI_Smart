@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from coding_agent.graph.plan import (
+from ubismart.graph.plan import (
     IMPLEMENT,
     UNKNOWN,
     PlanStepModel,

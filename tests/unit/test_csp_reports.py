@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.web import app as web_app
-from coding_agent.web.auth import AuthConfig
+from ubismart.config import Settings
+from ubismart.web import app as web_app
+from ubismart.web.auth import AuthConfig
 
 LEGACY = {
     "csp-report": {

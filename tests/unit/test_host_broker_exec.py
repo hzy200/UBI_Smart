@@ -9,19 +9,19 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.host_broker.availability import appcontainer_required
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.ops import HostReadOnlyOps
-from coding_agent.host_broker.paths import HostPathPolicy
-from coding_agent.host_broker.policy import GrantStore, HostPolicy
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.availability import appcontainer_required
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.ops import HostReadOnlyOps
+from ubismart.host_broker.paths import HostPathPolicy
+from ubismart.host_broker.policy import GrantStore, HostPolicy
+from ubismart.host_broker.protocol import (
     EXEC_UNAVAILABLE,
     TOOLCHAIN_UNAVAILABLE,
     make_request,
 )
-from coding_agent.host_broker.snapshots import HostSnapshotStore
-from coding_agent.host_broker.toolchain import ToolchainRef, ToolchainRegistry
-from coding_agent.host_broker.win_isolation import AppContainerRunner
+from ubismart.host_broker.snapshots import HostSnapshotStore
+from ubismart.host_broker.toolchain import ToolchainRef, ToolchainRegistry
+from ubismart.host_broker.win_isolation import AppContainerRunner
 
 _APP_OK, _APP_REASON = appcontainer_required()
 pytestmark = [

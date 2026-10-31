@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.graph.nodes import verify as verify_mod
-from coding_agent.graph.nodes.verify import make_verify_node
-from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
-from coding_agent.tools.registry import build_tools
+from ubismart.config import Settings
+from ubismart.graph.nodes import verify as verify_mod
+from ubismart.graph.nodes.verify import make_verify_node
+from ubismart.sandbox.wsl_exec import ExecResult, WslSandbox
+from ubismart.tools.registry import build_tools
 
 ROOT = "/tmp/agent-eval"
 

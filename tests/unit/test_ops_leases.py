@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import current_user
-from coding_agent.web.routes.ops import OpsDeps, register_ops_routes
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import current_user
+from ubismart.web.routes.ops import OpsDeps, register_ops_routes
 
 
 class _Leases:

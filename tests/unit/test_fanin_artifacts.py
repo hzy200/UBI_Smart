@@ -9,11 +9,11 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage
 
-from coding_agent.config import Settings
-from coding_agent.orchestrator import artifacts as artifacts_module
-from coding_agent.orchestrator.artifacts import ArtifactStore
-from coding_agent.orchestrator.fanin import make_fan_in_node
-from coding_agent.orchestrator.nodes import make_synthesize_node
+from ubismart.config import Settings
+from ubismart.orchestrator import artifacts as artifacts_module
+from ubismart.orchestrator.artifacts import ArtifactStore
+from ubismart.orchestrator.fanin import make_fan_in_node
+from ubismart.orchestrator.nodes import make_synthesize_node
 
 
 class _FakeFs:
@@ -71,6 +71,22 @@ def test_failed_tasks_are_placed_before_successes() -> None:
     )
     context = out["worker_context"]
     assert context.index("bad") < context.index("good")
+
+
+def test_head_warns_against_re_exploration() -> None:
+    node = make_synthesize_node(_settings())
+    out = node(
+        {
+            "tasks": [],
+            "task_status": {"t1": "success"},
+            "worker_results": [
+                _result("t1", status="success", summary="入口在 main.py")
+            ],
+        },
+        None,
+    )
+
+    assert "不要重复探索" in out["worker_context"]
 
 
 def test_per_task_budget_truncates_but_keeps_every_task() -> None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from coding_agent.llm.context import (
+from ubismart.llm.context import (
     HARD_TOOL_CHARS,
     ContextBudget,
     estimate_tokens,

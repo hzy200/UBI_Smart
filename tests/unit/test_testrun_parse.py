@@ -6,10 +6,10 @@
 
 from __future__ import annotations
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.artifacts import unpack
-from coding_agent.tools.testrun import (
+from ubismart.config import Settings
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.artifacts import unpack
+from ubismart.tools.testrun import (
     VerifyResult,
     _selected_command,
     build_test_tool,
@@ -252,7 +252,7 @@ class _ProbeSandbox:
         self._cache: dict[str, object] = {}
 
     def run(self, command: str, *, cwd=None, timeout=None, capture_limit=None):
-        from coding_agent.sandbox.wsl_exec import ExecResult
+        from ubismart.sandbox.wsl_exec import ExecResult
 
         self.runs += 1
         return ExecResult(
@@ -269,14 +269,14 @@ class _ProbeSandbox:
 
 
 def test_a_python_project_without_tests_falls_back_to_a_syntax_check() -> None:
-    from coding_agent.tools.testrun import _SYNTAX_CHECK, detect_test_command
+    from ubismart.tools.testrun import _SYNTAX_CHECK, detect_test_command
 
     sandbox = _ProbeSandbox("HAS python\n")
     assert detect_test_command(sandbox, "/ws", allow_manifest=False) == _SYNTAX_CHECK
 
 
 def test_project_venv_python_is_used_for_pytest() -> None:
-    from coding_agent.tools.testrun import detect_test_command
+    from ubismart.tools.testrun import detect_test_command
 
     sandbox = _ProbeSandbox(
         "DIR tests\nHAS pytest\nPY .venv/bin/python\n"
@@ -288,7 +288,7 @@ def test_project_venv_python_is_used_for_pytest() -> None:
 
 
 def test_project_pytest_command_can_rerun_selected_tests() -> None:
-    from coding_agent.tools.testrun import _selected_command
+    from ubismart.tools.testrun import _selected_command
 
     assert (
         _selected_command(
@@ -300,7 +300,7 @@ def test_project_pytest_command_can_rerun_selected_tests() -> None:
 
 def test_a_project_without_any_source_stays_not_configured() -> None:
     """没有源码就没有可做的校验 —— 这时如实返回空串（`not_configured`）。"""
-    from coding_agent.tools.testrun import detect_test_command
+    from ubismart.tools.testrun import detect_test_command
 
     sandbox = _ProbeSandbox("DIR tests\n")  # 有 tests 目录但没源码
     assert detect_test_command(sandbox, "/ws", allow_manifest=False) == ""
@@ -312,7 +312,7 @@ def test_the_syntax_fallback_is_not_cached() -> None:
     任务常常是先建目录、后写测试 —— 把降级结果缓存下来，真正的测试命令就再也
     发现不了（这与"不缓存没探到"是同一条理由）。
     """
-    from coding_agent.tools.testrun import detect_test_command
+    from ubismart.tools.testrun import detect_test_command
 
     sandbox = _ProbeSandbox("HAS python\n")
     detect_test_command(sandbox, "/ws", allow_manifest=False)  # 探一次，不留下缓存
@@ -326,7 +326,7 @@ def test_the_audit_records_not_configured_as_unverified_not_passed() -> None:
 
     把"没做"记成"通过"会让验证缺口在账上看不出来 —— 而审计本该是可信来源。
     """
-    from coding_agent.runtime import _verification_verdict
+    from ubismart.runtime import _verification_verdict
 
     assert _verification_verdict({"status": "ok"}) is True
     assert _verification_verdict({"status": "failed"}) is False

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from coding_agent.identity import project_env
-from coding_agent.identity.project_env import probe_project, workspace_mode
+from ubismart.identity import project_env
+from ubismart.identity.project_env import probe_project, workspace_mode
 
 
 def test_workspace_mode_classifies_native_and_mnt() -> None:

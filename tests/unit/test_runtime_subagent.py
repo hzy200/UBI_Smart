@@ -10,12 +10,12 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from coding_agent.audit import AuditLogger, read_records
-from coding_agent.config import Settings
-from coding_agent.events import RunFinished, SubAgentFinished, SubAgentStarted
-from coding_agent.runtime import AgentRuntime
-from coding_agent.tools.artifacts import CallArtifact, SubAgentArtifact, pack
-from coding_agent.tools.delegate import DELEGATE_EXPLORE
+from ubismart.audit import AuditLogger, read_records
+from ubismart.config import Settings
+from ubismart.events import RunFinished, SubAgentFinished, SubAgentStarted
+from ubismart.runtime import AgentRuntime
+from ubismart.tools.artifacts import CallArtifact, SubAgentArtifact, pack
+from ubismart.tools.delegate import DELEGATE_EXPLORE
 
 THREAD = "t-sub"
 

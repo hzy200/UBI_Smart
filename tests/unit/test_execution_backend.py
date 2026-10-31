@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import os
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.backend import build_sandbox, resolve_execution_backend
-from coding_agent.sandbox.local_exec import LocalLinuxSandbox
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.config import Settings
+from ubismart.sandbox.backend import build_sandbox, resolve_execution_backend
+from ubismart.sandbox.local_exec import LocalLinuxSandbox
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 
 def _settings(tmp_path, **overrides) -> Settings:

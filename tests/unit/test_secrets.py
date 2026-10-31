@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from coding_agent.audit.logger import sanitize_args, truncate
-from coding_agent.security.secrets import redact_secrets, secret_kinds
+from ubismart.audit.logger import sanitize_args, truncate
+from ubismart.security.secrets import redact_secrets, secret_kinds
 
 
 def test_redacts_common_tokens() -> None:

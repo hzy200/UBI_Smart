@@ -12,11 +12,11 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage
 
-from coding_agent.config import Settings
-from coding_agent.orchestrator import implement as implement_module
-from coding_agent.orchestrator.implement import make_implement_runner
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.artifacts import pack
+from ubismart.config import Settings
+from ubismart.orchestrator import implement as implement_module
+from ubismart.orchestrator.implement import make_implement_runner
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.artifacts import pack
 
 
 class _FakeSandbox:
@@ -122,11 +122,15 @@ def env(monkeypatch):
     }
 
     monkeypatch.setattr(implement_module, "build_tools", lambda *a, **k: [state["tool"]])
-    monkeypatch.setattr(implement_module, "_git_ready", lambda sandbox, root: (True, ""))
+    monkeypatch.setattr(
+        implement_module,
+        "_git_ready",
+        lambda sandbox, root, **kwargs: (True, ""),
+    )
     monkeypatch.setattr(
         implement_module,
         "_changed_files",
-        lambda sandbox, worktree: list(state["changed"]),
+        lambda sandbox, worktree, *args: list(state["changed"]),
     )
     monkeypatch.setattr(
         implement_module, "_impacted_tests", lambda sandbox, worktree, changed: []
@@ -134,7 +138,7 @@ def env(monkeypatch):
     monkeypatch.setattr(
         implement_module,
         "_make_patch",
-        lambda sandbox, worktree, root, task_id: state["patch"],
+        lambda sandbox, worktree, root, task_id, *args: state["patch"],
     )
     monkeypatch.setattr(
         implement_module, "_peer_dependency_failure", lambda *a, **k: state["peer"]
@@ -186,7 +190,9 @@ def test_missing_write_scope_fails(env) -> None:
 
 def test_git_not_ready_fails(env, monkeypatch) -> None:
     monkeypatch.setattr(
-        implement_module, "_git_ready", lambda sandbox, root: (False, "工作区脏")
+        implement_module,
+        "_git_ready",
+        lambda sandbox, root, **kwargs: (False, "工作区脏"),
     )
     runner = _runner(env, [])
     result = asyncio.run(runner(_task(), parent_request="x"))
@@ -389,3 +395,152 @@ def test_timeout_is_marked(env) -> None:
     result = asyncio.run(runner(_task(), parent_request="x"))
     assert result.timed_out is True
     assert "超时" in result.error
+
+
+def test_sequential_task_seeds_worktree_and_uses_baseline(env, monkeypatch) -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_ready(sandbox, root, **kwargs):  # noqa: ANN001
+        seen["ready"] = kwargs
+        return True, ""
+
+    def fake_seed(sandbox, root, worktree, task_id, settings):  # noqa: ANN001
+        seen["seed"] = (worktree, task_id)
+        return True, "", "tree-sha", ["a.py"], 123
+
+    def fake_changed(sandbox, worktree, base_ref="HEAD"):  # noqa: ANN001
+        seen["changed_base"] = base_ref
+        return ["app/x.py"]
+
+    def fake_patch(sandbox, worktree, root, task_id, base_ref="HEAD"):  # noqa: ANN001
+        seen["patch_base"] = base_ref
+        return "/ws/.agent/patches/t.patch"
+
+    monkeypatch.setattr(implement_module, "_git_ready", fake_ready)
+    monkeypatch.setattr(implement_module, "_seed_worktree", fake_seed)
+    monkeypatch.setattr(implement_module, "_changed_files", fake_changed)
+    monkeypatch.setattr(implement_module, "_make_patch", fake_patch)
+    runner = _runner(env, [_tool_call(), AIMessage(content="完成")])
+
+    result = asyncio.run(
+        runner(
+            _task(
+                stage=1,
+                seed_from_workspace=True,
+                baseline_paths=["a.py"],
+            ),
+            parent_request="x",
+        )
+    )
+
+    assert result.status == "success"
+    assert seen["ready"]["allow_dirty_paths"] == {"a.py"}
+    assert seen["seed"][1] == "implement-1"
+    assert seen["changed_base"] == "tree-sha"
+    assert seen["patch_base"] == "tree-sha"
+    assert result.seed_files == ["a.py"]
+    assert result.seed_bytes == 123
+
+
+def test_seed_failure_fails_closed(env, monkeypatch) -> None:
+    def fake_seed(sandbox, root, worktree, task_id, settings):  # noqa: ANN001
+        return False, "seed 失败", "", [], 0
+
+    monkeypatch.setattr(implement_module, "_seed_worktree", fake_seed)
+    runner = _runner(env, [_tool_call(), AIMessage(content="完成")])
+
+    result = asyncio.run(
+        runner(
+            _task(stage=1, seed_from_workspace=True, baseline_paths=["a.py"]),
+            parent_request="x",
+        )
+    )
+
+    assert result.status == "failed"
+    assert "seed 失败" in result.summary
+
+
+def test_seed_worktree_builds_patch_and_records_baseline(monkeypatch) -> None:
+    written: dict[str, bytes] = {}
+
+    class _FakeFs:
+        def __init__(self, *args: Any) -> None:
+            pass
+
+        def write_bytes(self, path: str, data: bytes) -> int:
+            written[path] = data
+            return len(data)
+
+    def fake_host_run(sandbox, command, **kwargs):  # noqa: ANN001
+        stdout = ""
+        exit_code = 0
+        if command.startswith("git diff --binary HEAD"):
+            stdout = "diff --git a/a.py b/a.py\n"
+        elif command.startswith("git diff --name-only"):
+            stdout = "a.py\0"
+        elif command.startswith("git ls-files"):
+            stdout = "new.txt\0"
+        elif command.startswith("git diff --no-index"):
+            stdout = "new file diff\n"
+            exit_code = 1
+        elif command.startswith("git write-tree"):
+            stdout = "tree-sha\n"
+        return ExecResult(
+            command=command,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr="",
+            duration_ms=0,
+        )
+
+    monkeypatch.setattr(implement_module, "SandboxFs", _FakeFs)
+    monkeypatch.setattr(implement_module, "host_run", fake_host_run)
+
+    ok, error, base_ref, seed_files, seed_bytes = (
+        implement_module._seed_worktree(
+            object(),  # type: ignore[arg-type]
+            "/ws",
+            "/ws/.agent/worktrees/t1",
+            "t1",
+            _settings(),
+        )
+    )
+
+    assert ok is True
+    assert error == ""
+    assert base_ref == "tree-sha"
+    assert seed_files == ["a.py", "new.txt"]
+    assert seed_bytes > 0
+    patch = b"".join(written.values())
+    assert b"diff --git a/a.py b/a.py" in patch
+    assert b"new file diff" in patch
+
+
+def test_seed_worktree_fails_when_untracked_limit_is_exceeded(monkeypatch) -> None:
+    def fake_host_run(sandbox, command, **kwargs):  # noqa: ANN001
+        stdout = "new.txt\0" if command.startswith("git ls-files") else ""
+        return ExecResult(
+            command=command,
+            exit_code=0,
+            stdout=stdout,
+            stderr="",
+            duration_ms=0,
+        )
+
+    monkeypatch.setattr(implement_module, "host_run", fake_host_run)
+
+    ok, error, base_ref, seed_files, seed_bytes = (
+        implement_module._seed_worktree(
+            object(),  # type: ignore[arg-type]
+            "/ws",
+            "/ws/.agent/worktrees/t1",
+            "t1",
+            _settings(orchestrator_seed_max_files=0),
+        )
+    )
+
+    assert ok is False
+    assert "超过上限" in error
+    assert base_ref == ""
+    assert seed_files == []
+    assert seed_bytes == 0

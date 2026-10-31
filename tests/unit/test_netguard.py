@@ -14,7 +14,7 @@ import socket
 
 import pytest
 
-from coding_agent.security.netguard import (
+from ubismart.security.netguard import (
     OutboundBlocked,
     _blocked_reason,
     check_outbound_url,
@@ -136,7 +136,7 @@ def test_unresolvable_host_is_rejected(monkeypatch) -> None:
 def test_resolve_outbound_target_pins_first_valid_ip(monkeypatch) -> None:
     import socket
 
-    from coding_agent.security.netguard import resolve_outbound_target
+    from ubismart.security.netguard import resolve_outbound_target
 
     monkeypatch.setattr(
         socket,

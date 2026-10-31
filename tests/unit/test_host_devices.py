@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from coding_agent.host_broker import devices
-from coding_agent.host_broker.devices import (
+from ubismart.host_broker import devices
+from ubismart.host_broker.devices import (
     STATUS_ACTIVE,
     STATUS_REVOKED,
     DeviceRegistry,
@@ -150,7 +150,7 @@ def test_devices_cli_roundtrip(tmp_path, capsys) -> None:
 
 
 def test_registry_verifies_device_attestation(tmp_path) -> None:
-    from coding_agent.host_broker.attestation import SoftwareKeyIdentity
+    from ubismart.host_broker.attestation import SoftwareKeyIdentity
 
     identity = SoftwareKeyIdentity(tmp_path / "device.key")
     evidence = identity.attest("nonce-1:a2l-1")

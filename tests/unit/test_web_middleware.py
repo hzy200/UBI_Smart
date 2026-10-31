@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coding_agent.web.middleware import BodySizeLimitMiddleware
+from ubismart.web.middleware import BodySizeLimitMiddleware
 
 
 def _client() -> TestClient:

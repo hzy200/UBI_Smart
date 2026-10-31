@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.platform.paths import PathGuardError
-from coding_agent.servers import agent_server
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.platform.paths import PathGuardError
+from ubismart.servers import agent_server
 
 ensure_host_workspace = agent_server.ensure_host_workspace
 

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from coding_agent.runtime_snapshots import SnapshotMixin
-from coding_agent.sandbox.snapshots import SnapshotEntry
+from ubismart.runtime_snapshots import SnapshotMixin
+from ubismart.sandbox.snapshots import SnapshotEntry
 
 
 class _Store:

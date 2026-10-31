@@ -6,8 +6,8 @@ import base64
 
 import pytest
 
-from coding_agent.host_broker import attestation
-from coding_agent.host_broker.attestation import (
+from ubismart.host_broker import attestation
+from ubismart.host_broker.attestation import (
     KIND_SOFTWARE,
     AttestationError,
     AttestationUnavailable,

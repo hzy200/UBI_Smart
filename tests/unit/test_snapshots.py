@@ -15,8 +15,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from coding_agent.sandbox.fs import FileStat, SandboxFsError
-from coding_agent.sandbox.snapshots import SnapshotStore
+from ubismart.sandbox.fs import FileStat, SandboxFsError
+from ubismart.sandbox.snapshots import SnapshotStore
 
 ROOT = "/ws"
 BACKUP_PREFIX = f"{ROOT}/.agent/backups/"

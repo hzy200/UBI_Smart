@@ -7,8 +7,8 @@ sandbox —— 指令文件的内容会直接进模型上下文，这条路径�
 
 from __future__ import annotations
 
-from coding_agent.identity import instructions
-from coding_agent.sandbox.fs import FileStat, SandboxFsError
+from ubismart.identity import instructions
+from ubismart.sandbox.fs import FileStat, SandboxFsError
 
 
 class _Fs:

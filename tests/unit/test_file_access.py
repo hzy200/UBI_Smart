@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from coding_agent.execution.file_access import FileAccess, SandboxFileAccess
+from ubismart.execution.file_access import FileAccess, SandboxFileAccess
 
 
 class FakeFs:

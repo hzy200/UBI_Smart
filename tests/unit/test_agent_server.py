@@ -8,22 +8,22 @@ from types import SimpleNamespace
 import httpx
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.control.agent_client import (
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.control.agent_client import (
     AgentContext,
     HttpAgentClient,
 )
-from coding_agent.events import (
+from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
     RunFinished,
     RunStarted,
 )
-from coding_agent.sandbox.snapshots import SnapshotEntry
-from coding_agent.servers import agent_server
-from coding_agent.servers.agent_server_routes import state as state_routes
-from coding_agent.servers.agent_server_routes import workspace as workspace_routes
+from ubismart.sandbox.snapshots import SnapshotEntry
+from ubismart.servers import agent_server
+from ubismart.servers.agent_server_routes import state as state_routes
+from ubismart.servers.agent_server_routes import workspace as workspace_routes
 
 
 class FakeRuntime:

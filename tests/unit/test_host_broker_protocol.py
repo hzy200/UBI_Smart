@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.protocol import (
     MAX_FRAME_BYTES,
     OP_UNKNOWN,
     PROTOCOL_VERSION,

@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from coding_agent.execution.contracts import ExecutionResult
-from coding_agent.execution.service import ExecutionJournal
+from ubismart.execution.contracts import ExecutionResult
+from ubismart.execution.service import ExecutionJournal
 
 
 def _result(op_id: str) -> ExecutionResult:

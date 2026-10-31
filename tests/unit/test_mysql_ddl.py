@@ -15,7 +15,7 @@ pytest.importorskip("alembic")
 
 from alembic import command  # noqa: E402
 
-from coding_agent.control.migrate import alembic_config  # noqa: E402
+from ubismart.control.migrate import alembic_config  # noqa: E402
 
 
 def _mysql_sql() -> str:

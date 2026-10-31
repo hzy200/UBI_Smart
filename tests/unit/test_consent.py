@@ -9,7 +9,7 @@ import sys
 import types
 from typing import Any
 
-from coding_agent.host_broker.consent import (
+from ubismart.host_broker.consent import (
     AutoConsent,
     CallbackConsent,
     RemoteConsent,
@@ -18,7 +18,7 @@ from coding_agent.host_broker.consent import (
     _ttl_text,
     _verb_text,
 )
-from coding_agent.host_broker.protocol import Frame
+from ubismart.host_broker.protocol import Frame
 
 
 def _frame(**payload: Any) -> Frame:

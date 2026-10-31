@@ -13,7 +13,7 @@ import pytest
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, utils
 
-from coding_agent.control.oidc import (
+from ubismart.control.oidc import (
     OidcClient,
     OidcError,
     OidcSettings,
@@ -24,7 +24,7 @@ from coding_agent.control.oidc import (
     _key_from_jwk,
     _verify_signature,
 )
-from coding_agent.control.store import ControlStore
+from ubismart.control.store import ControlStore
 
 ISSUER = "https://idp.example"
 CLIENT_ID = "coding-agent"
@@ -345,7 +345,7 @@ def test_jwks_edges_and_claim_edges() -> None:
 
 
 def test_state_empty_and_purge_expired(tmp_path: Path, monkeypatch) -> None:
-    import coding_agent.control.oidc as oidc_module
+    import ubismart.control.oidc as oidc_module
 
     store = ControlStore(f"sqlite:///{tmp_path / 'control.db'}")
     states = OidcStateStore(store.engine)

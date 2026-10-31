@@ -11,11 +11,11 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.events import RunFinished, RunStarted
-from coding_agent.servers import agent_server
-from coding_agent.servers.agent_server_support import RunState
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.events import RunFinished, RunStarted
+from ubismart.servers import agent_server
+from ubismart.servers.agent_server_support import RunState
 
 
 class _HangingRuntime:
@@ -69,7 +69,7 @@ def _headers() -> dict[str, str]:
 
 def _sandbox(monkeypatch) -> None:
     monkeypatch.setattr(
-        "coding_agent.sandbox.backend.build_sandbox",
+        "ubismart.sandbox.backend.build_sandbox",
         lambda settings: _HealthSandbox(),
     )
 

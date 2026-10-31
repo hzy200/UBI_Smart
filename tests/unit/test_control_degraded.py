@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
+from ubismart import web
+from ubismart.config import Settings
 
 
 def _settings(tmp_path) -> Settings:
@@ -22,7 +22,7 @@ def _settings(tmp_path) -> Settings:
 def test_app_starts_degraded_when_store_unavailable(
     tmp_path, monkeypatch
 ) -> None:
-    from coding_agent.control import store as store_module
+    from ubismart.control import store as store_module
 
     def boom(*args, **kwargs):
         raise RuntimeError("db down")

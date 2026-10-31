@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.control import webhooks as webhook_module
-from coding_agent.control.store import ControlStore
-from coding_agent.control.webhooks import (
+from ubismart.config import Settings
+from ubismart.control import webhooks as webhook_module
+from ubismart.control.store import ControlStore
+from ubismart.control.webhooks import (
     WebhookError,
     WebhookService,
     WebhookStore,
@@ -18,7 +18,7 @@ from coding_agent.control.webhooks import (
     sign_payload,
     validate_webhook_url,
 )
-from coding_agent.web import app as web_app
+from ubismart.web import app as web_app
 
 GLOBAL_IP_URL = "https://93.184.216.34/hook"
 

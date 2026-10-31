@@ -9,14 +9,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.platform.concurrency import (
+from ubismart.config import Settings
+from ubismart.platform.concurrency import (
     AsyncLeasePool,
     ConcurrencyGovernor,
     ResourceTimeout,
     SyncLeasePool,
 )
-from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
+from ubismart.sandbox.wsl_exec import ExecResult, WslSandbox
 
 # conftest 的 autouse 守卫会把 _exec 换成「一碰就炸」；这个用例要测槽位租约，
 # 必须恢复真实的 _exec，只替换真正执行的 _exec_locked。
@@ -146,7 +146,7 @@ def test_governor_new_limits_win() -> None:
 
 def test_runtimes_can_share_one_process_governor() -> None:
     """Web 多会话必须共用一套池，否则 WSL/LLM 上限会按会话数相乘。"""
-    from coding_agent.runtime import AgentRuntime
+    from ubismart.runtime import AgentRuntime
 
     settings = Settings(_env_file=None, concurrency_wsl=3)
     governor = ConcurrencyGovernor(settings)

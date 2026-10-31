@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.codeintel.symbols import (
+from ubismart.codeintel.symbols import (
     extract_symbols,
     render_symbols,
     search_symbols,

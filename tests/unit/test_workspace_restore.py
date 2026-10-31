@@ -11,10 +11,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.servers.agent_server_routes import workspace_import as imports
-from coding_agent.servers.agent_server_routes.workspace_import import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.servers.agent_server_routes import workspace_import as imports
+from ubismart.servers.agent_server_routes.workspace_import import (
     ImportDeps,
     register_import_routes,
 )

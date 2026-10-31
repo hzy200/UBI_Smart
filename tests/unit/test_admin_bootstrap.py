@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.control import bootstrap
-from coding_agent.control.accounts import AccountError
+from ubismart.config import Settings
+from ubismart.control import bootstrap
+from ubismart.control.accounts import AccountError
 
 
 class _Store:

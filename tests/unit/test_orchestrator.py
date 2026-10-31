@@ -11,22 +11,22 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from coding_agent.config import Settings
-from coding_agent.orchestrator import scheduler_run as scheduler_runtime
-from coding_agent.orchestrator.contracts import (
+from ubismart.config import Settings
+from ubismart.orchestrator import scheduler_run as scheduler_runtime
+from ubismart.orchestrator.contracts import (
     TaskGraph,
     TaskSpec,
     WorkerResult,
     WorkflowDecision,
 )
-from coding_agent.orchestrator.graph import (
+from ubismart.orchestrator.graph import (
     mark_blocked,
     ready_tasks,
     validate_proposals,
     validate_tasks,
 )
-from coding_agent.orchestrator.implement import _safe_id
-from coding_agent.orchestrator.nodes import (
+from ubismart.orchestrator.implement import _safe_id
+from ubismart.orchestrator.nodes import (
     _patch_paths,
     make_dispatch_node,
     make_extend_tasks_node,
@@ -37,13 +37,16 @@ from coding_agent.orchestrator.nodes import (
     route_after_select,
     route_entry,
 )
-from coding_agent.orchestrator.workers import make_worker_runner
-from coding_agent.orchestrator.workflow import (
+from ubismart.orchestrator.scheduler_plan import wire_implement_dependents
+from ubismart.orchestrator.survey import compact_repo_summary
+from ubismart.orchestrator.workers import make_worker_runner
+from ubismart.orchestrator.workflow import (
+    WorkflowPlan,
     make_select_workflow_node,
     rule_workflow,
 )
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.artifacts import SubAgentArtifact
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.artifacts import SubAgentArtifact
 
 
 def _settings(**overrides) -> Settings:
@@ -228,6 +231,148 @@ def test_implement_tasks_cannot_depend_on_each_other() -> None:
     assert any("不能互相依赖" in error for error in errors)
 
 
+def test_sequential_implement_wave_can_depend_on_lower_stage() -> None:
+    tasks, degraded, errors = validate_tasks(
+        [
+            TaskSpec(
+                id="a",
+                role="implement",
+                goal="先重构",
+                write_scope=["app/x.py"],
+                stage=0,
+            ),
+            TaskSpec(
+                id="b",
+                role="implement",
+                goal="再加功能",
+                write_scope=["app/x.py"],
+                depends_on=["a"],
+                stage=1,
+            ),
+        ],
+        request="r",
+        max_tasks=6,
+        allow_write=True,
+        allow_sequential_write=True,
+        max_write_stages=2,
+    )
+
+    assert degraded is False, errors
+    assert [task["id"] for task in tasks] == ["a", "b"]
+
+
+def test_sequential_implement_dependency_forces_any_mode() -> None:
+    tasks, degraded, errors = validate_tasks(
+        [
+            TaskSpec(
+                id="a",
+                role="implement",
+                goal="先",
+                write_scope=["app/x.py"],
+                stage=0,
+            ),
+            TaskSpec(
+                id="b",
+                role="implement",
+                goal="后",
+                write_scope=["app/x.py"],
+                depends_on=["a"],
+                depends_mode="full",
+                stage=1,
+            ),
+        ],
+        request="r",
+        max_tasks=6,
+        allow_write=True,
+        allow_sequential_write=True,
+        max_write_stages=2,
+    )
+
+    assert degraded is False, errors
+    assert tasks[1]["depends_mode"] == "any"
+
+
+def test_same_stage_implement_dependency_is_rejected() -> None:
+    _, degraded, errors = validate_tasks(
+        [
+            TaskSpec(
+                id="a",
+                role="implement",
+                goal="a",
+                write_scope=["app/a.py"],
+                stage=0,
+            ),
+            TaskSpec(
+                id="b",
+                role="implement",
+                goal="b",
+                write_scope=["app/b.py"],
+                depends_on=["a"],
+                stage=0,
+            ),
+        ],
+        request="r",
+        max_tasks=6,
+        allow_write=True,
+        allow_sequential_write=True,
+        max_write_stages=2,
+    )
+
+    assert degraded is True
+    assert any("stage 必须严格更小" in error for error in errors)
+
+
+def test_same_stage_overlap_still_rejected_with_sequential_writes() -> None:
+    _, degraded, errors = validate_tasks(
+        [
+            TaskSpec(
+                id="a",
+                role="implement",
+                goal="a",
+                write_scope=["app/x.py"],
+                stage=0,
+            ),
+            TaskSpec(
+                id="b",
+                role="implement",
+                goal="b",
+                write_scope=["app/x.py"],
+                stage=0,
+            ),
+        ],
+        request="r",
+        max_tasks=6,
+        allow_write=True,
+        allow_sequential_write=True,
+        max_write_stages=2,
+    )
+
+    assert degraded is True
+    assert any("写范围重叠" in error for error in errors)
+
+
+def test_implement_stage_over_limit_is_rejected() -> None:
+    _, degraded, errors = validate_tasks(
+        [
+            TaskSpec(
+                id="a",
+                role="implement",
+                goal="a",
+                write_scope=["app/a.py"],
+                stage=3,
+            )
+        ],
+        request="r",
+        max_tasks=6,
+        allow_write=True,
+        allow_sequential_write=True,
+        max_write_stages=2,
+    )
+
+    assert degraded is True
+    assert any("超过写波次上限" in error for error in errors)
+
+
 def test_readonly_role_cannot_declare_write_scope() -> None:
     _, degraded, errors = validate_tasks(
         [TaskSpec(id="t1", role="review", goal="看", write_scope=["app/"])],
@@ -373,6 +518,26 @@ def test_ready_and_blocked_propagation() -> None:
     assert blocked["t3"] == "blocked"
 
 
+def test_wire_implement_dependents_unions_existing_deps() -> None:
+    tasks = [
+        {"id": "e", "role": "explore", "depends_on": []},
+        {"id": "i1", "role": "implement", "depends_on": []},
+        {"id": "i2", "role": "implement", "depends_on": []},
+        {
+            "id": "review",
+            "role": "review",
+            "depends_on": ["e"],
+            "depends_mode": "full",
+        },
+    ]
+
+    wire_implement_dependents(tasks)
+
+    # 既有的 explore 依赖保留，implement 全部补上；重复时不追加。
+    assert tasks[3]["depends_on"] == ["e", "i1", "i2"]
+    assert tasks[3]["depends_mode"] == "any"
+
+
 def test_partial_dependency_also_blocks_dependents() -> None:
     tasks = [
         {"id": "t1", "depends_on": []},
@@ -477,6 +642,20 @@ class _StructuredLLM:
         return self.structured
 
 
+class _SequenceStructured:
+    def __init__(self, results: list[Any]) -> None:
+        self.results = list(results)
+        self.calls = 0
+
+    def with_retry(self, **_kwargs: Any) -> _SequenceStructured:
+        return self
+
+    async def ainvoke(self, messages: Any, config: Any = None) -> Any:
+        index = min(self.calls, len(self.results) - 1)
+        self.calls += 1
+        return self.results[index]
+
+
 def _run(coro):
     return asyncio.run(coro)
 
@@ -550,6 +729,108 @@ def test_select_workflow_uses_llm_when_rules_are_ambiguous() -> None:
     assert structured.calls == 1
 
 
+def test_select_workflow_uses_dynamic_architecture_plan() -> None:
+    structured = _Structured(None)
+    contract = {
+        "waves": [
+            {"stage": 0, "files": ["pkg/core.py"], "modules": ["pkg.core"]},
+            {"stage": 1, "files": ["pkg/api.py"], "modules": ["pkg.api"]},
+        ],
+        "affected_tests": ["tests/test_core.py"],
+        "affected_modules": ["pkg.core", "pkg.api"],
+    }
+    node = make_select_workflow_node(
+        _StructuredLLM(structured),
+        _settings(
+            deep_workflows_enabled=True,
+            orchestrator_write_enabled=True,
+        ),
+        allow_write=True,
+    )
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="把 run 改名并改调用方")],
+                "repo_summary": {
+                    "file_count": 50,
+                    "git": True,
+                    "git_root": True,
+                    "git_clean": True,
+                    "change_contract": contract,
+                },
+            },
+            None,
+        )
+    )
+
+    assert out["workflow"] == "architecture_change"
+    assert structured.calls == 0
+    implements = [
+        task
+        for task in out["prefetched_tasks"]
+        if task["role"] == "implement"
+    ]
+    assert [task["stage"] for task in implements] == [0, 1]
+
+
+def test_select_workflow_collapses_serial_parallel_plan_to_direct() -> None:
+    plan = WorkflowPlan(
+        workflow="parallel_readonly",
+        reason="模型选择并行",
+        tasks=[
+            TaskSpec(id="t1", role="explore", goal="定位入口"),
+            TaskSpec(
+                id="t2",
+                role="explore",
+                goal="基于定位结果看实现",
+                depends_on=["t1"],
+            ),
+        ],
+    )
+    node = make_select_workflow_node(
+        _StructuredLLM(_Structured(plan)), _settings()
+    )
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="把这个功能做完")],
+                "repo_summary": {"file_count": 50},
+            },
+            None,
+        )
+    )
+
+    assert out["workflow"] == "direct"
+    assert "并行收益不足" in out["workflow_reason"]
+    assert out["prefetched_tasks"] == []
+
+
+def test_select_workflow_keeps_independent_parallel_plan() -> None:
+    plan = WorkflowPlan(
+        workflow="parallel_readonly",
+        reason="模型选择并行",
+        tasks=[
+            TaskSpec(id="t1", role="explore", goal="看模块 A"),
+            TaskSpec(id="t2", role="explore", goal="看模块 B"),
+        ],
+    )
+    node = make_select_workflow_node(
+        _StructuredLLM(_Structured(plan)), _settings()
+    )
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="把这个功能做完")],
+                "repo_summary": {"file_count": 50},
+            },
+            None,
+        )
+    )
+
+    assert out["workflow"] == "parallel_readonly"
+    assert [task["id"] for task in out["prefetched_tasks"]] == ["t1", "t2"]
+
+
 def test_select_workflow_falls_back_to_direct_on_llm_error() -> None:
     structured = _Structured(error=RuntimeError("boom"))
     node = make_select_workflow_node(_StructuredLLM(structured), _settings())
@@ -595,7 +876,7 @@ class _SurveySandbox:
                 stdout=(
                     f"AGENT_DIRS\n{self.dirs}"
                     f"AGENT_FILES\n{self.files}"
-                    f"AGENT_GIT\nINSIDE=1\nROOT={root}\nCLEAN=1\n"
+                    f"AGENT_GIT\nINSIDE=1\nHEAD=abc123\nROOT={root}\nCLEAN=1\n"
                 ),
                 stderr="",
                 duration_ms=1,
@@ -655,6 +936,60 @@ class _SurveySandbox:
         return None
 
 
+class _FakeKnowledgeStore:
+    def __init__(self) -> None:
+        self.saved: list[tuple[str, str]] = []
+
+    def save(
+        self, run_id: str, kind: str, artifact_id: str, payload: Any
+    ) -> str:
+        self.saved.append((kind, artifact_id))
+        return "saved"
+
+
+def test_survey_persists_arch_index_when_enabled(monkeypatch) -> None:
+    import ubismart.orchestrator.survey as survey_module
+
+    store = _FakeKnowledgeStore()
+    monkeypatch.setattr(
+        survey_module,
+        "KnowledgeStore",
+        lambda sandbox, root: store,
+    )
+    monkeypatch.setattr(
+        survey_module,
+        "collect_arch_sources",
+        lambda sandbox, root, settings: (
+            {
+                "pkg/core.py": "def run():\n    return 1\n",
+                "pkg/api.py": "from pkg.core import run\n",
+            },
+            {"languages": {"python": 2}, "sampled": 2},
+        ),
+    )
+    settings = _settings(
+        deep_workflows_enabled=True,
+        knowledge_artifacts_enabled=True,
+        arch_workflow_enabled=True,
+        arch_incremental_index=False,
+    )
+    node = make_survey_node(
+        _SurveySandbox(settings), "/ws", settings  # type: ignore[arg-type]
+    )
+    out = node(
+        {
+            "repo_profile": {"file_count": 2},
+            "thread_id": "t",
+            "request": "修改 run",
+        },
+        None,
+    )
+
+    assert out["knowledge_run_id"]
+    assert out["repo_summary"]["arch_brief"].startswith("[架构简报]")
+    assert any(kind == "arch" for kind, _ in store.saved)
+
+
 def test_survey_collects_top_dirs_and_test_command() -> None:
     sandbox = _SurveySandbox(_settings())
     node = make_survey_node(sandbox, "/ws")  # type: ignore[arg-type]
@@ -668,6 +1003,7 @@ def test_survey_collects_top_dirs_and_test_command() -> None:
     assert summary["git"] is True
     assert summary["git_root"] is True
     assert summary["git_clean"] is True
+    assert summary["git_head"] == "abc123"
 
 
 def test_survey_excludes_agent_state_from_the_dirty_check() -> None:
@@ -693,6 +1029,197 @@ def test_survey_marks_a_non_root_workspace() -> None:
     out = node({"repo_profile": {"file_count": 50}}, None)
 
     assert out["repo_summary"]["git_root"] is False
+
+
+def test_compact_repo_summary_omits_repo_map_and_caps_lists() -> None:
+    compact = compact_repo_summary(
+        {
+            "file_count": 50,
+            "repo_map": "x" * 5_000,
+            "top_dirs": [f"d{i}" for i in range(30)],
+            "top_files": [f"f{i}.py" for i in range(30)],
+            "documents": ["a.pdf", "b.docx"],
+            "images": ["c.png"],
+            "uploads": ["d.pdf", "e.png", "f.docx"],
+        }
+    )
+
+    assert "repo_map" not in compact
+    assert len(compact["top_dirs"]) == 20
+    assert len(compact["top_files"]) == 20
+    assert compact["document_count"] == 2
+    assert compact["image_count"] == 1
+    assert compact["upload_count"] == 3
+
+
+def test_survey_skips_repo_map_when_lazy(monkeypatch) -> None:
+    called: list[int] = []
+    monkeypatch.setattr(
+        "ubismart.orchestrator.survey.collect_python_sources",
+        lambda *args: called.append(1) or [],
+    )
+    sandbox = _SurveySandbox(_settings())
+    node = make_survey_node(
+        sandbox, "/ws", _settings(orchestrator_repo_map_lazy=True)
+    )  # type: ignore[arg-type]
+
+    out = node({"repo_profile": {"file_count": 50}}, None)
+
+    assert called == []
+    assert "repo_map" not in out["repo_summary"]
+
+
+def test_select_workflow_honors_force_workflow() -> None:
+    node = make_select_workflow_node(
+        _StructuredLLM(_Structured(error=RuntimeError("should not call LLM"))),  # type: ignore[arg-type]
+        _settings(orchestrator_write_enabled=True),
+        allow_write=True,
+    )
+
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="修复")],
+                "force_workflow": "orchestrated_implement",
+                "orchestrator_fix_mode": True,
+                "repo_summary": {
+                    "file_count": 50,
+                    "git": True,
+                    "git_root": True,
+                    "git_clean": False,
+                },
+            },
+            None,
+        )
+    )
+
+    assert out["workflow"] == "orchestrated_implement"
+    assert out["force_workflow"] == ""
+
+
+def test_plan_tasks_fix_mode_allows_implement_after_merge() -> None:
+    graph = TaskGraph(
+        tasks=[
+            TaskSpec(
+                id="t1",
+                role="implement",
+                goal="修失败项",
+                write_scope=["app/x.py"],
+            )
+        ]
+    )
+    node = make_plan_tasks_node(
+        _StructuredLLM(_Structured(graph)),
+        _settings(orchestrator_write_enabled=True),
+        allow_write=True,
+    )
+
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="修复")],
+                "workflow": "orchestrated_implement",
+                "orchestrator_fix_mode": True,
+                "orchestrator_fix_rounds_used": 1,
+                "worker_results": [
+                    {"task_id": "old", "role": "implement", "merged": True}
+                ],
+                "repo_summary": {"file_count": 50},
+            },
+            None,
+        )
+    )
+
+    assert out["orchestrator_degraded"] is False
+    assert [task["id"] for task in out["tasks"]] == ["fx1-t1"]
+
+
+def test_plan_tasks_repairs_a_degraded_graph_when_enabled() -> None:
+    bad = TaskGraph(
+        tasks=[
+            TaskSpec(id="t1", role="explore", goal="定位"),
+            TaskSpec(id="t1", role="explore", goal="重复 id"),
+        ]
+    )
+    good = TaskGraph(
+        tasks=[TaskSpec(id="t1", role="explore", goal="定位")]
+    )
+    structured = _SequenceStructured([bad, good])
+    node = make_plan_tasks_node(
+        _StructuredLLM(structured),  # type: ignore[arg-type]
+        _settings(orchestrator_plan_repair=True),
+    )
+
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="改功能")],
+                "repo_summary": {"file_count": 50},
+            },
+            None,
+        )
+    )
+
+    assert structured.calls == 2
+    assert out["orchestrator_degraded"] is False
+    assert [task["id"] for task in out["tasks"]] == ["t1"]
+    assert "修复后通过" in out["orchestrator_summary"]
+
+
+def test_plan_tasks_skips_repair_when_disabled() -> None:
+    bad = TaskGraph(
+        tasks=[
+            TaskSpec(id="t1", role="explore", goal="定位"),
+            TaskSpec(id="t1", role="explore", goal="重复 id"),
+        ]
+    )
+    structured = _SequenceStructured([bad])
+    node = make_plan_tasks_node(
+        _StructuredLLM(structured),  # type: ignore[arg-type]
+        _settings(orchestrator_plan_repair=False),
+    )
+
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="改功能")],
+                "repo_summary": {"file_count": 50},
+            },
+            None,
+        )
+    )
+
+    assert structured.calls == 1
+    assert out["orchestrator_degraded"] is True
+
+
+def test_plan_tasks_builds_repo_map_lazily_once() -> None:
+    calls: list[int] = []
+
+    def builder() -> dict[str, Any]:
+        calls.append(1)
+        return {"python_files": 2, "repo_map": "app/a.py: def a"}
+
+    graph = TaskGraph(
+        tasks=[TaskSpec(id="t1", role="explore", goal="定位实现")]
+    )
+    node = make_plan_tasks_node(
+        _StructuredLLM(_Structured(graph)),
+        _settings(),
+        repo_map_builder=builder,
+    )
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="改功能")],
+                "repo_summary": {"file_count": 50, "top_dirs": ["app"]},
+            },
+            None,
+        )
+    )
+
+    assert calls == [1]
+    assert out["tasks"][0]["repo_map"] == "app/a.py: def a"
 
 
 class _PatchPathSandbox:
@@ -753,6 +1280,110 @@ def test_plan_tasks_validates_and_initializes_status() -> None:
     assert [t["id"] for t in out["tasks"]] == ["t1", "t2"]
     assert out["task_status"] == {"t1": "pending", "t2": "pending"}
     assert out["orchestrator_degraded"] is False
+
+
+def test_plan_tasks_applies_change_contract_waves() -> None:
+    graph = TaskGraph(
+        tasks=[
+            TaskSpec(
+                id="t1",
+                role="implement",
+                goal="先改接口",
+                write_scope=["pkg/core.py"],
+            ),
+            TaskSpec(
+                id="t2",
+                role="implement",
+                goal="再改调用方",
+                write_scope=["pkg/api.py"],
+                depends_on=["t1"],
+            ),
+        ]
+    )
+    contract = {
+        "waves": [
+            {"stage": 0, "files": ["pkg/core.py"], "modules": ["pkg.core"]},
+            {"stage": 1, "files": ["pkg/api.py"], "modules": ["pkg.api"]},
+        ]
+    }
+    node = make_plan_tasks_node(
+        _StructuredLLM(_Structured(graph)),
+        _settings(
+            orchestrator_write_enabled=True,
+            orchestrator_plan_repair=False,
+        ),
+        allow_write=True,
+    )
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="改接口")],
+                "workflow": "orchestrated_implement",
+                "repo_summary": {
+                    "file_count": 50,
+                    "git": True,
+                    "git_root": True,
+                    "git_clean": True,
+                },
+                "change_contract": contract,
+            },
+            None,
+        )
+    )
+
+    assert out["orchestrator_degraded"] is False
+    assert [task["stage"] for task in out["tasks"]] == [0, 1]
+    assert out["tasks"][1]["depends_mode"] == "any"
+    assert out["change_contract"]["waves"]
+
+
+def test_plan_tasks_attaches_knowledge_run_id() -> None:
+    graph = TaskGraph(
+        tasks=[TaskSpec(id="t1", role="explore", goal="定位实现")]
+    )
+    node = make_plan_tasks_node(
+        _StructuredLLM(_Structured(graph)),
+        _settings(orchestrator_plan_repair=False),
+    )
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="改功能")],
+                "repo_summary": {"file_count": 50},
+                "knowledge_run_id": "run-1",
+            },
+            None,
+        )
+    )
+
+    assert out["tasks"][0]["knowledge_run_id"] == "run-1"
+
+
+def test_plan_tasks_dedupes_identical_readonly_tasks() -> None:
+    graph = TaskGraph(
+        tasks=[
+            TaskSpec(id="t1", role="explore", goal="定位入口", inputs=["a.py"]),
+            TaskSpec(id="t2", role="explore", goal="定位入口", inputs=["a.py"]),
+        ]
+    )
+    node = make_plan_tasks_node(
+        _StructuredLLM(_Structured(graph)),
+        _settings(orchestrator_plan_repair=False),
+    )
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="改功能")],
+                "repo_summary": {"file_count": 50},
+            },
+            None,
+        )
+    )
+
+    assert [task["id"] for task in out["tasks"]] == ["t1"]
+    assert out["orchestrator_parallel_width"] == 1
+    assert out["orchestrator_parallel_gain"] == 1.0
+    assert "去重" in out["orchestrator_summary"]
 
 
 def test_plan_tasks_attaches_repo_map_to_each_task() -> None:
@@ -1100,6 +1731,51 @@ def test_readonly_worker_forwards_tool_calls() -> None:
     assert result.tool_calls == calls
 
 
+def test_escalate_uses_fallback_runner_and_forwards_citations() -> None:
+    calls: list[str] = []
+
+    async def primary(**_kwargs):
+        calls.append("cheap")
+        return SubAgentArtifact(
+            agent_id="explore:e1",
+            parent_call_id="e1",
+            role="explore",
+            goal="定位",
+            status="failed",
+            summary="便宜模型没做成",
+        )
+
+    async def fallback(**_kwargs):
+        calls.append("strong")
+        return SubAgentArtifact(
+            agent_id="explore:e1",
+            parent_call_id="e1",
+            role="explore",
+            goal="定位",
+            status="success",
+            summary="主模型完成",
+            citations=[{"path": "a.py", "line": 3, "note": "入口"}],
+        )
+
+    runner = make_worker_runner(
+        explore_runner=primary,  # type: ignore[arg-type]
+        explore_fallback_runner=fallback,  # type: ignore[arg-type]
+        sandbox=None,  # type: ignore[arg-type]
+        root="/ws",
+    )
+    result = _run(
+        runner(
+            {"id": "e1", "role": "explore", "goal": "定位", "escalate": True},
+            parent_request="r",
+            cwd="/ws",
+        )
+    )
+
+    assert calls == ["strong"]
+    assert result.summary == "主模型完成"
+    assert result.citations == [{"path": "a.py", "line": 3, "note": "入口"}]
+
+
 def test_worker_runner_forwards_the_session_brief() -> None:
     seen: dict[str, Any] = {}
 
@@ -1397,7 +2073,7 @@ def test_synthesize_marks_merged_implement_tasks() -> None:
 
 
 def test_implement_scope_helper() -> None:
-    from coding_agent.orchestrator.implement import _within_scope
+    from ubismart.orchestrator.implement import _within_scope
 
     assert _within_scope("app/x.py", ["app"]) is True
     assert _within_scope("app/x.py", ["app/x.py"]) is True
@@ -1406,7 +2082,7 @@ def test_implement_scope_helper() -> None:
 
 
 def test_peer_dependency_failure_does_not_consume_repairs() -> None:
-    from coding_agent.orchestrator.implement import _peer_dependency_failure
+    from ubismart.orchestrator.implement import _peer_dependency_failure
 
     verification = {
         "output_tail": (
@@ -1527,7 +2203,7 @@ def test_plan_tasks_consumes_prefetched_tasks_without_a_second_call() -> None:
 
 def test_implement_workers_cannot_delete_files() -> None:
     """删除在主 agent 路径是 L2；worker 不经过 approval_gate，必须没有这个能力。"""
-    from coding_agent.orchestrator.implement import IMPLEMENT_TOOL_NAMES
-    from coding_agent.tools.files import DELETE_TOOL_NAME
+    from ubismart.orchestrator.implement import IMPLEMENT_TOOL_NAMES
+    from ubismart.tools.files import DELETE_TOOL_NAME
 
     assert DELETE_TOOL_NAME not in IMPLEMENT_TOOL_NAMES

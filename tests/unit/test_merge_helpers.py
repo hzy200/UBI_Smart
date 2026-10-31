@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from coding_agent.orchestrator import merge
-from coding_agent.sandbox.fs import SandboxFsError
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.orchestrator import merge
+from ubismart.sandbox.fs import SandboxFsError
+from ubismart.sandbox.wsl_exec import ExecResult
 
 pytestmark = pytest.mark.regression
 

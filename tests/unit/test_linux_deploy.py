@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.servers import control_server
+from ubismart.config import Settings
+from ubismart.servers import control_server
 
 ROOT = Path(__file__).resolve().parents[2]
 SYSTEMD = ROOT / "packaging" / "systemd"
@@ -29,7 +29,7 @@ def test_agent_unit_is_hardened_and_owns_state() -> None:
     assert "NoNewPrivileges=true" in text
     assert "ProtectSystem=strict" in text
     assert "UMask=0077" in text
-    assert "ExecStart=/opt/coding-agent/bin/CodingAgentAgent" in text
+    assert "ExecStart=/opt/coding-agent/bin/UBISmartAgent" in text
 
 
 def test_control_unit_orders_agent_and_runs_migration() -> None:
@@ -37,10 +37,10 @@ def test_control_unit_orders_agent_and_runs_migration() -> None:
     assert "coding-agent-agent.service" in text.split("[Service]")[0]
     assert "Wants=network-online.target coding-agent-agent.service" in text
     assert (
-        "ExecStartPre=/opt/coding-agent/bin/CodingAgentControl --migrate-only"
+        "ExecStartPre=/opt/coding-agent/bin/UBISmartControl --migrate-only"
         in text
     )
-    assert "ExecStart=/opt/coding-agent/bin/CodingAgentControl" in text
+    assert "ExecStart=/opt/coding-agent/bin/UBISmartControl" in text
     assert "ProtectHome=true" in text
     assert "RestrictNamespaces=true" in text
     assert "PrivateDevices=true" in text
@@ -88,6 +88,6 @@ def test_migrate_only_creates_sqlite_schema(tmp_path) -> None:
         control_db_url=url,
     )
     assert control_server._migrate_control_db(settings) == 0
-    from coding_agent.control.migrate import has_table
+    from ubismart.control.migrate import has_table
 
     assert has_table(url, "control_meta")

@@ -10,8 +10,8 @@ from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from coding_agent.control.migrate import upgrade
-from coding_agent.control.schema import ControlSession
+from ubismart.control.migrate import upgrade
+from ubismart.control.schema import ControlSession
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "migrate_workspaces.py"

@@ -9,25 +9,26 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from coding_agent.agents.policy import RepoProfile
-from coding_agent.audit import AuditLogger, AuditRecord, read_records
-from coding_agent.audit import models as audit_models
-from coding_agent.config import Settings
-from coding_agent.events import (
+from ubismart.agents.policy import RepoProfile
+from ubismart.audit import AuditLogger, AuditRecord, read_records
+from ubismart.audit import models as audit_models
+from ubismart.config import Settings
+from ubismart.events import (
     CostReport,
     OrchestrationFinished,
     RunFailed,
     RunFinished,
+    TaskBlocked,
     TaskGraphCreated,
     TaskGraphExtended,
     WorkerFinished,
     WorkerStarted,
     WorkflowSelected,
 )
-from coding_agent.graph.build import estimate_recursion_limit
-from coding_agent.llm.ratelimit import GLOBAL_LIMITER
-from coding_agent.runtime import AgentRuntime
-from coding_agent.sandbox.snapshots import RestoreResult, SnapshotEntry
+from ubismart.graph.build import estimate_recursion_limit
+from ubismart.llm.ratelimit import GLOBAL_LIMITER
+from ubismart.runtime import AgentRuntime
+from ubismart.sandbox.snapshots import RestoreResult, SnapshotEntry
 
 THREAD = "t-orch"
 
@@ -227,6 +228,10 @@ def test_run_inputs_carry_orchestrator_mode_and_reset_state(tmp_path) -> None:
     assert payload["tasks"] == []
     assert payload["worker_results"] == []
     assert payload["worker_context"] == ""
+    # 编排 worker 已经覆盖探索；主图的 delegate_explore 不再重复计预算。
+    assert payload["delegation_allowed"] is False
+    assert payload["delegation_budget"] == 0
+    assert payload["worktrees_pruned"] is False
 
 
 class _FakeCheckpointSaver:
@@ -518,6 +523,38 @@ def test_orchestrator_disabled_stays_direct(tmp_path) -> None:
     assert graph.payloads[0]["execution_mode"] == "direct"
 
 
+def test_blocked_task_is_translated_with_reason(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path, orchestrator_enabled=True, orchestrator_min_files=30
+    )
+    runtime._repo_profile_cache = RepoProfile(file_count=50, test_file_count=5)
+    runtime._graph = FakeGraph(
+        [
+            _updates(
+                scheduler={
+                    "tasks": [
+                        {
+                            "id": "t1",
+                            "role": "explore",
+                            "goal": "定位",
+                            "blocked_reason": "依赖任务失败",
+                        }
+                    ],
+                    "task_status": {"t1": "blocked"},
+                    "worker_results": [],
+                }
+            )
+        ]
+    )
+
+    events = _collect(runtime)
+
+    blocked = [event for event in events if isinstance(event, TaskBlocked)]
+    assert len(blocked) == 1
+    assert blocked[0].task_id == "t1"
+    assert blocked[0].reason == "依赖任务失败"
+
+
 def test_task_graph_extended_is_translated_and_audited(tmp_path) -> None:
     runtime = _runtime(
         tmp_path, orchestrator_enabled=True, orchestrator_min_files=30
@@ -648,8 +685,8 @@ def _record_usage_during_stream(graph: FakeGraph, provider: str, **usage: Any) -
 def test_cost_report_includes_billing_reconciliation(
     monkeypatch, tmp_path
 ) -> None:
-    import coding_agent.runtime.stream as runtime_module
-    from coding_agent.llm.billing import BillingResult
+    import ubismart.runtime.stream as runtime_module
+    from ubismart.llm.billing import BillingResult
 
     monkeypatch.setattr(
         runtime_module,
@@ -715,12 +752,60 @@ def test_run_emits_cost_report_and_budget_alert(tmp_path) -> None:
     assert "provider-a" in report.providers
 
 
+def test_fresh_run_is_blocked_when_session_budget_exhausted(tmp_path) -> None:
+    GLOBAL_LIMITER.reset()
+    GLOBAL_LIMITER.record_usage("provider-a", cost_usd=1.2, run_id=THREAD)
+    runtime = _runtime(
+        tmp_path,
+        session_cost_budget_usd=1.0,
+        rate_limit_state_path=":memory:",
+    )
+    graph = FakeGraph(
+        [_updates(respond={"messages": [AIMessage(content="完成")]})]
+    )
+    runtime._graph = graph
+
+    events = _collect(runtime)
+
+    assert isinstance(events[-1], RunFailed)
+    assert "会话成本预算" in events[-1].message
+    assert graph.payloads == []
+
+
+def test_cost_report_alerts_when_session_budget_is_approaching(
+    tmp_path,
+) -> None:
+    GLOBAL_LIMITER.reset()
+    runtime = _runtime(
+        tmp_path,
+        session_cost_budget_usd=1.0,
+        cost_alert_ratio=0.8,
+        rate_limit_state_path=":memory:",
+    )
+    graph = FakeGraph(
+        [_updates(respond={"messages": [AIMessage(content="完成")]})]
+    )
+    _record_usage_during_stream(
+        graph,
+        "provider-a",
+        input_tokens=10,
+        output_tokens=5,
+        cost_usd=0.9,
+    )
+    runtime._graph = graph
+
+    events = _collect(runtime)
+
+    report = next(event for event in events if isinstance(event, CostReport))
+    assert "接近本会话成本预算" in report.alerts
+
+
 def test_workspace_lock_error_is_fail_closed(tmp_path, monkeypatch) -> None:
     runtime = _runtime(tmp_path)
 
     def boom(*args, **kwargs):
         raise OSError("audit directory is not writable")
 
-    monkeypatch.setattr("coding_agent.runtime.core.WorkspaceLock", boom)
+    monkeypatch.setattr("ubismart.runtime.core.WorkspaceLock", boom)
     assert runtime._acquire_workspace_lock() is False
     assert "锁不可用" in runtime._workspace_lock_busy

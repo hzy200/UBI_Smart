@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import create_engine
 
-from coding_agent.control.schema import Base
-from coding_agent.control.workspaces import (
+from ubismart.control.schema import Base
+from ubismart.control.workspaces import (
     WorkspacePathError,
     WorkspacePolicy,
     WorkspaceStore,

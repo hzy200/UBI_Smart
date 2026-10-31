@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.identity.access import ACCESS_WRITE_AUTO
-from coding_agent.servers.agent_context import AgentRuntimeFactory
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.identity.access import ACCESS_WRITE_AUTO
+from ubismart.servers.agent_context import AgentRuntimeFactory
 
 
 class FakeCaller:

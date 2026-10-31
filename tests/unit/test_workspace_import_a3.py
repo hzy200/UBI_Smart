@@ -11,10 +11,10 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.servers.agent_server_routes import workspace_import as imports
-from coding_agent.servers.agent_server_routes.workspace_import import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.servers.agent_server_routes import workspace_import as imports
+from ubismart.servers.agent_server_routes.workspace_import import (
     ImportDeps,
     _activate,
     _spawn_job,
@@ -277,7 +277,7 @@ def _import_job(tmp_path) -> dict:
 
 
 def test_run_import_success_and_cancel(tmp_path, monkeypatch) -> None:
-    from coding_agent.servers.agent_server_models import WorkspaceImportBody
+    from ubismart.servers.agent_server_models import WorkspaceImportBody
 
     exec_ = _Exec()
     deps, context = _import_deps(tmp_path, exec_)
@@ -306,7 +306,7 @@ def test_run_import_success_and_cancel(tmp_path, monkeypatch) -> None:
 
 
 def test_run_import_failure_branches(tmp_path, monkeypatch) -> None:
-    from coding_agent.servers.agent_server_models import WorkspaceImportBody
+    from ubismart.servers.agent_server_models import WorkspaceImportBody
 
     body = WorkspaceImportBody(
         source_path=str(tmp_path / "src"), max_files=10

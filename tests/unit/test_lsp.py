@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import sys
 
-from coding_agent.codeintel.lsp import (
+from ubismart.codeintel.lsp import (
     LspClient,
     command_from_settings,
     path_to_uri,
     uri_to_path,
 )
-from coding_agent.config import Settings
-from coding_agent.tools.artifacts import unpack
-from coding_agent.tools.code_intel import build_code_intel_tool
+from ubismart.config import Settings
+from ubismart.tools.artifacts import unpack
+from ubismart.tools.code_intel import build_code_intel_tool
 
 FAKE_SERVER = r'''
 import json, sys

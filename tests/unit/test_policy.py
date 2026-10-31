@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.sandbox.policy import CommandLevel, classify
+from ubismart.sandbox.policy import CommandLevel, classify
 
 pytestmark = pytest.mark.regression
 

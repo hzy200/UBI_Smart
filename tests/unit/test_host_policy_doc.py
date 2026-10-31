@@ -13,9 +13,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
 )
 
-from coding_agent.host_broker import policy_doc
-from coding_agent.host_broker.__main__ import _apply_policy
-from coding_agent.host_broker.policy_doc import (
+from ubismart.host_broker import policy_doc
+from ubismart.host_broker.__main__ import _apply_policy
+from ubismart.host_broker.policy_doc import (
     PolicyError,
     load_signed_policy,
     sign_payload,

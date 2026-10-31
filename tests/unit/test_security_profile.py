@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import hashlib
 
-from coding_agent.config import Settings, apply_security_profile
-from coding_agent.memory.longterm import resolve_memory_root
-from coding_agent.sandbox.policy import CommandLevel, classify
-from coding_agent.security.read_policy import (
+from ubismart.config import Settings, apply_security_profile
+from ubismart.memory.longterm import resolve_memory_root
+from ubismart.sandbox.policy import CommandLevel, classify
+from ubismart.security.read_policy import (
     is_protected_read_path,
     protected_read_reason,
 )
@@ -64,8 +64,8 @@ def test_production_profile_is_read_only_and_offline() -> None:
 
 
 def test_production_profile_forces_runtime_read_only(tmp_path) -> None:
-    from coding_agent.audit import AuditLogger
-    from coding_agent.runtime import AgentRuntime
+    from ubismart.audit import AuditLogger
+    from ubismart.runtime import AgentRuntime
 
     settings = Settings(
         _env_file=None,

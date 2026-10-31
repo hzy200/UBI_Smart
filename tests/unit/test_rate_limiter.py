@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.web.middleware import (
+from ubismart.web.middleware import (
     FixedWindowRateLimiter,
     RedisFixedWindowRateLimiter,
 )

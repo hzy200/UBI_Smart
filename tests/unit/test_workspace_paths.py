@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from coding_agent.control.workspaces import (
+from ubismart.control.workspaces import (
     WorkspacePathError,
     WorkspacePolicy,
     WorkspaceStatusError,

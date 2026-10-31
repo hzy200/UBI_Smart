@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent.agent_protocol import (
+from ubismart.agent_protocol import (
     AgentContext,
     sign_context,
     verify_context,
 )
-from coding_agent.config import Settings
-from coding_agent.control.agent_client import HttpAgentClient
-from coding_agent.servers import agent_server
+from ubismart.config import Settings
+from ubismart.control.agent_client import HttpAgentClient
+from ubismart.servers import agent_server
 
 TOKEN = "tok"
 KEY = "hmac-secret"

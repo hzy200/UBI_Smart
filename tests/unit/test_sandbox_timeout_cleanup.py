@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.limits import TIMEOUT_EXIT_CODE
-from coding_agent.sandbox.wsl_exec import WslSandbox
+from ubismart.config import Settings
+from ubismart.sandbox.limits import TIMEOUT_EXIT_CODE
+from ubismart.sandbox.wsl_exec import WslSandbox
 
 # conftest 会把 WslSandbox._exec 换成「一碰就炸」的桩（防非 WSL 用例真跑沙箱）。
 # 这里要测的正是 _exec 里的清理逻辑，所以在用例里把真身换回来 ——

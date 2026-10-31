@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from coding_agent.session.recovery import (
+from ubismart.session.recovery import (
     ENVIRONMENT,
     FATAL,
     SEMANTIC,

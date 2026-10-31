@@ -10,10 +10,10 @@ import pytest
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import Session
 
-from coding_agent.control.leases import LeaseHeartbeat, LeaseHeld, RunLeaseStore
-from coding_agent.control.schema import Base, RunLease
-from coding_agent.web.routes.runs import lease_conflict_detail
-from coding_agent.web.services import AgentGateway, _terminal_marker
+from ubismart.control.leases import LeaseHeartbeat, LeaseHeld, RunLeaseStore
+from ubismart.control.schema import Base, RunLease
+from ubismart.web.routes.runs import lease_conflict_detail
+from ubismart.web.services import AgentGateway, _terminal_marker
 
 
 @pytest.fixture()
@@ -102,7 +102,7 @@ def test_lease_conflict_detail_points_to_stream() -> None:
 
 def test_sqlite_control_store_enables_wal(tmp_path) -> None:
     """没有 WAL / busy_timeout 时，多 worker 并发写会直接 `database is locked`。"""
-    from coding_agent.control.store import ControlStore
+    from ubismart.control.store import ControlStore
 
     store = ControlStore(f"sqlite:///{tmp_path / 'control.db'}")
     with store.engine.connect() as conn:
@@ -118,7 +118,7 @@ def test_sqlite_control_store_enables_wal(tmp_path) -> None:
 
 def test_concurrent_acquire_grants_exactly_one_lease(tmp_path) -> None:
     """SQLite 会**静默忽略**行锁：读-改-写不是原子的话多实例会同时拿到租约。"""
-    from coding_agent.control.store import ControlStore
+    from ubismart.control.store import ControlStore
 
     store = ControlStore(f"sqlite:///{tmp_path / 'control.db'}")
     leases = RunLeaseStore(store.engine)

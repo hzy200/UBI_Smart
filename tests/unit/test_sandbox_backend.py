@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from coding_agent.execution.sandbox_backend import SandboxExecutionBackend
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.execution.sandbox_backend import SandboxExecutionBackend
+from ubismart.sandbox.wsl_exec import ExecResult
 
 
 @dataclass

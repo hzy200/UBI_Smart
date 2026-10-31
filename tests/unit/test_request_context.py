@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.control.agent_client import HttpAgentClient
-from coding_agent.platform.request_context import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.control.agent_client import HttpAgentClient
+from ubismart.platform.request_context import (
     current_request_id,
     reset_request_id,
     set_request_id,

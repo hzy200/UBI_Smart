@@ -17,18 +17,18 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from coding_agent.graph.nodes.act import make_act_node
-from coding_agent.graph.nodes.planner import TaskPlan, make_planner_node
-from coding_agent.graph.nodes.respond import (
+from ubismart.graph.nodes.act import make_act_node
+from ubismart.graph.nodes.planner import TaskPlan, make_planner_node
+from ubismart.graph.nodes.respond import (
     BUDGET_EXHAUSTED_NOTE,
     NO_CHANGES_NOTE,
     REPAIRS_EXHAUSTED,
     VERIFICATION_FAILED_NOTE,
     make_respond_node,
 )
-from coding_agent.graph.plan import PlanStepModel
-from coding_agent.llm.context import ContextBudget
-from coding_agent.llm.prompts import (
+from ubismart.graph.plan import PlanStepModel
+from ubismart.llm.context import ContextBudget
+from ubismart.llm.prompts import (
     DELEGATION_NOTE,
     DELEGATION_NOTE_DISABLED,
     DELEGATION_NOTE_NOT_EXPLORE,
@@ -344,8 +344,11 @@ def test_planner_injects_the_worker_context() -> None:
         },
         None,
     )
-    request = structured.calls[-1][-1].content
-    assert "入口在 main.py" in request
+    system, user = structured.calls[-1][0], structured.calls[-1][-1]
+    # worker 事实进系统提示，不混进用户请求，避免被当成新的用户指令。
+    assert "入口在 main.py" in system.content
+    assert "不要重复探索" in system.content
+    assert "入口在 main.py" not in user.content
 
 
 def test_act_injects_the_worker_context() -> None:

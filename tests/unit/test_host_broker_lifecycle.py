@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 
-from coding_agent.host_broker.lifecycle import (
+from ubismart.host_broker.lifecycle import (
     STATE_OFFLINE,
     STATE_PAUSED,
     STATE_RUNNING,

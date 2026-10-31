@@ -8,10 +8,10 @@ from types import SimpleNamespace
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import current_user
-from coding_agent.web.models import SessionConfig
-from coding_agent.web.routes.sessions import (
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import current_user
+from ubismart.web.models import SessionConfig
+from ubismart.web.routes.sessions import (
     SessionDeps,
     register_session_routes,
 )

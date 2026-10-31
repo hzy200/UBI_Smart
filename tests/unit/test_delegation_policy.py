@@ -6,13 +6,14 @@ A/B 的教训是 38 个文件的任务也会拆 3–5 个子智能体。这里�
 
 from __future__ import annotations
 
-from coding_agent.agents.policy import (
+from ubismart.agents.policy import (
     RepoProfile,
     delegation_policy,
     profile_workspace,
+    should_orchestrate,
 )
-from coding_agent.config import Settings
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.config import Settings
+from ubismart.sandbox.wsl_exec import ExecResult
 
 
 class _Sandbox:
@@ -108,3 +109,48 @@ def test_explore_disabled_wins_over_size() -> None:
     )
     assert policy.allowed is False
     assert policy.max_calls == 0
+
+
+def test_should_orchestrate_requires_a_known_large_repo() -> None:
+    assert should_orchestrate("重构认证流程", RepoProfile(), _settings()) is False
+    assert (
+        should_orchestrate(
+            "重构认证流程", RepoProfile(file_count=10), _settings()
+        )
+        is False
+    )
+    assert (
+        should_orchestrate(
+            "重构认证流程", RepoProfile(file_count=50), _settings()
+        )
+        is True
+    )
+
+
+def test_should_orchestrate_prefers_direct_for_a_single_file() -> None:
+    profile = RepoProfile(file_count=50)
+
+    assert should_orchestrate("在 app/alpha.py 实现折扣逻辑", profile, _settings()) is False
+    # 两个文件 + 多交付物信号：仍交给编排。
+    assert (
+        should_orchestrate(
+            "同时修改 app/alpha.py 和 app/beta.py", profile, _settings()
+        )
+        is True
+    )
+
+
+def test_should_orchestrate_handles_readonly_and_small_edits() -> None:
+    profile = RepoProfile(file_count=50)
+
+    assert should_orchestrate("解释 app/main.py 的启动流程", profile, _settings()) is False
+    assert should_orchestrate("修一下 README 的 typo", profile, _settings()) is False
+    # 带写动作的"怎么..."不是只读问答。
+    assert should_orchestrate("怎么实现登录重试", profile, _settings()) is True
+
+
+def test_should_orchestrate_can_be_disabled() -> None:
+    profile = RepoProfile(file_count=50)
+    settings = _settings(orchestrator_smart_entry=False)
+
+    assert should_orchestrate("在 app/alpha.py 实现折扣", profile, settings) is True

@@ -12,9 +12,9 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.platform import observability
-from coding_agent.platform.request_context import reset_request_id, set_request_id
+from ubismart import web
+from ubismart.platform import observability
+from ubismart.platform.request_context import reset_request_id, set_request_id
 
 
 def test_counter_increments_and_renders() -> None:
@@ -95,7 +95,7 @@ def test_json_formatter_has_stable_fields_and_request_id() -> None:
     token = set_request_id("req-123")
     try:
         record = logging.LogRecord(
-            "coding_agent.test",
+            "ubismart.test",
             logging.WARNING,
             __file__,
             1,
@@ -145,8 +145,8 @@ def test_a2_metrics_accepts_dedicated_token(settings) -> None:
 
 def test_a3_metrics_requires_internal_token(tmp_path) -> None:
     """指标含运行量与安全事件计数：不能匿名可读。"""
-    from coding_agent.config import Settings
-    from coding_agent.servers import agent_server
+    from ubismart.config import Settings
+    from ubismart.servers import agent_server
 
     settings = Settings(
         _env_file=None,
@@ -195,7 +195,7 @@ class _Tracer:
 
 
 def test_tracing_is_off_without_endpoint() -> None:
-    from coding_agent.config import Settings
+    from ubismart.config import Settings
 
     assert observability.configure_tracing(Settings(_env_file=None)) is None
 
@@ -204,7 +204,7 @@ def test_tracing_middleware_records_route_and_status() -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from coding_agent.platform.tracing import TracingMiddleware
+    from ubismart.platform.tracing import TracingMiddleware
 
     tracer = _Tracer()
     app = FastAPI()
@@ -244,7 +244,7 @@ def test_configure_tracing_with_memory_exporter() -> None:
         InMemorySpanExporter,
     )
 
-    from coding_agent.config import Settings
+    from ubismart.config import Settings
 
     memory = InMemorySpanExporter()
     tracer = observability.configure_tracing(

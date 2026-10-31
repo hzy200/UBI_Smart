@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.web.auth import AuthConfig
-from coding_agent.web.middleware import cache_control_for_path
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.web.auth import AuthConfig
+from ubismart.web.middleware import cache_control_for_path
 
 
 def _settings(tmp_path: Path, **updates: object) -> Settings:

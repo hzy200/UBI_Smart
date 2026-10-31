@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-STATIC = ROOT / "src" / "coding_agent" / "web" / "static"
+STATIC = ROOT / "src" / "ubismart" / "web" / "static"
 
 
 def _read(name: str) -> str:

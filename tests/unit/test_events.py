@@ -6,10 +6,10 @@ import pytest
 from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
 
-from coding_agent.audit import AuditLogger, AuditRecord, read_records
-from coding_agent.audit.logger import now_iso
-from coding_agent.config import Settings
-from coding_agent.events import (
+from ubismart.audit import AuditLogger, AuditRecord, read_records
+from ubismart.audit.logger import now_iso
+from ubismart.config import Settings
+from ubismart.events import (
     FileChanged,
     PlanCreated,
     RunFailed,
@@ -20,11 +20,12 @@ from coding_agent.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from coding_agent.runtime import AgentRuntime
-from coding_agent.session.tool_journal import unknown_result_artifact
-from coding_agent.tools.artifacts import (
+from ubismart.runtime import AgentRuntime
+from ubismart.session.tool_journal import unknown_result_artifact
+from ubismart.tools.artifacts import (
     CallArtifact,
     FileArtifact,
+    ReportArtifact,
     ShellArtifact,
     pack,
     unpack,
@@ -193,6 +194,28 @@ def test_file_changed_emitted_for_mutating_actions() -> None:
         assert event.added == 3
         assert event.removed == 1
         assert event.snapshot_id == "snap1"
+
+
+def test_report_artifact_emits_file_changed() -> None:
+    artifact = ReportArtifact(
+        path="reports/report.md",
+        action="create",
+        ok=True,
+        added=128,
+        snapshot_id="snap-report",
+    ).model_dump()
+    event = AgentRuntime._file_changed(
+        ToolMessage(
+            content="…",
+            tool_call_id="1",
+            name="report_export",
+            artifact=artifact,
+        )
+    )
+    assert event is not None
+    assert event.path == "reports/report.md"
+    assert event.action == "create"
+    assert event.snapshot_id == "snap-report"
 
 
 def test_file_changed_not_emitted_for_read() -> None:

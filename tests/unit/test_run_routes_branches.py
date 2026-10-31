@@ -10,13 +10,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.control.leases import LeaseHeld
-from coding_agent.control.store import QuotaExceeded
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import current_user
-from coding_agent.web.models import SessionConfig
-from coding_agent.web.routes.runs import RunDeps, register_run_routes
+from ubismart.config import Settings
+from ubismart.control.leases import LeaseHeld
+from ubismart.control.store import QuotaExceeded
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import current_user
+from ubismart.web.models import SessionConfig
+from ubismart.web.routes.runs import RunDeps, register_run_routes
 
 
 class _Leases:
@@ -314,7 +314,7 @@ def test_resume_merges_approvals_and_records() -> None:
 
 
 def test_status_history_and_approvals_via_agent_client(monkeypatch) -> None:
-    import coding_agent.web.routes.runs as runs
+    import ubismart.web.routes.runs as runs
 
     monkeypatch.setattr(
         runs, "load_transcript", lambda *_a, **_k: ([], False)

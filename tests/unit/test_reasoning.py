@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from coding_agent.protocol.messages import reasoning_of
+from ubismart.protocol.messages import reasoning_of
 
 
 def test_reasoning_from_additional_kwargs() -> None:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from coding_agent.config import Settings
-from coding_agent.llm.deepseek import _provider_specs
+from ubismart.config import Settings
+from ubismart.llm.deepseek import _provider_specs
 
 
 class FakeStore:

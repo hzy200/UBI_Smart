@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.control.credentials import (
+from ubismart.config import Settings
+from ubismart.control.credentials import (
     CredentialError,
     CredentialStore,
     ScopedSecretStore,
 )
-from coding_agent.control.store import ControlStore
-from coding_agent.web.services import ProviderService
+from ubismart.control.store import ControlStore
+from ubismart.web.services import ProviderService
 
 KEY = b"k" * 32
 
@@ -79,7 +79,7 @@ def test_rotate_master_key_reencrypts_and_bumps_version(tmp_path) -> None:
 def test_master_key_material_scan(tmp_path) -> None:
     import base64
 
-    from coding_agent.control.credentials import find_master_key_material
+    from ubismart.control.credentials import find_master_key_material
 
     backup_dir = tmp_path / "backups"
     backup_dir.mkdir()
@@ -190,7 +190,7 @@ def test_scoped_store_prefers_database_then_fallback(tmp_path) -> None:
 def test_decode_master_key_accepts_hex_and_rejects_bad_input(monkeypatch) -> None:
     import base64
 
-    from coding_agent.control.credentials import _decode_key, load_master_key
+    from ubismart.control.credentials import _decode_key, load_master_key
 
     assert _decode_key("") == b""
     assert _decode_key(KEY.hex()) == KEY
@@ -213,7 +213,7 @@ def test_decode_master_key_accepts_hex_and_rejects_bad_input(monkeypatch) -> Non
 def test_master_key_file_roundtrip(tmp_path) -> None:
     import base64
 
-    from coding_agent.control.credentials import load_master_key
+    from ubismart.control.credentials import load_master_key
 
     key_file = tmp_path / "master.key"
     key_file.write_text(base64.b64encode(KEY).decode("ascii"), encoding="utf-8")
@@ -250,7 +250,7 @@ def test_rotate_validates_keys_and_rolling_back_on_decrypt_failure(
 ) -> None:
     from sqlalchemy.orm import Session
 
-    from coding_agent.control.schema import ControlProviderKey
+    from ubismart.control.schema import ControlProviderKey
 
     store = _store(tmp_path)
     credentials = CredentialStore(store.engine, KEY)
@@ -307,7 +307,7 @@ def test_scoped_store_decrypt_branches(tmp_path) -> None:
 
 
 def test_master_key_material_edge_cases(tmp_path) -> None:
-    from coding_agent.control.credentials import find_master_key_material
+    from ubismart.control.credentials import find_master_key_material
 
     outside = tmp_path / "outside.key"
     outside.write_text("x", encoding="utf-8")

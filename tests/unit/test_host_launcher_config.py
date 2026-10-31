@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from coding_agent.desktop.config import LauncherConfig
-from coding_agent.desktop.supervisor import build_host_broker_command
+from ubismart.desktop.config import LauncherConfig
+from ubismart.desktop.supervisor import build_host_broker_command
 
 
 def test_host_broker_command_carries_handle_and_url() -> None:
@@ -14,7 +14,7 @@ def test_host_broker_command_carries_handle_and_url() -> None:
         root_handle="h-1",
         security_tier="lowpriv",
     )
-    assert "-m" in command and "coding_agent.host_broker" in command
+    assert "-m" in command and "ubismart.host_broker" in command
     assert "--url" in command and "tcp://127.0.0.1:8791" in command
     assert "--workspace-root" in command and r"D:\Projects\demo" in command
     assert "--root-handle" in command and "h-1" in command

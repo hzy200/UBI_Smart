@@ -9,13 +9,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.control.idempotency import IdempotencyStore
-from coding_agent.control.schema import Base
-from coding_agent.web.auth import AuthUser
-from coding_agent.web.dependencies import current_user
-from coding_agent.web.routes.runs import RunDeps, register_run_routes
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.control.idempotency import IdempotencyStore
+from ubismart.control.schema import Base
+from ubismart.web.auth import AuthUser
+from ubismart.web.dependencies import current_user
+from ubismart.web.routes.runs import RunDeps, register_run_routes
 
 
 class _Agent:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from coding_agent.protocol.diffing import count_changes, unified_diff
+from ubismart.protocol.diffing import count_changes, unified_diff
 
 
 def test_identical_content_has_no_diff() -> None:

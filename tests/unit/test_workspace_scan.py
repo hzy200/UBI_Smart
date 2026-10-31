@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.workspace import scan as scan_module
-from coding_agent.workspace.scan import (
+from ubismart.config import Settings
+from ubismart.workspace import scan as scan_module
+from ubismart.workspace.scan import (
     ClamavScanner,
     NoopScanner,
     ScanUnavailable,

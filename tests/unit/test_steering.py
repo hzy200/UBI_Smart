@@ -15,15 +15,15 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 
-from coding_agent.config import Settings
-from coding_agent.graph.nodes.steering import (
+from ubismart.config import Settings
+from ubismart.graph.nodes.steering import (
     make_steering_cancel_node,
     make_steering_dispatch_node,
     make_steering_final_node,
     make_steering_plan_node,
     make_steering_step_node,
 )
-from coding_agent.graph.routing import (
+from ubismart.graph.routing import (
     ACT,
     APPROVE,
     STEERING_FINAL,
@@ -32,11 +32,11 @@ from coding_agent.graph.routing import (
     route_after_steering_cancel,
     route_after_steering_plan,
 )
-from coding_agent.graph.state import AgentState
-from coding_agent.orchestrator.contracts import TaskGraph, TaskSpec, WorkerResult
-from coding_agent.orchestrator.nodes import make_dispatch_node, make_plan_tasks_node
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.session.steering import SteeringCommand, SteeringController
+from ubismart.graph.state import AgentState
+from ubismart.orchestrator.contracts import TaskGraph, TaskSpec, WorkerResult
+from ubismart.orchestrator.nodes import make_dispatch_node, make_plan_tasks_node
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.session.steering import SteeringCommand, SteeringController
 
 
 def _settings(**overrides: Any) -> Settings:

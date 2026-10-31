@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from coding_agent.desktop import hardening
+from ubismart.desktop import hardening
 
 
 def _report(stdout: str, *, code: int = 0) -> SimpleNamespace:

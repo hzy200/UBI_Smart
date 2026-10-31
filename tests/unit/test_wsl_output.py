@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from coding_agent.sandbox.wsl_exec import parse_distro_list
+from ubismart.sandbox.wsl_exec import parse_distro_list
 
 EXPECTED = ["Ubuntu", "docker-desktop", "kali-linux"]
 

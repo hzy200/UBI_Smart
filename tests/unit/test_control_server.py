@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import uvicorn
 
-from coding_agent.servers import control_server
+from ubismart.servers import control_server
 
 
 class _Settings:
@@ -100,8 +100,8 @@ def patched(monkeypatch):
         created.append({"auth": auth, **kwargs})
         return app
 
-    monkeypatch.setattr("coding_agent.web.create_app", fake_create_app)
-    monkeypatch.setattr("coding_agent.web.auth.AuthConfig", _FakeAuth)
+    monkeypatch.setattr("ubismart.web.create_app", fake_create_app)
+    monkeypatch.setattr("ubismart.web.auth.AuthConfig", _FakeAuth)
     monkeypatch.setattr(uvicorn, "Config", _FakeUvicornConfig)
     monkeypatch.setattr(uvicorn, "Server", _FakeServer)
     return types.SimpleNamespace(app=app, created=created, monkeypatch=monkeypatch)
@@ -127,7 +127,7 @@ def test_handshake_reports_unavailable_on_probe_error(monkeypatch) -> None:
         client.raise_on_probe = TimeoutError("no answer")
         return client
 
-    monkeypatch.setattr("coding_agent.control.agent_client.HttpAgentClient", fake_client)
+    monkeypatch.setattr("ubismart.control.agent_client.HttpAgentClient", fake_client)
     client, status = control_server._handshake(settings)
     assert client is not None
     assert status["state"] == "unavailable"
@@ -139,10 +139,10 @@ def test_handshake_reports_compatibility(monkeypatch, ok: bool) -> None:
     settings = _Settings()
     settings.agent_internal_url = "http://127.0.0.1:9"
     monkeypatch.setattr(
-        "coding_agent.control.agent_client.HttpAgentClient", _FakeClient
+        "ubismart.control.agent_client.HttpAgentClient", _FakeClient
     )
     monkeypatch.setattr(
-        "coding_agent.agent_protocol.check_compatibility",
+        "ubismart.agent_protocol.check_compatibility",
         lambda meta: _FakeCompat(ok, reason="same" if ok else "mismatch"),
     )
     _, status = control_server._handshake(settings)
@@ -164,7 +164,7 @@ def test_migrate_failure_returns_one(monkeypatch, capsys) -> None:
     def boom(*args, **kwargs):
         raise RuntimeError("migration broke")
 
-    monkeypatch.setattr("coding_agent.control.migrate.upgrade", boom)
+    monkeypatch.setattr("ubismart.control.migrate.upgrade", boom)
     assert control_server._migrate_control_db(settings) == 1
     captured = capsys.readouterr()
     assert "RuntimeError" in captured.err
@@ -180,7 +180,7 @@ def test_migrate_success_returns_zero(monkeypatch, capsys) -> None:
         seen.append({"url": url, "backup": backup, "backup_dir": str(backup_dir)})
         return {"revision": "head"}
 
-    monkeypatch.setattr("coding_agent.control.migrate.upgrade", fake_upgrade)
+    monkeypatch.setattr("ubismart.control.migrate.upgrade", fake_upgrade)
     assert control_server._migrate_control_db(settings) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["event"] == "control_db_migrated"

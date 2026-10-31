@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.fs import FileStat, SandboxFs, SandboxFsError
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.artifacts import unpack
-from coding_agent.tools.files import build_file_tools
-from coding_agent.tools.search import SEARCH_CODE, build_search_tools
-from coding_agent.tools.shell import build_shell_tool
+from ubismart.config import Settings
+from ubismart.sandbox.fs import FileStat, SandboxFs, SandboxFsError
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.artifacts import unpack
+from ubismart.tools.files import build_file_tools
+from ubismart.tools.search import SEARCH_CODE, build_search_tools
+from ubismart.tools.shell import build_shell_tool
 
 
 class _NoExecSandbox:

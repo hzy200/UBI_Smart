@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.security.write_policy import protected_write_reason
+from ubismart.security.write_policy import protected_write_reason
 
 
 def test_env_and_keys_are_protected() -> None:

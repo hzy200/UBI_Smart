@@ -8,14 +8,14 @@ import json
 import pytest
 from langchain_openai import ChatOpenAI
 
-from coding_agent.config import Settings
-from coding_agent.llm.deepseek import (
+from ubismart.config import Settings
+from ubismart.llm.deepseek import (
     MissingApiKeyError,
     ProviderConfigError,
     build_llm,
 )
-from coding_agent.llm.ratelimit import RateLimitCoordinator
-from coding_agent.llm.router import ProviderRouter, ProviderUnavailableError
+from ubismart.llm.ratelimit import RateLimitCoordinator
+from ubismart.llm.router import ProviderRouter, ProviderUnavailableError
 
 
 class _RateLimit(Exception):
@@ -333,7 +333,7 @@ def test_missing_keys_are_reported() -> None:
 
 
 def test_usage_of_extracts_prefix_cache_tokens() -> None:
-    from coding_agent.llm.router import _usage_of
+    from ubismart.llm.router import _usage_of
 
     class _Cached:
         usage_metadata = {
@@ -346,7 +346,7 @@ def test_usage_of_extracts_prefix_cache_tokens() -> None:
 
 
 def test_usage_of_keeps_zero_when_provider_has_no_cache() -> None:
-    from coding_agent.llm.router import _usage_of
+    from ubismart.llm.router import _usage_of
 
     class _Plain:
         usage_metadata = {"input_tokens": 100, "output_tokens": 10}
@@ -371,7 +371,7 @@ def test_rate_limiter_accumulates_cache_tokens() -> None:
 
 
 def test_governor_limits_concurrent_llm_calls() -> None:
-    from coding_agent.platform.concurrency import ConcurrencyGovernor
+    from ubismart.platform.concurrency import ConcurrencyGovernor
 
     class _BlockingProvider(_Provider):
         def __init__(self) -> None:
@@ -418,7 +418,7 @@ def test_governor_limits_concurrent_llm_calls() -> None:
 
 
 def test_aimd_shrinks_on_429_and_recovers_on_success() -> None:
-    from coding_agent.platform.concurrency import ConcurrencyGovernor
+    from ubismart.platform.concurrency import ConcurrencyGovernor
 
     async def scenario() -> tuple[int, int]:
         provider = _Provider("p", error=_RateLimit("429"))

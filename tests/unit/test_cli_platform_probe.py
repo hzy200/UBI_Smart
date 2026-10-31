@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.cli.platform import SandboxProbe, SandboxProbeError
-from coding_agent.config import Settings
-from coding_agent.sandbox import probe
-from coding_agent.sandbox.wsl_exec import ExecResult, WslSandbox
+from ubismart.cli.platform import SandboxProbe, SandboxProbeError
+from ubismart.config import Settings
+from ubismart.sandbox import probe
+from ubismart.sandbox.wsl_exec import ExecResult, WslSandbox
 
 
 class _Sandbox:

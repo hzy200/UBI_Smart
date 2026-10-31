@@ -7,9 +7,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.control.store import ControlStore
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.control.store import ControlStore
 
 
 def _settings(tmp_path: Path) -> Settings:

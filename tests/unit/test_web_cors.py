@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.web.cors import CorsConfigError, parse_allowed_origins
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.web.cors import CorsConfigError, parse_allowed_origins
 
 ORIGIN = "https://app.example.com"
 

@@ -14,9 +14,9 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.config import Settings
-from coding_agent.graph.state import AgentState
-from coding_agent.runtime import AgentRuntime
+from ubismart.config import Settings
+from ubismart.graph.state import AgentState
+from ubismart.runtime import AgentRuntime
 
 THREAD = "t-hist"
 
@@ -55,7 +55,7 @@ def _history(saver: MemorySaver) -> list:
 
 def test_history_returns_user_and_assistant_text(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "coding_agent.runtime.core.build_graph",
+        "ubismart.runtime.core.build_graph",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("history 不应建图")),
     )
     history = _history(_populated_saver())

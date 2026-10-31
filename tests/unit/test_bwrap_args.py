@@ -6,8 +6,8 @@ import shlex
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.sandbox.wsl_exec import WslSandbox, WslUnavailableError, build_bwrap_script
+from ubismart.config import Settings
+from ubismart.sandbox.wsl_exec import WslSandbox, WslUnavailableError, build_bwrap_script
 
 # ---------------- argv 构造 ----------------
 

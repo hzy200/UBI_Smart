@@ -11,7 +11,7 @@ if str(SCRIPTS) not in sys.path:
 
 from repair_audit import main, repair_file  # noqa: E402
 
-from coding_agent.audit import (  # noqa: E402
+from ubismart.audit import (  # noqa: E402
     AuditLogger,
     AuditRecord,
     verify_audit_files,

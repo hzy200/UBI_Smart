@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from coding_agent.tools.artifacts import (
+from ubismart.tools.artifacts import (
     CallArtifact,
     FileArtifact,
     InterruptedArtifact,

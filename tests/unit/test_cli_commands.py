@@ -15,11 +15,11 @@ import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
-from coding_agent.audit import AuditLogger, AuditRecord, read_records
-from coding_agent.cli import app as cli_app
-from coding_agent.config import Settings
-from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
-from coding_agent.session.steering import SteeringController
+from ubismart.audit import AuditLogger, AuditRecord, read_records
+from ubismart.cli import app as cli_app
+from ubismart.config import Settings
+from ubismart.events import ApprovalRequested, RunFinished, RunStarted
+from ubismart.session.steering import SteeringController
 
 runner = CliRunner()
 
@@ -599,7 +599,7 @@ def test_tui_reports_missing_ui_extra(monkeypatch) -> None:
     real_import = builtins.__import__
 
     def fake_import(name, *args, **kwargs):
-        if name == "coding_agent.tui":
+        if name == "ubismart.tui":
             raise ImportError("No module named 'textual'")
         return real_import(name, *args, **kwargs)
 
@@ -725,7 +725,7 @@ def test_yes_does_not_auto_approve_danger(monkeypatch) -> None:
 
 def test_main_reports_missing_api_key(monkeypatch) -> None:
     """缺 Key 时给一句人话，而不是抛栈。"""
-    from coding_agent.llm.deepseek import MissingApiKeyError
+    from ubismart.llm.deepseek import MissingApiKeyError
 
     def boom() -> None:
         raise MissingApiKeyError("未配置 DEEPSEEK_API_KEY。")

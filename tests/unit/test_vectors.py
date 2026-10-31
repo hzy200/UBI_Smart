@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from coding_agent.memory.vectors import (
+from ubismart.memory.vectors import (
     VectorStore,
     content_hash,
     cosine,
     rrf_fuse,
 )
-from coding_agent.sandbox.fs import SandboxFsError
+from ubismart.sandbox.fs import SandboxFsError
 
 
 class _FakeFs:

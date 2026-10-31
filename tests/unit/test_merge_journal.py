@@ -10,9 +10,9 @@ import json
 
 import pytest
 
-from coding_agent.orchestrator import merge_journal as journal_module
-from coding_agent.orchestrator.merge_journal import MergeJournal
-from coding_agent.orchestrator.merge_queue import MergeQueue
+from ubismart.orchestrator import merge_journal as journal_module
+from ubismart.orchestrator.merge_journal import MergeJournal
+from ubismart.orchestrator.merge_queue import MergeQueue
 
 
 class _FakeFs:
@@ -118,7 +118,7 @@ def test_flush_registers_before_and_clears_after(
             str(record["task_id"]): (True, "", ["snap"]) for record in records
         }
 
-    import coding_agent.orchestrator.merge_queue as queue_module
+    import ubismart.orchestrator.merge_queue as queue_module
 
     original = queue_module.merge_implement_patches_atomic
     queue_module.merge_implement_patches_atomic = _fake_merge

@@ -6,9 +6,9 @@ import json
 import zipfile
 from datetime import datetime
 
-from coding_agent.desktop import diagnostics, update
-from coding_agent.desktop.config import LauncherConfig
-from coding_agent.desktop.watchdog import supervise
+from ubismart.desktop import diagnostics, update
+from ubismart.desktop.config import LauncherConfig
+from ubismart.desktop.watchdog import supervise
 
 
 def test_sanitize_redacts_common_secret_shapes() -> None:
@@ -49,7 +49,7 @@ def test_collect_diagnostics_writes_redacted_zip(
     path = diagnostics.collect_diagnostics(
         config, now=datetime(2026, 10, 24, 8, 0, 0)
     )
-    assert path.name == "CodingAgent-diagnostics-20261024-080000.zip"
+    assert path.name == "UBISmart-diagnostics-20261024-080000.zip"
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
         assert {

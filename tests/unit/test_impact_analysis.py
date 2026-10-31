@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.testrun import related_test_paths
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.testrun import related_test_paths
 
 ROOT = "/ws"
 

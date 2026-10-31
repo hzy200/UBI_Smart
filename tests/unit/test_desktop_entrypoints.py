@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from coding_agent.desktop import launcher, setup
-from coding_agent.desktop.config import LauncherConfig
+from ubismart.desktop import launcher, setup
+from ubismart.desktop.config import LauncherConfig
 
 
 class _FakeLock:
@@ -84,7 +84,7 @@ def test_logging_creates_log_file(monkeypatch, tmp_path) -> None:
 def test_host_mode_delegates_to_bootstrap(desktop) -> None:
     called: list[bool] = []
     desktop.monkeypatch.setattr(
-        "coding_agent.desktop.bootstrap.run_desktop", lambda: called.append(True)
+        "ubismart.desktop.bootstrap.run_desktop", lambda: called.append(True)
     )
     assert launcher.main(["--host-mode"]) == 0
     assert called == [True]

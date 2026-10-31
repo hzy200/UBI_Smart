@@ -9,13 +9,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from coding_agent import __version__
-from coding_agent.config import Settings
-from coding_agent.events import ApprovalRequested, RunFinished, RunStarted
-from coding_agent.identity.tenancy import WebTenant
-from coding_agent.web import app as web_app
-from coding_agent.web import local_runtime
-from coding_agent.web.auth import AuthConfig
+from ubismart import __version__
+from ubismart.config import Settings
+from ubismart.events import ApprovalRequested, RunFinished, RunStarted
+from ubismart.identity.tenancy import WebTenant
+from ubismart.web import app as web_app
+from ubismart.web import local_runtime
+from ubismart.web.auth import AuthConfig
 
 
 def _settings(tmp_path, **overrides) -> Settings:

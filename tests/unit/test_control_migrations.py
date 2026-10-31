@@ -11,7 +11,7 @@ pytest.importorskip("alembic")
 from alembic import command  # noqa: E402
 from sqlalchemy import create_engine, inspect, text  # noqa: E402
 
-from coding_agent.control.migrate import (  # noqa: E402
+from ubismart.control.migrate import (  # noqa: E402
     BASELINE_REVISION,
     alembic_config,
     current_revision,
@@ -20,7 +20,7 @@ from coding_agent.control.migrate import (  # noqa: E402
     has_table,
     upgrade,
 )
-from coding_agent.control.store import ControlStore  # noqa: E402
+from ubismart.control.store import ControlStore  # noqa: E402
 
 REVISION = "0019_share_links"
 

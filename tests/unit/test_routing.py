@@ -3,11 +3,12 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from coding_agent.graph.routing import (
+from ubismart.graph.routing import (
     ACT,
     ADVANCE,
     APPROVE,
     NUDGE,
+    ORCHESTRATOR_FIX,
     PLAN_PREVIEW,
     REPAIR,
     REPLAN,
@@ -19,6 +20,7 @@ from coding_agent.graph.routing import (
     make_route_after_verify,
     route_after_act,
     route_after_planner,
+    route_after_synthesize,
 )
 
 pytestmark = pytest.mark.regression
@@ -53,6 +55,63 @@ def test_verification_environment_error_goes_straight_to_respond() -> None:
         "retry": 0,
     }
     assert route_after_verify(state) == RESPOND
+
+
+def test_failed_orchestrated_verify_enters_fix_round() -> None:
+    route = make_route_after_verify(3, max_orchestrator_fix_rounds=1)
+    state = {
+        **_state([HumanMessage(content="hi"), AIMessage(content="done")]),
+        "verification": {"status": "failed", "summary": "测试失败"},
+        "orchestrator_fix_eligible": True,
+        "orchestrator_fix_rounds_used": 0,
+        "retry": 0,
+    }
+
+    assert route(state) == ORCHESTRATOR_FIX
+
+
+def test_fix_rounds_are_bounded() -> None:
+    route = make_route_after_verify(3, max_orchestrator_fix_rounds=1)
+    state = {
+        **_state([HumanMessage(content="hi"), AIMessage(content="done")]),
+        "verification": {"status": "failed", "summary": "测试失败"},
+        "orchestrator_fix_eligible": True,
+        "orchestrator_fix_rounds_used": 1,
+        "retry": 0,
+    }
+
+    assert route(state) == REPAIR
+
+
+def test_verification_error_does_not_enter_fix_round() -> None:
+    route = make_route_after_verify(3, max_orchestrator_fix_rounds=2)
+    state = {
+        **_state([HumanMessage(content="hi"), AIMessage(content="done")]),
+        "verification": {"status": "error", "summary": "wsl 不可用"},
+        "orchestrator_fix_eligible": True,
+        "orchestrator_fix_rounds_used": 0,
+        "retry": 0,
+    }
+
+    assert route(state) == RESPOND
+
+
+def test_fix_round_requires_eligible_failure() -> None:
+    route = make_route_after_verify(3, max_orchestrator_fix_rounds=2)
+    state = {
+        **_state([HumanMessage(content="hi"), AIMessage(content="done")]),
+        "verification": {"status": "failed", "summary": "测试失败"},
+        "orchestrator_fix_eligible": False,
+        "orchestrator_fix_rounds_used": 0,
+        "retry": 0,
+    }
+
+    assert route(state) == REPAIR
+
+
+def test_fix_mode_synthesize_goes_straight_to_verify() -> None:
+    assert route_after_synthesize({"orchestrator_fix_mode": True}) == VERIFY
+    assert route_after_synthesize({}) == "planner"
 
 
 # ---------------- act 之后 ----------------

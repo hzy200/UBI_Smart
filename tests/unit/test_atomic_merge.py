@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from coding_agent.orchestrator import merge as merge_module
-from coding_agent.orchestrator.merge import merge_implement_patches_atomic
-from coding_agent.sandbox.wsl_exec import ExecResult
+from ubismart.orchestrator import merge as merge_module
+from ubismart.orchestrator.merge import merge_implement_patches_atomic
+from ubismart.sandbox.wsl_exec import ExecResult
 
 pytestmark = pytest.mark.regression
 

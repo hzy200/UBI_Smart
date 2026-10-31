@@ -7,8 +7,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from coding_agent.control.schema import Base, ControlSession
-from coding_agent.control.workspaces import (
+from ubismart.control.schema import Base, ControlSession
+from ubismart.control.workspaces import (
     WorkspacePolicy,
     WorkspaceStore,
 )

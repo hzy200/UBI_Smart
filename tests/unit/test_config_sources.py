@@ -9,7 +9,7 @@ harness 把陈旧的值注入进程环境，用户既看不到来源也删不掉
 
 from __future__ import annotations
 
-from coding_agent.config import Settings, shadowed_env_keys
+from ubismart.config import Settings, shadowed_env_keys
 
 
 def _write_env(tmp_path, content: str) -> str:

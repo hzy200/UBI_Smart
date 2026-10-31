@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.platform.concurrency import SyncLeasePool
-from coding_agent.sandbox.wsl_exec import (
+from ubismart.config import Settings
+from ubismart.platform.concurrency import SyncLeasePool
+from ubismart.sandbox.wsl_exec import (
     ExecResult,
     WslSandbox,
     WslUnavailableError,

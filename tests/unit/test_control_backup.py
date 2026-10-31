@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from coding_agent.control import backup as backup_module
-from coding_agent.control.backup import (
+from ubismart.control import backup as backup_module
+from ubismart.control.backup import (
     _mysql_restore,
     _mysqldump,
     _prune,
@@ -17,7 +17,7 @@ from coding_agent.control.backup import (
     default_backup_dir,
     restore,
 )
-from coding_agent.control.store import ControlStore
+from ubismart.control.store import ControlStore
 
 pytestmark = pytest.mark.regression
 

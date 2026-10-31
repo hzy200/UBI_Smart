@@ -7,12 +7,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from coding_agent import web
+from ubismart import web
 
 STATIC = (
     Path(__file__).resolve().parents[2]
     / "src"
-    / "coding_agent"
+    / "ubismart"
     / "web"
     / "static"
 )
@@ -58,4 +58,4 @@ def test_service_worker_is_served_from_root(settings) -> None:
     assert "no-cache" in response.headers["cache-control"]
     manifest = client.get("/manifest.webmanifest")
     assert manifest.status_code == 200
-    assert manifest.json()["short_name"] == "CodingAgent"
+    assert manifest.json()["short_name"] == "UBISmart"

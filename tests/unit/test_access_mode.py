@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from coding_agent.config import Settings
-from coding_agent.runtime import AgentRuntime
+from ubismart.config import Settings
+from ubismart.runtime import AgentRuntime
 
 
 def _settings(tmp_path) -> Settings:

@@ -6,10 +6,10 @@ verify 只在**本步改过东西**（`dirty`）时才跑测试：只读探索�
 
 from __future__ import annotations
 
-from coding_agent.config import Settings
-from coding_agent.graph.nodes.verify import make_verify_node
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.testrun import run_verification
+from ubismart.config import Settings
+from ubismart.graph.nodes.verify import make_verify_node
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.testrun import run_verification
 
 
 class _FakeSandbox:
@@ -179,6 +179,51 @@ def test_pending_verification_runs_even_without_dirty() -> None:
     assert out["verification"]["status"] == "not_configured"
     assert out["pending_verification"] is False
     assert sandbox.runs >= 1
+
+
+def test_failed_pending_verification_marks_fix_eligible(monkeypatch) -> None:
+    from ubismart.tools.testrun import VerifyResult as _VR
+    monkeypatch.setattr(
+        "ubismart.graph.nodes.verify.run_verification",
+        lambda *args, **kwargs: _VR(status="failed", summary="boom"),
+    )
+    node = make_verify_node(_FakeSandbox())  # type: ignore[arg-type]
+
+    out = node(
+        {"dirty": True, "pending_verification": True},
+        None,
+    )
+
+    assert out["verification"]["status"] == "failed"
+    assert out["pending_verification"] is False
+    assert out["orchestrator_fix_eligible"] is True
+    assert out["orchestrator_fix_mode"] is False
+
+
+def test_failed_non_pending_verification_is_not_fix_eligible(monkeypatch) -> None:
+    from ubismart.tools.testrun import VerifyResult as _VR
+    monkeypatch.setattr(
+        "ubismart.graph.nodes.verify.run_verification",
+        lambda *args, **kwargs: _VR(status="failed", summary="boom"),
+    )
+    node = make_verify_node(_FakeSandbox())  # type: ignore[arg-type]
+
+    out = node({"dirty": True, "pending_verification": False}, None)
+
+    assert out["orchestrator_fix_eligible"] is False
+
+
+def test_passing_pending_verification_is_not_fix_eligible(monkeypatch) -> None:
+    from ubismart.tools.testrun import VerifyResult as _VR
+    monkeypatch.setattr(
+        "ubismart.graph.nodes.verify.run_verification",
+        lambda *args, **kwargs: _VR(status="ok", summary="ok"),
+    )
+    node = make_verify_node(_FakeSandbox())  # type: ignore[arg-type]
+
+    out = node({"dirty": True, "pending_verification": True}, None)
+
+    assert out["orchestrator_fix_eligible"] is False
 
 
 def test_pending_verification_waits_for_the_final_step() -> None:

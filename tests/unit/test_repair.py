@@ -14,10 +14,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.graph.build import estimate_recursion_limit
-from coding_agent.graph.nodes import advance
-from coding_agent.graph.nodes.repair import repair
-from coding_agent.graph.routing import (
+from ubismart.graph.build import estimate_recursion_limit
+from ubismart.graph.nodes import advance
+from ubismart.graph.nodes.repair import repair
+from ubismart.graph.routing import (
     ADVANCE,
     APPROVE,
     REPAIR,
@@ -30,8 +30,8 @@ from coding_agent.graph.routing import (
     make_route_after_verify,
     route_after_act,
 )
-from coding_agent.graph.state import AgentState
-from coding_agent.llm.prompts import format_verification_feedback
+from ubismart.graph.state import AgentState
+from ubismart.llm.prompts import format_verification_feedback
 
 FAILED = {
     "status": "failed",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.sandbox.pathguard import (
+from ubismart.sandbox.pathguard import (
     SandboxPathError,
     ensure_inside,
     is_within,

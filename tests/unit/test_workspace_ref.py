@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.workspace.model import (
+from ubismart.workspace.model import (
     WorkspaceRef,
     normalize_workspace_kind,
 )

@@ -7,8 +7,8 @@ import os
 import threading
 import time
 
-from coding_agent.config import Settings
-from coding_agent.servers.agent_server_routes.workspace_import import (
+from ubismart.config import Settings
+from ubismart.servers.agent_server_routes.workspace_import import (
     ImportDeps,
     _jobs_root,
     _load_jobs,

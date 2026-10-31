@@ -8,10 +8,10 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from coding_agent.agent_protocol import AgentContext
-from coding_agent.config import Settings
-from coding_agent.servers.agent_server_routes import workspace_import as imports
-from coding_agent.servers.agent_server_routes.workspace_import import (
+from ubismart.agent_protocol import AgentContext
+from ubismart.config import Settings
+from ubismart.servers.agent_server_routes import workspace_import as imports
+from ubismart.servers.agent_server_routes.workspace_import import (
     ImportDeps,
     _activate_replace,
     _attach_git_history,
@@ -19,7 +19,7 @@ from coding_agent.servers.agent_server_routes.workspace_import import (
     _recover_swap,
     _run_upload,
 )
-from coding_agent.workspace.scan import ScanUnavailable
+from ubismart.workspace.scan import ScanUnavailable
 
 
 class _Exec:

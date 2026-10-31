@@ -36,8 +36,8 @@ Source: "dist\\*"; DestDir: "{{app}}"; Flags: recursesubdirs
 """
 
 GOOD_PS1 = """\
-$Version = (& python -c "import coding_agent; print(coding_agent.__version__)").Trim()
-& $Iscc "/DAppVersion=$Version" "packaging\\installer\\CodingAgent.iss"
+$Version = (& python -c "import ubismart; print(ubismart.__version__)").Trim()
+& $Iscc "/DAppVersion=$Version" "packaging\\installer\\UBISmart.iss"
 """
 
 
@@ -47,19 +47,19 @@ def _tree(tmp_path: Path, *, iss: str = "", ps1: str = "", version: str = "1.2.3
     packaging.mkdir(parents=True)
     (packaging / "icon.ico").write_bytes(b"icon")
     (packaging / "dist").mkdir()
-    (packaging / "CodingAgent.iss").write_text(
+    (packaging / "UBISmart.iss").write_text(
         iss or GOOD_ISS.format(version=version), encoding="utf-8"
     )
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     (scripts / "build_installer.ps1").write_text(ps1 or GOOD_PS1, encoding="utf-8")
-    init = tmp_path / "src" / "coding_agent"
+    init = tmp_path / "src" / "ubismart"
     init.mkdir(parents=True)
     (init / "__init__.py").write_text(
         f'__version__ = "{version}"\n', encoding="utf-8"
     )
     return (
-        packaging / "CodingAgent.iss",
+        packaging / "UBISmart.iss",
         scripts / "build_installer.ps1",
         init / "__init__.py",
     )
@@ -100,7 +100,7 @@ def test_privileged_install_is_rejected(guard, tmp_path) -> None:
 def test_uninstall_deleting_user_data_is_rejected(guard, tmp_path) -> None:
     iss = (
         GOOD_ISS.format(version="1.2.3")
-        + '\n[UninstallDelete]\nType: filesandordirs; Name: "{localappdata}\\CodingAgent"\n'
+        + '\n[UninstallDelete]\nType: filesandordirs; Name: "{localappdata}\\UBISmart"\n'
     )
     errors = guard.check(*_tree(tmp_path, iss=iss))
     assert any("用户数据" in item for item in errors)

@@ -18,10 +18,11 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage
 
-from coding_agent.config import Settings
-from coding_agent.graph.nodes.review import make_review_node
-from coding_agent.sandbox.wsl_exec import ExecResult
-from coding_agent.tools.review import (
+from ubismart.config import Settings
+from ubismart.graph.nodes.review import make_review_node
+from ubismart.graph.routing import REPAIR, REPLAN, make_route_after_review
+from ubismart.sandbox.wsl_exec import ExecResult
+from ubismart.tools.review import (
     _MARKER,
     BLOCKING,
     WARNING,
@@ -333,13 +334,74 @@ def test_review_disabled_short_circuits() -> None:
     assert sandbox.runs == 0
 
 
+def test_review_blocking_signature_accumulates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """同一阻断问题连续出现时要累计，不能被 verify 的清零逻辑掩盖。"""
+
+    def _fake_run(*args, **kwargs):  # noqa: ANN002, ANN003
+        return ReviewResult(
+            status="blocked",
+            findings=[
+                ReviewFinding(
+                    severity=BLOCKING,
+                    rule="test-weakened",
+                    location="tests/test_a.py:3",
+                    message="断言被架空",
+                )
+            ],
+            watermark=SID_NEW,
+        )
+
+    monkeypatch.setattr("ubismart.graph.nodes.review.run_review", _fake_run)
+    node = make_review_node(_FakeSandbox(), "/ws")
+    first = node(
+        {"dirty": True, "review_watermark": SID_OLD}, None  # type: ignore[arg-type]
+    )
+    second = node(
+        {
+            "dirty": True,
+            "review_watermark": SID_OLD,
+            "review_failure_signature": first["review_failure_signature"],
+            "review_same_failure_count": first["review_same_failure_count"],
+        },
+        None,  # type: ignore[arg-type]
+    )
+
+    assert first["review_same_failure_count"] == 1
+    assert second["review_same_failure_count"] == 2
+
+
+def test_route_after_review_replans_on_repeated_same_failure() -> None:
+    route = make_route_after_review(3, max_same_failures=2)
+
+    assert (
+        route(
+            {
+                "review": {"status": "blocked"},
+                "retry": 0,
+                "review_same_failure_count": 1,
+            }
+        )
+        == REPAIR
+    )
+    assert (
+        route(
+            {
+                "review": {"status": "blocked"},
+                "retry": 0,
+                "review_same_failure_count": 2,
+            }
+        )
+        == REPLAN
+    )
+
+
 def test_an_environment_failure_is_warned_and_does_not_advance_watermark(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _boom(*args, **kwargs):  # noqa: ANN002, ANN003
         raise RuntimeError("wsl.exe 不可用")
 
-    monkeypatch.setattr("coding_agent.graph.nodes.review.run_review", _boom)
+    monkeypatch.setattr("ubismart.graph.nodes.review.run_review", _boom)
     out = make_review_node(_FakeSandbox(), "/ws")(
         {"dirty": True, "review_watermark": SID_OLD}, None  # type: ignore[arg-type]
     )
@@ -433,7 +495,7 @@ def test_node_passes_the_watermark_through(monkeypatch: pytest.MonkeyPatch) -> N
         )
         return ReviewResult(status="clean", watermark=SID_NEW, checked_files=1)
 
-    monkeypatch.setattr("coding_agent.graph.nodes.review.run_review", _fake_run)
+    monkeypatch.setattr("ubismart.graph.nodes.review.run_review", _fake_run)
 
     sandbox = _FakeSandbox()
     out = make_review_node(sandbox, "/ws")(
@@ -455,8 +517,8 @@ def _blocking_review_graph(limit: int):
     from langgraph.checkpoint.memory import MemorySaver
     from langgraph.graph import END, START, StateGraph
 
-    from coding_agent.graph.nodes.repair import repair
-    from coding_agent.graph.routing import (
+    from ubismart.graph.nodes.repair import repair
+    from ubismart.graph.routing import (
         ADVANCE,
         REPAIR,
         REPLAN,
@@ -467,7 +529,7 @@ def _blocking_review_graph(limit: int):
         make_route_after_verify,
         route_after_act,
     )
-    from coding_agent.graph.state import AgentState
+    from ubismart.graph.state import AgentState
 
     calls = {"act": 0, "review": 0, "replan": 0}
 
@@ -570,9 +632,9 @@ def _nudge_graph(*, nudge_enabled: bool, limit: int = 3):
     from langgraph.checkpoint.memory import MemorySaver
     from langgraph.graph import END, START, StateGraph
 
-    from coding_agent.graph.nodes.nudge import nudge as nudge_node
-    from coding_agent.graph.nodes.repair import repair
-    from coding_agent.graph.routing import (
+    from ubismart.graph.nodes.nudge import nudge as nudge_node
+    from ubismart.graph.nodes.repair import repair
+    from ubismart.graph.routing import (
         ADVANCE,
         NUDGE,
         REPAIR,
@@ -584,7 +646,7 @@ def _nudge_graph(*, nudge_enabled: bool, limit: int = 3):
         make_route_after_verify,
         route_after_act,
     )
-    from coding_agent.graph.state import AgentState
+    from ubismart.graph.state import AgentState
 
     calls = {"act": 0, "nudge": 0, "advance": 0, "respond": 0}
 

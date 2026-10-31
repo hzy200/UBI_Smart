@@ -6,12 +6,12 @@ import logging
 
 from fastapi.testclient import TestClient
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.control.credentials import CredentialStore
-from coding_agent.control.schema import ControlProviderProfile
-from coding_agent.control.store import ControlStore
-from coding_agent.security.secrets import redact_secrets
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.control.credentials import CredentialStore
+from ubismart.control.schema import ControlProviderProfile
+from ubismart.control.store import ControlStore
+from ubismart.security.secrets import redact_secrets
 
 SECRET = "sk-phasef-SECRET-0123456789"
 

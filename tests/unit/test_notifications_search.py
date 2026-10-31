@@ -6,10 +6,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.control.store import ControlStore
-from coding_agent.web import app as web_app
-from coding_agent.web.routes.notifications import notification_payload
+from ubismart.config import Settings
+from ubismart.control.store import ControlStore
+from ubismart.web import app as web_app
+from ubismart.web.routes.notifications import notification_payload
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -115,7 +115,7 @@ def test_search_index_matches_chinese_substring(tmp_path) -> None:
 def test_search_covers_last_message_and_audit_index(tmp_path) -> None:
     from sqlalchemy.orm import Session
 
-    from coding_agent.control.schema import ControlSession
+    from ubismart.control.schema import ControlSession
 
     store = ControlStore(_settings(tmp_path).control_db_url)
     try:

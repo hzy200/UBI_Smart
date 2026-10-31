@@ -6,17 +6,17 @@ import asyncio
 
 import pytest
 
-from coding_agent.host_broker.client import (
+from ubismart.host_broker.client import (
     HostBrokerClient,
     HostBrokerError,
     HostBrokerOffline,
 )
-from coding_agent.host_broker.consent import AutoConsent
-from coding_agent.host_broker.errors import BrokerOpError
-from coding_agent.host_broker.lifecycle import BrokerLifecycle
-from coding_agent.host_broker.op_journal import OP_FINISHED, OpJournal
-from coding_agent.host_broker.policy import GrantStore
-from coding_agent.host_broker.protocol import (
+from ubismart.host_broker.consent import AutoConsent
+from ubismart.host_broker.errors import BrokerOpError
+from ubismart.host_broker.lifecycle import BrokerLifecycle
+from ubismart.host_broker.op_journal import OP_FINISHED, OpJournal
+from ubismart.host_broker.policy import GrantStore
+from ubismart.host_broker.protocol import (
     A2L_PAUSED,
     CANCELLED,
     GRANT_RATE_LIMITED,
@@ -32,8 +32,8 @@ from coding_agent.host_broker.protocol import (
     make_request,
     make_response,
 )
-from coding_agent.host_broker.server import HostBrokerServer
-from coding_agent.host_broker.transport import memory_transport_pair
+from ubismart.host_broker.server import HostBrokerServer
+from ubismart.host_broker.transport import memory_transport_pair
 
 
 def _workspace() -> dict[str, str]:
@@ -514,7 +514,7 @@ def test_pre_execution_denial_discards_journal(tmp_path) -> None:
 
 
 def test_hello_carries_device_attestation(tmp_path) -> None:
-    from coding_agent.host_broker.attestation import (
+    from ubismart.host_broker.attestation import (
         SoftwareKeyIdentity,
         verify_evidence,
     )

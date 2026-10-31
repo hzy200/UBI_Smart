@@ -15,17 +15,17 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coding_agent.config import Settings
-from coding_agent.control.accounts import SessionStore, UserStore
-from coding_agent.control.oidc import (
+from ubismart.config import Settings
+from ubismart.control.accounts import SessionStore, UserStore
+from ubismart.control.oidc import (
     OidcClient,
     OidcError,
     OidcSettings,
     OidcStateStore,
 )
-from coding_agent.control.store import ControlStore
-from coding_agent.web.auth import AuthConfig
-from coding_agent.web.routes.auth import AuthRouteDeps, register_auth_routes
+from ubismart.control.store import ControlStore
+from ubismart.web.auth import AuthConfig
+from ubismart.web.routes.auth import AuthRouteDeps, register_auth_routes
 
 ISSUER = "https://idp.example"
 CLIENT_ID = "coding-agent"
@@ -235,7 +235,7 @@ def test_state_is_one_time_and_expires(tmp_path: Path, monkeypatch) -> None:
         redirect_uri="https://app/callback",
         ttl_s=600,
     )
-    import coding_agent.control.oidc as oidc_module
+    import ubismart.control.oidc as oidc_module
 
     original = time.time()
     monkeypatch.setattr(

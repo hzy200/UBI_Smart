@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from coding_agent.workspace.browse import (
+from ubismart.workspace.browse import (
     BrowseError,
     git_summary,
     list_directory,
@@ -51,7 +51,7 @@ def test_read_file_reports_binary_and_truncation(tmp_path) -> None:
 
 
 def test_read_file_embeds_small_images(tmp_path) -> None:
-    from coding_agent.workspace.browse import MAX_IMAGE_BYTES
+    from ubismart.workspace.browse import MAX_IMAGE_BYTES
 
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
     (tmp_path / "logo.png").write_bytes(png)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coding_agent.config import Settings
+from ubismart.config import Settings
 
 
 def _settings(**kwargs) -> Settings:

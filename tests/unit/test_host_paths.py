@@ -7,8 +7,8 @@ import subprocess
 
 import pytest
 
-from coding_agent.host_broker.paths import HostPathError, HostPathPolicy
-from coding_agent.host_broker.protocol import INVALID_PATH, PATH_ESCAPE
+from ubismart.host_broker.paths import HostPathError, HostPathPolicy
+from ubismart.host_broker.protocol import INVALID_PATH, PATH_ESCAPE
 
 
 def _make_link(link, target) -> bool:

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.graph.build import estimate_recursion_limit
+from ubismart.config import Settings
+from ubismart.graph.build import estimate_recursion_limit
 
 pytestmark = pytest.mark.regression
 
@@ -65,6 +65,36 @@ def test_event_driven_scheduler_boundaries_are_counted() -> None:
     # 子图固定节点 6 个（survey/select/plan/steering_plan/write_gate/fan_in）。
     assert event > base
     assert event == base + (2 + 1) * (6 + 6 * 2) + 2
+
+
+def test_orchestrator_fix_rounds_are_counted() -> None:
+    rounds, steps, repairs, replans = 12, 5, 3, 2
+    per_cycle = 5 * rounds + 4
+    phase = (repairs + 1) * per_cycle + repairs
+    per_step = (replans + 1) * (phase + 1) + per_cycle + 1 + 1
+    base = estimate_recursion_limit(
+        steps,
+        rounds,
+        repairs,
+        replans,
+        orchestrator_enabled=True,
+        orchestrator_max_tasks=6,
+        orchestrator_checkpoint_every=1,
+    )
+    fixed = estimate_recursion_limit(
+        steps,
+        rounds,
+        repairs,
+        replans,
+        orchestrator_enabled=True,
+        orchestrator_max_tasks=6,
+        orchestrator_checkpoint_every=1,
+        orchestrator_fix_rounds=2,
+    )
+
+    # 6 个任务 / 每边界 1 个 -> 6 个 scheduler 边界。
+    boundaries = 6
+    assert fixed == base + 2 * ((6 + boundaries * 2) + per_step + 2)
 
 
 def test_covers_a_maxed_out_default_plan() -> None:

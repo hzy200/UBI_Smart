@@ -6,12 +6,12 @@ import time
 
 from fastapi.testclient import TestClient
 
-from coding_agent import AGENT_API_VERSION, __version__
-from coding_agent.config import Settings
-from coding_agent.control.protocol import AgentMeta
-from coding_agent.desktop.config import LauncherConfig
-from coding_agent.desktop.watchdog import WatchTarget, supervise_many
-from coding_agent.servers import agent_server
+from ubismart import AGENT_API_VERSION, __version__
+from ubismart.config import Settings
+from ubismart.control.protocol import AgentMeta
+from ubismart.desktop.config import LauncherConfig
+from ubismart.desktop.watchdog import WatchTarget, supervise_many
+from ubismart.servers import agent_server
 
 
 def test_agent_server_cancel_all_and_shutdown(tmp_path) -> None:
@@ -43,7 +43,7 @@ def _config() -> LauncherConfig:
 def test_start_control_injects_agent_endpoint(
     tmp_path, monkeypatch
 ) -> None:
-    import coding_agent.desktop.supervisor as supervisor
+    import ubismart.desktop.supervisor as supervisor
 
     captured: dict = {}
 
@@ -166,8 +166,8 @@ class _FakeAgent:
 def test_a2_probe_recovers_after_agent_restart(
     tmp_path, monkeypatch
 ) -> None:
-    from coding_agent import web
-    from coding_agent.web import app as web_app
+    from ubismart import web
+    from ubismart.web import app as web_app
 
     monkeypatch.setattr(web_app, "AGENT_PROBE_INTERVAL_S", 0.01)
     settings = Settings(

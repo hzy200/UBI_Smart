@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.control.approvals import ApprovalStore, SelfApprovalError
-from coding_agent.control.store import ControlStore
-from coding_agent.web.services import AgentGateway
+from ubismart.control.approvals import ApprovalStore, SelfApprovalError
+from ubismart.control.store import ControlStore
+from ubismart.web.services import AgentGateway
 
 
 def _store(tmp_path: Path) -> ControlStore:
@@ -260,7 +260,7 @@ def test_merge_includes_admin_decision_not_resubmitted(tmp_path) -> None:
 def test_purge_expired_only_removes_pending(tmp_path) -> None:
     from sqlalchemy.orm import Session
 
-    from coding_agent.control.schema import ControlApproval
+    from ubismart.control.schema import ControlApproval
 
     control = _store(tmp_path)
     approvals = ApprovalStore(control.engine)

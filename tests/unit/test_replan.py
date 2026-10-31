@@ -13,14 +13,14 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from coding_agent.graph.nodes import advance
-from coding_agent.graph.nodes.replan import (
+from ubismart.graph.nodes import advance
+from ubismart.graph.nodes.replan import (
     ReplanDecision,
     blocking_failure,
     make_replan_node,
 )
-from coding_agent.graph.plan import PlanStepModel
-from coding_agent.graph.routing import (
+from ubismart.graph.plan import PlanStepModel
+from ubismart.graph.routing import (
     ACT,
     REPAIR,
     REPLAN,
@@ -28,7 +28,7 @@ from coding_agent.graph.routing import (
     make_route_after_verify,
     route_after_replan,
 )
-from coding_agent.graph.state import AgentState
+from ubismart.graph.state import AgentState
 
 # 与 `_node()` 的默认 max_replans 保持一致
 MAX_REPLANS = 2

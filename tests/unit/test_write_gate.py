@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.orchestrator import write_gate as write_gate_module
-from coding_agent.orchestrator.write_gate import make_write_gate_node
+from ubismart.config import Settings
+from ubismart.orchestrator import write_gate as write_gate_module
+from ubismart.orchestrator.write_gate import make_write_gate_node
 
 pytestmark = pytest.mark.regression
 

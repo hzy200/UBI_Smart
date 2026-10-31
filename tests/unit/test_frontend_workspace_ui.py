@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-STATIC = ROOT / "src" / "coding_agent" / "web" / "static"
+STATIC = ROOT / "src" / "ubismart" / "web" / "static"
 
 
 def test_app_js_contains_workspace_flow() -> None:
@@ -263,7 +263,7 @@ def test_m5_windowing_and_a11y_are_guarded() -> None:
     assert ".virtual-spacer" in css
     assert ".transcript.is-virtual" in css
 
-    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    frontend = ROOT / "src" / "ubismart" / "web" / "frontend"
     assert (frontend / "test.mjs").is_file()
     assert (frontend / "tests" / "diff.test.ts").is_file()
     assert (frontend / "tests" / "search.test.ts").is_file()
@@ -406,7 +406,7 @@ def test_stage3_session_store_is_guarded() -> None:
     interaction = (
         ROOT
         / "src"
-        / "coding_agent"
+        / "ubismart"
         / "web"
         / "frontend"
         / "tests"
@@ -458,7 +458,7 @@ def test_stage5_live_split_panes_are_guarded() -> None:
     interaction = (
         ROOT
         / "src"
-        / "coding_agent"
+        / "ubismart"
         / "web"
         / "frontend"
         / "tests"
@@ -486,7 +486,7 @@ def test_stage4_background_streams_are_guarded() -> None:
     interaction = (
         ROOT
         / "src"
-        / "coding_agent"
+        / "ubismart"
         / "web"
         / "frontend"
         / "tests"
@@ -514,7 +514,7 @@ def test_stage1_session_view_facade_is_guarded() -> None:
     ):
         assert marker in app, marker
 
-    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    frontend = ROOT / "src" / "ubismart" / "web" / "frontend"
     assert (frontend / "src" / "state" / "session-view.ts").is_file()
     assert (frontend / "src" / "features" / "session-view.ts").is_file()
     interaction = (
@@ -558,7 +558,7 @@ def test_image_preview_and_split_session_are_guarded() -> None:
         assert marker in css, marker
 
     browse = (
-        ROOT / "src" / "coding_agent" / "workspace" / "browse.py"
+        ROOT / "src" / "ubismart" / "workspace" / "browse.py"
     ).read_text(encoding="utf-8")
     assert "MAX_IMAGE_BYTES" in browse
     assert "data_url" in browse
@@ -570,7 +570,7 @@ def test_image_preview_and_split_session_are_guarded() -> None:
 
 def test_jsdom_covers_approval_and_layout_resize() -> None:
     """审批流程与侧栏/检查器拖拽必须留在 jsdom 交互测试里。"""
-    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    frontend = ROOT / "src" / "ubismart" / "web" / "frontend"
     text = (
         frontend / "tests" / "dom" / "interaction.test.ts"
     ).read_text(encoding="utf-8")
@@ -621,7 +621,7 @@ def test_m13_theme_contrast_accent_and_code_are_guarded() -> None:
     ):
         assert marker in css, marker
 
-    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    frontend = ROOT / "src" / "ubismart" / "web" / "frontend"
     assert (frontend / "src" / "ui" / "theme.ts").is_file()
     assert (frontend / "tests" / "theme.test.ts").is_file()
 
@@ -659,7 +659,7 @@ def test_m12_settings_search_skeleton_and_error_banner_are_guarded() -> None:
     for marker in (".skeleton", ".settings-search", ".error-banner"):
         assert marker in css, marker
 
-    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    frontend = ROOT / "src" / "ubismart" / "web" / "frontend"
     assert (frontend / "src" / "ui" / "settings.ts").is_file()
     assert (frontend / "src" / "features" / "errors.ts").is_file()
     assert (frontend / "tests" / "settings.test.ts").is_file()
@@ -709,7 +709,7 @@ def test_visual_polish_round_is_guarded() -> None:
     ):
         assert marker in css, marker
 
-    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    frontend = ROOT / "src" / "ubismart" / "web" / "frontend"
     assert (frontend / "src" / "ui" / "file-icons.ts").is_file()
     assert (frontend / "tests" / "file-icons.test.ts").is_file()
 
@@ -741,7 +741,7 @@ def test_m11_tool_output_paging_and_memo_are_guarded() -> None:
     ):
         assert marker in app, marker
 
-    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    frontend = ROOT / "src" / "ubismart" / "web" / "frontend"
     assert (frontend / "src" / "ui" / "output.ts").is_file()
     assert (frontend / "src" / "ui" / "memo.ts").is_file()
     assert (frontend / "tests" / "output.test.ts").is_file()
@@ -818,7 +818,7 @@ def test_m9_session_unread_preview_and_batch_are_guarded() -> None:
     ):
         assert marker in css, marker
 
-    root = ROOT / "src" / "coding_agent"
+    root = ROOT / "src" / "ubismart"
     schema = (root / "control" / "schema.py").read_text(encoding="utf-8")
     assert "unread" in schema
     assert "last_message" in schema
@@ -883,7 +883,7 @@ def test_m8_git_problems_incremental_and_focus_are_guarded() -> None:
     for marker in (".tree-git", ".git-m", ".problem-group", ".problem-group-head"):
         assert marker in css, marker
 
-    frontend = ROOT / "src" / "coding_agent" / "web" / "frontend"
+    frontend = ROOT / "src" / "ubismart" / "web" / "frontend"
     for relative in (
         "tests/git.test.ts",
         "tests/problems.test.ts",

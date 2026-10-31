@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-import coding_agent.control.mfa as mfa_module
-from coding_agent.control.mfa import (
+import ubismart.control.mfa as mfa_module
+from ubismart.control.mfa import (
     MfaChallengeStore,
     MfaError,
     MfaStore,
@@ -17,8 +17,8 @@ from coding_agent.control.mfa import (
     generate_secret,
     verify_totp,
 )
-from coding_agent.control.schema import ControlUserMfa
-from coding_agent.control.store import ControlStore
+from ubismart.control.schema import ControlUserMfa
+from ubismart.control.store import ControlStore
 
 KEY = b"k" * 32
 NOW = (1_700_000_000 // 30) * 30

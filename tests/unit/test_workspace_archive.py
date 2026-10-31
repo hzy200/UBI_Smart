@@ -9,7 +9,7 @@ import zipfile
 
 import pytest
 
-from coding_agent.workspace.archive import (
+from ubismart.workspace.archive import (
     ArchiveError,
     ExtractLimits,
     detect_format,

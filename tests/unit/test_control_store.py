@@ -10,14 +10,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable
 
-from coding_agent import web
-from coding_agent.config import Settings
-from coding_agent.control.schema import (
+from ubismart import web
+from ubismart.config import Settings
+from ubismart.control.schema import (
     Base,
     ControlAuditIndex,
     ControlSession,
 )
-from coding_agent.control.store import ControlStore
+from ubismart.control.store import ControlStore
 
 
 def _url(tmp_path: Path) -> str:
@@ -244,7 +244,7 @@ def test_mysql_engine_uses_bounded_pool() -> None:
 
 
 def test_tag_helpers_are_defensive() -> None:
-    from coding_agent.control.store import _tags_from_text, _tags_to_text
+    from ubismart.control.store import _tags_from_text, _tags_to_text
 
     assert _tags_from_text("not-json") == []
     assert _tags_from_text('{"a": 1}') == []
@@ -255,7 +255,7 @@ def test_tag_helpers_are_defensive() -> None:
 def test_get_workspace_and_tombstones(tmp_path) -> None:
     from sqlalchemy.orm import Session
 
-    from coding_agent.control.schema import Workspace
+    from ubismart.control.schema import Workspace
 
     store = ControlStore(_url(tmp_path))
     assert store.get_workspace("") is None
@@ -310,7 +310,7 @@ def test_usage_record_skips_incomplete_records(tmp_path) -> None:
 def test_purge_usage_events(tmp_path) -> None:
     from sqlalchemy.orm import Session
 
-    from coding_agent.control.schema import ControlUsageEvent
+    from ubismart.control.schema import ControlUsageEvent
 
     store = ControlStore(_url(tmp_path))
     with Session(store.engine) as session, session.begin():

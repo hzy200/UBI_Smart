@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from coding_agent.config import Settings
-from coding_agent.control.workspaces import (
+from ubismart.config import Settings
+from ubismart.control.workspaces import (
     WorkspaceError,
     WorkspacePathError,
     WorkspacePolicy,

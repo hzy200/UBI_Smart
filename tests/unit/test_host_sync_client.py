@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from coding_agent.host_broker.protocol import GRANT_REQUIRED, Frame
-from coding_agent.host_broker.sync_client import (
+from ubismart.host_broker.protocol import GRANT_REQUIRED, Frame
+from ubismart.host_broker.sync_client import (
     INTERACTIVE_TIMEOUT_S,
     GrantCache,
     call_with_grant,

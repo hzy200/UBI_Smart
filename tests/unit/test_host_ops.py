@@ -12,14 +12,14 @@ from typing import Any
 
 import pytest
 
-from coding_agent.execution.host_ops import (
+from ubismart.execution.host_ops import (
     HOST_KINDS,
     HOST_ORIGIN,
     HostExecutionDenied,
     host_run,
 )
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "coding_agent"
+SRC = Path(__file__).resolve().parents[2] / "src" / "ubismart"
 
 
 class _FakeSandbox:
@@ -38,6 +38,8 @@ _SAMPLES = {
     "git_worktree": "git worktree prune",
     "git_patch_prepare": "git diff --cached --binary HEAD -- .",
     "git_probe": "inside=$(git rev-parse --is-inside-work-tree 2>/dev/null)",
+    "git_seed_probe": "git diff --binary HEAD -- .",
+    "git_seed_baseline": "git write-tree",
     "worktree_prepare": "mkdir -p /ws/.agent/worktrees",
     "worktree_cleanup": "rm -rf /ws/.agent/worktrees/t1",
     "merge_temp_cleanup": "rm -f /tmp/agent-merge-index-deadbeef",
@@ -177,7 +179,7 @@ _FROZEN_DIRECT_RUN_MODULES: set[str] = set()
 
 def _module_of(path: Path) -> str:
     return ".".join(
-        ["coding_agent", *path.relative_to(SRC).with_suffix("").parts]
+        ["ubismart", *path.relative_to(SRC).with_suffix("").parts]
     )
 
 

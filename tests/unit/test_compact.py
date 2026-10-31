@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from coding_agent.config import Settings
-from coding_agent.runtime import AgentRuntime
+from ubismart.config import Settings
+from ubismart.runtime import AgentRuntime
 
 
 class FakeGraph:

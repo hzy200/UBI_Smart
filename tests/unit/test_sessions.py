@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from coding_agent.audit import AuditLogger, AuditRecord
-from coding_agent.audit.logger import now_iso
-from coding_agent.audit.models import FILE_CHANGE, PLAN, ROLLBACK, RUN_END, RUN_START, TOOL_CALL
-from coding_agent.memory.sessions import SessionIndex, format_table_rows
+from ubismart.audit import AuditLogger, AuditRecord
+from ubismart.audit.logger import now_iso
+from ubismart.audit.models import FILE_CHANGE, PLAN, ROLLBACK, RUN_END, RUN_START, TOOL_CALL
+from ubismart.memory.sessions import SessionIndex, format_table_rows
 
 
 def _write(logger: AuditLogger, **fields) -> None:

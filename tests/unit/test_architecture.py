@@ -8,7 +8,7 @@
 都能溜过去：
 
     from ..sandbox import policy        # 相对导入：level != 0，被整条跳过
-    from coding_agent import sandbox    # 只记下 `coding_agent`，不匹配任何禁忌前缀
+    from ubismart import sandbox    # 只记下 `ubismart`，不匹配任何禁忌前缀
     from ..tools import files           # 同上
 
 下面把「提取」与「判定」分开，并**为每种写法各留一条防绕过用例** ——
@@ -22,11 +22,11 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "coding_agent"
+SRC = Path(__file__).resolve().parents[2] / "src" / "ubismart"
 
 # 前端包：只允许依赖 runtime / events / config 这些中立层
 UI_PACKAGES = ("tui", "web", "desktop")
-FORBIDDEN = ("coding_agent.tools", "coding_agent.sandbox")
+FORBIDDEN = ("ubismart.tools", "ubismart.sandbox")
 
 
 def _modules(package: str) -> list[Path]:
@@ -37,10 +37,10 @@ def _modules(package: str) -> list[Path]:
 
 
 def _package_of(path: Path, src: Path = SRC) -> str:
-    """模块所属的包名：`.../coding_agent/tui/app.py` → `coding_agent.tui`。"""
+    """模块所属的包名：`.../ubismart/tui/app.py` → `ubismart.tui`。"""
     rel = path.resolve().relative_to(src.resolve())
     parts = rel.parts[:-1]
-    return ".".join(["coding_agent", *parts]) if parts else "coding_agent"
+    return ".".join(["ubismart", *parts]) if parts else "ubismart"
 
 
 def _absolute_module(node: ast.ImportFrom, package: str) -> str | None:
@@ -64,7 +64,7 @@ def _imports(source: str, package: str) -> set[str]:
     """抽出源码里被导入的所有绝对模块名。
 
     `from a.b import c` 同时记下 `a.b` 与 `a.b.c`：后者让
-    `from coding_agent import sandbox` 这种「导入子模块」的写法也能被认出。
+    `from ubismart import sandbox` 这种「导入子模块」的写法也能被认出。
     """
     names: set[str] = set()
     for node in ast.walk(ast.parse(source)):
@@ -105,23 +105,23 @@ def test_ui_does_not_import_capability_or_sandbox(package: str) -> None:
 # ---------------- 扫描自身的防绕过 ----------------
 
 # 每一种都必须被认出来。漏掉任何一种，这条安全约束就只剩虚假保证。
-# 基准是 `coding_agent/tui/app.py`，其**所属包**是 `coding_agent.tui`。
+# 基准是 `ubismart/tui/app.py`，其**所属包**是 `ubismart.tui`。
 _BYPASS_SPELLINGS = [
-    "import coding_agent.sandbox.policy",
-    "from coding_agent.sandbox import policy",
-    "from coding_agent.sandbox.policy import classify",
-    "from coding_agent import sandbox",
-    "from coding_agent import tools",
+    "import ubismart.sandbox.policy",
+    "from ubismart.sandbox import policy",
+    "from ubismart.sandbox.policy import classify",
+    "from ubismart import sandbox",
+    "from ubismart import tools",
     "from ..sandbox import policy",
     "from .. import sandbox",
     "from ..tools import files",
 ]
 
 _LEGITIMATE = [
-    "import coding_agent.runtime",
-    "from coding_agent.runtime import AgentRuntime",
-    "from coding_agent.events import RunFinished",
-    "from coding_agent import runtime",
+    "import ubismart.runtime",
+    "from ubismart.runtime import AgentRuntime",
+    "from ubismart.events import RunFinished",
+    "from ubismart import runtime",
     "from . import events",
     "from .policy import decide",
     "from ..memory import sessions",
@@ -130,7 +130,7 @@ _LEGITIMATE = [
 
 @pytest.mark.parametrize("source", _BYPASS_SPELLINGS)
 def test_every_spelling_of_a_forbidden_import_is_caught(source: str) -> None:
-    found = _imports(source, "coding_agent.tui")
+    found = _imports(source, "ubismart.tui")
     assert _violations(found), f"逃过扫描：{source!r} → 只抽出 {sorted(found)}"
 
 
@@ -138,10 +138,10 @@ def test_every_spelling_of_a_forbidden_import_is_caught(source: str) -> None:
 def test_legitimate_imports_are_not_flagged(source: str) -> None:
     """反向对照：约束必须是因为「不该导入的没导入」而成立，不是因为扫描太宽。
 
-    注意 `from . import events` 在 `tui/` 里指的是 `coding_agent.tui.events`
+    注意 `from . import events` 在 `tui/` 里指的是 `ubismart.tui.events`
     （同包兄弟模块），并不是禁忌层 —— 判定要能区分这两者。
     """
-    found = _imports(source, "coding_agent.tui")
+    found = _imports(source, "ubismart.tui")
     assert not _violations(found), f"误报：{source!r} → {sorted(found)}"
 
 
@@ -150,7 +150,7 @@ def test_tui_reaches_capabilities_only_through_runtime() -> None:
     modules = _modules("tui")
     assert modules, "tui 包不存在，架构约束测试失去意义"
     assert any(
-        "coding_agent.runtime" in _imported_modules(path) for path in modules
+        "ubismart.runtime" in _imported_modules(path) for path in modules
     ), "tui 没有通过 AgentRuntime 触达能力层"
 
 
@@ -167,9 +167,9 @@ def test_agent_server_depends_on_neutral_protocol_not_a2() -> None:
     ]
     for path in paths:
         imported = _imported_modules(path)
-        assert not _has_prefix(imported, "coding_agent.control"), path
-        assert not _has_prefix(imported, "coding_agent.web"), path
-    assert "coding_agent.agent_protocol" in _imported_modules(
+        assert not _has_prefix(imported, "ubismart.control"), path
+        assert not _has_prefix(imported, "ubismart.web"), path
+    assert "ubismart.agent_protocol" in _imported_modules(
         SRC / "servers" / "agent_server.py"
     )
 
@@ -178,25 +178,25 @@ def test_agent_core_does_not_import_a2_or_web() -> None:
     paths = [*_modules("runtime"), *_modules("graph"), *_modules("orchestrator")]
     for path in paths:
         imported = _imported_modules(path)
-        assert not _has_prefix(imported, "coding_agent.control"), path
-        assert not _has_prefix(imported, "coding_agent.web"), path
+        assert not _has_prefix(imported, "ubismart.control"), path
+        assert not _has_prefix(imported, "ubismart.web"), path
 
 
 def test_a4_does_not_import_a2_or_web() -> None:
     for package in ("execution", "tools", "sandbox"):
         for path in _modules(package):
             imported = _imported_modules(path)
-            assert not _has_prefix(imported, "coding_agent.control"), path
-            assert not _has_prefix(imported, "coding_agent.web"), path
+            assert not _has_prefix(imported, "ubismart.control"), path
+            assert not _has_prefix(imported, "ubismart.web"), path
 
 
 def test_control_does_not_import_agent_core() -> None:
     forbidden = (
-        "coding_agent.runtime",
-        "coding_agent.graph",
-        "coding_agent.orchestrator",
-        "coding_agent.tools",
-        "coding_agent.sandbox",
+        "ubismart.runtime",
+        "ubismart.graph",
+        "ubismart.orchestrator",
+        "ubismart.tools",
+        "ubismart.sandbox",
     )
     for path in _modules("control"):
         imported = _imported_modules(path)
@@ -208,8 +208,8 @@ def test_web_runtime_import_is_limited_to_same_process_fallback() -> None:
     for path in _modules("web"):
         if path.name == "local_runtime.py":
             continue
-        assert "coding_agent.runtime" not in _imported_modules(path), path
-    assert "coding_agent.runtime" in _imported_modules(
+        assert "ubismart.runtime" not in _imported_modules(path), path
+    assert "ubismart.runtime" in _imported_modules(
         SRC / "web" / "local_runtime.py"
     )
 
@@ -227,11 +227,11 @@ def test_cli_sandbox_import_is_limited_to_platform_adapter() -> None:
 
 def test_shared_modules_stay_neutral() -> None:
     forbidden = (
-        "coding_agent.control",
-        "coding_agent.web",
-        "coding_agent.runtime",
-        "coding_agent.tools",
-        "coding_agent.sandbox",
+        "ubismart.control",
+        "ubismart.web",
+        "ubismart.runtime",
+        "ubismart.tools",
+        "ubismart.sandbox",
     )
     for rel in ("agent_protocol.py", "protocol/event_transport.py", "workspace/browse.py"):
         imported = _imported_modules(SRC / rel)
@@ -276,7 +276,7 @@ _KNOWN_CYCLIC_MODULES: set[str] = set()
 def _all_modules() -> dict[str, Path]:
     return {
         ".".join(
-            ["coding_agent", *path.relative_to(SRC).with_suffix("").parts]
+            ["ubismart", *path.relative_to(SRC).with_suffix("").parts]
         ): path
         for path in sorted(SRC.rglob("*.py"))
         if "__pycache__" not in path.parts
@@ -348,7 +348,7 @@ def test_orchestrator_does_not_import_graph_build() -> None:
     """
     for path in _modules("orchestrator"):
         imported = _imported_modules(path)
-        assert "coding_agent.graph.build" not in imported, (
+        assert "ubismart.graph.build" not in imported, (
             f"{path.relative_to(SRC)} 反向依赖了 graph.build："
             f"`graph -> orchestrator` 已经是单向边，反向会形成模块级环。"
         )
@@ -363,9 +363,9 @@ def test_orchestrator_does_not_import_graph_build() -> None:
 # 见 tests/unit/test_admin_bootstrap.py），不再持有 `ControlStore` 句柄。
 # 冷启动必须有这条路径 —— 服务还没起来，走 HTTP 无门。
 _FROZEN_CLI_EDGES = {
-    ("cli/admin.py", "coding_agent.control"),
-    ("cli/commands/web.py", "coding_agent.web"),
-    ("cli/commands/desktop.py", "coding_agent.tui"),
+    ("cli/admin.py", "ubismart.control"),
+    ("cli/commands/web.py", "ubismart.web"),
+    ("cli/commands/desktop.py", "ubismart.tui"),
 }
 
 
@@ -374,9 +374,9 @@ def test_cli_cross_layer_imports_are_frozen() -> None:
     for path in _modules("cli"):
         imported = _imported_modules(path)
         for forbidden in (
-            "coding_agent.control",
-            "coding_agent.web",
-            "coding_agent.tui",
+            "ubismart.control",
+            "ubismart.web",
+            "ubismart.tui",
         ):
             if _has_prefix(imported, forbidden):
                 actual.add((path.relative_to(SRC).as_posix(), forbidden))
