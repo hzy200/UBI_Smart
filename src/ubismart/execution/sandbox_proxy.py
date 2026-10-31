@@ -83,6 +83,11 @@ class ExecutionSandbox:
             timed_out=result.status == "timeout",
         )
 
+    def cancel_active(self) -> int:
+        """把 /cancel 转给真实沙箱；没有该能力时返回 0。"""
+        cancel = getattr(self._real, "cancel_active", None)
+        return int(cancel() if callable(cancel) else 0)
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._real, name)
 

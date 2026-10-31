@@ -87,7 +87,7 @@ def build_vision_tools(
         if protected:
             return _error(path, protected, rejected=True)
         try:
-            info = access.stat(target)
+            info = access.stat(path)
         except Exception as exc:  # noqa: BLE001
             return _error(path, f"无法解析文件：{exc}", rejected=True)
         real_path = (
@@ -109,7 +109,7 @@ def build_vision_tools(
 
         max_bytes = int(getattr(settings, "image_max_bytes", 10 * 1024 * 1024))
         try:
-            data = access.read_bytes(target, max_bytes=max_bytes)
+            data = access.read_bytes(path, max_bytes=max_bytes)
             prepared = prepare_image(
                 data,
                 max_bytes=max_bytes,

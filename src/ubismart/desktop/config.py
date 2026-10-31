@@ -6,7 +6,7 @@ import json
 import os
 import sys
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 
 def app_home() -> Path:
@@ -167,8 +167,8 @@ class LauncherConfig:
             problems.append("工作区必须是 WSL 内的绝对路径")
         if not self.python.strip().startswith("/"):
             problems.append("Python 必须是 WSL 内的绝对路径")
-        if self.host_workspace_root and not os.path.isabs(
+        if self.host_workspace_root and not PureWindowsPath(
             self.host_workspace_root
-        ):
+        ).is_absolute():
             problems.append("host 工作区必须是 Windows 绝对路径")
         return problems

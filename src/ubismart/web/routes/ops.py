@@ -290,7 +290,7 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
                 else None
             )
             records = read_records_many(
-                runtime.audit_files,
+                runtime.audit_files(),
                 thread_id=internal,
                 limit=max(1, limit),
             )

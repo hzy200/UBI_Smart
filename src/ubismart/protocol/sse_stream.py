@@ -48,12 +48,18 @@ async def _with_heartbeat(
 ) -> AsyncIterator[T]:
     queue: asyncio.Queue = asyncio.Queue(maxsize=1_000)
     task = asyncio.create_task(_pump(source, queue))
+    started = False
     try:
         while True:
             try:
-                failed, item = await asyncio.wait_for(
-                    queue.get(), timeout=interval_s
-                )
+                # 首帧之前不发心跳：Windows/慢启动下 wait_for 可能先超时，
+                # 让客户端把 keepalive 误当成流的第一条事件。
+                if started:
+                    failed, item = await asyncio.wait_for(
+                        queue.get(), timeout=interval_s
+                    )
+                else:
+                    failed, item = await queue.get()
             except TimeoutError:
                 yield heartbeat
                 continue
@@ -61,6 +67,7 @@ async def _with_heartbeat(
                 raise item
             if item is _DONE:
                 return
+            started = True
             yield item
     finally:
         task.cancel()

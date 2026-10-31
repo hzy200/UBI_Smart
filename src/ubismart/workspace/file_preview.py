@@ -182,7 +182,7 @@ def read_raw(
     except Exception as exc:  # noqa: BLE001
         raise PreviewError(f"路径被拒绝：{exc}") from exc
     try:
-        info = access.stat(target)
+        info = access.stat(path)
     except Exception as exc:  # noqa: BLE001
         raise PreviewError(f"无法解析文件：{exc}") from exc
     reason = _protected(access, target, info)
@@ -196,7 +196,7 @@ def read_raw(
     if not is_file:
         raise PreviewError("不是普通文件")
     try:
-        data = access.read_bytes(target, max_bytes=max_bytes)
+        data = access.read_bytes(path, max_bytes=max_bytes)
     except Exception as exc:  # noqa: BLE001
         raise PreviewError(f"读取失败：{type(exc).__name__}: {exc}") from exc
     mime = sniff_mime(path, data)
@@ -227,7 +227,7 @@ def read_document(
     except Exception as exc:  # noqa: BLE001
         raise PreviewError(f"路径被拒绝：{exc}") from exc
     try:
-        info = access.stat(target)
+        info = access.stat(path)
     except Exception as exc:  # noqa: BLE001
         raise PreviewError(f"无法解析文件：{exc}") from exc
     reason = _protected(access, target, info)
@@ -242,7 +242,7 @@ def read_document(
         raise PreviewError("不是普通文件")
     display = _display(access, target)
     try:
-        data = access.read_bytes(target, max_bytes=limits.max_bytes)
+        data = access.read_bytes(path, max_bytes=limits.max_bytes)
         model = parse_document(display, data, limits=limits)
         if include_images and Path(display).suffix.lower() in {".pptx", ".docx"}:
             from ubismart.tools.documents import DocumentBlock

@@ -467,7 +467,7 @@ def build_document_tools(
             return _reject(path, protected)
 
         try:
-            info = access.stat(target)
+            info = access.stat(path)
         except Exception as exc:  # noqa: BLE001
             return _reject(path, f"无法解析文件：{exc}")
         real_path = (
@@ -490,7 +490,7 @@ def build_document_tools(
         limits = _limits(settings)
         limits.pptx_layout_images = bool(args.include_images)
         try:
-            data = access.read_bytes(target, max_bytes=limits.max_bytes)
+            data = access.read_bytes(path, max_bytes=limits.max_bytes)
             if len(data) > limits.max_bytes:
                 raise DocumentError(
                     f"文件过大：{len(data)} 字节 > {limits.max_bytes} 字节"
@@ -669,7 +669,7 @@ def build_document_tools(
         if protected:
             return _reject(path, protected)
         try:
-            info = access.stat(target)
+            info = access.stat(path)
             if not (
                 bool(info.get("is_file"))
                 if isinstance(info, dict)
@@ -677,7 +677,7 @@ def build_document_tools(
             ):
                 return _reject(path, "不是普通文件")
             limits = _limits(settings)
-            data = access.read_bytes(target, max_bytes=limits.max_bytes)
+            data = access.read_bytes(path, max_bytes=limits.max_bytes)
         except Exception as exc:  # noqa: BLE001
             return _error(path, f"读取 PDF 失败：{type(exc).__name__}: {exc}")
 
@@ -763,7 +763,7 @@ def build_document_tools(
         if protected:
             return _reject(path, protected)
         try:
-            info = access.stat(source_target)
+            info = access.stat(source)
             is_file = (
                 bool(info.get("is_file"))
                 if isinstance(info, dict)
@@ -777,7 +777,7 @@ def build_document_tools(
         limits = _limits(settings)
         try:
             data = access.read_bytes(
-                source_target, max_bytes=limits.max_bytes
+                source, max_bytes=limits.max_bytes
             )
             payload, replacements, warnings = apply_edits(
                 display, data, args.operations
@@ -807,7 +807,7 @@ def build_document_tools(
         if out_protected:
             return _reject(path, out_protected)
         try:
-            out_info = access.stat(out_target)
+            out_info = access.stat(rel_out)
             out_exists = (
                 bool(out_info.get("is_file"))
                 if isinstance(out_info, dict)
