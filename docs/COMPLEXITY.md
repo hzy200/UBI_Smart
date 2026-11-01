@@ -25,43 +25,43 @@ note: |
 | 项 | 值 |
 | --- | --- |
 | 源文件 | **346** |
-| 源码行数 | **92,284** |
-| 函数/方法 | **3,298** |
-| 测试文件 / 行数 | **336 / 82,799** |
-| 测试:源码 | **0.9 : 1** |
+| 源码行数 | **96,574** |
+| 函数/方法 | **3,867** |
+| 测试文件 / 行数 | **336 / 82,814** |
+| 测试:源码 | **0.86 : 1** |
 | 快反馈用例 | **3,142**（`pytest -m "not wsl and not wsl_env and not llm"`） |
 | 覆盖率 | **84.70%**（CI 子集；见 [COVERAGE.md](COVERAGE.md)） |
 
 测试体量已接近源码；但覆盖率只覆盖 CI 子集，真实 WSL/bwrap 与桌面入口
 不在其中，不能把全局数字当成所有子系统的健康度。
 
-## 2. 复杂度分布（3,298 个函数）
+## 2. 复杂度分布（3,867 个函数）
 
 | 指标 | 中位 | 均值 | 超阈值 |
 | --- | --- | --- | --- |
-| 函数长度 | **12 行** | 26.0 | >40 行：14.2% |
-| 圈复杂度 | **3** | 4.9 | >10：**10.4%**，最大 **127** |
+| 函数长度 | **13 行** | 21.5 | >40 行：11.7% |
+| 圈复杂度 | **3** | 4.3 | >10：**7.6%**，最大 **80** |
 
-**结论：P2 拆分了早期最大的几个分发函数，但文档流水线引入了新的超大函数。**
-约 90% 的函数圈复杂度 ≤10；剩余复杂度主要落在文档 worker、任务图校验/生成、
+**结论：本轮把文档流水线与工具层的超大函数拆开，最大 CC 从 127 降到 80。**
+约 92% 的函数圈复杂度 ≤10；剩余复杂度主要落在 A2 装配、调度并发、
 fan-in 汇总与执行契约分发 —— 都是规则或并发本身复杂，不是分支写法问题。
 
 ## 3. 复杂度热点（当前）
 
 | 函数 | 长度 | CC | 类型 | 评价 |
 | --- | --- | --- | --- | --- |
-| `orchestrator/document_workers.py::run` | 948 | **127** | **文档流水线** | 单函数承载切分/抽取/归并，当前最大 CC，需优先拆分 |
-| `orchestrator/graph.py::validate_tasks` | 224 | **101** | 真实逻辑 | 任务图校验，规则固有；可按规则族拆函数 |
-| `orchestrator/plan.py::plan_tasks` | 449 | **93** | 任务图生成 | 规则拆解 + 校验/降级 |
-| `web/app.py::create_app` | 1,257 | **80** | **装配** | A2 的路由/依赖装配；事件流已拆到 `web/streaming.py`，其余仍需继续收敛（见第 7 节） |
-| `orchestrator/document_workers.py::run` | 258 | 68 | 文档流水线 | 同名重载分支，随主函数一起拆 |
-| `llm/ratelimit.py::_sync_from_shared_locked` | 168 | 58 | 共享状态合并 | 多进程限流快照的校验与合并 |
-| `orchestrator/fanin.py::synthesize` | 229 | 57 | fan-in 汇总 | 结构化结果合并 + worker 上下文 |
-| `knowledge/architecture.py::impact_analysis` | 142 | 52 | 影响分析 | 调用图/影响面计算 |
-| `orchestrator/scheduler_run.py::__init__` | 206 | 50 | **编排调度** | 调度器初始化与运行态装配 |
-| `execution/service.py::_dispatch` | 203 | 50 | 执行契约分发 | A4 契约的 kind 分支，可表驱动化 |
-| `web/routes/sessions.py::sessions` | 148 | 48 | 列表装配 | 会话列表的多路过滤与排序 |
+| `web/app.py::create_app` | 1,257 | **80** | **装配** | A2 的路由/依赖装配；需继续按领域拆 APIRouter（见第 7 节） |
+| `orchestrator/scheduler_run.py::__init__` | 206 | 50 | **编排调度** | 调度器初始化；派发/结算已独立 |
+| `execution/service.py::_dispatch` | 204 | 50 | 执行契约分发 | A4 契约的 kind 分支，可表驱动化 |
 | `agents/explore.py::run` | 308 | 47 | 子智能体循环 | 只读循环 + 报告 |
+| `orchestrator/document_workers.py::run` | 164 | 46 | 文档流水线 | 已从 948/127 拆到阶段函数，剩余归并逻辑 |
+| `orchestrator/scheduler_run.py::run` | 189 | 41 | **编排调度** | 主循环只负责时序 |
+| `runtime/event_map.py::_worker_events` | 123 | 40 | 事件翻译 | worker 事件 → 主图事件 |
+| `graph/build.py::build_graph` | 463 | 37 | 图装配 | 节点/边装配；新增节点需同步 |
+| `host_broker/__main__.py::_run` | 187 | 33 | 宿主代理入口 | mTLS 与服务启动分支 |
+| `host_broker/client.py::_validate_hello` | 54 | 33 | 协议校验 | 握手字段校验 |
+| `orchestrator/plan.py::plan_tasks` | 190 | 32 | 任务图生成 | 规则拆解 + 校验/降级 |
+| `desktop/launcher.py::main` | 176 | 32 | 桌面启动 | 配置解析与服务拉起 |
 
 P2 拆分后的关键分发函数：
 
@@ -83,16 +83,16 @@ P2 拆分后的关键分发函数：
 
 | 文件 | 行 | 备注 |
 | --- | --- | --- |
-| `orchestrator/document_workers.py` | **2,352** | 文档流水线 worker，当前最大文件 |
-| `orchestrator/scheduler_run.py` | **1,642** | 事件驱动 DAG 调度主循环 |
+| `orchestrator/document_workers.py` | **2,756** | 文档流水线 worker，拆函数后行数增加但复杂度下降 |
+| `orchestrator/scheduler_run.py` | **1,674** | 事件驱动 DAG 调度主循环 |
 | `tui/app.py` | **1,601** | Textual 界面 + 表驱动事件映射 |
 | `config.py` | **1,588** | 配置模型与校验（约 400 个配置项） |
+| `servers/agent_server_routes/workspace_import.py` | **1,538** | A3 的工作区导入路由（上传/校验/落盘） |
 | `web/app.py` | **1,396** | A2 装配，`create_app` 1,257 行；路由在 `web/routes` |
-| `servers/agent_server_routes/workspace_import.py` | **1,375** | A3 的工作区导入路由（上传/校验/落盘） |
+| `orchestrator/implement.py` | **1,300** | worktree 写 worker |
+| `tools/documents/extract.py` | **1,257** | 文档文本/结构抽取（已按格式拆函数） |
+| `tools/documents/tool.py` | **1,242** | 文档工具装配与读写 |
 | `sandbox/wsl_exec.py` | **1,171** | WSL 执行、并发槽位、取消与环境探测 |
-| `orchestrator/implement.py` | **1,122** | worktree 写 worker |
-| `tools/documents/extract.py` | **1,081** | 文档文本/结构抽取 |
-| `tools/files.py` | **1,049** | 文件工具；输入模型与纯辅助已拆到 `file_models.py` / `file_support.py` |
 
 ## 5. 耦合与依赖方向
 
