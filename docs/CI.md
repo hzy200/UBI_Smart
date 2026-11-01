@@ -4,7 +4,7 @@ doc_id: ci
 title: 流水线（pipeline as code）
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-28
+last_reviewed: 2026-11-01
 review_cadence: 工作流文件变动时
 ---
 
@@ -32,7 +32,7 @@ review_cadence: 工作流文件变动时
 
 | 步骤 | 命令 |
 |---|---|
-| 安装 | `pip install -e ".[dev,ui,web,db]"` |
+| 安装 | `pip install -e ".[dev,ui,web,db,documents,report]"` + `fonts-wqy-zenhei`（报告 PDF 需要 TrueType CJK） |
 | lint | `ruff check src tests` |
 | 类型基线 | `mypy`（`pyproject.toml` 的 `[tool.mypy]`：security/access/terminal_text strict） |
 | 性能冒烟 | `python scripts/perf_smoke.py`（策略/终端/限流热路径，宽松阈值） |
@@ -82,7 +82,7 @@ review_cadence: 工作流文件变动时
 前端发版、兼容矩阵与回滚步骤见 [RELEASING.md](RELEASING.md)。
 
 **覆盖率门槛 `fail_under=76`** 按 CI 实际执行的子集定，不是贴着实测值
-（2026-10-29 CI 子集实测 **83.34%**，3,002 个用例；Linux/Windows 会有小幅漂移）。
+（2026-11-01 快照 **84.31%**，3,475 个用例；Linux/Windows 会有小幅漂移）。
 子系统缺口见 [COVERAGE.md](COVERAGE.md)。原理见 `pyproject.toml` 的注释。
 
 五类测试（冒烟/单元/增量/集成/回归）的口径与放置规则见
@@ -108,7 +108,7 @@ Linux `backend` job 没有 WSL2，所以 `wsl` 标记的用例仍然**一行都�
 
 | job | 跑在哪 | 做什么 |
 |---|---|---|
-| `preflight` | `ubuntu-latest` | 查仓库有没有在线且带 `wsl` label 的 self-hosted runner，输出 `ready` |
+| `preflight` | `ubuntu-latest` | 用仓库 secret `RUNNER_ADMIN_TOKEN`（PAT）查询在线且带 `wsl` label 的 self-hosted runner，输出 `ready`；`GITHUB_TOKEN` 没有该权限 |
 | `wsl` | `[self-hosted, wsl]` | 预检 WSL/发行版 → 沙箱层全量 → 分层覆盖率门槛 → 上传报告 |
 | `gate` | `ubuntu-latest` | **汇总门禁**：`ready != true` 或 `wsl` 非 success 时失败 |
 
@@ -181,6 +181,8 @@ GITHUB_TOKEN=... python scripts/check_sandbox_gate.py \
 | 契约漂移 | `python scripts/gen_contracts.py --check` |
 | 契约兼容性（PR） | `python scripts/gen_contracts.py --check-compat --base <base>` |
 | 文档一致性 | `python scripts/check_docs.py --strict` |
+| 验收台账覆盖方式 | `python scripts/check_acceptance.py --check` |
+| 复杂度文档未过期 | `python scripts/measure_complexity.py --check docs/COMPLEXITY.md` |
 | 文档—代码漂移 | `python scripts/check_drift.py` |
 
 一致性检查包含七项：契约漂移、断链（含 anchor）、每份文档必须有 owner、
@@ -223,6 +225,46 @@ pytest -m "not llm"               # 全量（含真实 WSL）
 python scripts/gen_contracts.py   # 重生成契约
 python scripts/check_docs.py      # 文档一致性（过期只警告）
 python scripts/check_docs.py --strict   # 与 CI 同口径
+```
+
+## 失败模式与防复发清单
+
+下面每一条都来自真实 CI 失败。新增步骤或改跨平台代码前先对照。
+
+| 现象 | 根因 | 防复发 |
+|---|---|---|
+| Docs：复杂度文档过期 | 改了源码/测试但没重跑 `measure_complexity.py` | 改完代码重跑 `python scripts/measure_complexity.py --check docs/COMPLEXITY.md`；测试行数变化也要同步 |
+| Docs：断链 | 文档移动/重命名后只改了内容，没改链接 | `python scripts/check_docs.py --strict`；移动文件后用脚本统一改相对链接 |
+| backend：mypy 找不到文件 | `pyproject.toml` 的 `[tool.mypy].files` 还指向旧路径 | 包/模块迁移时同步 mypy、coverage、CI 命令与文档路径 |
+| backend：lint 预算超支 | 新代码增加 C901/TRY300/A002 等 | 拆函数；不要抬 `scripts/lint_budget.json`（抬预算等于关闸门） |
+| backend：承重覆盖率棘轮失败 | 新分支只在某个平台执行，Linux CI 未覆盖 | 用 mock/单元测试覆盖平台分支；不要下调 `coverage_budget.json` |
+| backend：指标快照漂移 | 测试数/覆盖率变了但 `METRICS.md` 未重生成 | 重跑 `snapshot_metrics.py --write`，再 `--check` |
+| backend-py311：PDF 用例失败 | 缺 CJK 字体，或只装了 CFF 的 Noto CJK | 安装 TrueType 的 `fonts-wqy-zenhei`；ReportLab 不支持 CFF |
+| mysql：collection error | job 只装 `.[dev,db]`，测试模块导入 fastapi | mysql job 也装 `.[dev,ui,web,db,documents,report]` |
+| Windows：UnicodeEncodeError | runner 控制台是 cp1252 | job 级 `PYTHONUTF8=1`、`PYTHONIOENCODING=utf-8` |
+| Windows：`tzdata` 缺失 | Windows 没有系统 zoneinfo 数据库 | 安装 `tzdata`；DST 用例不依赖系统时区库 |
+| frontend：E2E 找不到中文元素 | runner 浏览器 locale 是 en-US | Playwright `use.locale = 'zh-CN'` |
+| frontend：SRI 不匹配 | `.min.js` 在提交时被 EOL 转换，CI 检出字节与本地不同 | `.gitattributes` 对 `*.min.js` 设 `-text`；升级 vendor 后重算 SRI |
+| gitleaks：无法扫描 | checkout 是浅克隆，push 区间的父提交不存在 | backend job `fetch-depth: 0` |
+| Sandbox：preflight 查不到 runner | `GITHUB_TOKEN` 无权限列出 self-hosted runner | 用 `RUNNER_ADMIN_TOKEN` secret 做只读探测 |
+| Sandbox：runner 上 PowerShell 拒绝执行 | 执行策略为 `Restricted` | 注册 runner 用户执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| Sandbox：路径用例只在 Linux 失败 | `lexical()` 返回绝对路径，又被传给只接受相对路径的 `stat/read` | 读/写用原始相对路径；绝对路径只用于展示/校验 |
+| 测试随机失败 | 依赖真实时间的冷却/超时窗口太短 | 测试里固定 60s 窗口或注入时钟；不要依赖调度速度 |
+| 重命名后行为/断言不一致 | 只改了包名，trace tag、日志、测试断言仍是旧名 | 重命名时全仓搜索旧标识，同步代码、测试、文档与契约 |
+
+**提交前最小自检**：
+
+```bash
+ruff check src tests
+python -m mypy
+python scripts/check_lint_budget.py
+pytest -m "not wsl and not wsl_env and not llm"
+python scripts/check_module_coverage.py --json coverage.json
+python scripts/snapshot_metrics.py --coverage coverage.json --collect --check
+python scripts/check_docs.py --strict
+python scripts/check_drift.py
+python scripts/check_acceptance.py --check
+python scripts/gen_contracts.py --check
 ```
 
 ## 规矩

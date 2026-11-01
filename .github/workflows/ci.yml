@@ -196,7 +196,7 @@ jobs:
     # 安装包脚本的**编译演练**：守住"还能编过 + 版本注入没坏"。
     #
     # 不产出可发布包 —— 真包需要 WSL rootfs（build_wsl_distro.py 要跑 apt）
-    # 与签名证书，只能在装有 WSL2 的 Windows 机器上做（docs/PHASE2.md）。
+    # 与签名证书，只能在装有 WSL2 的 Windows 机器上做（docs/archive/phases/PHASE2.md）。
     # 但版本写死、卸载删用户数据、引用路径改名这三类问题，静态就能拦。
     runs-on: windows-latest
     timeout-minutes: 20
