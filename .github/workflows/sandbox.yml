@@ -6,6 +6,8 @@ name: Sandbox
 #
 # runner 约定：一个带 WSL2 与项目发行版的机器，注册时打自定义 label `wsl`
 # （`./config.cmd --labels wsl`）。`llm.yml` 的 eval job 用的是同一个 label。
+# preflight 探测用仓库 secret `RUNNER_ADMIN_TOKEN`（PAT，repo 权限）；
+# GITHUB_TOKEN 没有列出 self-hosted runner 的权限。
 #
 # 没注册 runner 时**不会排队**：preflight 先探测一次在线 runner，没有就明确
 # 跳过并打 warning。排队 24 小时后被取消不是"可见化"，只是把 PR 卡住 ——
@@ -34,7 +36,9 @@ jobs:
       - name: 探测 self-hosted WSL runner
         id: check
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN 无法列出 self-hosted runner（需要 Administration: read）；
+          # 仓库 secret 由一个具备 repo 权限的 PAT 提供，仅用于这次只读探测。
+          GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
         run: |
           set -u
           runners="$(gh api "repos/${{ github.repository }}/actions/runners" \
