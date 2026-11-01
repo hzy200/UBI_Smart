@@ -159,16 +159,10 @@ def _replace_in_paragraphs(
     return total
 
 
-def _replace_in_paragraph(
-    paragraph: Any, find: str, replace: str, limit: int
+def _replace_in_runs(
+    runs: list[Any], find: str, replace: str, budget: int
 ) -> int:
-    """先按 run 替换以保留格式；跨 run 命中时退回整段重写。"""
-    if not find:
-        return 0
-    runs = list(getattr(paragraph, "runs", []))
-    if not runs:
-        return 0
-    budget = 0 if limit <= 0 else limit
+    """在单个 run 内替换，返回已替换次数。"""
     count = 0
     for run in runs:
         if budget and count >= budget:
@@ -181,7 +175,13 @@ def _replace_in_paragraph(
             continue
         run.text = run.text.replace(find, replace, allowed)
         count += allowed
-    # run 级替换后仍可能有跨 run 的命中，整段重建并保留首个 run 的样式。
+    return count
+
+
+def _replace_across_runs(
+    runs: list[Any], find: str, replace: str, budget: int, count: int
+) -> int:
+    """run 级替换后处理跨 run 命中，整段重建并保留首个 run 的样式。"""
     full = "".join(run.text for run in runs)
     if find not in full:
         return count
@@ -195,6 +195,20 @@ def _replace_in_paragraph(
     for run in runs[1:]:
         run.text = ""
     return count + allowed
+
+
+def _replace_in_paragraph(
+    paragraph: Any, find: str, replace: str, limit: int
+) -> int:
+    """先按 run 替换以保留格式；跨 run 命中时退回整段重写。"""
+    if not find:
+        return 0
+    runs = list(getattr(paragraph, "runs", []))
+    if not runs:
+        return 0
+    budget = 0 if limit <= 0 else limit
+    count = _replace_in_runs(runs, find, replace, budget)
+    return _replace_across_runs(runs, find, replace, budget, count)
 
 
 # ---------------------------------------------------------------------------

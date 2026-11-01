@@ -33,111 +33,142 @@ class ImageInspectInput(BaseModel):
     )
 
 
-def build_vision_tools(
-    settings: Settings,
-    sandbox: Any | None = None,
-    *,
-    file_access: FileAccess | None = None,
-    fs: Any | None = None,
-    root: str | None = None,
-    llm: Any | None = None,
-) -> list[BaseTool]:
-    if root is None:
-        if sandbox is None:
-            raise ValueError("build_vision_tools 需要 sandbox 或 root")
-        root = resolve_workspace(settings, sandbox)
-    if fs is None and sandbox is not None:
-        fs = SandboxFs(sandbox, root)
-    if file_access is not None:
-        access: FileAccess = file_access
-    elif fs is not None:
-        access = SandboxFileAccess(fs, root)
-    else:
-        access = LocalFileAccess(root)
+def _resolve_root(
+    settings: Settings, sandbox: Any | None, root: str | None
+) -> str:
+    if root is not None:
+        return root
+    if sandbox is None:
+        raise ValueError("build_vision_tools 需要 sandbox 或 root")
+    return resolve_workspace(settings, sandbox)
 
-    def _display(target: str) -> str:
+
+def _resolve_fs(sandbox: Any | None, root: str, fs: Any | None) -> Any | None:
+    if fs is None and sandbox is not None:
+        return SandboxFs(sandbox, root)
+    return fs
+
+
+def _resolve_access(
+    root: str, fs: Any | None, file_access: FileAccess | None
+) -> FileAccess:
+    if file_access is not None:
+        return file_access
+    if fs is not None:
+        return SandboxFileAccess(fs, root)
+    return LocalFileAccess(root)
+
+
+def _real_path(info: Any) -> str:
+    if isinstance(info, dict):
+        return str(info.get("real_path") or "")
+    return str(getattr(info, "real_path", "") or "")
+
+
+def _is_file_info(info: Any) -> bool:
+    if isinstance(info, dict):
+        return bool(info.get("is_file"))
+    return bool(getattr(info, "is_file", False))
+
+
+class _VisionContext:
+    """封装 image_inspect 的路径校验、读取与模型调用。"""
+
+    def __init__(self, settings: Settings, access: FileAccess, llm: Any | None):
+        self.settings = settings
+        self.access = access
+        self.llm = llm
+
+    def display(self, target: str) -> str:
         try:
-            return access.relative_to_root(target)
+            return self.access.relative_to_root(target)
         except Exception:  # noqa: BLE001
             return str(target)
 
-    def _error(path: str, message: str, *, rejected: bool = False) -> str:
+    def error(self, path: str, message: str, *, rejected: bool = False) -> str:
         return pack(
             message,
             VisionArtifact(path=path, ok=False, rejected=rejected, error=message),
         )
 
-    def _inspect(
-        path: str, reason: str, question: str = ""
-    ) -> str:
+    def resolve(self, path: str) -> tuple[str, str | None]:
         suffix = Path(str(path or "")).suffix.lower()
         if suffix not in _IMAGE_SUFFIXES:
-            return _error(
+            return "", self.error(
                 path,
                 "不支持的图片格式。支持 png/jpg/jpeg/webp/gif/bmp；"
                 "SVG 不渲染也不作为图像输入。",
                 rejected=True,
             )
         try:
-            target = access.lexical(path)
+            target = self.access.lexical(path)
         except Exception as exc:  # noqa: BLE001
-            return _error(path, f"路径被拒绝：{exc}", rejected=True)
-        display = _display(target)
-        protected = protected_read_reason(display, settings.read_deny_globs)
+            return "", self.error(path, f"路径被拒绝：{exc}", rejected=True)
+        display = self.display(target)
+        protected = protected_read_reason(
+            display, self.settings.read_deny_globs
+        )
         if protected:
-            return _error(path, protected, rejected=True)
+            return "", self.error(path, protected, rejected=True)
         try:
-            info = access.stat(path)
+            info = self.access.stat(path)
         except Exception as exc:  # noqa: BLE001
-            return _error(path, f"无法解析文件：{exc}", rejected=True)
-        real_path = (
-            str(info.get("real_path") or "")
-            if isinstance(info, dict)
-            else str(getattr(info, "real_path", "") or "")
-        )
+            return "", self.error(path, f"无法解析文件：{exc}", rejected=True)
+        real_path = _real_path(info)
         if real_path:
-            protected = protected_read_reason(real_path, settings.read_deny_globs)
+            protected = protected_read_reason(
+                real_path, self.settings.read_deny_globs
+            )
             if protected:
-                return _error(path, protected, rejected=True)
-        is_file = (
-            bool(info.get("is_file"))
-            if isinstance(info, dict)
-            else bool(getattr(info, "is_file", False))
-        )
-        if not is_file:
-            return _error(path, "不是普通文件", rejected=True)
+                return "", self.error(path, protected, rejected=True)
+        if not _is_file_info(info):
+            return "", self.error(path, "不是普通文件", rejected=True)
+        return display, None
 
-        max_bytes = int(getattr(settings, "image_max_bytes", 10 * 1024 * 1024))
+    def prepare(self, path: str) -> tuple[Any | None, str | None]:
+        max_bytes = int(
+            getattr(self.settings, "image_max_bytes", 10 * 1024 * 1024)
+        )
         try:
-            data = access.read_bytes(path, max_bytes=max_bytes)
+            data = self.access.read_bytes(path, max_bytes=max_bytes)
             prepared = prepare_image(
                 data,
                 max_bytes=max_bytes,
                 max_dimension=int(
-                    getattr(settings, "image_max_dimension", 2048)
+                    getattr(self.settings, "image_max_dimension", 2048)
                 ),
             )
         except VisionError as exc:
-            return _error(path, str(exc))
+            return None, self.error(path, str(exc))
         except Exception as exc:  # noqa: BLE001
-            return _error(path, f"读取图片失败：{type(exc).__name__}: {exc}")
+            return None, self.error(
+                path, f"读取图片失败：{type(exc).__name__}: {exc}"
+            )
+        return prepared, None
 
+    def describe(
+        self, path: str, reason: str, question: str, prepared: Any
+    ) -> tuple[str, str | None]:
         try:
-            model = llm
+            model = self.llm
             if model is None:
                 from ubismart.llm.deepseek import build_llm
 
-                model = build_llm(settings, streaming=False)
+                model = build_llm(self.settings, streaming=False)
             description = invoke_vision(model, question or reason, prepared)
         except VisionError as exc:
-            return _error(path, str(exc))
+            return "", self.error(path, str(exc))
         except Exception as exc:  # noqa: BLE001 - 缺 key 等环境错误要可读
-            return _error(
+            return "", self.error(
                 path,
                 f"图像理解不可用：{type(exc).__name__}: {exc}。"
                 "请确认已配置可用的多模态模型。",
             )
+        return description, None
 
+    def success(
+        self, display: str, reason: str, description: str, prepared: Any
+    ) -> str:
         artifact = VisionArtifact(
             path=display,
             ok=True,
@@ -154,9 +185,35 @@ def build_vision_tools(
         )
         return pack(f"{header}\n\n{description}", artifact)
 
+    def inspect(self, path: str, reason: str, question: str = "") -> str:
+        display, error = self.resolve(path)
+        if error is not None:
+            return error
+        prepared, error = self.prepare(path)
+        if error is not None:
+            return error
+        description, error = self.describe(path, reason, question, prepared)
+        if error is not None:
+            return error
+        return self.success(display, reason, description, prepared)
+
+
+def build_vision_tools(
+    settings: Settings,
+    sandbox: Any | None = None,
+    *,
+    file_access: FileAccess | None = None,
+    fs: Any | None = None,
+    root: str | None = None,
+    llm: Any | None = None,
+) -> list[BaseTool]:
+    resolved_root = _resolve_root(settings, sandbox, root)
+    resolved_fs = _resolve_fs(sandbox, resolved_root, fs)
+    access = _resolve_access(resolved_root, resolved_fs, file_access)
+    context = _VisionContext(settings, access, llm)
     return [
         StructuredTool.from_function(
-            func=_inspect,
+            func=context.inspect,
             name=IMAGE_INSPECT,
             description=(
                 "用多模态模型理解工作区内的图片（png/jpg/jpeg/webp/gif/bmp），"

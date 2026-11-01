@@ -10,6 +10,7 @@ import os
 import re
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal
 
 from langchain_core.tools import BaseTool, StructuredTool
@@ -143,7 +144,7 @@ def _lines(content: str) -> list[str]:
     return str(content or "").replace("\r\n", "\n").split("\n")
 
 
-def _pdf_bytes(content: str, title: str, font_path: str) -> bytes:
+def _load_reportlab() -> Any:
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
@@ -163,6 +164,26 @@ def _pdf_bytes(content: str, title: str, font_path: str) -> bytes:
         raise ReportError(
             "缺少 PDF 依赖 ReportLab。请安装：pip install 'ubismart[report]'"
         ) from exc
+    return SimpleNamespace(
+        colors=colors,
+        A4=A4,
+        ParagraphStyle=ParagraphStyle,
+        getSampleStyleSheet=getSampleStyleSheet,
+        mm=mm,
+        pdfmetrics=pdfmetrics,
+        TTFont=TTFont,
+        Paragraph=Paragraph,
+        Preformatted=Preformatted,
+        SimpleDocTemplate=SimpleDocTemplate,
+        Spacer=Spacer,
+        Table=Table,
+        TableStyle=TableStyle,
+    )
+
+
+def _register_pdf_font(font_path: str) -> str:
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
 
     font_name = "ReportCJK"
     try:
@@ -171,100 +192,148 @@ def _pdf_bytes(content: str, title: str, font_path: str) -> bytes:
         pdfmetrics.registerFont(TTFont(font_name, font_path))
     except Exception as exc:  # noqa: BLE001 - 字体损坏/格式不支持
         raise ReportError(f"注册 PDF 字体失败：{font_path}：{exc}") from exc
+    return font_name
 
-    base = getSampleStyleSheet()
-    body = ParagraphStyle(
+
+def _pdf_styles(
+    rl: Any, font_name: str
+) -> tuple[Any, Any, Any, Any]:
+    base = rl.getSampleStyleSheet()
+    body = rl.ParagraphStyle(
         "CJKBody", parent=base["BodyText"], fontName=font_name, fontSize=10.5,
         leading=16,
     )
-    heading = ParagraphStyle(
+    heading = rl.ParagraphStyle(
         "CJKHeading", parent=base["Heading2"], fontName=font_name, fontSize=14,
         leading=20, spaceBefore=8, spaceAfter=4,
     )
-    code_style = ParagraphStyle(
+    code_style = rl.ParagraphStyle(
         "CJKCode", parent=base["Code"], fontName=font_name, fontSize=8.5,
         leading=12,
     )
-    story: list[Any] = []
-    if title:
-        story.append(Paragraph(_escape(title), base["Title"]))
-        story.append(Spacer(1, 4 * mm))
+    return base, body, heading, code_style
 
-    code: list[str] = []
-    table: list[list[str]] = []
 
-    def flush_code() -> None:
-        if code:
-            story.append(Preformatted("\n".join(code), code_style))
-            story.append(Spacer(1, 2 * mm))
-            code.clear()
+class _PdfContent:
+    """把 Markdown 行流增量转换为 ReportLab story 元素。"""
 
-    def flush_table() -> None:
-        if not table:
+    def __init__(
+        self, rl: Any, base: Any, body: Any, heading: Any, code_style: Any
+    ) -> None:
+        self.rl = rl
+        self.base = base
+        self.body = body
+        self.heading = heading
+        self.code_style = code_style
+        self.story: list[Any] = []
+        self.code: list[str] = []
+        self.table: list[list[str]] = []
+        self.in_code = False
+
+    def add_title(self, title: str) -> None:
+        if not title:
+            return
+        self.story.append(self.rl.Paragraph(_escape(title), self.base["Title"]))
+        self.story.append(self.rl.Spacer(1, 4 * self.rl.mm))
+
+    def flush_code(self) -> None:
+        if not self.code:
+            return
+        self.story.append(
+            self.rl.Preformatted("\n".join(self.code), self.code_style)
+        )
+        self.story.append(self.rl.Spacer(1, 2 * self.rl.mm))
+        self.code.clear()
+
+    def flush_table(self) -> None:
+        if not self.table:
             return
         cells = [
-            [Paragraph(_escape(cell), body) for cell in row] for row in table
+            [self.rl.Paragraph(_escape(cell), self.body) for cell in row]
+            for row in self.table
         ]
-        rendered = Table(cells, hAlign="LEFT")
+        rendered = self.rl.Table(cells, hAlign="LEFT")
         rendered.setStyle(
-            TableStyle(
+            self.rl.TableStyle(
                 [
-                    ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+                    ("GRID", (0, 0), (-1, -1), 0.4, self.rl.colors.grey),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ]
             )
         )
-        story.append(rendered)
-        story.append(Spacer(1, 2 * mm))
-        table.clear()
+        self.story.append(rendered)
+        self.story.append(self.rl.Spacer(1, 2 * self.rl.mm))
+        self.table.clear()
 
-    in_code = False
-    for line in _lines(content):
-        trimmed = line.strip()
-        if trimmed.startswith("```"):
-            if in_code:
-                flush_code()
-                in_code = False
-            else:
-                flush_table()
-                in_code = True
-            continue
-        if in_code:
-            code.append(line)
-            continue
-        if trimmed.startswith("|") and trimmed.endswith("|"):
-            cells = [cell.strip() for cell in trimmed.strip("|").split("|")]
-            if all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
-                continue
-            table.append(cells)
-            continue
-        flush_table()
-        if not trimmed:
-            story.append(Spacer(1, 1.5 * mm))
-            continue
+    def toggle_code_fence(self) -> None:
+        if self.in_code:
+            self.flush_code()
+            self.in_code = False
+            return
+        self.flush_table()
+        self.in_code = True
+
+    def add_table_row(self, trimmed: str) -> None:
+        cells = [cell.strip() for cell in trimmed.strip("|").split("|")]
+        if all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
+            return
+        self.table.append(cells)
+
+    def add_text(self, trimmed: str) -> None:
         match = re.match(r"^(#{1,6})\s+(.+)$", trimmed)
         if match:
-            story.append(Paragraph(_escape(match.group(2)), heading))
-            continue
-        if re.match(r"^[-*+]\s+", trimmed):
-            story.append(
-                Paragraph("• " + _escape(re.sub(r"^[-*+]\s+", "", trimmed)), body)
+            self.story.append(
+                self.rl.Paragraph(_escape(match.group(2)), self.heading)
             )
-            continue
-        story.append(Paragraph(_escape(trimmed), body))
+            return
+        if re.match(r"^[-*+]\s+", trimmed):
+            self.story.append(
+                self.rl.Paragraph(
+                    "• " + _escape(re.sub(r"^[-*+]\s+", "", trimmed)),
+                    self.body,
+                )
+            )
+            return
+        self.story.append(self.rl.Paragraph(_escape(trimmed), self.body))
 
-    flush_code()
-    flush_table()
+    def feed_line(self, line: str) -> None:
+        trimmed = line.strip()
+        if trimmed.startswith("```"):
+            self.toggle_code_fence()
+            return
+        if self.in_code:
+            self.code.append(line)
+            return
+        if trimmed.startswith("|") and trimmed.endswith("|"):
+            self.add_table_row(trimmed)
+            return
+        self.flush_table()
+        if not trimmed:
+            self.story.append(self.rl.Spacer(1, 1.5 * self.rl.mm))
+            return
+        self.add_text(trimmed)
+
+
+def _pdf_bytes(content: str, title: str, font_path: str) -> bytes:
+    rl = _load_reportlab()
+    font_name = _register_pdf_font(font_path)
+    base, body, heading, code_style = _pdf_styles(rl, font_name)
+    builder = _PdfContent(rl, base, body, heading, code_style)
+    builder.add_title(title)
+    for line in _lines(content):
+        builder.feed_line(line)
+    builder.flush_code()
+    builder.flush_table()
     output = io.BytesIO()
-    document = SimpleDocTemplate(
-        output, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
-        topMargin=18 * mm, bottomMargin=18 * mm, title=title or "report",
+    document = rl.SimpleDocTemplate(
+        output, pagesize=rl.A4, leftMargin=18 * rl.mm, rightMargin=18 * rl.mm,
+        topMargin=18 * rl.mm, bottomMargin=18 * rl.mm, title=title or "report",
     )
-    document.build(story)
+    document.build(builder.story)
     return output.getvalue()
 
 
-def _docx_bytes(content: str, title: str) -> bytes:
+def _load_docx() -> tuple[Any, Any]:
     try:
         from docx import Document
         from markdown_it import MarkdownIt
@@ -273,94 +342,147 @@ def _docx_bytes(content: str, title: str) -> bytes:
             "缺少 DOCX 依赖 python-docx/markdown-it-py。"
             "请安装：pip install 'ubismart[report]'"
         ) from exc
+    return Document, MarkdownIt
 
+
+def _inline_text(token: Any) -> str:
+    parts: list[str] = []
+    for child in token.children or []:
+        kind = child.type
+        if kind in {"text", "code_inline"}:
+            parts.append(str(child.content))
+        elif kind in {"softbreak", "hardbreak"}:
+            parts.append("\n")
+        elif kind == "image":
+            parts.append(str(child.attrGet("alt") or child.content or ""))
+        elif kind == "html_inline":
+            parts.append(re.sub(r"<[^>]+>", "", str(child.content)))
+    return "".join(parts).strip()
+
+
+class _DocxWriter:
+    """按 token 类型增量写入 python-docx 文档。"""
+
+    def __init__(self, document: Any) -> None:
+        self.document = document
+        self.heading_level = 0
+        self.in_cell = False
+        self.cell: list[str] = []
+        self.row: list[str] = []
+        self.table: list[list[str]] = []
+        self.list_stack: list[bool] = []
+
+    def feed(self, token: Any) -> None:
+        handler = _DOCX_HANDLERS.get(token.type)
+        if handler is not None:
+            handler(self, token)
+
+    def heading_open(self, token: Any) -> None:
+        self.heading_level = int(str(token.tag).lstrip("h") or 1)
+
+    def heading_close(self, token: Any) -> None:
+        self.heading_level = 0
+
+    def inline(self, token: Any) -> None:
+        text = _inline_text(token)
+        if not text:
+            return
+        if self.in_cell:
+            self.cell.append(text)
+            return
+        if self.heading_level:
+            self.document.add_heading(text, level=min(self.heading_level, 4))
+            return
+        if self.list_stack:
+            self.document.add_paragraph(
+                text,
+                style="List Number" if self.list_stack[-1] else "List Bullet",
+            )
+            return
+        self.document.add_paragraph(text)
+
+    def code_block(self, token: Any) -> None:
+        paragraph = self.document.add_paragraph()
+        run = paragraph.add_run(str(token.content).rstrip("\n"))
+        run.font.name = "Courier New"
+
+    def bullet_list_open(self, token: Any) -> None:
+        self.list_stack.append(False)
+
+    def ordered_list_open(self, token: Any) -> None:
+        self.list_stack.append(True)
+
+    def list_close(self, token: Any) -> None:
+        if self.list_stack:
+            self.list_stack.pop()
+
+    def table_open(self, token: Any) -> None:
+        self.table = []
+
+    def row_open(self, token: Any) -> None:
+        self.row = []
+
+    def cell_open(self, token: Any) -> None:
+        self.in_cell = True
+        self.cell = []
+
+    def cell_close(self, token: Any) -> None:
+        self.row.append(" ".join(self.cell))
+        self.in_cell = False
+
+    def row_close(self, token: Any) -> None:
+        if self.row:
+            self.table.append(self.row)
+
+    def table_close(self, token: Any) -> None:
+        if not self.table:
+            return
+        rendered = self.document.add_table(
+            rows=len(self.table),
+            cols=max(len(item) for item in self.table),
+        )
+        rendered.style = "Table Grid"
+        for r_index, values in enumerate(self.table):
+            for c_index, value in enumerate(values):
+                rendered.cell(r_index, c_index).text = value
+        self.table = []
+
+    def horizontal_rule(self, token: Any) -> None:
+        self.document.add_paragraph("—")
+
+
+_DOCX_HANDLERS = {
+    "heading_open": _DocxWriter.heading_open,
+    "heading_close": _DocxWriter.heading_close,
+    "inline": _DocxWriter.inline,
+    "fence": _DocxWriter.code_block,
+    "code_block": _DocxWriter.code_block,
+    "bullet_list_open": _DocxWriter.bullet_list_open,
+    "ordered_list_open": _DocxWriter.ordered_list_open,
+    "bullet_list_close": _DocxWriter.list_close,
+    "ordered_list_close": _DocxWriter.list_close,
+    "table_open": _DocxWriter.table_open,
+    "tr_open": _DocxWriter.row_open,
+    "th_open": _DocxWriter.cell_open,
+    "td_open": _DocxWriter.cell_open,
+    "th_close": _DocxWriter.cell_close,
+    "td_close": _DocxWriter.cell_close,
+    "tr_close": _DocxWriter.row_close,
+    "table_close": _DocxWriter.table_close,
+    "hr": _DocxWriter.horizontal_rule,
+}
+
+
+def _docx_bytes(content: str, title: str) -> bytes:
+    Document, MarkdownIt = _load_docx()
     markdown = MarkdownIt("commonmark").enable("table")
     tokens = markdown.parse(content or "")
-
-    def inline_text(token: Any) -> str:
-        parts: list[str] = []
-        for child in token.children or []:
-            kind = child.type
-            if kind in {"text", "code_inline"}:
-                parts.append(str(child.content))
-            elif kind in {"softbreak", "hardbreak"}:
-                parts.append("\n")
-            elif kind == "image":
-                parts.append(str(child.attrGet("alt") or child.content or ""))
-            elif kind == "html_inline":
-                parts.append(re.sub(r"<[^>]+>", "", str(child.content)))
-        return "".join(parts).strip()
-
     document = Document()
     if title:
         document.add_heading(title, level=0)
-
-    heading_level = 0
-    in_cell = False
-    cell: list[str] = []
-    row: list[str] = []
-    table: list[list[str]] = []
-    list_stack: list[bool] = []
-
+    writer = _DocxWriter(document)
     for token in tokens:
-        kind = token.type
-        if kind == "heading_open":
-            heading_level = int(str(token.tag).lstrip("h") or 1)
-        elif kind == "heading_close":
-            heading_level = 0
-        elif kind == "inline":
-            text = inline_text(token)
-            if not text:
-                continue
-            if in_cell:
-                cell.append(text)
-            elif heading_level:
-                document.add_heading(text, level=min(heading_level, 4))
-            elif list_stack:
-                document.add_paragraph(
-                    text,
-                    style="List Number" if list_stack[-1] else "List Bullet",
-                )
-            else:
-                document.add_paragraph(text)
-        elif kind in {"fence", "code_block"}:
-            paragraph = document.add_paragraph()
-            run = paragraph.add_run(str(token.content).rstrip("\n"))
-            run.font.name = "Courier New"
-        elif kind == "bullet_list_open":
-            list_stack.append(False)
-        elif kind == "ordered_list_open":
-            list_stack.append(True)
-        elif kind in {"bullet_list_close", "ordered_list_close"}:
-            if list_stack:
-                list_stack.pop()
-        elif kind == "table_open":
-            table = []
-        elif kind == "tr_open":
-            row = []
-        elif kind in {"th_open", "td_open"}:
-            in_cell = True
-            cell = []
-        elif kind in {"th_close", "td_close"}:
-            row.append(" ".join(cell))
-            in_cell = False
-        elif kind == "tr_close":
-            if row:
-                table.append(row)
-        elif kind == "table_close":
-            if table:
-                rendered = document.add_table(
-                    rows=len(table),
-                    cols=max(len(item) for item in table),
-                )
-                rendered.style = "Table Grid"
-                for r_index, values in enumerate(table):
-                    for c_index, value in enumerate(values):
-                        rendered.cell(r_index, c_index).text = value
-                table = []
-        elif kind == "hr":
-            document.add_paragraph("—")
-
+        writer.feed(token)
     output = io.BytesIO()
     document.save(output)
     return output.getvalue()
@@ -454,9 +576,10 @@ def _report_headings(data: bytes, suffix: str) -> list[str]:
                 ):
                     if paragraph.text.strip():
                         headings.append(paragraph.text)
-            return headings
         except Exception:  # noqa: BLE001 - 退化到正文匹配
             return []
+        else:
+            return headings
     return []
 
 
@@ -545,106 +668,201 @@ def _normalize_out(settings: Settings, out_path: str, fmt: str) -> tuple[str, st
     return rel, fmt
 
 
-def build_report_tools(
-    settings: Settings,
-    sandbox: Any | None = None,
-    *,
-    allow_write: bool = False,
-    write_scope: list[str] | None = None,
-    fs: Any | None = None,
-    file_access: FileAccess | None = None,
-    root: str | None = None,
-    snapshots: Any | None = None,
-) -> list[BaseTool]:
-    if root is None:
-        if sandbox is None:
-            raise ValueError("build_report_tools 需要 sandbox 或 root")
-        root = resolve_workspace(settings, sandbox)
+def _resolve_root(
+    settings: Settings, sandbox: Any | None, root: str | None
+) -> str:
+    if root is not None:
+        return root
+    if sandbox is None:
+        raise ValueError("build_report_tools 需要 sandbox 或 root")
+    return resolve_workspace(settings, sandbox)
+
+
+def _resolve_fs(sandbox: Any | None, root: str, fs: Any | None) -> Any | None:
     if fs is None and sandbox is not None:
-        fs = SandboxFs(sandbox, root)
+        return SandboxFs(sandbox, root)
+    return fs
+
+
+def _resolve_access(
+    root: str, fs: Any | None, file_access: FileAccess | None
+) -> FileAccess:
     if file_access is not None:
-        access: FileAccess = file_access
-    elif fs is not None:
-        access = SandboxFileAccess(fs, root)
-    else:
-        access = LocalFileAccess(root)
+        return file_access
+    if fs is not None:
+        return SandboxFileAccess(fs, root)
+    return LocalFileAccess(root)
+
+
+def _resolve_snapshots(
+    settings: Settings,
+    sandbox: Any | None,
+    fs: Any | None,
+    root: str,
+    snapshots: Any | None,
+) -> Any | None:
     if snapshots is None and sandbox is not None and fs is not None:
-        snapshots = SnapshotStore(
+        return SnapshotStore(
             sandbox,
             fs,
             root,
             manifest_root=settings.resolved_snapshot_manifest_dir,
         )
-    scope = [
+    return snapshots
+
+
+def _normalize_scope(write_scope: list[str] | None) -> list[str]:
+    return [
         str(item).replace("\\", "/").strip("/")
         for item in (write_scope or [])
         if str(item).strip()
     ]
 
-    def _display(target: str) -> str:
+
+def _is_file_entry(info: Any) -> bool:
+    if isinstance(info, dict):
+        return bool(info.get("is_file"))
+    return bool(getattr(info, "is_file", False))
+
+
+def _render_report(
+    settings: Settings, content: str, title: str, fmt: str
+) -> tuple[bytes, str]:
+    if fmt == "md":
+        return str(content or "").encode("utf-8"), ""
+    if fmt == "docx":
+        return _docx_bytes(content, title), ""
+    font = find_cjk_font(settings)
+    return _pdf_bytes(content, title, font), font
+
+
+def _validate_pdf(data: bytes) -> tuple[list[str], int]:
+    issues: list[str] = []
+    pages = 0
+    if not data.startswith(b"%PDF"):
+        issues.append("PDF 缺少 %PDF 文件头")
+    try:
+        from pypdf import PdfReader
+
+        pages = len(PdfReader(io.BytesIO(data)).pages)
+        if pages <= 0:
+            issues.append("PDF 页数为 0")
+    except ImportError:
+        if not data.rstrip().endswith(b"%%EOF"):
+            issues.append("PDF 缺少 %%EOF 结尾，可能被截断")
+    except Exception as exc:  # noqa: BLE001
+        issues.append(f"PDF 无法打开：{type(exc).__name__}: {exc}")
+    return issues, pages
+
+
+def _validate_report_bytes(data: bytes, suffix: str) -> tuple[list[str], int]:
+    issues: list[str] = []
+    pages = 0
+    if suffix == ".docx":
+        if not zipfile.is_zipfile(io.BytesIO(data)):
+            issues.append("DOCX 不是有效的 ZIP 容器")
+    elif suffix == ".pdf":
+        pdf_issues, pages = _validate_pdf(data)
+        issues.extend(pdf_issues)
+    elif suffix == ".md":
+        if not data.strip():
+            issues.append("Markdown 为空")
+    else:
+        issues.append("报告必须是 .md/.docx/.pdf")
+    return issues, pages
+
+
+class _ReportContext:
+    """封装一次 build_report_tools 调用所需的读写上下文。"""
+
+    def __init__(
+        self,
+        settings: Settings,
+        access: FileAccess,
+        fs: Any | None,
+        root: str,
+        snapshots: Any | None,
+        scope: list[str],
+    ) -> None:
+        self.settings = settings
+        self.access = access
+        self.fs = fs
+        self.root = root
+        self.snapshots = snapshots
+        self.scope = scope
+
+    def display(self, target: str) -> str:
         try:
-            return access.relative_to_root(target)
+            return self.access.relative_to_root(target)
         except Exception:  # noqa: BLE001
             return str(target)
 
-    def _write(
-        rel: str, data: bytes, *, fmt: str, content: str
-    ) -> tuple[str, str]:
-        if scope and not any(rel == item or rel.startswith(item + "/") for item in scope):
+    def check_scope(self, rel: str) -> None:
+        if self.scope and not any(
+            rel == item or rel.startswith(item + "/") for item in self.scope
+        ):
             raise ReportError(f"输出不在 write_scope 内：{rel}")
-        if fs is not None:
-            target = fs.lexical(rel)
+
+    def resolve_target(self, rel: str) -> tuple[str, bool]:
+        if self.fs is not None:
+            target = self.fs.lexical(rel)
             try:
-                info = fs.stat(target)
-                existed = (
-                    bool(info.get("is_file"))
-                    if isinstance(info, dict)
-                    else bool(getattr(info, "is_file", False))
-                )
+                existed = _is_file_entry(self.fs.stat(target))
             except Exception:  # noqa: BLE001 - 不存在是常态
                 existed = False
-        else:
-            target_path = Path(root, rel).resolve()
-            try:
-                target_path.relative_to(Path(root).resolve())
-            except ValueError as exc:
-                raise ReportError("输出路径越界") from exc
-            target = str(target_path)
-            existed = target_path.is_file()
+            return target, existed
+        target_path = Path(self.root, rel).resolve()
+        try:
+            target_path.relative_to(Path(self.root).resolve())
+        except ValueError as exc:
+            raise ReportError("输出路径越界") from exc
+        return str(target_path), target_path.is_file()
 
-        snapshot_id = ""
-        if snapshots is not None:
-            if fmt == "md":
-                original = ""
-                if existed:
-                    try:
-                        original = (
-                            fs.read_text(target, max_bytes=8 * 1024 * 1024)
-                            if fs is not None
-                            else Path(target).read_text(encoding="utf-8")
-                        )
-                    except Exception:  # noqa: BLE001
-                        original = ""
-                snapshot_id = snapshots.write_with_snapshot(
-                    target, content, original, existed=existed
+    def snapshot_markdown(self, target: str, content: str, existed: bool) -> str:
+        original = ""
+        if existed:
+            try:
+                original = (
+                    self.fs.read_text(target, max_bytes=8 * 1024 * 1024)
+                    if self.fs is not None
+                    else Path(target).read_text(encoding="utf-8")
                 )
-                return ("overwrite" if existed else "create"), snapshot_id
+            except Exception:  # noqa: BLE001
+                original = ""
+        return self.snapshots.write_with_snapshot(
+            target, content, original, existed=existed
+        )
+
+    def persist(self, target: str, data: bytes) -> None:
+        if self.fs is not None:
+            self.fs.write_bytes(target, data)
+            return
+        path = Path(target)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    def write(
+        self, rel: str, data: bytes, *, fmt: str, content: str
+    ) -> tuple[str, str]:
+        self.check_scope(rel)
+        target, existed = self.resolve_target(rel)
+        action = "overwrite" if existed else "create"
+        if self.snapshots is not None:
+            if fmt == "md":
+                return action, self.snapshot_markdown(target, content, existed)
             if existed:
                 raise ReportError(
                     "目标二进制报告已存在；为避免不可回滚的覆盖，"
                     "请换一个输出路径。"
                 )
-            snapshot_id = snapshots.save(target, "", existed=False)
-
-        if fs is not None:
-            fs.write_bytes(target, data)
+            snapshot_id = self.snapshots.save(target, "", existed=False)
         else:
-            path = Path(target)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
-        return ("overwrite" if existed else "create"), snapshot_id
+            snapshot_id = ""
+        self.persist(target, data)
+        return action, snapshot_id
 
-    def _export(
+    def export(
+        self,
         content: str,
         out_path: str,
         reason: str,
@@ -653,9 +871,9 @@ def build_report_tools(
         template: str = "",
     ) -> str:
         try:
-            rel, fmt = _normalize_out(settings, out_path, str(format))
+            rel, fmt = _normalize_out(self.settings, out_path, str(format))
             content = _apply_template(
-                access,
+                self.access,
                 template,
                 content,
                 title=title,
@@ -664,16 +882,8 @@ def build_report_tools(
         except ReportError as exc:
             return pack(str(exc), ReportArtifact(path=out_path, ok=False, rejected=True))
         try:
-            if fmt == "md":
-                data = str(content or "").encode("utf-8")
-                font = ""
-            elif fmt == "docx":
-                data = _docx_bytes(content, title)
-                font = ""
-            else:
-                font = find_cjk_font(settings)
-                data = _pdf_bytes(content, title, font)
-            action, snapshot_id = _write(
+            data, font = _render_report(self.settings, content, title, fmt)
+            action, snapshot_id = self.write(
                 rel, data, fmt=fmt, content=content
             )
         except ReportError as exc:
@@ -700,56 +910,43 @@ def build_report_tools(
             artifact,
         )
 
-    def _check(
+    def content_issues(
+        self,
+        raw: Any,
+        suffix: str,
+        required_sections: list[str] | None,
+    ) -> list[str]:
+        text = _report_text(raw.data, suffix)
+        issues = _citation_warnings(self.access, self.settings, text)
+        required = [
+            str(item).strip()
+            for item in (required_sections or [])
+            if str(item).strip()
+        ]
+        if required:
+            issues.extend(
+                _section_warnings(
+                    required,
+                    text,
+                    _report_headings(raw.data, suffix),
+                )
+            )
+        return issues
+
+    def check(
+        self,
         path: str,
         reason: str,
         required_sections: list[str] | None = None,
     ) -> str:
         try:
-            raw = read_raw(access, path)
+            raw = read_raw(self.access, path)
         except PreviewError as exc:
             return pack(str(exc), ReportArtifact(path=path, ok=False, rejected=True))
         suffix = Path(path).suffix.lower()
-        issues: list[str] = []
-        pages = 0
-        if suffix == ".docx":
-            if not zipfile.is_zipfile(io.BytesIO(raw.data)):
-                issues.append("DOCX 不是有效的 ZIP 容器")
-        elif suffix == ".pdf":
-            if not raw.data.startswith(b"%PDF"):
-                issues.append("PDF 缺少 %PDF 文件头")
-            try:
-                from pypdf import PdfReader
-
-                pages = len(PdfReader(io.BytesIO(raw.data)).pages)
-                if pages <= 0:
-                    issues.append("PDF 页数为 0")
-            except ImportError:
-                if not raw.data.rstrip().endswith(b"%%EOF"):
-                    issues.append("PDF 缺少 %%EOF 结尾，可能被截断")
-            except Exception as exc:  # noqa: BLE001
-                issues.append(f"PDF 无法打开：{type(exc).__name__}: {exc}")
-        elif suffix == ".md":
-            if not raw.data.strip():
-                issues.append("Markdown 为空")
-        else:
-            issues.append("报告必须是 .md/.docx/.pdf")
+        issues, pages = _validate_report_bytes(raw.data, suffix)
         if not issues:
-            text = _report_text(raw.data, suffix)
-            issues.extend(_citation_warnings(access, settings, text))
-            required = [
-                str(item).strip()
-                for item in (required_sections or [])
-                if str(item).strip()
-            ]
-            if required:
-                issues.extend(
-                    _section_warnings(
-                        required,
-                        text,
-                        _report_headings(raw.data, suffix),
-                    )
-                )
+            issues.extend(self.content_issues(raw, suffix, required_sections))
         ok = not issues
         artifact = ReportArtifact(
             path=raw.path, format=suffix.lstrip("."), ok=ok,
@@ -758,9 +955,9 @@ def build_report_tools(
         body = "报告校验通过" if ok else "报告校验失败：" + "；".join(issues)
         return pack(f"{body}\n{raw.path}\n{reason}", artifact)
 
-    def _read_report(path: str, reason: str) -> str:
+    def read_report(self, path: str, reason: str) -> str:
         try:
-            raw = read_raw(access, path)
+            raw = read_raw(self.access, path)
         except PreviewError as exc:
             return pack(str(exc), ReportArtifact(path=path, ok=False, rejected=True))
         text = _report_text(raw.data, Path(path).suffix.lower())
@@ -773,15 +970,17 @@ def build_report_tools(
         )
         return pack(f"报告 {raw.path}：\n{reason}\n\n{text}", artifact)
 
+
+def _build_tools(context: _ReportContext, allow_write: bool) -> list[BaseTool]:
     tools: list[BaseTool] = [
         StructuredTool.from_function(
-            func=_check,
+            func=context.check,
             name=REPORT_CHECK,
             description="确定性校验报告文件（存在、格式、DOCX ZIP、PDF 页数/结尾）。只读。",
             args_schema=ReportCheckInput,
         ),
         StructuredTool.from_function(
-            func=_read_report,
+            func=context.read_report,
             name=REPORT_READ,
             description="读取报告正文（md/docx/pdf），供证据审查使用。只读。",
             args_schema=ReportReadInput,
@@ -790,7 +989,7 @@ def build_report_tools(
     if allow_write:
         tools.append(
             StructuredTool.from_function(
-                func=_export,
+                func=context.export,
                 name=REPORT_EXPORT,
                 description=(
                     "把 Markdown 报告导出为 md/docx/pdf。"
@@ -801,3 +1000,31 @@ def build_report_tools(
             )
         )
     return tools
+
+
+def build_report_tools(
+    settings: Settings,
+    sandbox: Any | None = None,
+    *,
+    allow_write: bool = False,
+    write_scope: list[str] | None = None,
+    fs: Any | None = None,
+    file_access: FileAccess | None = None,
+    root: str | None = None,
+    snapshots: Any | None = None,
+) -> list[BaseTool]:
+    resolved_root = _resolve_root(settings, sandbox, root)
+    resolved_fs = _resolve_fs(sandbox, resolved_root, fs)
+    access = _resolve_access(resolved_root, resolved_fs, file_access)
+    resolved_snapshots = _resolve_snapshots(
+        settings, sandbox, resolved_fs, resolved_root, snapshots
+    )
+    context = _ReportContext(
+        settings,
+        access,
+        resolved_fs,
+        resolved_root,
+        resolved_snapshots,
+        _normalize_scope(write_scope),
+    )
+    return _build_tools(context, allow_write)

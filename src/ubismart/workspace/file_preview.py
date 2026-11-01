@@ -211,6 +211,52 @@ def read_raw(
     )
 
 
+def _lexical_target(access: FileAccess, path: str) -> str:
+    try:
+        return access.lexical(path)
+    except Exception as exc:  # noqa: BLE001
+        raise PreviewError(f"路径被拒绝：{exc}") from exc
+
+
+def _stat_info(access: FileAccess, path: str) -> Any:
+    try:
+        return access.stat(path)
+    except Exception as exc:  # noqa: BLE001
+        raise PreviewError(f"无法解析文件：{exc}") from exc
+
+
+def _info_is_file(info: Any) -> bool:
+    if isinstance(info, dict):
+        return bool(info.get("is_file"))
+    return bool(getattr(info, "is_file", False))
+
+
+def _embed_document_images(model: Any, display: str, data: bytes) -> None:
+    from ubismart.tools.documents import DocumentBlock
+    from ubismart.tools.documents.extract import extract_embedded_images
+
+    for index, (name, blob) in enumerate(
+        extract_embedded_images(display, data)[:5], 1
+    ):
+        if len(blob) > 2 * 1024 * 1024:
+            continue
+        mime = sniff_mime(name, blob)
+        if not mime.startswith("image/"):
+            continue
+        encoded = base64.b64encode(blob).decode("ascii")
+        model.blocks.append(
+            DocumentBlock(
+                kind="image",
+                anchor=f"image={index}",
+                text=f"图片 {index}",
+                meta={
+                    "name": name,
+                    "data_url": f"data:{mime};base64,{encoded}",
+                },
+            )
+        )
+
+
 def read_document(
     access: FileAccess,
     path: str,
@@ -222,59 +268,25 @@ def read_document(
 
     limits = limits or DocumentLimits()
     limits.pptx_layout_images = bool(include_images)
-    try:
-        target = access.lexical(path)
-    except Exception as exc:  # noqa: BLE001
-        raise PreviewError(f"路径被拒绝：{exc}") from exc
-    try:
-        info = access.stat(path)
-    except Exception as exc:  # noqa: BLE001
-        raise PreviewError(f"无法解析文件：{exc}") from exc
+    target = _lexical_target(access, path)
+    info = _stat_info(access, path)
     reason = _protected(access, target, info)
     if reason:
         raise PreviewError(reason)
-    is_file = (
-        bool(info.get("is_file"))
-        if isinstance(info, dict)
-        else bool(getattr(info, "is_file", False))
-    )
-    if not is_file:
+    if not _info_is_file(info):
         raise PreviewError("不是普通文件")
     display = _display(access, target)
     try:
         data = access.read_bytes(path, max_bytes=limits.max_bytes)
         model = parse_document(display, data, limits=limits)
         if include_images and Path(display).suffix.lower() in {".pptx", ".docx"}:
-            from ubismart.tools.documents import DocumentBlock
-            from ubismart.tools.documents.extract import (
-                extract_embedded_images,
-            )
-
-            for index, (name, blob) in enumerate(
-                extract_embedded_images(display, data)[:5], 1
-            ):
-                if len(blob) > 2 * 1024 * 1024:
-                    continue
-                mime = sniff_mime(name, blob)
-                if not mime.startswith("image/"):
-                    continue
-                encoded = base64.b64encode(blob).decode("ascii")
-                model.blocks.append(
-                    DocumentBlock(
-                        kind="image",
-                        anchor=f"image={index}",
-                        text=f"图片 {index}",
-                        meta={
-                            "name": name,
-                            "data_url": f"data:{mime};base64,{encoded}",
-                        },
-                    )
-                )
-        return model
+            _embed_document_images(model, display, data)
     except PreviewError:
         raise
     except Exception as exc:  # noqa: BLE001
         raise PreviewError(f"{type(exc).__name__}: {exc}") from exc
+    else:
+        return model
 
 
 def raw_response_parts(
