@@ -105,7 +105,6 @@ class WorkspaceLock:
             import fcntl
 
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[attr-defined]
-            return True
         except ImportError:
             return None
         except OSError as exc:
@@ -115,6 +114,8 @@ class WorkspaceLock:
                 return None
             # 未知的 OS 错误不冒充「被占用」，也不阻断启动：保持原来的可用性优先。
             return None
+        else:
+            return True
 
     def release(self) -> None:
         with _ACTIVE_LOCK:

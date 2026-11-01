@@ -93,9 +93,10 @@ def _post(port: int, token: str, path: str) -> None:
 def _stop_proc(proc: subprocess.Popen, *, timeout: float) -> None:
     try:
         proc.wait(timeout=timeout)
-        return
     except subprocess.TimeoutExpired:
         pass
+    else:
+        return
     proc.terminate()
     try:
         proc.wait(timeout=2)

@@ -379,7 +379,6 @@ class ProviderRouter:
                     self._record_usage(index, result, _run_id(config))
                     self._limiter.record_success(key)
                     self._aimd_success(index)
-                    return result
                 except ResourceTimeout as exc:
                     errors.append(f"{name}: {exc}")
                 except Exception as exc:  # noqa: BLE001 - 逐个 provider 回退
@@ -389,6 +388,8 @@ class ProviderRouter:
                             index, key, exc, streaming_started=False
                         )
                     )
+                else:
+                    return result
             if attempted:
                 break
             # 全都在冷却：等最短的一个，然后重试一次。
@@ -418,11 +419,12 @@ class ProviderRouter:
                 result = provider.invoke(messages, config, **kwargs)
                 self._record_usage(index, result)
                 self._limiter.record_success(key)
-                return result
             except Exception as exc:  # noqa: BLE001
                 errors.append(
                     self._sync_handle_failure(index, key, exc)
                 )
+            else:
+                return result
         raise ProviderUnavailableError(
             "所有 provider 均不可用："
             + ("；".join(errors) or "处于限流冷却或配额耗尽")
@@ -462,7 +464,6 @@ class ProviderRouter:
                 )
                 self._limiter.record_success(key)
                 self._aimd_success(index)
-                return
             except ResourceTimeout as exc:
                 errors.append(f"{name}: {exc}")
             except Exception as exc:  # noqa: BLE001
@@ -475,6 +476,8 @@ class ProviderRouter:
                         index, key, exc, streaming_started=False
                     )
                 )
+            else:
+                return
         raise ProviderUnavailableError(
             "所有 provider 均不可用："
             + ("；".join(errors) or "处于限流冷却或配额耗尽")

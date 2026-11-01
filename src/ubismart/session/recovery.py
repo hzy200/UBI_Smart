@@ -108,14 +108,28 @@ def _status_code(exc: BaseException) -> int | None:
     return None
 
 
+def _classify_http_status(status: int | None) -> str | None:
+    if status == 429 or (status is not None and 500 <= status < 600):
+        return TRANSIENT
+    return None
+
+
+def _classify_os_error(exc: OSError) -> str:
+    if isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError)):
+        return FATAL
+    if exc.errno in _ENVIRONMENT_ERRNOS:
+        return ENVIRONMENT
+    return TRANSIENT
+
+
 def classify_error(exc: BaseException) -> str:
     """把异常压成四类；未知异常按 FATAL 处理（不盲目重试）。"""
     if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt)):
         return FATAL
 
-    status = _status_code(exc)
-    if status == 429 or (status is not None and 500 <= status < 600):
-        return TRANSIENT
+    status_kind = _classify_http_status(_status_code(exc))
+    if status_kind is not None:
+        return status_kind
 
     name = type(exc).__name__.lower()
     text = str(exc).lower()
@@ -127,13 +141,7 @@ def classify_error(exc: BaseException) -> str:
         return ENVIRONMENT
 
     if isinstance(exc, OSError):
-        if isinstance(
-            exc, (FileNotFoundError, PermissionError, IsADirectoryError)
-        ):
-            return FATAL
-        if exc.errno in _ENVIRONMENT_ERRNOS:
-            return ENVIRONMENT
-        return TRANSIENT
+        return _classify_os_error(exc)
 
     if any(_hint in text for _hint in _SEMANTIC_HINTS):
         return SEMANTIC
@@ -183,6 +191,36 @@ def is_retryable(exc: BaseException) -> bool:
     return classify_error(exc) in RETRYABLE
 
 
+def _retry_delay(attempt: int, base: float, cap: float) -> float:
+    delay = min(base * (2 ** (attempt - 1)), cap)
+    if delay > 0:
+        # 抖动避免多个 worker 同时醒来再次撞上限流。
+        delay += random.uniform(0.0, delay * 0.25)
+    return delay
+
+
+async def _notify_retry(
+    on_retry: Callable[[dict[str, Any]], Any],
+    label: str,
+    attempt: int,
+    total_attempts: int,
+    delay: float,
+    kind: str,
+    exc: BaseException,
+) -> None:
+    record = {
+        "label": label,
+        "attempt": attempt,
+        "attempts": total_attempts,
+        "delay_s": round(delay, 3),
+        "kind": kind,
+        "reason": f"{type(exc).__name__}: {exc}"[:300],
+    }
+    maybe = on_retry(record)
+    if inspect.isawaitable(maybe):
+        await maybe
+
+
 async def retry_async(
     operation: Callable[[], Awaitable[T]],
     *,
@@ -216,25 +254,20 @@ async def retry_async(
             if kind not in RETRYABLE or attempt >= total_attempts:
                 raise
 
-            delay = min(base * (2 ** (attempt - 1)), cap)
-            if delay > 0:
-                # 抖动避免多个 worker 同时醒来再次撞上限流。
-                delay += random.uniform(0.0, delay * 0.25)
+            delay = _retry_delay(attempt, base, cap)
             if waited + delay > total_wait_budget:
                 raise
 
             if on_retry is not None:
-                record = {
-                    "label": label,
-                    "attempt": attempt,
-                    "attempts": total_attempts,
-                    "delay_s": round(delay, 3),
-                    "kind": kind,
-                    "reason": f"{type(exc).__name__}: {exc}"[:300],
-                }
-                maybe = on_retry(record)
-                if inspect.isawaitable(maybe):
-                    await maybe
+                await _notify_retry(
+                    on_retry,
+                    label,
+                    attempt,
+                    total_attempts,
+                    delay,
+                    kind,
+                    exc,
+                )
             if delay > 0:
                 await asyncio.sleep(delay)
             waited += delay

@@ -338,7 +338,8 @@ def safe_extract(
         )
         if on_progress is not None:
             on_progress(actual_total, actual_total, actual_files)
-        return {"bytes": actual_total, "files": actual_files}
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise
+    else:
+        return {"bytes": actual_total, "files": actual_files}

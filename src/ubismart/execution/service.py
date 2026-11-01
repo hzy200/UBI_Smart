@@ -490,12 +490,13 @@ class ExecutionService:
 
             base.status = "unsupported"
             base.error = f"执行契约尚未支持 kind={kind!r}"
-            return base
         except ExecutionConflict:
             raise
         except Exception as exc:  # noqa: BLE001 - 失败要作为回执返回
             base.status = "error"
             base.error = f"{type(exc).__name__}: {exc}"
+            return base
+        else:
             return base
 
     def record_terminal(

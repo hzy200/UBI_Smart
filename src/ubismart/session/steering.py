@@ -93,6 +93,41 @@ class SteeringController:
         path = self._path(thread_id)
         return FileLock(path.with_suffix(path.suffix + ".lock"))
 
+    def _drop_thread_state(self, thread_id: str) -> None:
+        self._queues.pop(thread_id, None)
+        self._paused.pop(thread_id, None)
+        self._run_ids.pop(thread_id, None)
+
+    @staticmethod
+    def _load_commands(payload: dict) -> list[SteeringCommand]:
+        commands: list[SteeringCommand] = []
+        for item in payload.get("commands") or []:
+            try:
+                commands.append(SteeringCommand(**item))
+            except (TypeError, ValueError):
+                continue
+        return commands
+
+    def _apply_loaded_payload(self, thread_id: str, payload: dict) -> None:
+        if str(payload.get("thread_id", "")) != thread_id:
+            return
+        commands = self._load_commands(payload)
+        if commands:
+            self._queues[thread_id] = commands
+        else:
+            self._queues.pop(thread_id, None)
+        active_run = str(payload.get("run_id") or "")
+        if active_run:
+            self._run_ids[thread_id] = active_run
+        else:
+            self._run_ids.pop(thread_id, None)
+        if payload.get("paused"):
+            self._paused[thread_id] = str(
+                payload.get("paused_run_id") or active_run
+            )
+        else:
+            self._paused.pop(thread_id, None)
+
     def _ensure_loaded(self, thread_id: str, *, force: bool = False) -> None:
         """从磁盘刷新该 thread 的状态。
 
@@ -118,9 +153,7 @@ class SteeringController:
         except FileNotFoundError:
             # 文件被删除（clear 或从未写过）：同步清掉内存里的旧状态。
             if thread_id in self._loaded:
-                self._queues.pop(thread_id, None)
-                self._paused.pop(thread_id, None)
-                self._run_ids.pop(thread_id, None)
+                self._drop_thread_state(thread_id)
             self._loaded.add(thread_id)
             self._disk_state[thread_id] = None
             return
@@ -131,28 +164,7 @@ class SteeringController:
 
         self._loaded.add(thread_id)
         self._disk_state[thread_id] = state
-        if str(payload.get("thread_id", "")) != thread_id:
-            return
-        commands: list[SteeringCommand] = []
-        for item in payload.get("commands") or []:
-            try:
-                commands.append(SteeringCommand(**item))
-            except (TypeError, ValueError):
-                continue
-        if commands:
-            self._queues[thread_id] = commands
-        else:
-            self._queues.pop(thread_id, None)
-        active_run = str(payload.get("run_id") or "")
-        if active_run:
-            self._run_ids[thread_id] = active_run
-        else:
-            self._run_ids.pop(thread_id, None)
-        if payload.get("paused"):
-            paused_run = str(payload.get("paused_run_id") or active_run)
-            self._paused[thread_id] = paused_run
-        else:
-            self._paused.pop(thread_id, None)
+        self._apply_loaded_payload(thread_id, payload)
 
     def _persist(self, thread_id: str) -> None:
         if self._directory is None:

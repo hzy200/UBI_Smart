@@ -62,6 +62,34 @@ class _StreamCtx:
     step_open: bool = False
 
 @dataclass
+class _LoopState:
+    """一次 `_stream` 内 chunk 派发需要回写的游标。"""
+
+    interrupted: bool = False
+
+
+def _remaining_seconds(deadline_at: float) -> float | None:
+    if deadline_at <= 0:
+        return None
+    return max(0.0, deadline_at - time.monotonic())
+
+
+async def _timed_chunks(
+    graph: Any, payload: Any, config: dict[str, Any], deadline_at: float
+):
+    """把图的 astream 包进总时限；超时抛 TimeoutError。"""
+    async with asyncio.timeout(_remaining_seconds(deadline_at)):
+        async for item in graph.astream(
+            payload,
+            config,
+            stream_mode=["messages", "updates", "custom"],
+            # 独立子图的内层节点更新/自定义事件只有打开它才可见。
+            subgraphs=True,
+        ):
+            yield item
+
+
+@dataclass
 class _CostSummary:
     """收尾时的成本、账单与告警。"""
 
@@ -78,6 +106,61 @@ class _CostSummary:
 class StreamMixin:
     """`AgentRuntime` 的流式输出职责。"""
 
+    def _run_budget_alerts(self, budget: float, ratio: float) -> list[str]:
+        if budget <= 0:
+            return []
+        if ratio >= 1.0:
+            return ["已超出本次运行成本预算"]
+        if ratio >= float(self.settings.cost_alert_ratio):
+            return ["接近本次运行成本预算"]
+        return []
+
+    def _session_budget_alerts(self, thread_id: str) -> list[str]:
+        session_budget = float(
+            self.settings.session_cost_budget_usd or 0.0
+        )
+        if session_budget <= 0:
+            return []
+        session_ratio = (
+            float(GLOBAL_LIMITER.session_usage(thread_id)["cost_usd"])
+            / session_budget
+        )
+        if session_ratio >= 1.0:
+            return ["已超出本会话成本预算"]
+        if session_ratio >= float(self.settings.cost_alert_ratio):
+            return ["接近本会话成本预算"]
+        return []
+
+    async def _billing_summary(
+        self, usage: dict[str, Any], run_started_at: float
+    ) -> tuple[float, str, dict[str, dict[str, float]]]:
+        billed_usd = 0.0
+        billing_error = ""
+        billing_providers: dict[str, dict[str, float]] = {}
+        if not self.settings.billing_enabled:
+            return billed_usd, billing_error, billing_providers
+        started = float(usage.get("started_at") or run_started_at)
+        try:
+            billing = await asyncio.to_thread(
+                fetch_billing, self.settings, started, time.time()
+            )
+            for item in billing:
+                billed_usd += float(item.cost_usd)
+                billing_providers[item.provider] = {
+                    "cost_usd": float(item.cost_usd),
+                    "input_tokens": float(item.input_tokens),
+                    "output_tokens": float(item.output_tokens),
+                }
+                if item.error:
+                    billing_error = (
+                        f"{item.provider}: {item.error}"
+                        if not billing_error
+                        else f"{billing_error}; {item.provider}: {item.error}"
+                    )
+        except Exception as exc:  # noqa: BLE001 - 对账失败不拖垮 run
+            billing_error = f"{type(exc).__name__}: {exc}"
+        return billed_usd, billing_error, billing_providers
+
     async def _cost_summary(
         self, thread_id: str, run_started_at: float
     ) -> _CostSummary:
@@ -85,47 +168,12 @@ class StreamMixin:
         usage = GLOBAL_LIMITER.run_usage(thread_id)
         budget = float(settings.run_cost_budget_usd or 0.0)
         ratio = (usage["cost_usd"] / budget) if budget > 0 else 0.0
-        alerts: list[str] = []
-        if budget > 0:
-            if ratio >= 1.0:
-                alerts.append("已超出本次运行成本预算")
-            elif ratio >= float(settings.cost_alert_ratio):
-                alerts.append("接近本次运行成本预算")
-        session_budget = float(settings.session_cost_budget_usd or 0.0)
-        if session_budget > 0:
-            session_ratio = (
-                float(GLOBAL_LIMITER.session_usage(thread_id)["cost_usd"])
-                / session_budget
-            )
-            if session_ratio >= 1.0:
-                alerts.append("已超出本会话成本预算")
-            elif session_ratio >= float(settings.cost_alert_ratio):
-                alerts.append("接近本会话成本预算")
+        alerts = self._run_budget_alerts(budget, ratio)
+        alerts += self._session_budget_alerts(thread_id)
 
-        billed_usd = 0.0
-        billing_error = ""
-        billing_providers: dict[str, dict[str, float]] = {}
-        if settings.billing_enabled:
-            started = float(usage.get("started_at") or run_started_at)
-            try:
-                billing = await asyncio.to_thread(
-                    fetch_billing, settings, started, time.time()
-                )
-                for item in billing:
-                    billed_usd += float(item.cost_usd)
-                    billing_providers[item.provider] = {
-                        "cost_usd": float(item.cost_usd),
-                        "input_tokens": float(item.input_tokens),
-                        "output_tokens": float(item.output_tokens),
-                    }
-                    if item.error:
-                        billing_error = (
-                            f"{item.provider}: {item.error}"
-                            if not billing_error
-                            else f"{billing_error}; {item.provider}: {item.error}"
-                        )
-            except Exception as exc:  # noqa: BLE001 - 对账失败不拖垮 run
-                billing_error = f"{type(exc).__name__}: {exc}"
+        billed_usd, billing_error, billing_providers = (
+            await self._billing_summary(usage, run_started_at)
+        )
         billing_delta = billed_usd - float(usage["cost_usd"])
         if billed_usd > 0 and billing_delta > max(
             0.01, float(usage["cost_usd"]) * 0.2
@@ -315,31 +363,30 @@ class StreamMixin:
             worker_output_tokens=worker_out,
         )
 
-    async def _stream(
-        self, payload: Any, *, thread_id: str, fresh_run: bool, prompt: str = ""
-    ) -> AsyncIterator[Event]:
-        settings = self.settings
-        run_started_at = time.time()
-        # 同一 thread 会被多轮 run 复用：全新 run 必须清零，resume 必须保留
-        # 挂起前那一段的用量。
-        GLOBAL_LIMITER.start_run(thread_id, reset=fresh_run)
+    def _session_budget_message(
+        self, thread_id: str, fresh_run: bool
+    ) -> str:
         # 会话级硬预算：只拦全新 run；resume 必须放行，否则挂起的审批
         # 会被预算锁死，用户连拒绝/确认都做不了。
-        session_budget = float(settings.session_cost_budget_usd or 0.0)
-        if fresh_run and session_budget > 0:
-            session_spent = float(
-                GLOBAL_LIMITER.session_usage(thread_id)["cost_usd"]
-            )
-            if session_spent >= session_budget:
-                yield RunFailed(
-                    message=(
-                        "本会话成本预算已用尽"
-                        f"（已用 ${session_spent:.4f} / 上限 ${session_budget:.4f}）。"
-                        "如需继续，请提高 AGENT_SESSION_COST_BUDGET_USD 或新建会话。"
-                    )
-                )
-                return
-        config = {
+        session_budget = float(
+            self.settings.session_cost_budget_usd or 0.0
+        )
+        if not fresh_run or session_budget <= 0:
+            return ""
+        session_spent = float(
+            GLOBAL_LIMITER.session_usage(thread_id)["cost_usd"]
+        )
+        if session_spent < session_budget:
+            return ""
+        return (
+            "本会话成本预算已用尽"
+            f"（已用 ${session_spent:.4f} / 上限 ${session_budget:.4f}）。"
+            "如需继续，请提高 AGENT_SESSION_COST_BUDGET_USD 或新建会话。"
+        )
+
+    def _stream_config(self, thread_id: str) -> dict[str, Any]:
+        settings = self.settings
+        return {
             "configurable": {"thread_id": thread_id},
             # 按图拓扑推导，别再把系数算歪（见 estimate_recursion_limit）
             "recursion_limit": estimate_recursion_limit(
@@ -360,37 +407,47 @@ class StreamMixin:
             "metadata": self._trace_metadata(thread_id),
         }
 
+    async def _prepare_stream_state(
+        self,
+        thread_id: str,
+        pending: dict[str, ToolCallStarted],
+        progress: dict[str, Any],
+        fresh_run: bool,
+    ) -> AsyncIterator[ToolCallStarted]:
         # 跨 run/resume 的状态；每次全新 run 清空，resume 时保留（见 __init__ 说明）
-        pending = self._pending_calls.setdefault(thread_id, {})
-        progress = self._progress.setdefault(thread_id, {})
         if fresh_run:
             pending.clear()
             progress.clear()
             self._resume_counts[thread_id] = 0
-        else:
-            # 进程重启后 `_pending_calls` 是空的：从 checkpoint 的尾部
-            # tool_calls 恢复调用参数，否则恢复后的审计会丢掉 L2/L3 的参数。
-            # 同进程 resume 时 pending 已有记录，这里不会重复补发。
-            prior = await self._prior_state(thread_id)
-            for call in unanswered_tool_calls(prior.get("messages") or []):
-                call_id = str(call.get("id", ""))
-                if not call_id or call_id in pending:
-                    continue
-                started = self._tool_started(
-                    str(call.get("name", "")),
-                    dict(call.get("args") or {}),
-                    call_id,
-                )
-                pending[call_id] = started
-                yield started
+            return
+        # 进程重启后 `_pending_calls` 是空的：从 checkpoint 的尾部
+        # tool_calls 恢复调用参数，否则恢复后的审计会丢掉 L2/L3 的参数。
+        # 同进程 resume 时 pending 已有记录，这里不会重复补发。
+        prior = await self._prior_state(thread_id)
+        for call in unanswered_tool_calls(prior.get("messages") or []):
+            call_id = str(call.get("id", ""))
+            if not call_id or call_id in pending:
+                continue
+            started = self._tool_started(
+                str(call.get("name", "")),
+                dict(call.get("args") or {}),
+                call_id,
+            )
+            pending[call_id] = started
+            yield started
+
+    @staticmethod
+    def _make_stream_ctx(
+        runtime: Any,
+        thread_id: str,
+        pending: dict[str, ToolCallStarted],
+        progress: dict[str, Any],
+    ) -> _StreamCtx:
         # 模型回报的用量、计划、验证/审查结果与 step 配对状态都存 progress：
         # 挂起与恢复是两次 `_stream`，存局部会把挂起前的那一段整个丢掉。
         # provider 未提供用量时保持 0，收尾落成 None（0 与「未回报」必须能区分）。
-        if fresh_run:
-            # 计量幂等键：resume 复用同一 epoch，新的用户消息生成新 epoch。
-            progress["run_epoch"] = uuid4().hex
-        ctx = _StreamCtx(
-            runtime=self,
+        return _StreamCtx(
+            runtime=runtime,
             thread_id=thread_id,
             progress=progress,
             pending=pending,
@@ -405,88 +462,122 @@ class StreamMixin:
             last_review=progress.setdefault("last_review", {}),
             step_open=bool(progress.get("step_open", False)),
         )
-        interrupted = False
 
+    def _stream_deadline(
+        self, progress: dict[str, Any], fresh_run: bool
+    ) -> tuple[int, float]:
         # 总墙钟时限：跨 resume 累计，不能用“每次 _stream 重新计时”。
-        deadline_seconds = int(settings.run_deadline_s or 0)
+        deadline_seconds = int(self.settings.run_deadline_s or 0)
         if fresh_run:
             progress["deadline_at"] = (
                 time.monotonic() + deadline_seconds
                 if deadline_seconds > 0
                 else 0.0
             )
-        deadline_at = float(progress.get("deadline_at") or 0.0)
+        return deadline_seconds, float(progress.get("deadline_at") or 0.0)
 
-        def _remaining_seconds() -> float | None:
-            if deadline_at <= 0:
-                return None
-            return max(0.0, deadline_at - time.monotonic())
+    def _dispatch_chunk(
+        self,
+        ctx: _StreamCtx,
+        chunk: Any,
+        seen_interrupts: set[str],
+        loop_state: _LoopState,
+    ) -> list[Event]:
+        if len(chunk) == 3:
+            _namespace, mode, data = chunk
+        else:
+            mode, data = chunk
+        if mode == "custom":
+            return list(self._custom_events(ctx, data))
+        if mode == "messages":
+            return list(self._message_events(ctx, data))
 
-        async def _timed_chunks(graph: Any):
-            """把图的 astream 包进总时限；超时抛 TimeoutError。"""
-            async with asyncio.timeout(_remaining_seconds()):
-                async for item in graph.astream(
-                    payload,
-                    config,
-                    stream_mode=["messages", "updates", "custom"],
-                    # 独立子图的内层节点更新/自定义事件只有打开它才可见。
-                    subgraphs=True,
-                ):
-                    yield item
+        suspension = data.get("__interrupt__")
+        if suspension:
+            loop_state.interrupted = True
+            return list(self._interrupt_events(suspension, seen_interrupts))
+
+        events: list[Event] = []
+        for node, update in data.items():
+            if not isinstance(update, dict):
+                continue
+            events.extend(self._update_events(ctx, node, update))
+        return events
+
+    def _audit_run_start(
+        self, thread_id: str, ctx: _StreamCtx, prompt: str
+    ) -> None:
+        self._audit(
+            AuditRecord(
+                ts=now_iso(),
+                kind=audit_models.RUN_START,
+                thread_id=thread_id,
+                run_epoch=ctx.run_epoch,
+                provider=self.provider_name,
+                model=self.model_override,
+                workspace=self.workspace,
+                detail=truncate(prompt),
+            )
+        )
+
+    async def _drive_graph(
+        self,
+        ctx: _StreamCtx,
+        payload: Any,
+        config: dict[str, Any],
+        deadline_at: float,
+        loop_state: _LoopState,
+    ) -> AsyncIterator[Event]:
+        graph = await self._ensure_graph()
+        # 只在一个 stream 调用内去重：子图中断会同时在带 namespace 的
+        # 更新和父图更新里出现一次，但跨 resume 的重复暂停不能被吞掉。
+        seen_interrupts: set[str] = set()
+        async for chunk in _timed_chunks(graph, payload, config, deadline_at):
+            for event in self._dispatch_chunk(
+                ctx, chunk, seen_interrupts, loop_state
+            ):
+                yield event
+
+    async def _stream(
+        self, payload: Any, *, thread_id: str, fresh_run: bool, prompt: str = ""
+    ) -> AsyncIterator[Event]:
+        run_started_at = time.time()
+        # 同一 thread 会被多轮 run 复用：全新 run 必须清零，resume 必须保留
+        # 挂起前那一段的用量。
+        GLOBAL_LIMITER.start_run(thread_id, reset=fresh_run)
+        budget_message = self._session_budget_message(thread_id, fresh_run)
+        if budget_message:
+            yield RunFailed(message=budget_message)
+            return
+        config = self._stream_config(thread_id)
+
+        pending = self._pending_calls.setdefault(thread_id, {})
+        progress = self._progress.setdefault(thread_id, {})
+        async for started in self._prepare_stream_state(
+            thread_id, pending, progress, fresh_run
+        ):
+            yield started
+        if fresh_run:
+            # 计量幂等键：resume 复用同一 epoch，新的用户消息生成新 epoch。
+            progress["run_epoch"] = uuid4().hex
+        ctx = self._make_stream_ctx(self, thread_id, pending, progress)
+        deadline_seconds, deadline_at = self._stream_deadline(
+            progress, fresh_run
+        )
+        loop_state = _LoopState()
 
         try:
             if fresh_run:
-                self._audit(
-                    AuditRecord(
-                        ts=now_iso(),
-                        kind=audit_models.RUN_START,
-                        thread_id=thread_id,
-                        run_epoch=ctx.run_epoch,
-                        provider=self.provider_name,
-                        model=self.model_override,
-                        workspace=self.workspace,
-                        detail=truncate(prompt),
-                    )
-                )
+                self._audit_run_start(thread_id, ctx, prompt)
                 # 事件流起点。所有前端都能据此复位本轮状态（TUI 就靠它重置
                 # 「最终答复」标记与流式缓冲）。只有全新 run 算新的一轮，
                 # resume 不重复发 —— 那是同一次运行的延续。
                 yield RunStarted(thread_id=thread_id)
 
-            graph = await self._ensure_graph()
-            # 只在一个 stream 调用内去重：子图中断会同时在带 namespace 的
-            # 更新和父图更新里出现一次，但跨 resume 的重复暂停不能被吞掉。
-            seen_interrupts: set[str] = set()
-            async for chunk in _timed_chunks(graph):
-                if len(chunk) == 3:
-                    _namespace, mode, data = chunk
-                else:
-                    mode, data = chunk
-                if mode == "custom":
-                    for event in self._custom_events(ctx, data):
-                        yield event
-                    continue
-
-                if mode == "messages":
-                    for event in self._message_events(ctx, data):
-                        yield event
-                    continue
-
-                suspension = data.get("__interrupt__")
-                if suspension:
-                    interrupted = True
-                    for event in self._interrupt_events(
-                        suspension, seen_interrupts
-                    ):
-                        yield event
-                    continue
-
-                for node, update in data.items():
-                    if not isinstance(update, dict):
-                        continue
-                    for event in self._update_events(ctx, node, update):
-                        yield event
-
+            async for event in self._drive_graph(
+                ctx, payload, config, deadline_at, loop_state
+            ):
+                yield event
 
         except Exception as exc:  # noqa: BLE001 - 编排层异常也要以事件形式报给前端
             async for event in self._error_events(
@@ -498,7 +589,7 @@ class StreamMixin:
                 yield event
             return
 
-        if interrupted:
+        if loop_state.interrupted:
             # 图已挂起：不发 RunFinished，让前端明确知道要 resume 而不是收工
             return
 

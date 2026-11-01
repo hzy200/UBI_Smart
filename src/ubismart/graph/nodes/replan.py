@@ -40,6 +40,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -139,6 +140,201 @@ def _last_summary(messages: list[AnyMessage]) -> str:
     return ""
 
 
+@dataclass
+class _ReplanDeps:
+    structured: Any
+    max_replans: int
+    max_plan_steps: int
+
+
+def _replan_head(
+    failed: bool, failure_source: str, user_requested: bool
+) -> str:
+    if not failed:
+        return (
+            "用户明确要求重新规划剩余步骤"
+            if user_requested
+            else "刚做完这步"
+        )
+    if failure_source == "review":
+        return "这一步的改动没通过代码审查"
+    return "没能做成这一步"
+
+
+def _replan_request(
+    state: AgentState,
+    plan: list[str],
+    kinds: list[str],
+    step_idx: int,
+    *,
+    failed: bool,
+    failure: dict,
+    failure_source: str,
+    user_requested: bool,
+    max_plan_steps: int,
+) -> tuple[str, str]:
+    if failed:
+        prompt = REPLAN_AFTER_FAILURE_PROMPT.format(
+            max_steps=max(max_plan_steps - step_idx, 1)
+        )
+        context = _failure_note(failure, state.get("retry", 0))
+    else:
+        prompt = REPLAN_PROMPT.format(
+            max_steps=max(max_plan_steps - step_idx, 1)
+        )
+        context = _last_summary(state["messages"])
+
+    request = last_human_text(state["messages"])
+    head = _replan_head(failed, failure_source, user_requested)
+    body = (
+        f"用户请求：{request}\n\n"
+        f"计划：\n{_plan_view(plan, kinds, step_idx, failed=failed)}\n\n"
+        f"{head}：\n{context}"
+    )
+    return prompt, body
+
+
+def _exhausted_update(
+    plan: list[str],
+    kinds: list[str],
+    step_idx: int,
+    counter: str,
+    used: int,
+    cleared: dict[str, Any],
+) -> dict[str, Any]:
+    # 从「修复用尽」进来时，额度用尽就等于没辙了 —— 砍掉剩余步骤，
+    # 让任务如实收尾。**必须返回一个改过的 plan**：返回 {} 会被路由送回 act，
+    # 而这一步已经确定做不成，那就成了死循环。
+    return {
+        "plan": plan[:step_idx],
+        "plan_kinds": kinds[:step_idx],
+        counter: used,
+        **cleared,
+    }
+
+
+def _apply_decision(
+    decision: ReplanDecision,
+    plan: list[str],
+    kinds: list[str],
+    step_idx: int,
+    counter: str,
+    used: int,
+    cleared: dict[str, Any],
+    *,
+    failed: bool,
+    max_plan_steps: int,
+) -> dict[str, Any]:
+    if not decision.revise and not failed:
+        # 步进入口说"不用改"就是真不改 —— 返回空更新，连事件都不该发。
+        # （失败入口不能这么返回，见上文：那会被路由送回 act 变成死循环。）
+        return cleared
+
+    revised = [
+        (step.text.strip(), step.kind)
+        for step in (decision.steps or [])
+        if step.text and step.text.strip()
+    ]
+    budget = max(max_plan_steps - step_idx, 0)
+    new_plan = plan[:step_idx] + [text for text, _kind in revised][:budget]
+    new_kinds = kinds[:step_idx] + [kind for _text, kind in revised][:budget]
+
+    update: dict[str, Any] = {
+        "plan": new_plan,
+        "plan_kinds": align_kinds(new_plan, new_kinds),
+        counter: used + 1,
+        **cleared,
+    }
+    if failed and revised:
+        # 换了新做法，就该有新的修复预算与轮次 —— 否则 act 一看轮次用尽
+        # 就直接放弃，新做法根本没机会被执行。
+        # 两道质量关的旧结论一并作废：它们是针对**上一个做法**的。
+        update.update(
+            retry=0,
+            # same_failure_count / last_failure_signature 刻意不清：
+            # 新做法如果仍然撞同一个失败，停滞检测要继续累积，避免
+            # 「replan 清零 → 再修两轮 → 再 replan」的循环。
+            tool_rounds=0,
+            budget_exhausted=False,
+            verification={},
+            review={},
+        )
+    return update
+
+
+async def _replan_impl(
+    state: AgentState, config: RunnableConfig, deps: _ReplanDeps
+) -> dict[str, Any]:
+    plan = [step for step in (state.get("plan") or []) if step]
+    kinds = align_kinds(plan, state.get("plan_kinds"))
+    step_idx = state.get("step_idx", 0)
+
+    # 两种入口：步进后（上一步做完了）与修复用尽后（这一步没做成）。
+    # **审查阻断也算"没做成"** —— 只认 verification 会让它落进步进微调入口，
+    # 那条路允许返回"不改"，路由就会回到 act 空转（见 blocking_failure）。
+    blocked = blocking_failure(state)
+    failed = blocked is not None
+    failure = blocked[1] if blocked else {}
+    failure_source = blocked[0] if blocked else ""
+    # 用户显式 /replan：即使没有失败，也交给模型重新审视剩余步骤。
+    user_requested = bool(state.get("steering_replan"))
+    # 只有用户请求过才需要清标志；普通步进返回空更新，保持既有契约。
+    cleared = {"steering_replan": False} if user_requested else {}
+
+    # 两个入口各用各的额度，互不挤占（见模块文档第 1 条）
+    counter = "replan_count" if failed else "tweak_count"
+    used = state.get(counter, 0)
+    remaining = plan[step_idx:]
+
+    if not remaining:
+        return cleared
+
+    if failed and used >= deps.max_replans:
+        return _exhausted_update(
+            plan, kinds, step_idx, counter, used, cleared
+        )
+
+    # 步进入口下额度用尽 → 直接放行，不多花一次模型调用
+    if used >= deps.max_replans:
+        return cleared
+
+    prompt, body = _replan_request(
+        state,
+        plan,
+        kinds,
+        step_idx,
+        failed=failed,
+        failure=failure,
+        failure_source=failure_source,
+        user_requested=user_requested,
+        max_plan_steps=deps.max_plan_steps,
+    )
+
+    try:
+        decision = await deps.structured.ainvoke(
+            [SystemMessage(content=prompt), HumanMessage(content=body)], config
+        )
+    except Exception:  # noqa: BLE001 - 重规划失败不能拖垮整张图
+        # 步进入口沿用原计划；失败入口没有退路，只能收尾
+        if failed:
+            return _exhausted_update(
+                plan, kinds, step_idx, counter, used, cleared
+            )
+        return cleared
+
+    return _apply_decision(
+        decision,
+        plan,
+        kinds,
+        step_idx,
+        counter,
+        used,
+        cleared,
+        failed=failed,
+        max_plan_steps=deps.max_plan_steps,
+    )
+
+
 def make_replan_node(
     llm: BaseChatModel,
     *,
@@ -146,118 +342,13 @@ def make_replan_node(
     max_plan_steps: int,
 ) -> Callable[[AgentState, RunnableConfig], Awaitable[dict[str, Any]]]:
     structured = with_json_output(llm, ReplanDecision).with_retry(stop_after_attempt=2)
+    deps = _ReplanDeps(
+        structured=structured,
+        max_replans=max_replans,
+        max_plan_steps=max_plan_steps,
+    )
 
     async def replan(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        plan = [step for step in (state.get("plan") or []) if step]
-        kinds = align_kinds(plan, state.get("plan_kinds"))
-        step_idx = state.get("step_idx", 0)
-
-        # 两种入口：步进后（上一步做完了）与修复用尽后（这一步没做成）。
-        # **审查阻断也算"没做成"** —— 只认 verification 会让它落进步进微调入口，
-        # 那条路允许返回"不改"，路由就会回到 act 空转（见 blocking_failure）。
-        blocked = blocking_failure(state)
-        failed = blocked is not None
-        failure = blocked[1] if blocked else {}
-        failure_source = blocked[0] if blocked else ""
-        # 用户显式 /replan：即使没有失败，也交给模型重新审视剩余步骤。
-        user_requested = bool(state.get("steering_replan"))
-        # 只有用户请求过才需要清标志；普通步进返回空更新，保持既有契约。
-        cleared = {"steering_replan": False} if user_requested else {}
-
-        # 两个入口各用各的额度，互不挤占（见模块文档第 1 条）
-        counter = "replan_count" if failed else "tweak_count"
-        used = state.get(counter, 0)
-        remaining = plan[step_idx:]
-
-        if not remaining:
-            return cleared
-
-        # 从「修复用尽」进来时，额度用尽就等于没辙了 —— 砍掉剩余步骤，
-        # 让任务如实收尾。**必须返回一个改过的 plan**：返回 {} 会被路由送回 act，
-        # 而这一步已经确定做不成，那就成了死循环。
-        if failed and used >= max_replans:
-            return {
-                "plan": plan[:step_idx],
-                "plan_kinds": kinds[:step_idx],
-                counter: used,
-                **cleared,
-            }
-
-        # 步进入口下额度用尽 → 直接放行，不多花一次模型调用
-        if used >= max_replans:
-            return cleared
-
-        if failed:
-            prompt = REPLAN_AFTER_FAILURE_PROMPT.format(
-                max_steps=max(max_plan_steps - step_idx, 1)
-            )
-            context = _failure_note(failure, state.get("retry", 0))
-        else:
-            prompt = REPLAN_PROMPT.format(max_steps=max(max_plan_steps - step_idx, 1))
-            context = _last_summary(state["messages"])
-
-        request = last_human_text(state["messages"])
-        if not failed:
-            head = "用户明确要求重新规划剩余步骤" if user_requested else "刚做完这步"
-        elif failure_source == "review":
-            head = "这一步的改动没通过代码审查"
-        else:
-            head = "没能做成这一步"
-        body = (
-            f"用户请求：{request}\n\n"
-            f"计划：\n{_plan_view(plan, kinds, step_idx, failed=failed)}\n\n"
-            f"{head}：\n{context}"
-        )
-
-        try:
-            decision = await structured.ainvoke(
-                [SystemMessage(content=prompt), HumanMessage(content=body)], config
-            )
-        except Exception:  # noqa: BLE001 - 重规划失败不能拖垮整张图
-            # 步进入口沿用原计划；失败入口没有退路，只能收尾
-            if failed:
-                return {
-                    "plan": plan[:step_idx],
-                    "plan_kinds": kinds[:step_idx],
-                    counter: used,
-                    **cleared,
-                }
-            return cleared
-
-        if not decision.revise and not failed:
-            # 步进入口说"不用改"就是真不改 —— 返回空更新，连事件都不该发。
-            # （失败入口不能这么返回，见上文：那会被路由送回 act 变成死循环。）
-            return cleared
-
-        revised = [
-            (step.text.strip(), step.kind)
-            for step in (decision.steps or [])
-            if step.text and step.text.strip()
-        ]
-        budget = max(max_plan_steps - step_idx, 0)
-        new_plan = plan[:step_idx] + [text for text, _kind in revised][:budget]
-        new_kinds = kinds[:step_idx] + [kind for _text, kind in revised][:budget]
-
-        update: dict[str, Any] = {
-            "plan": new_plan,
-            "plan_kinds": align_kinds(new_plan, new_kinds),
-            counter: used + 1,
-            **cleared,
-        }
-        if failed and revised:
-            # 换了新做法，就该有新的修复预算与轮次 —— 否则 act 一看轮次用尽
-            # 就直接放弃，新做法根本没机会被执行。
-            # 两道质量关的旧结论一并作废：它们是针对**上一个做法**的。
-            update.update(
-                retry=0,
-                # same_failure_count / last_failure_signature 刻意不清：
-                # 新做法如果仍然撞同一个失败，停滞检测要继续累积，避免
-                # 「replan 清零 → 再修两轮 → 再 replan」的循环。
-                tool_rounds=0,
-                budget_exhausted=False,
-                verification={},
-                review={},
-            )
-        return update
+        return await _replan_impl(state, config, deps)
 
     return replan

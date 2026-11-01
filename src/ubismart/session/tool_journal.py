@@ -44,9 +44,10 @@ def _safe(value: Any) -> Any:
     # artifact 通常是可 JSON 化的 dict；不是的话转成字符串，别让日志写失败。
     try:
         json.dumps(value, ensure_ascii=False, default=str)
-        return value
     except (TypeError, ValueError):
         return str(value)
+    else:
+        return value
 
 
 def _redact_value(value: Any) -> Any:

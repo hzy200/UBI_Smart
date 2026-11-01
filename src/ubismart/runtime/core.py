@@ -528,22 +528,9 @@ class AgentRuntime(
             self._stream_active = False
             self._release_workspace_lock()
 
-    async def _run_unlocked(
-        self, prompt: str, *, thread_id: str, plan_only: bool = False
-    ) -> AsyncIterator[Event]:
-        # 新一轮先作废旧指令。**必须放在任何耗时初始化之前**：Web 在 run 的
-        # SSE 响应建立后、TUI 在 _execute 一开始就能提交 /pause /cancel，
-        # 而记忆读取、仓库画像探测、checkpoint 回读可能要数秒 —— 放到后面
-        # 会把这段时间里提交的指令静默清掉（审计只留下"用户提交过"）。
-        #
-        # run_id 让“新旧”有明确边界：旧 run 的 add/replan 会被清掉，本 run
-        # 开始后提交的指令则会自动绑定这个 id；清理结果落审计。
-        stale = self.steering.begin_run(thread_id, uuid4().hex[:12])
-        if stale:
-            self._audit_discarded_steering(
-                thread_id, stale, "新 run 开始"
-            )
-
+    def _load_memories_for_run(
+        self, prompt: str, thread_id: str
+    ) -> list[Any]:
         # 读记忆是增强信息：沙箱/文件异常时按空记忆继续，不能因此中断整轮。
         # 与 worker 的 `_memories()`、分层指令的降级策略保持一致。
         try:
@@ -562,8 +549,8 @@ class AgentRuntime(
                         ),
                     )
                 )
-            except Exception as exc:  # noqa: BLE001 - 审计失败也不阻断运行
-                _swallow_audit("audit_memory_load_failed", exc)
+            except Exception as audit_exc:  # noqa: BLE001 - 审计失败也不阻断运行
+                _swallow_audit("audit_memory_load_failed", audit_exc)
         unsafe = getattr(self.memory, "last_unsafe", [])
         if unsafe:
             try:
@@ -580,30 +567,42 @@ class AgentRuntime(
                 )
             except Exception as exc:  # noqa: BLE001 - 审计失败不阻断运行
                 _swallow_audit("audit_memory_unsafe_skipped", exc)
+        return memories
 
+    def _load_project_instructions(self) -> str:
         # 分层项目指令是增强信息：发现失败（沙箱不可用、find 缺失）不影响运行
-        instructions = ""
-        if (
+        if not (
             self.settings.instructions_enabled
             and self.workspace_kind != "host"
         ):
-            try:
-                from ubismart.identity.instructions import load_project_instructions
+            return ""
+        try:
+            from ubismart.identity.instructions import load_project_instructions
 
-                instructions = load_project_instructions(
-                    self._sandbox,
-                    self.workspace,
-                    trusted=self.settings.trust_repo_instructions,
-                )
-            except Exception:  # noqa: BLE001 - 指令加载失败不应阻断任务
-                instructions = ""
+            return load_project_instructions(
+                self._sandbox,
+                self.workspace,
+                trusted=self.settings.trust_repo_instructions,
+            )
+        except Exception:  # noqa: BLE001 - 指令加载失败不应阻断任务
+            return ""
 
-        # 成本策略 / 编排策略都需要仓库画像；只开启其中任一功能时才探一次。
-        profile = (
-            self._repo_profile()
-            if self.settings.explore_enabled or self.settings.orchestrator_enabled
-            else RepoProfile()
+    def _audit_recovery_notice(self, thread_id: str, notice: str) -> None:
+        if not notice:
+            return
+        self._audit(
+            AuditRecord(
+                ts=now_iso(),
+                kind=audit_models.RECOVERY,
+                thread_id=thread_id,
+                workspace=self.workspace,
+                detail=truncate(notice),
+            )
         )
+
+    def _delegation_plan(
+        self, prompt: str, profile: RepoProfile, *, plan_only: bool
+    ) -> tuple[Any, str, bool]:
         policy = delegation_policy(profile, self.settings)
         execution_mode = "direct"
         if (
@@ -615,6 +614,36 @@ class AgentRuntime(
         # 会让同一片代码被探索两次，且两套预算互不相干。direct 路径不变。
         inline_delegation = bool(
             policy.allowed and execution_mode != "orchestrated"
+        )
+        return policy, execution_mode, inline_delegation
+
+    async def _run_unlocked(
+        self, prompt: str, *, thread_id: str, plan_only: bool = False
+    ) -> AsyncIterator[Event]:
+        # 新一轮先作废旧指令。**必须放在任何耗时初始化之前**：Web 在 run 的
+        # SSE 响应建立后、TUI 在 _execute 一开始就能提交 /pause /cancel，
+        # 而记忆读取、仓库画像探测、checkpoint 回读可能要数秒 —— 放到后面
+        # 会把这段时间里提交的指令静默清掉（审计只留下"用户提交过"）。
+        #
+        # run_id 让“新旧”有明确边界：旧 run 的 add/replan 会被清掉，本 run
+        # 开始后提交的指令则会自动绑定这个 id；清理结果落审计。
+        stale = self.steering.begin_run(thread_id, uuid4().hex[:12])
+        if stale:
+            self._audit_discarded_steering(
+                thread_id, stale, "新 run 开始"
+            )
+
+        memories = self._load_memories_for_run(prompt, thread_id)
+        instructions = self._load_project_instructions()
+
+        # 成本策略 / 编排策略都需要仓库画像；只开启其中任一功能时才探一次。
+        profile = (
+            self._repo_profile()
+            if self.settings.explore_enabled or self.settings.orchestrator_enabled
+            else RepoProfile()
+        )
+        policy, execution_mode, inline_delegation = self._delegation_plan(
+            prompt, profile, plan_only=plan_only
         )
 
         # 上一次 checkpoint 的消息有两个用途：
@@ -631,16 +660,7 @@ class AgentRuntime(
             else ""
         )
         recovery_notice = self._recovery_notice(prior)
-        if recovery_notice:
-            self._audit(
-                AuditRecord(
-                    ts=now_iso(),
-                    kind=audit_models.RECOVERY,
-                    thread_id=thread_id,
-                    workspace=self.workspace,
-                    detail=truncate(recovery_notice),
-                )
-            )
+        self._audit_recovery_notice(thread_id, recovery_notice)
 
         attachments = self._attachment_inventory(thread_id)
         if attachments:

@@ -49,6 +49,81 @@ def _finish(run: dict[str, Any], status: str) -> dict[str, Any]:
     return run
 
 
+def _apply_tool_call(current: dict[str, Any], record: dict[str, Any]) -> None:
+    current["tool_calls"] = int(current["tool_calls"]) + 1
+    if record.get("ok") is False:
+        current["failed_tools"] = int(current["failed_tools"]) + 1
+
+
+def _apply_file_change(
+    current: dict[str, Any], record: dict[str, Any]
+) -> None:
+    path = str(record.get("path") or "")
+    if not path:
+        return
+    item = current["files"].get(path)
+    if item is None:
+        item = {
+            "path": path,
+            "snapshot_id": str(record.get("snapshot_id") or ""),
+            "action": str(record.get("action") or ""),
+            "added": 0,
+            "removed": 0,
+        }
+        current["files"][path] = item
+    elif not item["snapshot_id"]:
+        item["snapshot_id"] = str(record.get("snapshot_id") or "")
+    item["added"] = int(item["added"]) + int(record.get("added") or 0)
+    item["removed"] = int(item["removed"]) + int(
+        record.get("removed") or 0
+    )
+
+
+def _apply_plan(current: dict[str, Any], record: dict[str, Any]) -> None:
+    steps = record.get("steps")
+    if isinstance(steps, list) and steps:
+        current["plan"] = [str(step) for step in steps][:20]
+
+
+def _apply_run_end(current: dict[str, Any], record: dict[str, Any]) -> None:
+    kind = str(record.get("kind") or "")
+    current["ended_at"] = str(record.get("ts") or "")
+    if kind == audit_models.RUN_ERROR:
+        current["status"] = "failed"
+        current["error"] = str(record.get("detail") or "")[:2000]
+    else:
+        current["status"] = "ok"
+        current["answer"] = str(record.get("detail") or "")[:4000]
+    current["input_tokens"] = int(record.get("input_tokens") or 0)
+    current["output_tokens"] = int(record.get("output_tokens") or 0)
+    current["worker_input_tokens"] = int(
+        record.get("worker_input_tokens") or 0
+    )
+    current["worker_output_tokens"] = int(
+        record.get("worker_output_tokens") or 0
+    )
+    current["cost_usd"] = float(record.get("cost_usd") or 0.0)
+    current["provider"] = str(
+        record.get("provider") or current["provider"]
+    )
+    current["model"] = str(record.get("model") or current["model"])
+
+
+def _apply_record(current: dict[str, Any], record: dict[str, Any]) -> bool:
+    """把一条记录并入当前运行；返回该运行是否在此记录上收尾。"""
+    kind = str(record.get("kind") or "")
+    if kind == audit_models.TOOL_CALL:
+        _apply_tool_call(current, record)
+    elif kind == audit_models.FILE_CHANGE:
+        _apply_file_change(current, record)
+    elif kind == audit_models.PLAN:
+        _apply_plan(current, record)
+    elif kind in (audit_models.RUN_END, audit_models.RUN_ERROR):
+        _apply_run_end(current, record)
+        return True
+    return False
+
+
 def build_runs(
     records: list[dict[str, Any]], *, limit: int = 20
 ) -> list[dict[str, Any]]:
@@ -66,77 +141,7 @@ def build_runs(
             continue
         if current is None:
             continue
-        if kind == audit_models.TOOL_CALL:
-            current["tool_calls"] = int(current["tool_calls"]) + 1
-            if record.get("ok") is False:
-                current["failed_tools"] = int(
-                    current["failed_tools"]
-                ) + 1
-        elif kind == audit_models.FILE_CHANGE:
-            path = str(record.get("path") or "")
-            if not path:
-                continue
-            item = current["files"].get(path)
-            if item is None:
-                item = {
-                    "path": path,
-                    "snapshot_id": str(
-                        record.get("snapshot_id") or ""
-                    ),
-                    "action": str(record.get("action") or ""),
-                    "added": 0,
-                    "removed": 0,
-                }
-                current["files"][path] = item
-            elif not item["snapshot_id"]:
-                item["snapshot_id"] = str(
-                    record.get("snapshot_id") or ""
-                )
-            item["added"] = int(item["added"]) + int(
-                record.get("added") or 0
-            )
-            item["removed"] = int(item["removed"]) + int(
-                record.get("removed") or 0
-            )
-        elif kind == audit_models.PLAN:
-            steps = record.get("steps")
-            if isinstance(steps, list) and steps:
-                current["plan"] = [
-                    str(step) for step in steps
-                ][:20]
-        elif kind in (audit_models.RUN_END, audit_models.RUN_ERROR):
-            current["ended_at"] = str(record.get("ts") or "")
-            if kind == audit_models.RUN_ERROR:
-                current["status"] = "failed"
-                current["error"] = str(
-                    record.get("detail") or ""
-                )[:2000]
-            else:
-                current["status"] = "ok"
-                current["answer"] = str(
-                    record.get("detail") or ""
-                )[:4000]
-            current["input_tokens"] = int(
-                record.get("input_tokens") or 0
-            )
-            current["output_tokens"] = int(
-                record.get("output_tokens") or 0
-            )
-            current["worker_input_tokens"] = int(
-                record.get("worker_input_tokens") or 0
-            )
-            current["worker_output_tokens"] = int(
-                record.get("worker_output_tokens") or 0
-            )
-            current["cost_usd"] = float(
-                record.get("cost_usd") or 0.0
-            )
-            current["provider"] = str(
-                record.get("provider") or current["provider"]
-            )
-            current["model"] = str(
-                record.get("model") or current["model"]
-            )
+        if _apply_record(current, record):
             runs.append(_finish(current, current["status"]))
             current = None
     if current is not None:

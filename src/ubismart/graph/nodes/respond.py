@@ -9,6 +9,7 @@ Ctrl-C 在它生成期间不生效（见 graph/nodes/act.py 的说明）。
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -67,6 +68,202 @@ CANCELLED_NOTE = (
 )
 
 
+@dataclass
+class _RespondDeps:
+    llm: BaseChatModel
+    max_repair_rounds: int
+    budget: ContextBudget
+    retry_attempts: int
+    retry_base_delay: float
+    retry_max_delay: float
+    retry_max_total_wait: float
+
+
+def _last_verification(state: AgentState) -> dict[str, Any]:
+    # replan 会清空 verification（旧结论针对旧做法）；收尾要看运行级快照。
+    return (
+        state.get("last_verification")
+        or state.get("verification")
+        or {}
+    )
+
+
+def _verification_note(
+    verification: dict[str, Any], state: AgentState, max_repair_rounds: int
+) -> str:
+    if verification.get("status") == "error":
+        return "\n\n" + VERIFICATION_ERROR_NOTE.format(
+            summary=str(verification.get("summary", "")).strip()
+            or "（无摘要）",
+        )
+    if verification.get("status") != "failed":
+        return ""
+    issues = verification.get("issues") or []
+    listed = "\n".join(
+        f"- {i.get('location', '')} {i.get('message', '')}".strip()
+        for i in issues[:10]
+    )
+    attempt = state.get("retry", 0)
+    exhausted = attempt > 0 and attempt >= max_repair_rounds
+    return "\n\n" + VERIFICATION_FAILED_NOTE.format(
+        command=verification.get("command", ""),
+        summary=str(verification.get("summary", "")).strip() or "（无摘要）",
+        issues=listed or "（无结构化信息）",
+        attempts=(
+            REPAIRS_EXHAUSTED.format(attempt=attempt) if exhausted else ""
+        ),
+    )
+
+
+def _guard_notes(state: AgentState) -> str:
+    notes = ""
+    # 与 routing 的判定对齐：预算耗尽且没改动，说明这一步没做成
+    if state.get("budget_exhausted") and not state.get("dirty"):
+        notes += "\n\n" + BUDGET_EXHAUSTED_NOTE
+
+    # 运行级护栏：多步任务一次写操作都没有，收尾时必须提醒模型别编造完成。
+    # 实测踩过：委派探索把「读」做完了，主 agent 一步没写，却在最终答复里
+    # 声称「功能已实现、测试全过」。判定层会判负，但用户看到的是假成功。
+    if not state.get("run_dirty") and len(state.get("plan") or []) > 1:
+        notes += "\n\n" + NO_CHANGES_NOTE
+
+    if state.get("steering_cancelled"):
+        notes += "\n\n" + CANCELLED_NOTE
+
+    summary = summarize_messages(state["messages"])
+    if summary:
+        notes += (
+            "\n\n较早上下文摘要（原始消息可能已裁剪；"
+            "需要精确内容时请重新读取文件）：\n" + summary
+        )
+    return notes
+
+
+def _respond_system(state: AgentState, deps: _RespondDeps) -> str:
+    system = RESPOND_PROMPT + format_memory_note(state.get("memories"))
+    verification = _last_verification(state)
+    system += _verification_note(
+        verification, state, deps.max_repair_rounds
+    )
+    system += _guard_notes(state)
+    return system
+
+
+async def _invoke_model(
+    messages: list[Any],
+    config: RunnableConfig,
+    deps: _RespondDeps,
+    retry_events: list[dict[str, Any]],
+) -> Any:
+    return await retry_async(
+        lambda: deps.llm.ainvoke(messages, config),
+        attempts=deps.retry_attempts,
+        base_delay=deps.retry_base_delay,
+        max_delay=deps.retry_max_delay,
+        max_total_wait=deps.retry_max_total_wait,
+        on_retry=retry_events.append,
+        label="respond",
+    )
+
+
+async def _invoke_tighter(
+    state: AgentState,
+    config: RunnableConfig,
+    deps: _RespondDeps,
+    system: str,
+    retry_events: list[dict[str, Any]],
+) -> tuple[Any, Any]:
+    tighter = tighter_budget(deps.budget)
+    tighter_history, tighter_report = trim_messages(
+        state["messages"], tighter
+    )
+    messages = [
+        SystemMessage(content=system),
+        *tighter_history,
+        HumanMessage(content=RESPOND_INSTRUCTION),
+    ]
+    answer = await _invoke_model(messages, config, deps, retry_events)
+    return answer, tighter_report
+
+
+def _append_note(answer: Any, note: str) -> Any:
+    return answer.model_copy(
+        update={"content": text_of(answer).rstrip() + note}
+    )
+
+
+def _apply_deterministic_notes(
+    answer: Any, verification: dict[str, Any], state: AgentState
+) -> Any:
+    # 确定性护栏：模型可能忽略提示，仍然声称成功。验证失败是事实，
+    # 直接追加到用户可见的答复里，不依赖模型自觉。
+    if verification.get("status") == "failed":
+        summary = str(verification.get("summary", "")).strip()
+        note = (
+            "\n\n（系统提示：本次运行最后一次自动验证未通过"
+            + (f"：{summary}" if summary else "")
+            + "。以上答复不能视为任务已完成。）"
+        )
+        answer = _append_note(answer, note)
+    elif verification.get("status") == "error":
+        summary = str(verification.get("summary", "")).strip()
+        note = (
+            "\n\n（系统提示：本次运行的自动验证未能执行"
+            + (f"：{summary}" if summary else "")
+            + "。这不代表验证通过，以上答复不能视为任务已完成。）"
+        )
+        answer = _append_note(answer, note)
+
+    # 取消是用户可见的事实，同样不能只靠模型自觉。
+    if state.get("steering_cancelled"):
+        answer = _append_note(
+            answer, "\n\n（系统提示：本次运行已按用户要求取消。）"
+        )
+    return answer
+
+
+async def _respond_impl(
+    state: AgentState, config: RunnableConfig, deps: _RespondDeps
+) -> dict[str, Any]:
+    system = _respond_system(state, deps)
+    retry_events: list[dict[str, Any]] = []
+    verification = _last_verification(state)
+    history, trim_report = trim_messages(state["messages"], deps.budget)
+    messages = [
+        SystemMessage(content=system),
+        *history,
+        HumanMessage(content=RESPOND_INSTRUCTION),
+    ]
+    try:
+        answer = await _invoke_model(
+            messages, config, deps, retry_events
+        )
+    except Exception as exc:  # noqa: BLE001
+        if not is_context_length_error(exc):
+            raise
+        answer, trim_report = await _invoke_tighter(
+            state, config, deps, system, retry_events
+        )
+
+    answer = _apply_deterministic_notes(answer, verification, state)
+    return {
+        "messages": [answer],
+        "run_status": "finished",
+        "transient_retries": len(retry_events),
+        "context_trim": {
+            **{
+                "trimmed": trim_report.trimmed,
+                "before_chars": trim_report.before_chars,
+                "after_chars": trim_report.after_chars,
+                "before_tokens": trim_report.before_tokens,
+                "after_tokens": trim_report.after_tokens,
+                "escalated": trim_report.escalated,
+            },
+            "node": "respond",
+        },
+    }
+
+
 def make_respond_node(
     llm: BaseChatModel,
     *,
@@ -77,135 +274,17 @@ def make_respond_node(
     retry_max_delay: float = 30.0,
     retry_max_total_wait: float = 60.0,
 ) -> Callable[[AgentState, RunnableConfig], Awaitable[dict[str, Any]]]:
-    budget = budget or ContextBudget()
+    deps = _RespondDeps(
+        llm=llm,
+        max_repair_rounds=max_repair_rounds,
+        budget=budget or ContextBudget(),
+        retry_attempts=retry_attempts,
+        retry_base_delay=retry_base_delay,
+        retry_max_delay=retry_max_delay,
+        retry_max_total_wait=retry_max_total_wait,
+    )
 
     async def respond(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        system = RESPOND_PROMPT + format_memory_note(state.get("memories"))
-        retry_events: list[dict[str, Any]] = []
-
-        async def _invoke(messages: list[Any]) -> Any:
-            return await retry_async(
-                lambda: llm.ainvoke(messages, config),
-                attempts=retry_attempts,
-                base_delay=retry_base_delay,
-                max_delay=retry_max_delay,
-                max_total_wait=retry_max_total_wait,
-                on_retry=retry_events.append,
-                label="respond",
-            )
-        # replan 会清空 verification（旧结论针对旧做法）；收尾要看运行级快照。
-        verification = (
-            state.get("last_verification")
-            or state.get("verification")
-            or {}
-        )
-        if verification.get("status") == "error":
-            system += "\n\n" + VERIFICATION_ERROR_NOTE.format(
-                summary=str(verification.get("summary", "")).strip()
-                or "（无摘要）",
-            )
-        elif verification.get("status") == "failed":
-            issues = verification.get("issues") or []
-            listed = "\n".join(
-                f"- {i.get('location', '')} {i.get('message', '')}".strip() for i in issues[:10]
-            )
-            attempt = state.get("retry", 0)
-            exhausted = attempt > 0 and attempt >= max_repair_rounds
-            system += "\n\n" + VERIFICATION_FAILED_NOTE.format(
-                command=verification.get("command", ""),
-                summary=str(verification.get("summary", "")).strip() or "（无摘要）",
-                issues=listed or "（无结构化信息）",
-                attempts=REPAIRS_EXHAUSTED.format(attempt=attempt) if exhausted else "",
-            )
-
-        # 与 routing 的判定对齐：预算耗尽且没改动，说明这一步没做成
-        if state.get("budget_exhausted") and not state.get("dirty"):
-            system += "\n\n" + BUDGET_EXHAUSTED_NOTE
-
-        # 运行级护栏：多步任务一次写操作都没有，收尾时必须提醒模型别编造完成。
-        # 实测踩过：委派探索把「读」做完了，主 agent 一步没写，却在最终答复里
-        # 声称「功能已实现、测试全过」。判定层会判负，但用户看到的是假成功。
-        if not state.get("run_dirty") and len(state.get("plan") or []) > 1:
-            system += "\n\n" + NO_CHANGES_NOTE
-
-        if state.get("steering_cancelled"):
-            system += "\n\n" + CANCELLED_NOTE
-
-        summary = summarize_messages(state["messages"])
-        if summary:
-            system += (
-                "\n\n较早上下文摘要（原始消息可能已裁剪；"
-                "需要精确内容时请重新读取文件）：\n" + summary
-            )
-        history, trim_report = trim_messages(state["messages"], budget)
-        messages = [
-            SystemMessage(content=system),
-            *history,
-            HumanMessage(content=RESPOND_INSTRUCTION),
-        ]
-        try:
-            answer = await _invoke(messages)
-        except Exception as exc:  # noqa: BLE001
-            if not is_context_length_error(exc):
-                raise
-            tighter = tighter_budget(budget)
-            tighter_history, tighter_report = trim_messages(
-                state["messages"], tighter
-            )
-            trim_report = tighter_report
-            messages = [
-                SystemMessage(content=system),
-                *tighter_history,
-                HumanMessage(content=RESPOND_INSTRUCTION),
-            ]
-            answer = await _invoke(messages)
-
-        # 确定性护栏：模型可能忽略提示，仍然声称成功。验证失败是事实，
-        # 直接追加到用户可见的答复里，不依赖模型自觉。
-        if verification.get("status") == "failed":
-            summary = str(verification.get("summary", "")).strip()
-            note = (
-                "\n\n（系统提示：本次运行最后一次自动验证未通过"
-                + (f"：{summary}" if summary else "")
-                + "。以上答复不能视为任务已完成。）"
-            )
-            answer = answer.model_copy(
-                update={"content": text_of(answer).rstrip() + note}
-            )
-        elif verification.get("status") == "error":
-            summary = str(verification.get("summary", "")).strip()
-            note = (
-                "\n\n（系统提示：本次运行的自动验证未能执行"
-                + (f"：{summary}" if summary else "")
-                + "。这不代表验证通过，以上答复不能视为任务已完成。）"
-            )
-            answer = answer.model_copy(
-                update={"content": text_of(answer).rstrip() + note}
-            )
-
-        # 取消是用户可见的事实，同样不能只靠模型自觉。
-        if state.get("steering_cancelled"):
-            answer = answer.model_copy(
-                update={
-                    "content": text_of(answer).rstrip()
-                    + "\n\n（系统提示：本次运行已按用户要求取消。）"
-                }
-            )
-        return {
-            "messages": [answer],
-            "run_status": "finished",
-            "transient_retries": len(retry_events),
-            "context_trim": {
-                **{
-                    "trimmed": trim_report.trimmed,
-                    "before_chars": trim_report.before_chars,
-                    "after_chars": trim_report.after_chars,
-                    "before_tokens": trim_report.before_tokens,
-                    "after_tokens": trim_report.after_tokens,
-                    "escalated": trim_report.escalated,
-                },
-                "node": "respond",
-            },
-        }
+        return await _respond_impl(state, config, deps)
 
     return respond

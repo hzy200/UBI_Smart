@@ -98,6 +98,126 @@ def _append_task(
     return task, task_id
 
 
+def _cancel_updates(
+    commands: list[SteeringCommand],
+    state: AgentState,
+    *,
+    has_cancel: bool,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    updates: dict[str, Any] = {}
+    applied: list[dict[str, str]] = []
+    status = dict(state.get("task_status") or {})
+    if has_cancel:
+        for task_id, value in list(status.items()):
+            if value == "pending":
+                status[task_id] = "cancelled"
+        updates["steering_cancelled"] = True
+        # 同批若还带了 replan，也不该再触发一次重规划。
+        updates["steering_replan"] = False
+        applied.append(
+            {
+                "action": "cancel",
+                "task_id": "",
+                "detail": "已停止派发后续任务",
+            }
+        )
+    if status:
+        updates["task_status"] = status
+    for command in commands:
+        if command.action == "cancel":
+            continue
+        applied.append(
+            {
+                "action": command.action,
+                "task_id": "",
+                "detail": "任务已取消，指令未执行",
+            }
+        )
+    return updates, applied
+
+
+def _add_application(
+    command: SteeringCommand,
+    *,
+    final: bool,
+    allow_add: bool,
+    orchestrated: bool,
+    tasks: list[dict[str, Any]],
+    status: dict[str, str],
+    plan: list[str],
+    plan_kinds: list[str],
+) -> tuple[bool, bool, dict[str, str]]:
+    if final:
+        return False, False, {
+            "action": "add",
+            "task_id": "",
+            "detail": "任务已进入收尾，追加命令未执行",
+        }
+    if not allow_add:
+        return False, False, {
+            "action": "add",
+            "task_id": "",
+            "detail": "当前阶段不支持追加任务",
+        }
+    if orchestrated:
+        task, task_id = _append_task(tasks, status, command)
+        return True, False, {
+            "action": "add",
+            "task_id": task_id,
+            "detail": f"已追加只读任务：{task['goal']}",
+        }
+    goal = command.text or "用户追加的只读任务"
+    plan.append(goal)
+    plan_kinds.append(_ROLE_TO_KIND.get(command.role, UNKNOWN))
+    return False, True, {
+        "action": "add",
+        "task_id": "",
+        "detail": f"已追加计划步骤：{goal}",
+    }
+
+
+def _replan_application(
+    command: SteeringCommand,
+    *,
+    final: bool,
+    allow_replan: bool,
+    replan_selected: bool,
+    used_replans: int,
+    max_replans: int,
+) -> tuple[bool, bool, dict[str, str]]:
+    """返回 (replan_selected, set_flag, applied)。"""
+    if final:
+        return replan_selected, False, {
+            "action": "replan",
+            "task_id": "",
+            "detail": "任务已进入收尾，重规划未执行",
+        }
+    if not allow_replan:
+        return replan_selected, False, {
+            "action": "replan",
+            "task_id": "",
+            "detail": "当前阶段不支持重规划",
+        }
+    if replan_selected:
+        # 同批多条 /replan 只需要执行一次，不能重复消耗额度。
+        return True, False, {
+            "action": "replan",
+            "task_id": "",
+            "detail": "已包含在本次重规划中",
+        }
+    if used_replans >= max_replans:
+        return replan_selected, False, {
+            "action": "replan",
+            "task_id": "",
+            "detail": f"重规划次数已达上限 {max_replans}",
+        }
+    return True, True, {
+        "action": "replan",
+        "task_id": "",
+        "detail": "剩余工作将重新规划",
+    }
+
+
 def _apply_commands(
     commands: list[SteeringCommand],
     state: AgentState,
@@ -125,30 +245,7 @@ def _apply_commands(
     # 取消一旦成立，本批不允许再产生任何可执行更新。already_cancelled 时也
     # 不走正常路径：路由已经不会再派发，再报"已追加"只会误导用户。
     if has_cancel or already_cancelled:
-        status = dict(state.get("task_status") or {})
-        if has_cancel:
-            for task_id, value in list(status.items()):
-                if value == "pending":
-                    status[task_id] = "cancelled"
-            updates["steering_cancelled"] = True
-            # 同批若还带了 replan，也不该再触发一次重规划。
-            updates["steering_replan"] = False
-            applied.append(
-                {"action": "cancel", "task_id": "", "detail": "已停止派发后续任务"}
-            )
-        if status:
-            updates["task_status"] = status
-        for command in commands:
-            if command.action == "cancel":
-                continue
-            applied.append(
-                {
-                    "action": command.action,
-                    "task_id": "",
-                    "detail": "任务已取消，指令未执行",
-                }
-            )
-        return updates, applied
+        return _cancel_updates(commands, state, has_cancel=has_cancel)
 
     tasks = [dict(task) for task in (state.get("tasks") or [])]
     status = dict(state.get("task_status") or {})
@@ -163,91 +260,32 @@ def _apply_commands(
 
     for command in commands:
         if command.action == "add":
-            if final:
-                applied.append(
-                    {
-                        "action": "add",
-                        "task_id": "",
-                        "detail": "任务已进入收尾，追加命令未执行",
-                    }
-                )
-                continue
-            if not allow_add:
-                applied.append(
-                    {
-                        "action": "add",
-                        "task_id": "",
-                        "detail": "当前阶段不支持追加任务",
-                    }
-                )
-                continue
-            if orchestrated:
-                task, task_id = _append_task(tasks, status, command)
-                added_task = True
-                applied.append(
-                    {
-                        "action": "add",
-                        "task_id": task_id,
-                        "detail": f"已追加只读任务：{task['goal']}",
-                    }
-                )
-            else:
-                goal = command.text or "用户追加的只读任务"
-                plan.append(goal)
-                plan_kinds.append(_ROLE_TO_KIND.get(command.role, UNKNOWN))
-                added_step = True
-                applied.append(
-                    {
-                        "action": "add",
-                        "task_id": "",
-                        "detail": f"已追加计划步骤：{goal}",
-                    }
-                )
-
-        elif command.action == "replan":
-            if final:
-                applied.append(
-                    {
-                        "action": "replan",
-                        "task_id": "",
-                        "detail": "任务已进入收尾，重规划未执行",
-                    }
-                )
-                continue
-            if not allow_replan:
-                applied.append(
-                    {
-                        "action": "replan",
-                        "task_id": "",
-                        "detail": "当前阶段不支持重规划",
-                    }
-                )
-                continue
-            if replan_selected:
-                # 同批多条 /replan 只需要执行一次，不能重复消耗额度。
-                applied.append(
-                    {
-                        "action": "replan",
-                        "task_id": "",
-                        "detail": "已包含在本次重规划中",
-                    }
-                )
-                continue
-            if used_replans >= settings.max_replans:
-                applied.append(
-                    {
-                        "action": "replan",
-                        "task_id": "",
-                        "detail": f"重规划次数已达上限 {settings.max_replans}",
-                    }
-                )
-                continue
-            replan_selected = True
-            updates["steering_replan"] = True
-            updates["steering_replans"] = used_replans + 1
-            applied.append(
-                {"action": "replan", "task_id": "", "detail": "剩余工作将重新规划"}
+            task_added, step_added, entry = _add_application(
+                command,
+                final=final,
+                allow_add=allow_add,
+                orchestrated=orchestrated,
+                tasks=tasks,
+                status=status,
+                plan=plan,
+                plan_kinds=plan_kinds,
             )
+            added_task = added_task or task_added
+            added_step = added_step or step_added
+            applied.append(entry)
+        elif command.action == "replan":
+            replan_selected, set_flag, entry = _replan_application(
+                command,
+                final=final,
+                allow_replan=allow_replan,
+                replan_selected=replan_selected,
+                used_replans=used_replans,
+                max_replans=settings.max_replans,
+            )
+            if set_flag:
+                updates["steering_replan"] = True
+                updates["steering_replans"] = used_replans + 1
+            applied.append(entry)
 
     if orchestrated and added_task:
         updates["tasks"] = tasks

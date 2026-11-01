@@ -91,174 +91,226 @@ class RateLimitCoordinator:
         self._cache_size = stat.st_size
         return payload if isinstance(payload, dict) else None
 
-    def _sync_from_shared_locked(self) -> None:
-        if self.path is not None:
-            try:
-                self.path.stat()
-            except OSError:
-                # 共享文件被删除（例如另一个进程 reset）：同步清空本地状态。
-                self._providers.clear()
-                self._global_until = 0.0
-                self._cache_mtime = -1.0
-                self._cache_size = -1
-                return
-        payload = self._read_shared_locked()
-        if not payload:
-            return
+    def _clear_shared_state_locked(self) -> None:
+        # 共享文件被删除（例如另一个进程 reset）：同步清空本地状态。
+        self._providers.clear()
+        self._global_until = 0.0
+        self._cache_mtime = -1.0
+        self._cache_size = -1
+
+    def _merge_global_locked(self, payload: dict[str, Any]) -> None:
         try:
             self._global_until = max(
                 self._global_until, float(payload.get("global_until", 0.0))
             )
         except (TypeError, ValueError):
             pass
-        providers = payload.get("providers")
-        if not isinstance(providers, dict):
-            return
+
+    @staticmethod
+    def _provider_times(raw: dict[str, Any]) -> tuple[float, float]:
+        try:
+            return (
+                float(raw.get("blocked_until", 0.0)),
+                float(raw.get("updated_at", 0.0)),
+            )
+        except (TypeError, ValueError):
+            return 0.0, 0.0
+
+    @staticmethod
+    def _replace_provider_state(
+        state: ProviderState,
+        raw: dict[str, Any],
+        blocked_until: float,
+        updated_at: float,
+    ) -> None:
+        # 共享文件里是更新的状态：整体替换，success 才能清掉本地冷却。
+        state.blocked_until = blocked_until
+        state.consecutive = int(raw.get("consecutive", 0) or 0)
+        state.last_error = str(raw.get("last_error", ""))[:200]
+        state.successes = int(raw.get("successes", 0) or 0)
+        state.input_tokens = int(raw.get("input_tokens", 0) or 0)
+        state.output_tokens = int(raw.get("output_tokens", 0) or 0)
+        state.cost_usd = float(raw.get("cost_usd", 0.0) or 0.0)
+        state.cache_hit_tokens = int(raw.get("cache_hit_tokens", 0) or 0)
+        state.cache_miss_tokens = int(raw.get("cache_miss_tokens", 0) or 0)
+        state.concurrency = max(0, int(raw.get("concurrency", 0) or 0))
+        state.updated_at = updated_at
+
+    @staticmethod
+    def _merge_provider_state(
+        state: ProviderState,
+        raw: dict[str, Any],
+        blocked_until: float,
+    ) -> None:
+        if blocked_until >= state.blocked_until:
+            state.blocked_until = blocked_until
+            state.last_error = str(raw.get("last_error", ""))[:200]
+        state.consecutive = max(
+            state.consecutive, int(raw.get("consecutive", 0) or 0)
+        )
+        state.successes = max(
+            state.successes, int(raw.get("successes", 0) or 0)
+        )
+        state.input_tokens = max(
+            state.input_tokens, int(raw.get("input_tokens", 0) or 0)
+        )
+        state.output_tokens = max(
+            state.output_tokens, int(raw.get("output_tokens", 0) or 0)
+        )
+        state.cost_usd = max(
+            state.cost_usd, float(raw.get("cost_usd", 0.0) or 0.0)
+        )
+        state.cache_hit_tokens = max(
+            state.cache_hit_tokens,
+            int(raw.get("cache_hit_tokens", 0) or 0),
+        )
+        state.cache_miss_tokens = max(
+            state.cache_miss_tokens,
+            int(raw.get("cache_miss_tokens", 0) or 0),
+        )
+
+    def _merge_providers_locked(self, providers: dict[str, Any]) -> None:
         for key, raw in providers.items():
             if not isinstance(raw, dict):
                 continue
-            try:
-                blocked_until = float(raw.get("blocked_until", 0.0))
-                updated_at = float(raw.get("updated_at", 0.0))
-            except (TypeError, ValueError):
-                blocked_until, updated_at = 0.0, 0.0
+            blocked_until, updated_at = self._provider_times(raw)
             state = self._providers.setdefault(str(key), ProviderState())
             if updated_at > state.updated_at:
-                # 共享文件里是更新的状态：整体替换，success 才能清掉本地冷却。
-                state.blocked_until = blocked_until
-                state.consecutive = int(raw.get("consecutive", 0) or 0)
-                state.last_error = str(raw.get("last_error", ""))[:200]
-                state.successes = int(raw.get("successes", 0) or 0)
-                state.input_tokens = int(raw.get("input_tokens", 0) or 0)
-                state.output_tokens = int(raw.get("output_tokens", 0) or 0)
-                state.cost_usd = float(raw.get("cost_usd", 0.0) or 0.0)
-                state.cache_hit_tokens = int(
-                    raw.get("cache_hit_tokens", 0) or 0
+                self._replace_provider_state(
+                    state, raw, blocked_until, updated_at
                 )
-                state.cache_miss_tokens = int(
-                    raw.get("cache_miss_tokens", 0) or 0
-                )
-                state.concurrency = max(
-                    0, int(raw.get("concurrency", 0) or 0)
-                )
-                state.updated_at = updated_at
             else:
-                if blocked_until >= state.blocked_until:
-                    state.blocked_until = blocked_until
-                    state.last_error = str(raw.get("last_error", ""))[:200]
-                state.consecutive = max(
-                    state.consecutive, int(raw.get("consecutive", 0) or 0)
-                )
-                state.successes = max(
-                    state.successes, int(raw.get("successes", 0) or 0)
-                )
-                state.input_tokens = max(
-                    state.input_tokens, int(raw.get("input_tokens", 0) or 0)
-                )
-                state.output_tokens = max(
-                    state.output_tokens, int(raw.get("output_tokens", 0) or 0)
-                )
-                state.cost_usd = max(
-                    state.cost_usd, float(raw.get("cost_usd", 0.0) or 0.0)
-                )
-                state.cache_hit_tokens = max(
-                    state.cache_hit_tokens,
-                    int(raw.get("cache_hit_tokens", 0) or 0),
-                )
-                state.cache_miss_tokens = max(
-                    state.cache_miss_tokens,
-                    int(raw.get("cache_miss_tokens", 0) or 0),
-                )
+                self._merge_provider_state(state, raw, blocked_until)
 
+    @staticmethod
+    def _merge_run_usage(
+        current: dict[str, Any], raw_run: dict[str, Any]
+    ) -> None:
+        for field_name in (
+            "input_tokens",
+            "output_tokens",
+            "cache_hit_tokens",
+            "cache_miss_tokens",
+        ):
+            current[field_name] = max(
+                int(current.get(field_name, 0) or 0),
+                int(raw_run.get(field_name, 0) or 0),
+            )
+        current["cost_usd"] = max(
+            float(current.get("cost_usd", 0.0) or 0.0),
+            float(raw_run.get("cost_usd", 0.0) or 0.0),
+        )
+
+    def _merge_run_providers(
+        self, current: dict[str, Any], raw_providers: dict[str, Any]
+    ) -> None:
+        providers = current.setdefault("providers", {})
+        for provider_key, raw_usage in raw_providers.items():
+            if not isinstance(raw_usage, dict):
+                continue
+            provider_usage = providers.setdefault(
+                str(provider_key),
+                {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+            )
+            for field_name in (
+                "input_tokens",
+                "output_tokens",
+                "cache_hit_tokens",
+                "cache_miss_tokens",
+            ):
+                provider_usage[field_name] = max(
+                    int(provider_usage.get(field_name, 0) or 0),
+                    int(raw_usage.get(field_name, 0) or 0),
+                )
+            provider_usage["cost_usd"] = max(
+                float(provider_usage.get("cost_usd", 0.0) or 0.0),
+                float(raw_usage.get("cost_usd", 0.0) or 0.0),
+            )
+
+    def _merge_run_locked(
+        self, key: str, raw_run: dict[str, Any]
+    ) -> None:
+        raw_started = float(raw_run.get("started_at", 0.0) or 0.0)
+        current = self._runs.setdefault(key, self._empty_run())
+        current_started = float(current.get("started_at", 0.0) or 0.0)
+
+        if raw_started > current_started + 1e-6:
+            # 共享文件里是更新的一代（例如别的进程刚 start_run(reset=True)）：
+            # 整体替换，不能和旧计数取 max，否则 reset 会被立刻抵消。
+            current.clear()
+            current.update(self._empty_run(started_at=raw_started))
+            current_started = raw_started
+        elif raw_started + 1e-6 < current_started:
+            # 本地已经进入更新的一代，旧快照不应把计数抬回去。
+            return
+
+        self._merge_run_usage(current, raw_run)
+        if raw_started and not current_started:
+            current["started_at"] = raw_started
+        raw_providers = raw_run.get("providers")
+        if not isinstance(raw_providers, dict):
+            return
+        self._merge_run_providers(current, raw_providers)
+
+    def _merge_runs_locked(self, runs: dict[str, Any]) -> None:
+        for run_id, raw_run in runs.items():
+            if not isinstance(raw_run, dict):
+                continue
+            self._merge_run_locked(str(run_id), raw_run)
+
+    @staticmethod
+    def _merge_session_usage(
+        current: dict[str, Any], raw_session: dict[str, Any]
+    ) -> None:
+        # 会话用量只增不减：取 max 合并，避免跨进程写入互相覆盖。
+        for field_name in (
+            "input_tokens",
+            "output_tokens",
+            "cache_hit_tokens",
+            "cache_miss_tokens",
+        ):
+            current[field_name] = max(
+                int(current.get(field_name, 0) or 0),
+                int(raw_session.get(field_name, 0) or 0),
+            )
+        current["cost_usd"] = max(
+            float(current.get("cost_usd", 0.0) or 0.0),
+            float(raw_session.get("cost_usd", 0.0) or 0.0),
+        )
+        current["updated_at"] = max(
+            float(current.get("updated_at", 0.0) or 0.0),
+            float(raw_session.get("updated_at", 0.0) or 0.0),
+        )
+
+    def _merge_sessions_locked(self, sessions: dict[str, Any]) -> None:
+        for session_id, raw_session in sessions.items():
+            if not isinstance(raw_session, dict):
+                continue
+            current = self._sessions.setdefault(
+                str(session_id), self._empty_session()
+            )
+            self._merge_session_usage(current, raw_session)
+
+    def _sync_from_shared_locked(self) -> None:
+        if self.path is not None:
+            try:
+                self.path.stat()
+            except OSError:
+                self._clear_shared_state_locked()
+                return
+        payload = self._read_shared_locked()
+        if not payload:
+            return
+        self._merge_global_locked(payload)
+        providers = payload.get("providers")
+        if isinstance(providers, dict):
+            self._merge_providers_locked(providers)
         runs = payload.get("runs")
         if isinstance(runs, dict):
-            for run_id, raw_run in runs.items():
-                if not isinstance(raw_run, dict):
-                    continue
-                key = str(run_id)
-                raw_started = float(raw_run.get("started_at", 0.0) or 0.0)
-                current = self._runs.setdefault(key, self._empty_run())
-                current_started = float(current.get("started_at", 0.0) or 0.0)
-
-                if raw_started > current_started + 1e-6:
-                    # 共享文件里是更新的一代（例如别的进程刚 start_run(reset=True)）：
-                    # 整体替换，不能和旧计数取 max，否则 reset 会被立刻抵消。
-                    current.clear()
-                    current.update(self._empty_run(started_at=raw_started))
-                    current_started = raw_started
-                elif raw_started + 1e-6 < current_started:
-                    # 本地已经进入更新的一代，旧快照不应把计数抬回去。
-                    continue
-
-                for field_name in (
-                    "input_tokens",
-                    "output_tokens",
-                    "cache_hit_tokens",
-                    "cache_miss_tokens",
-                ):
-                    current[field_name] = max(
-                        int(current.get(field_name, 0) or 0),
-                        int(raw_run.get(field_name, 0) or 0),
-                    )
-                current["cost_usd"] = max(
-                    float(current.get("cost_usd", 0.0) or 0.0),
-                    float(raw_run.get("cost_usd", 0.0) or 0.0),
-                )
-                if raw_started and not current_started:
-                    current["started_at"] = raw_started
-                raw_providers = raw_run.get("providers")
-                if not isinstance(raw_providers, dict):
-                    continue
-                providers = current.setdefault("providers", {})
-                for provider_key, raw_usage in raw_providers.items():
-                    if not isinstance(raw_usage, dict):
-                        continue
-                    provider_usage = providers.setdefault(
-                        str(provider_key),
-                        {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
-                    )
-                    for field_name in (
-                        "input_tokens",
-                        "output_tokens",
-                        "cache_hit_tokens",
-                        "cache_miss_tokens",
-                    ):
-                        provider_usage[field_name] = max(
-                            int(provider_usage.get(field_name, 0) or 0),
-                            int(raw_usage.get(field_name, 0) or 0),
-                        )
-                    provider_usage["cost_usd"] = max(
-                        float(provider_usage.get("cost_usd", 0.0) or 0.0),
-                        float(raw_usage.get("cost_usd", 0.0) or 0.0),
-                    )
-
+            self._merge_runs_locked(runs)
         sessions = payload.get("sessions")
         if isinstance(sessions, dict):
-            for session_id, raw_session in sessions.items():
-                if not isinstance(raw_session, dict):
-                    continue
-                current = self._sessions.setdefault(
-                    str(session_id), self._empty_session()
-                )
-                # 会话用量只增不减：取 max 合并，避免跨进程写入互相覆盖。
-                for field_name in (
-                    "input_tokens",
-                    "output_tokens",
-                    "cache_hit_tokens",
-                    "cache_miss_tokens",
-                ):
-                    current[field_name] = max(
-                        int(current.get(field_name, 0) or 0),
-                        int(raw_session.get(field_name, 0) or 0),
-                    )
-                current["cost_usd"] = max(
-                    float(current.get("cost_usd", 0.0) or 0.0),
-                    float(raw_session.get("cost_usd", 0.0) or 0.0),
-                )
-                current["updated_at"] = max(
-                    float(current.get("updated_at", 0.0) or 0.0),
-                    float(raw_session.get("updated_at", 0.0) or 0.0),
-                )
+            self._merge_sessions_locked(sessions)
 
     @staticmethod
     def _empty_run(*, started_at: float = 0.0) -> dict[str, Any]:
