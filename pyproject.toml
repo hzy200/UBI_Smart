@@ -146,8 +146,8 @@ python_version = "3.11"
 strict = true
 files = [
   "src/ubismart/security",
-  "src/ubismart/access.py",
-  "src/ubismart/terminal_text.py",
+  "src/ubismart/identity/access.py",
+  "src/ubismart/protocol/terminal_text.py",
 ]
 # 存量模块尚未全量注解；先只对安全/终端边界做 strict 基线，逐步扩大。
 follow_imports = "normal"

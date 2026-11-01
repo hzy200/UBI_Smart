@@ -96,3 +96,13 @@ class ExecutionSandbox:
             object.__setattr__(self, name, value)
         else:
             setattr(self._real, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        """与 __setattr__ 对称：测试 monkeypatch 撤销时删除真实沙箱上的属性。"""
+        if name in {"_real", "_execution"}:
+            object.__delattr__(self, name)
+            return
+        try:
+            delattr(self._real, name)
+        except AttributeError:
+            object.__delattr__(self, name)

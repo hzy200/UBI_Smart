@@ -24,7 +24,8 @@ from __future__ import annotations
 import ipaddress
 import socket
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from typing import Any
+from urllib.parse import SplitResult, urlsplit
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
@@ -99,7 +100,7 @@ class PinnedTarget:
     ip: str
 
 
-def _split_target(text: str):
+def _split_target(text: str) -> SplitResult:
     """URL 层校验（scheme / userinfo / host），返回解析结果。"""
     try:
         parts = urlsplit(text)
@@ -116,7 +117,7 @@ def _split_target(text: str):
     return parts
 
 
-def _resolve_infos(host: str, port: int) -> list[tuple]:
+def _resolve_infos(host: str, port: int) -> list[tuple[Any, ...]]:
     """解析主机；解析失败与空结果都不允许外连。"""
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
@@ -127,7 +128,7 @@ def _resolve_infos(host: str, port: int) -> list[tuple]:
     return infos
 
 
-def _pin_address(infos: list[tuple], *, allow_private: bool) -> str:
+def _pin_address(infos: list[tuple[Any, ...]], *, allow_private: bool) -> str:
     """把解析结果逐个过 IP 判定，返回第一个可用地址。
 
     解析出多条记录时**全部**都要通过：只要有一条落到内网就足以发动 SSRF，
