@@ -39,7 +39,7 @@ def _audit_paths(
     ]
 
 
-def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
+def _register_run_started(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/run_started/{thread_id}")
     async def run_started(thread_id: str, request: Request) -> dict:
         context = deps.context(request)
@@ -51,6 +51,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
         finally:
             await deps.close_runtime(runtime)
 
+def _register_session_patch(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/sessions/{thread_id}/patch")
     async def session_patch(thread_id: str, request: Request) -> dict:
         """本轮改动的合并补丁。返回文本而非文件：A2 决定怎么呈现（下载/预览）。"""
@@ -61,6 +62,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
         finally:
             await deps.close_runtime(runtime)
 
+def _register_session_runs(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/sessions/{thread_id}/runs")
     async def session_runs(
         thread_id: str, request: Request, limit: int = 20
@@ -82,6 +84,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
             )
         }
 
+def _register_compare_session_runs(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/sessions/{thread_id}/runs/compare")
     async def compare_session_runs(
         thread_id: str,
@@ -133,6 +136,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
         finally:
             await deps.close_runtime(runtime)
 
+def _register_checkpoints(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/checkpoints/{thread_id}")
     async def checkpoints(
         thread_id: str, request: Request, limit: int = 20
@@ -149,6 +153,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
             await deps.close_runtime(runtime)
         return {"checkpoints": found}
 
+def _register_fork(app: FastAPI, deps: StateDeps) -> None:
     @app.post("/v1/fork/{thread_id}")
     async def fork(
         thread_id: str,
@@ -168,6 +173,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
             await deps.close_runtime(runtime)
         return {"thread_id": target}
 
+def _register_rewind(app: FastAPI, deps: StateDeps) -> None:
     @app.post("/v1/rewind/{thread_id}")
     async def rewind(
         thread_id: str,
@@ -190,6 +196,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
             await deps.close_runtime(runtime)
         return {"checkpoint_id": found}
 
+def _register_memory(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/memory")
     async def memory(request: Request, scope: str = "project") -> dict:
         context = deps.context(request)
@@ -199,6 +206,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
         finally:
             await deps.close_runtime(runtime)
 
+def _register_memory_write(app: FastAPI, deps: StateDeps) -> None:
     @app.post("/v1/memory")
     async def memory_write(body: MemoryBody, request: Request) -> dict:
         context = deps.context(request)
@@ -237,6 +245,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
             await deps.close_runtime(runtime)
         return {"facts": facts}
 
+def _register_audit(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/audit")
     async def audit(
         request: Request, thread_id: str = "", limit: int = 100
@@ -254,6 +263,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
             ]
         }
 
+def _register_sessions(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/sessions")
     async def sessions(
         request: Request, limit: int = 50, q: str = ""
@@ -280,6 +290,35 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
         ]
         return {"sessions": rows[: max(1, limit)]}
 
+def _recovery_status(state: Any, info: Any) -> str:
+    if state is not None and state.suspended:
+        return "paused"
+    if state is not None and not state.done:
+        return "running"
+    if info.interrupted:
+        return "interrupted"
+    return ""
+
+
+async def _recovery_approvals(
+    deps: StateDeps, context: AgentContext, thread_id: str
+) -> int:
+    temporary = None
+    try:
+        temporary = deps.new_runtime(context)
+        found = await temporary.pending_approvals(thread_id)
+        return len(found)
+    except Exception:  # noqa: BLE001 - 单个会话失败不影响列表
+        return 0
+    finally:
+        if temporary is not None:
+            try:
+                await deps.close_runtime(temporary)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _register_recovery(app: FastAPI, deps: StateDeps) -> None:
     @app.get("/v1/recovery")
     async def recovery(request: Request) -> dict:
         context = deps.context(request)
@@ -290,13 +329,7 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
             state = deps.states.get(
                 (_safe_tenant(context.tenant), info.thread_id)
             )
-            status = ""
-            if state is not None and state.suspended:
-                status = "paused"
-            elif state is not None and not state.done:
-                status = "running"
-            elif info.interrupted:
-                status = "interrupted"
+            status = _recovery_status(state, info)
             if not status:
                 continue
             approvals = 0
@@ -305,21 +338,9 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
                 and approval_checks < 10
             ):
                 approval_checks += 1
-                temporary = None
-                try:
-                    temporary = deps.new_runtime(context)
-                    found = await temporary.pending_approvals(
-                        info.thread_id
-                    )
-                    approvals = len(found)
-                except Exception:  # noqa: BLE001 - 单个会话失败不影响列表
-                    approvals = 0
-                finally:
-                    if temporary is not None:
-                        try:
-                            await deps.close_runtime(temporary)
-                        except Exception:  # noqa: BLE001
-                            pass
+                approvals = await _recovery_approvals(
+                    deps, context, info.thread_id
+                )
             items.append(
                 {
                     "thread_id": info.thread_id,
@@ -332,3 +353,18 @@ def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
                 }
             )
         return {"items": items}
+
+
+def register_state_routes(app: FastAPI, deps: StateDeps) -> None:
+    _register_run_started(app, deps)
+    _register_session_patch(app, deps)
+    _register_session_runs(app, deps)
+    _register_compare_session_runs(app, deps)
+    _register_checkpoints(app, deps)
+    _register_fork(app, deps)
+    _register_rewind(app, deps)
+    _register_memory(app, deps)
+    _register_memory_write(app, deps)
+    _register_audit(app, deps)
+    _register_sessions(app, deps)
+    _register_recovery(app, deps)

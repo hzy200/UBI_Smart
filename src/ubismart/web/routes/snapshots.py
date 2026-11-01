@@ -38,7 +38,7 @@ class SnapshotDeps:
     effective_access: Callable[[Any], str | None]
 
 
-def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
+def _register_snapshots(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.get("/api/snapshots")
     async def snapshots(
         user: UserDep,
@@ -64,6 +64,7 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
             await runtime.aclose()
         return {"snapshots": [asdict(entry) for entry in entries]}
 
+def _register_diff(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.get("/api/diff")
     async def diff(
         user: UserDep,
@@ -97,6 +98,7 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
             await runtime.aclose()
         return {"diff": text}
 
+def _register_restore(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.post("/api/restore")
     async def restore(
         request: RestoreRequest,
@@ -130,6 +132,7 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
         finally:
             await runtime.aclose()
 
+def _register_run_started(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.get("/api/run_started/{thread_id}")
     async def run_started(
         thread_id: str,
@@ -151,6 +154,7 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
             await runtime.aclose()
         return {"prefix": prefix}
 
+def _register_session_patch(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.get("/api/sessions/{thread_id}/patch")
     async def session_patch(
         thread_id: str,
@@ -191,6 +195,7 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
             },
         )
 
+def _register_session_runs(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.get("/api/sessions/{thread_id}/runs")
     async def session_runs(
         thread_id: str,
@@ -231,6 +236,9 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
             )
         }
 
+def _register_compare_session_runs(
+    app: FastAPI, deps: SnapshotDeps
+) -> None:
     @app.get("/api/sessions/{thread_id}/runs/compare")
     async def compare_session_runs(
         thread_id: str,
@@ -292,6 +300,7 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
         finally:
             await runtime.aclose()
 
+def _register_checkpoints(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.get("/api/checkpoints/{thread_id}")
     async def checkpoints(
         thread_id: str,
@@ -321,6 +330,7 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
             await runtime.aclose()
         return {"checkpoints": found}
 
+def _register_fork(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.post("/api/fork/{thread_id}")
     async def fork(
         thread_id: str,
@@ -383,6 +393,7 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
         )
         return {"thread_id": target_public}
 
+def _register_rewind(app: FastAPI, deps: SnapshotDeps) -> None:
     @app.post("/api/rewind/{thread_id}")
     async def rewind(
         thread_id: str,
@@ -417,3 +428,16 @@ def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
         finally:
             await runtime.aclose()
         return {"checkpoint_id": found}
+
+
+def register_snapshot_routes(app: FastAPI, deps: SnapshotDeps) -> None:
+    _register_snapshots(app, deps)
+    _register_diff(app, deps)
+    _register_restore(app, deps)
+    _register_run_started(app, deps)
+    _register_session_patch(app, deps)
+    _register_session_runs(app, deps)
+    _register_compare_session_runs(app, deps)
+    _register_checkpoints(app, deps)
+    _register_fork(app, deps)
+    _register_rewind(app, deps)

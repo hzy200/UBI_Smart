@@ -72,7 +72,13 @@ def _host_error(exc: Exception) -> HTTPException:
     )
 
 
-def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
+def _access(app: FastAPI, context: AgentContext):
+    if context.workspace_kind == "host":
+        return _host_access(app, context)
+    return LocalFileAccess(context.workspace)
+
+
+def _register_files(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/files")
     async def files(request: Request, path: str = "") -> dict:
         context = deps.context(request)
@@ -112,6 +118,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         except BrowseError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+def _register_file_content(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/file")
     async def file_content(request: Request, path: str) -> dict:
         context = deps.context(request)
@@ -142,11 +149,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         except BrowseError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    def _access(app: FastAPI, context: AgentContext):
-        if context.workspace_kind == "host":
-            return _host_access(app, context)
-        return LocalFileAccess(context.workspace)
-
+def _register_file_raw(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/file/raw")
     async def file_raw(request: Request, path: str) -> Response:
         context = deps.context(request)
@@ -178,6 +181,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             headers=headers,
         )
 
+def _register_file_document(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/file/document")
     async def file_document(
         request: Request, path: str, include_images: bool = False
@@ -208,6 +212,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             raise _host_error(exc) from exc
         return model.model_dump()
 
+def _register_search(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/search")
     async def search(
         request: Request, q: str = "", limit: int = 50
@@ -244,6 +249,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         result["content_search"] = True
         return result
 
+def _register_git(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/git")
     async def git(request: Request, diff: bool = False) -> dict:
         context = deps.context(request)
@@ -254,6 +260,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         except (BrowseError, OSError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+def _register_project(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/project")
     async def project(request: Request) -> dict:
         context = deps.context(request)
@@ -263,6 +270,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         result["desktop_mode"] = False
         return result
 
+def _register_snapshots(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/snapshots")
     async def snapshots(
         request: Request, thread_id: str, limit: int = 20
@@ -277,6 +285,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             await deps.close_runtime(runtime)
         return {"snapshots": [asdict(entry) for entry in entries]}
 
+def _register_diff(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/diff")
     async def diff(
         request: Request,
@@ -297,6 +306,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             await deps.close_runtime(runtime)
         return {"diff": text}
 
+def _register_restore(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.post("/v1/restore")
     async def restore(body: RestoreBody, request: Request) -> dict:
         context = deps.context(request)
@@ -318,6 +328,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         finally:
             await deps.close_runtime(runtime)
 
+def _register_uploads(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.post("/v1/uploads/{thread_id}")
     async def uploads(
         thread_id: str,
@@ -380,6 +391,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             await deps.close_runtime(runtime)
         return {"uploads": uploaded}
 
+def _register_list_uploads(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/v1/uploads/{thread_id}")
     async def list_uploads(thread_id: str, request: Request) -> dict:
         context = deps.context(request)
@@ -412,6 +424,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             "max_total_bytes": settings.web_max_upload_total_bytes,
         }
 
+def _register_delete_upload(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.delete("/v1/uploads/{thread_id}")
     async def delete_upload(
         thread_id: str, body: DeleteUploadBody, request: Request
@@ -430,3 +443,19 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         size = target.stat().st_size
         target.unlink()
         return {"ok": True, "bytes": size}
+
+
+def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
+    _register_files(app, deps)
+    _register_file_content(app, deps)
+    _register_file_raw(app, deps)
+    _register_file_document(app, deps)
+    _register_search(app, deps)
+    _register_git(app, deps)
+    _register_project(app, deps)
+    _register_snapshots(app, deps)
+    _register_diff(app, deps)
+    _register_restore(app, deps)
+    _register_uploads(app, deps)
+    _register_list_uploads(app, deps)
+    _register_delete_upload(app, deps)

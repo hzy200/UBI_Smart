@@ -49,14 +49,15 @@ def _not_found() -> HTMLResponse:
     )
 
 
-def register_share_routes(app: FastAPI, deps: ShareDeps) -> None:
-    def _store():
-        if deps.shares is None:
-            raise HTTPException(
-                status_code=503, detail="分享需要控制面数据库"
-            )
-        return deps.shares
+def _store(deps: ShareDeps):
+    if deps.shares is None:
+        raise HTTPException(
+            status_code=503, detail="分享需要控制面数据库"
+        )
+    return deps.shares
 
+
+def _register_create_share(app: FastAPI, deps: ShareDeps) -> None:
     @app.post("/api/sessions/{thread_id}/shares")
     async def create_share(
         thread_id: str,
@@ -64,7 +65,7 @@ def register_share_routes(app: FastAPI, deps: ShareDeps) -> None:
         user: UserDep,
     ) -> dict:
         deps.rate_limit(user)
-        store = _store()
+        store = _store(deps)
         public_thread = check_thread_id(thread_id)
         tenant, config = deps.config_and_tenant(
             user, public_thread
@@ -102,6 +103,7 @@ def register_share_routes(app: FastAPI, deps: ShareDeps) -> None:
             "path": f"/share/{token}",
         }
 
+def _register_list_shares(app: FastAPI, deps: ShareDeps) -> None:
     @app.get("/api/sessions/{thread_id}/shares")
     async def list_shares(thread_id: str, user: UserDep) -> dict:
         public_thread = check_thread_id(thread_id)
@@ -112,12 +114,14 @@ def register_share_routes(app: FastAPI, deps: ShareDeps) -> None:
             "shares": deps.shares.list(user.name, public_thread),
         }
 
+def _register_revoke_share(app: FastAPI, deps: ShareDeps) -> None:
     @app.delete("/api/shares/{share_id}")
     async def revoke_share(share_id: str, user: UserDep) -> dict:
         deps.rate_limit(user)
-        removed = _store().revoke(user.name, share_id)
+        removed = _store(deps).revoke(user.name, share_id)
         return {"ok": True, "revoked": bool(removed)}
 
+def _register_share_json(app: FastAPI, deps: ShareDeps) -> None:
     @app.get("/api/share/{token}")
     async def share_json(token: str) -> JSONResponse:
         if deps.shares is None:
@@ -133,6 +137,7 @@ def register_share_routes(app: FastAPI, deps: ShareDeps) -> None:
             )
         return JSONResponse(data, headers=_SHARE_HEADERS)
 
+def _register_share_page(app: FastAPI, deps: ShareDeps) -> None:
     @app.get("/share/{token}")
     async def share_page(token: str) -> HTMLResponse:
         if deps.shares is None:
@@ -151,3 +156,11 @@ def register_share_routes(app: FastAPI, deps: ShareDeps) -> None:
             }
         )
         return HTMLResponse(body, headers=_SHARE_HEADERS)
+
+
+def register_share_routes(app: FastAPI, deps: ShareDeps) -> None:
+    _register_create_share(app, deps)
+    _register_list_shares(app, deps)
+    _register_revoke_share(app, deps)
+    _register_share_json(app, deps)
+    _register_share_page(app, deps)

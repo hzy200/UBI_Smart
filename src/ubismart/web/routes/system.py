@@ -208,7 +208,7 @@ def _csp_record(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
+def _register_client_errors(app: FastAPI, deps: SystemDeps) -> None:
     @app.post("/api/client-errors")
     async def client_errors(request: Request) -> dict:
         """前端错误摘要 + 浏览器 CSP 违规上报。
@@ -269,6 +269,7 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
         )
         return {"ok": True}
 
+def _register_healthz(app: FastAPI, deps: SystemDeps) -> None:
     @app.get("/healthz")
     async def healthz() -> dict:
         """公开存活探针：不暴露模型、Key、工作区等配置。"""
@@ -287,6 +288,7 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
             ).get("state", "disabled"),
         }
 
+def _register_readyz(app: FastAPI, deps: SystemDeps) -> None:
     @app.get("/readyz")
     async def readyz() -> Any:
         """就绪探针：控制面库或 A3 不可用时返回 503。
@@ -296,6 +298,7 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
         """
         return _readyz(app)
 
+def _register_metrics(app: FastAPI, deps: SystemDeps) -> None:
     @app.get("/metrics")
     async def metrics(request: Request) -> PlainTextResponse:
         """Prometheus 文本导出。
@@ -305,6 +308,7 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
         """
         return _metrics(deps, request)
 
+def _register_health(app: FastAPI, deps: SystemDeps) -> None:
     @app.get("/api/health")
     async def health(user: UserDep) -> dict:
         """认证后的联通测试：不调用模型，只报配置是否齐备。"""
@@ -348,11 +352,13 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
             )
         return payload
 
+def _register_workspace(app: FastAPI, deps: SystemDeps) -> None:
     @app.get("/api/workspace")
     async def workspace(user: UserDep) -> dict:
         tenant = deps.tenant(user)
         return {"user": user.name, "workspace": tenant.workspace}
 
+def _register_capabilities(app: FastAPI, deps: SystemDeps) -> None:
     @app.get("/api/capabilities")
     async def capabilities(
         user: UserDep,
@@ -385,3 +391,13 @@ def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
             ),
             **deps.capabilities(config),
         }
+
+
+def register_system_routes(app: FastAPI, deps: SystemDeps) -> None:
+    _register_client_errors(app, deps)
+    _register_healthz(app, deps)
+    _register_readyz(app, deps)
+    _register_metrics(app, deps)
+    _register_health(app, deps)
+    _register_workspace(app, deps)
+    _register_capabilities(app, deps)

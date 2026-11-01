@@ -48,7 +48,125 @@ class OpsDeps:
     idempotency: Any | None = None
 
 
-def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
+def _recovery_via_agent(
+    deps: OpsDeps, user: AuthUser, tenant: WebTenant, data: dict
+) -> list[dict[str, Any]]:
+    rows = []
+    for item in data.get("items", []):
+        thread = str(item.get("thread_id") or "")
+        if not thread:
+            continue
+        if (user.name, thread) in deps.deleted_sessions:
+            continue
+        config = deps.config_for(
+            user, tenant, thread, create=False
+        )
+        rows.append(
+            {
+                **item,
+                "title": (
+                    (config.title if config else "")
+                    or item.get("title", "")
+                ),
+                "workspace": (
+                    config.workspace
+                    if config
+                    else item.get("workspace", "")
+                ),
+            }
+        )
+    return rows
+
+
+async def _recovery_entry_status(
+    deps: OpsDeps, entry: Any, internal: str
+) -> tuple[str, int]:
+    if getattr(entry.runtime, "_stream_active", False):
+        return "running", 0
+    if entry.runtime.is_paused(internal):
+        return "paused", 0
+    try:
+        approvals = len(
+            await entry.runtime.pending_approvals(internal)
+        )
+    except Exception:  # noqa: BLE001
+        approvals = 0
+    return ("approval" if approvals else ""), approvals
+
+
+async def _recovery_interrupted_status(
+    deps: OpsDeps,
+    tenant: WebTenant,
+    config: Any,
+    internal: str,
+) -> tuple[str, int]:
+    runtime = deps.ops_runtime(tenant, config)
+    try:
+        if runtime.is_paused(internal):
+            return "paused", 0
+        approvals = len(
+            await runtime.pending_approvals(internal)
+        )
+        if approvals:
+            return "approval", approvals
+    except Exception:  # noqa: BLE001 - 探测失败仍按中断展示
+        return "interrupted", 0
+    else:
+        return "interrupted", 0
+    finally:
+        await runtime.aclose()
+
+
+async def _recovery_local(
+    deps: OpsDeps, user: AuthUser, tenant: WebTenant
+) -> list[dict[str, Any]]:
+    found = SessionIndex(
+        tenant.settings.resolved_audit_dir
+    ).list(limit=50)
+    rows: list[dict[str, Any]] = []
+    checked = 0
+    for info in found:
+        public_thread = tenant.public_thread(info.thread_id)
+        if (user.name, public_thread) in deps.deleted_sessions:
+            continue
+        config = deps.config_for(
+            user, tenant, public_thread, create=False
+        )
+        entry = deps.get_entry(user.name, public_thread)
+        internal = tenant.thread_id(public_thread)
+        if entry is not None:
+            status, approvals = await _recovery_entry_status(
+                deps, entry, internal
+            )
+        elif info.interrupted and checked < 10:
+            checked += 1
+            status, approvals = await _recovery_interrupted_status(
+                deps, tenant, config, internal
+            )
+        else:
+            status, approvals = "", 0
+        if not status:
+            continue
+        rows.append(
+            {
+                "thread_id": public_thread,
+                "title": (
+                    (config.title if config else "")
+                    or info.title
+                    or public_thread
+                ),
+                "workspace": (
+                    config.workspace if config else info.workspace
+                ),
+                "last_active": info.last_seen,
+                "status": status,
+                "approvals": approvals,
+            }
+        )
+    return rows
+
+
+def _register_recovery(app: FastAPI, deps: OpsDeps) -> None:
     @app.get("/api/recovery")
     async def recovery(user: UserDep) -> dict:
         """列出需要用户处理的会话：待审批、暂停、异常中断或仍在运行。"""
@@ -59,99 +177,11 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
             data = await deps.agent_json(
                 user, tenant, None, "GET", "/v1/recovery"
             )
-            rows = []
-            for item in data.get("items", []):
-                thread = str(item.get("thread_id") or "")
-                if not thread:
-                    continue
-                if (user.name, thread) in deps.deleted_sessions:
-                    continue
-                config = deps.config_for(
-                    user, tenant, thread, create=False
-                )
-                rows.append(
-                    {
-                        **item,
-                        "title": (
-                            (config.title if config else "")
-                            or item.get("title", "")
-                        ),
-                        "workspace": (
-                            config.workspace
-                            if config
-                            else item.get("workspace", "")
-                        ),
-                    }
-                )
-            return {"items": rows}
-        found = SessionIndex(
-            tenant.settings.resolved_audit_dir
-        ).list(limit=50)
-        rows: list[dict[str, Any]] = []
-        checked = 0
-        for info in found:
-            public_thread = tenant.public_thread(info.thread_id)
-            if (user.name, public_thread) in deps.deleted_sessions:
-                continue
-            config = deps.config_for(
-                user, tenant, public_thread, create=False
-            )
-            entry = deps.get_entry(user.name, public_thread)
-            internal = tenant.thread_id(public_thread)
-            status = ""
-            approvals = 0
-            if entry is not None:
-                if getattr(entry.runtime, "_stream_active", False):
-                    status = "running"
-                elif entry.runtime.is_paused(internal):
-                    status = "paused"
-                else:
-                    try:
-                        approvals = len(
-                            await entry.runtime.pending_approvals(internal)
-                        )
-                    except Exception:  # noqa: BLE001
-                        approvals = 0
-                    if approvals:
-                        status = "approval"
-            elif info.interrupted and checked < 10:
-                checked += 1
-                runtime = deps.ops_runtime(tenant, config)
-                try:
-                    if runtime.is_paused(internal):
-                        status = "paused"
-                    else:
-                        approvals = len(
-                            await runtime.pending_approvals(internal)
-                        )
-                        if approvals:
-                            status = "approval"
-                        else:
-                            status = "interrupted"
-                except Exception:  # noqa: BLE001 - 探测失败仍按中断展示
-                    status = "interrupted"
-                finally:
-                    await runtime.aclose()
-            if not status:
-                continue
-            rows.append(
-                {
-                    "thread_id": public_thread,
-                    "title": (
-                        (config.title if config else "")
-                        or info.title
-                        or public_thread
-                    ),
-                    "workspace": (
-                        config.workspace if config else info.workspace
-                    ),
-                    "last_active": info.last_seen,
-                    "status": status,
-                    "approvals": approvals,
-                }
-            )
-        return {"items": rows}
+            return {"items": _recovery_via_agent(deps, user, tenant, data)}
+        return {"items": await _recovery_local(deps, user, tenant)}
 
+
+def _register_memory(app: FastAPI, deps: OpsDeps) -> None:
     @app.get("/api/memory")
     async def memory(
         user: UserDep,
@@ -170,6 +200,7 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
             await runtime.aclose()
         return {"facts": facts}
 
+def _register_memory_write(app: FastAPI, deps: OpsDeps) -> None:
     @app.post("/api/memory")
     async def memory_write(
         request: MemoryRequest,
@@ -225,6 +256,7 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
             await runtime.aclose()
         return {"facts": facts}
 
+def _register_release_lease(app: FastAPI, deps: OpsDeps) -> None:
     @app.post("/api/ops/leases/{thread_id}/release")
     async def release_lease(thread_id: str, user: UserDep) -> dict:
         """强制释放当前用户某个会话的运行租约（崩溃恢复用）。"""
@@ -239,6 +271,9 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
         )
         return {"released": bool(released)}
 
+def _register_purge_maintenance(
+    app: FastAPI, deps: OpsDeps
+) -> None:
     @app.post("/api/ops/maintenance/purge")
     async def purge_maintenance(user: UserDep) -> dict:
         """清理过期租约与幂等键。"""
@@ -255,6 +290,7 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
         )
         return {"leases": int(leases), "idempotency": int(keys)}
 
+def _register_audit(app: FastAPI, deps: OpsDeps) -> None:
     @app.get("/api/audit")
     async def audit(
         user: UserDep,
@@ -301,3 +337,12 @@ def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
                 record.model_dump(mode="json") for record in records
             ]
         }
+
+
+def register_ops_routes(app: FastAPI, deps: OpsDeps) -> None:
+    _register_recovery(app, deps)
+    _register_memory(app, deps)
+    _register_memory_write(app, deps)
+    _register_release_lease(app, deps)
+    _register_purge_maintenance(app, deps)
+    _register_audit(app, deps)

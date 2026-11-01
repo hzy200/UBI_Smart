@@ -91,7 +91,167 @@ def _row(config: Any, tenant: WebTenant, deps: SessionDeps, **extra: Any) -> dic
     }
 
 
-def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
+async def _session_rows_via_agent(
+    deps: SessionDeps,
+    user: AuthUser,
+    tenant: WebTenant,
+    q: str,
+    seen: set[str],
+) -> list[dict[str, Any]]:
+    await asyncio.to_thread(deps.load_configs, user, tenant)
+    data = await deps.agent_json(
+        user, tenant, None, "GET", "/v1/sessions",
+        params={"limit": 500, "q": q},
+    )
+    rows: list[dict[str, Any]] = []
+    for item in data.get("sessions", []):
+        thread = str(item.get("thread_id") or "")
+        if not thread or (user.name, thread) in deps.deleted_sessions:
+            continue
+        seen.add(thread)
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, thread, create=False
+        )
+        rows.append(
+            {
+                "thread_id": thread,
+                "last_active": item.get("last_active", ""),
+                "prompts": item.get("prompts", 0),
+                "tool_calls": item.get("tool_calls", 0),
+                "title": (
+                    (config.title if config else "")
+                    or item.get("title", "")
+                ),
+                "workspace": (
+                    config.workspace
+                    if config
+                    else item.get("workspace", "")
+                ),
+                "workspace_id": (
+                    config.workspace_id if config else ""
+                ),
+                "access_mode": deps.effective_access(config),
+                "model": config.model if config else "",
+                "provider": config.provider if config else "",
+                "run_count": item.get("runs", 0),
+                "interrupted": bool(item.get("interrupted")),
+                "pinned": bool(config.pinned) if config else False,
+                "archived": bool(config.archived) if config else False,
+                "tags": list(config.tags) if config else [],
+                "unread": bool(config.unread) if config else False,
+                "last_message": (
+                    config.last_message
+                    if config
+                    else str(item.get("last_message") or "")
+                ),
+            }
+        )
+    return rows
+
+
+async def _session_rows_local(
+    deps: SessionDeps,
+    user: AuthUser,
+    tenant: WebTenant,
+    seen: set[str],
+) -> list[dict[str, Any]]:
+    index = SessionIndex(tenant.settings.resolved_audit_dir)
+    rows: list[dict[str, Any]] = []
+    for info in index.list(limit=0):
+        public_thread = tenant.public_thread(info.thread_id)
+        if (user.name, public_thread) in deps.deleted_sessions:
+            continue
+        seen.add(public_thread)
+        config = await asyncio.to_thread(
+            deps.config_for, user, tenant, public_thread, create=False
+        )
+        rows.append(
+            {
+                "thread_id": public_thread,
+                "last_active": info.last_seen,
+                "prompts": info.prompts,
+                "tool_calls": info.tool_calls,
+                "title": (config.title if config else "") or info.title,
+                "workspace": (
+                    config.workspace if config else info.workspace
+                ),
+                "workspace_id": (
+                    config.workspace_id if config else ""
+                ),
+                "access_mode": deps.effective_access(config),
+                "model": config.model if config else "",
+                "provider": config.provider if config else "",
+                "run_count": info.runs,
+                "interrupted": bool(info.interrupted),
+                "pinned": bool(config.pinned) if config else False,
+                "archived": bool(config.archived) if config else False,
+                "tags": list(config.tags) if config else [],
+                "unread": bool(config.unread) if config else False,
+                "last_message": config.last_message if config else "",
+            }
+        )
+    await asyncio.to_thread(deps.load_configs, user, tenant)
+    return rows
+
+
+def _pending_session_rows(
+    deps: SessionDeps,
+    user: AuthUser,
+    tenant: WebTenant,
+    seen: set[str],
+) -> list[dict[str, Any]]:
+    with deps.registry_lock:
+        pending = [
+            config
+            for (owner, _), config in deps.session_configs.items()
+            if owner == user.name
+            and config.thread_id not in seen
+            and (owner, config.thread_id) not in deps.deleted_sessions
+        ]
+    return [
+        _row(
+            config,
+            tenant,
+            deps,
+            # 刚创建、索引尚未收录的会话要能排到前面，否则会被 limit 截掉。
+            last_active=datetime.now(UTC).isoformat(timespec="seconds"),
+            prompts=0,
+            tool_calls=0,
+            run_count=0,
+            interrupted=False,
+        )
+        for config in pending
+    ]
+
+
+def _filter_session_rows(
+    rows: list[dict[str, Any]],
+    *,
+    archived: bool | None,
+    include_archived: bool,
+    q: str,
+) -> list[dict[str, Any]]:
+    if archived is not None:
+        rows = [
+            row for row in rows if bool(row.get("archived")) == archived
+        ]
+    elif not include_archived:
+        rows = [row for row in rows if not row.get("archived")]
+    query = q.strip().lower()
+    if query:
+        rows = [
+            row
+            for row in rows
+            if query in str(row.get("title", "")).lower()
+            or query in row["thread_id"].lower()
+            or query in str(row.get("workspace", "")).lower()
+            or query in str(row.get("last_message", "")).lower()
+            or query in " ".join(row.get("tags") or []).lower()
+        ]
+    return rows
+
+
+def _register_sessions(app: FastAPI, deps: SessionDeps) -> None:
     @app.get("/api/sessions")
     async def sessions(
         user: UserDep,
@@ -108,140 +268,30 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         """
         await deps.sweep_expired()
         tenant = deps.tenant(user)
-        rows: list[dict[str, Any]] = []
         seen: set[str] = set()
-
         if deps.agent_client is not None:
-            await asyncio.to_thread(deps.load_configs, user, tenant)
-            data = await deps.agent_json(
-                user, tenant, None, "GET", "/v1/sessions",
-                params={"limit": 500, "q": q},
+            rows = await _session_rows_via_agent(
+                deps, user, tenant, q, seen
             )
-            for item in data.get("sessions", []):
-                thread = str(item.get("thread_id") or "")
-                if not thread or (user.name, thread) in deps.deleted_sessions:
-                    continue
-                seen.add(thread)
-                config = await asyncio.to_thread(
-                    deps.config_for, user, tenant, thread, create=False
-                )
-                rows.append(
-                    {
-                        "thread_id": thread,
-                        "last_active": item.get("last_active", ""),
-                        "prompts": item.get("prompts", 0),
-                        "tool_calls": item.get("tool_calls", 0),
-                        "title": (
-                            (config.title if config else "")
-                            or item.get("title", "")
-                        ),
-                        "workspace": (
-                            config.workspace
-                            if config
-                            else item.get("workspace", "")
-                        ),
-                        "workspace_id": (
-                            config.workspace_id if config else ""
-                        ),
-                        "access_mode": deps.effective_access(config),
-                        "model": config.model if config else "",
-                        "provider": config.provider if config else "",
-                        "run_count": item.get("runs", 0),
-                        "interrupted": bool(item.get("interrupted")),
-                        "pinned": bool(config.pinned) if config else False,
-                        "archived": bool(config.archived) if config else False,
-                        "tags": list(config.tags) if config else [],
-                        "unread": bool(config.unread) if config else False,
-                        "last_message": (
-                            config.last_message
-                            if config
-                            else str(item.get("last_message") or "")
-                        ),
-                    }
-                )
         else:
-            index = SessionIndex(tenant.settings.resolved_audit_dir)
-            for info in index.list(limit=0):
-                public_thread = tenant.public_thread(info.thread_id)
-                if (user.name, public_thread) in deps.deleted_sessions:
-                    continue
-                seen.add(public_thread)
-                config = await asyncio.to_thread(
-                    deps.config_for, user, tenant, public_thread, create=False
-                )
-                rows.append(
-                    {
-                        "thread_id": public_thread,
-                        "last_active": info.last_seen,
-                        "prompts": info.prompts,
-                        "tool_calls": info.tool_calls,
-                        "title": (config.title if config else "") or info.title,
-                        "workspace": (
-                            config.workspace if config else info.workspace
-                        ),
-                        "workspace_id": (
-                            config.workspace_id if config else ""
-                        ),
-                        "access_mode": deps.effective_access(config),
-                        "model": config.model if config else "",
-                        "provider": config.provider if config else "",
-                        "run_count": info.runs,
-                        "interrupted": bool(info.interrupted),
-                        "pinned": bool(config.pinned) if config else False,
-                        "archived": bool(config.archived) if config else False,
-                        "tags": list(config.tags) if config else [],
-                        "unread": bool(config.unread) if config else False,
-                        "last_message": config.last_message if config else "",
-                    }
-                )
-            await asyncio.to_thread(deps.load_configs, user, tenant)
-
-        with deps.registry_lock:
-            pending = [
-                config
-                for (owner, _), config in deps.session_configs.items()
-                if owner == user.name
-                and config.thread_id not in seen
-                and (owner, config.thread_id) not in deps.deleted_sessions
-            ]
-        for config in pending:
-            rows.append(
-                _row(
-                    config,
-                    tenant,
-                    deps,
-                    # 刚创建、索引尚未收录的会话要能排到前面，否则会被 limit 截掉。
-                    last_active=datetime.now(UTC).isoformat(timespec="seconds"),
-                    prompts=0,
-                    tool_calls=0,
-                    run_count=0,
-                    interrupted=False,
-                )
+            rows = await _session_rows_local(
+                deps, user, tenant, seen
             )
-
-        if archived is not None:
-            rows = [
-                row for row in rows if bool(row.get("archived")) == archived
-            ]
-        elif not include_archived:
-            rows = [row for row in rows if not row.get("archived")]
-        query = q.strip().lower()
-        if query:
-            rows = [
-                row
-                for row in rows
-                if query in str(row.get("title", "")).lower()
-                or query in row["thread_id"].lower()
-                or query in str(row.get("workspace", "")).lower()
-                or query in str(row.get("last_message", "")).lower()
-                or query in " ".join(row.get("tags") or []).lower()
-            ]
+        rows.extend(_pending_session_rows(deps, user, tenant, seen))
+        rows = _filter_session_rows(
+            rows,
+            archived=archived,
+            include_archived=include_archived,
+            q=q,
+        )
         # 先按最近活跃降序，再稳定地把置顶浮动到最前；截断时保留最近会话。
         rows.sort(key=lambda row: str(row.get("last_active") or ""), reverse=True)
         rows.sort(key=lambda row: 0 if row.get("pinned") else 1)
         total = len(rows)
         return {"sessions": rows[: max(1, limit)], "total": total}
 
+
+def _register_search_sessions(app: FastAPI, deps: SessionDeps) -> None:
     @app.get("/api/sessions/search")
     async def search_sessions(
         user: UserDep,
@@ -259,110 +309,120 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             limit=max(1, min(50, int(limit))),
         )
 
+async def _create_session(
+    deps: SessionDeps,
+    request: SessionRequest,
+    user: AuthUser,
+) -> dict:
+    """绑定会话的 workspace / 权限 / 模型；这些字段不能由单次 run 改写。"""
+    deps.rate_limit(user)
+    deps.reject_db_degraded()
+    public_thread = check_thread_id(request.thread_id)
+    key = (user.name, public_thread)
+    with deps.registry_lock:
+        if deps.runtimes.contains(key):
+            raise HTTPException(
+                status_code=409,
+                detail="该会话正在运行或已挂起；请先结束/恢复",
+            )
+    await asyncio.to_thread(deps.reject_deleted, user, public_thread)
+    existing = await asyncio.to_thread(
+        deps.config_for,
+        user,
+        deps.tenant(user),
+        public_thread,
+        create=False,
+    )
+    if existing is not None:
+        if (
+            deps.registry_enabled
+            and request.workspace_id
+            and existing.workspace_id
+            and request.workspace_id != existing.workspace_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="会话已绑定其他工作区，不能改绑",
+            )
+        return {
+            "thread_id": public_thread,
+            "workspace": existing.workspace,
+            "workspace_id": existing.workspace_id,
+            "access_mode": deps.effective_access(existing),
+            "model": existing.model,
+            "provider": existing.provider,
+            "capabilities": deps.capabilities(existing),
+        }
+
+    tenant = deps.tenant(user)
+    workspace_id = ""
+    workspace_kind = "sandbox"
+    a2l_id = ""
+    root_handle = ""
+    if request.workspace_id and deps.registry_enabled:
+        row = deps.bind_workspace(user, request.workspace_id)
+        workspace = str(row["root_path"])
+        workspace_id = str(row["workspace_id"])
+        workspace_kind = str(row.get("kind") or "sandbox")
+        a2l_id = str(row.get("a2l_id") or "")
+        root_handle = str(row.get("root_handle") or "")
+    elif deps.registry_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="已启用工作区注册表，请使用 workspace_id 创建会话",
+        )
+    else:
+        try:
+            workspace = deps.resolve_workspace(
+                user.name, request.workspace
+            )
+        except (TenantError, ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=400, detail=str(exc)
+            ) from exc
+    access_mode = clamp_access_mode(
+        normalize_access_mode(request.access_mode) or ACCESS_READ_ONLY,
+        deps.access_limit(user),
+    )
+    if access_mode != ACCESS_READ_ONLY and not deps.allow_write:
+        raise HTTPException(
+            status_code=403,
+            detail="服务端未开启写能力；请以 --write 启动或选择只读模式",
+        )
+    deps.validate_provider(tenant, user, request.provider)
+    config = SessionConfig(
+        thread_id=public_thread,
+        workspace=workspace,
+        workspace_id=workspace_id,
+        workspace_kind=workspace_kind,
+        a2l_id=a2l_id,
+        root_handle=root_handle,
+        access_mode=access_mode,
+        model=request.model,
+        provider=request.provider,
+    )
+    await asyncio.to_thread(deps.set_config, user, tenant, config)
+    await asyncio.to_thread(deps.persist_configs, user, tenant)
+    return {
+        "thread_id": public_thread,
+        "workspace": workspace,
+        "workspace_id": workspace_id,
+        "access_mode": access_mode,
+        "model": config.model,
+        "provider": config.provider,
+        "capabilities": deps.capabilities(config),
+    }
+
+
+def _register_create_session(app: FastAPI, deps: SessionDeps) -> None:
     @app.post("/api/sessions")
     async def create_session(
         request: SessionRequest,
         user: UserDep,
     ) -> dict:
-        """绑定会话的 workspace / 权限 / 模型；这些字段不能由单次 run 改写。"""
-        deps.rate_limit(user)
-        deps.reject_db_degraded()
-        public_thread = check_thread_id(request.thread_id)
-        key = (user.name, public_thread)
-        with deps.registry_lock:
-            if deps.runtimes.contains(key):
-                raise HTTPException(
-                    status_code=409,
-                    detail="该会话正在运行或已挂起；请先结束/恢复",
-                )
-        await asyncio.to_thread(deps.reject_deleted, user, public_thread)
-        existing = await asyncio.to_thread(
-            deps.config_for,
-            user,
-            deps.tenant(user),
-            public_thread,
-            create=False,
-        )
-        if existing is not None:
-            if (
-                deps.registry_enabled
-                and request.workspace_id
-                and existing.workspace_id
-                and request.workspace_id != existing.workspace_id
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail="会话已绑定其他工作区，不能改绑",
-                )
-            return {
-                "thread_id": public_thread,
-                "workspace": existing.workspace,
-                "workspace_id": existing.workspace_id,
-                "access_mode": deps.effective_access(existing),
-                "model": existing.model,
-                "provider": existing.provider,
-                "capabilities": deps.capabilities(existing),
-            }
+        return await _create_session(deps, request, user)
 
-        tenant = deps.tenant(user)
-        workspace_id = ""
-        workspace_kind = "sandbox"
-        a2l_id = ""
-        root_handle = ""
-        if request.workspace_id and deps.registry_enabled:
-            row = deps.bind_workspace(user, request.workspace_id)
-            workspace = str(row["root_path"])
-            workspace_id = str(row["workspace_id"])
-            workspace_kind = str(row.get("kind") or "sandbox")
-            a2l_id = str(row.get("a2l_id") or "")
-            root_handle = str(row.get("root_handle") or "")
-        elif deps.registry_enabled:
-            raise HTTPException(
-                status_code=400,
-                detail="已启用工作区注册表，请使用 workspace_id 创建会话",
-            )
-        else:
-            try:
-                workspace = deps.resolve_workspace(
-                    user.name, request.workspace
-                )
-            except (TenantError, ValueError, OSError) as exc:
-                raise HTTPException(
-                    status_code=400, detail=str(exc)
-                ) from exc
-        access_mode = clamp_access_mode(
-            normalize_access_mode(request.access_mode) or ACCESS_READ_ONLY,
-            deps.access_limit(user),
-        )
-        if access_mode != ACCESS_READ_ONLY and not deps.allow_write:
-            raise HTTPException(
-                status_code=403,
-                detail="服务端未开启写能力；请以 --write 启动或选择只读模式",
-            )
-        deps.validate_provider(tenant, user, request.provider)
-        config = SessionConfig(
-            thread_id=public_thread,
-            workspace=workspace,
-            workspace_id=workspace_id,
-            workspace_kind=workspace_kind,
-            a2l_id=a2l_id,
-            root_handle=root_handle,
-            access_mode=access_mode,
-            model=request.model,
-            provider=request.provider,
-        )
-        await asyncio.to_thread(deps.set_config, user, tenant, config)
-        await asyncio.to_thread(deps.persist_configs, user, tenant)
-        return {
-            "thread_id": public_thread,
-            "workspace": workspace,
-            "workspace_id": workspace_id,
-            "access_mode": access_mode,
-            "model": config.model,
-            "provider": config.provider,
-            "capabilities": deps.capabilities(config),
-        }
-
+def _register_import_session(app: FastAPI, deps: SessionDeps) -> None:
     @app.post("/api/sessions/import")
     async def import_session(
         request: SessionImportRequest,
@@ -374,7 +434,8 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         messages = clean_transcript(source)
         if not messages:
             raise HTTPException(status_code=400, detail="导入文件没有可用的消息")
-        created = await create_session(
+        created = await _create_session(
+            deps,
             SessionRequest(
                 thread_id="",
                 workspace_id=request.workspace_id,
@@ -433,6 +494,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             "capabilities": created.get("capabilities", {}),
         }
 
+def _register_switch_model(app: FastAPI, deps: SessionDeps) -> None:
     @app.post("/api/sessions/{thread_id}/model")
     async def switch_model(
         thread_id: str,
@@ -460,6 +522,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             "provider": config.provider,
         }
 
+def _register_rename_session(app: FastAPI, deps: SessionDeps) -> None:
     @app.post("/api/sessions/{thread_id}/rename")
     async def rename_session(
         thread_id: str,
@@ -494,6 +557,9 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             "title": config.title,
         }
 
+def _register_update_session_meta(
+    app: FastAPI, deps: SessionDeps
+) -> None:
     @app.post("/api/sessions/{thread_id}/meta")
     async def update_session_meta(
         thread_id: str,
@@ -534,6 +600,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             "last_message": config.last_message,
         }
 
+def _register_delete_session(app: FastAPI, deps: SessionDeps) -> None:
     @app.delete("/api/sessions/{thread_id}")
     async def delete_session(thread_id: str, user: UserDep) -> dict:
         """Tombstone 删除：列表隐藏并删除会话配置，审计/checkpoint 保留。"""
@@ -548,6 +615,7 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
         await asyncio.to_thread(deps.persist_configs, user, tenant)
         return {"ok": True, "thread_id": public_thread}
 
+def _register_export_session(app: FastAPI, deps: SessionDeps) -> None:
     @app.get("/api/sessions/{thread_id}/export")
     async def export_session(
         thread_id: str,
@@ -627,3 +695,15 @@ def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
             "title": title,
             "content": "\n".join(lines).rstrip() + "\n",
         }
+
+
+def register_session_routes(app: FastAPI, deps: SessionDeps) -> None:
+    _register_sessions(app, deps)
+    _register_search_sessions(app, deps)
+    _register_create_session(app, deps)
+    _register_import_session(app, deps)
+    _register_switch_model(app, deps)
+    _register_rename_session(app, deps)
+    _register_update_session_meta(app, deps)
+    _register_delete_session(app, deps)
+    _register_export_session(app, deps)

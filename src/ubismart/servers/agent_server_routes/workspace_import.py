@@ -117,6 +117,37 @@ def _persist_job(deps: ImportDeps, job: dict[str, Any]) -> None:
         pass
 
 
+def _load_job(deps: ImportDeps, path: Path, cutoff: float) -> None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    job_id = str(data.get("job_id") or path.stem)
+    status = str(data.get("status") or "")
+    if status not in _TERMINAL:
+        target = str(data.get("target") or "")
+        if target:
+            _recover_swap(target)
+        for key in ("staging", "workdir"):
+            leftover = str(data.get(key) or "")
+            if leftover:
+                shutil.rmtree(leftover, ignore_errors=True)
+        data.update(
+            status="failed",
+            error="A3 重启，任务中断",
+            staging="",
+            workdir="",
+        )
+        _write_job_file(path, data)
+    elif path.stat().st_mtime < cutoff:
+        path.unlink(missing_ok=True)
+        return
+    data["_cancel"] = threading.Event()
+    deps.jobs[job_id] = data
+
+
 def _load_jobs(deps: ImportDeps) -> None:
     """启动时载入任务；未完成的标记失败并清理 staging。"""
     root = _jobs_root(deps.settings)
@@ -129,34 +160,7 @@ def _load_jobs(deps: ImportDeps) -> None:
     except OSError:
         return
     for path in paths:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        job_id = str(data.get("job_id") or path.stem)
-        status = str(data.get("status") or "")
-        if status not in _TERMINAL:
-            target = str(data.get("target") or "")
-            if target:
-                _recover_swap(target)
-            for key in ("staging", "workdir"):
-                leftover = str(data.get(key) or "")
-                if leftover:
-                    shutil.rmtree(leftover, ignore_errors=True)
-            data.update(
-                status="failed",
-                error="A3 重启，任务中断",
-                staging="",
-                workdir="",
-            )
-            _write_job_file(path, data)
-        elif path.stat().st_mtime < cutoff:
-            path.unlink(missing_ok=True)
-            continue
-        data["_cancel"] = threading.Event()
-        deps.jobs[job_id] = data
+        _load_job(deps, path, cutoff)
 
 
 def _roots(settings: Settings) -> tuple[str, ...]:
@@ -607,6 +611,168 @@ def _active_job_for(
     return None
 
 
+async def _close_import_runtime(
+    deps: ImportDeps, runtime: Any
+) -> None:
+    if runtime is not None:
+        try:
+            await deps.close_runtime(runtime)
+        except Exception:  # noqa: BLE001 - 关闭失败不影响任务结果
+            pass
+
+
+async def _prepare_import(
+    deps: ImportDeps,
+    context: AgentContext,
+    job: dict[str, Any],
+    execution: Any,
+) -> str:
+    target = context.workspace
+    _recover_swap(target)
+    staging = f"{target}.import-{job['job_id']}"
+    parent = os.path.dirname(target) or "/"
+    os.makedirs(parent, exist_ok=True)
+    _update(deps, job, staging=staging)
+    raw = await asyncio.to_thread(
+        execution.host_run,
+        f"mkdir -p {shlex.quote(staging)}",
+        kind="workspace_import_prepare",
+        cwd=parent,
+    )
+    if not raw.ok:
+        raise RuntimeError(raw.stderr or "无法创建 staging 目录")
+    if job["_cancel"].is_set():
+        raise _Cancelled
+    return staging
+
+
+async def _copy_import(
+    deps: ImportDeps,
+    job: dict[str, Any],
+    execution: Any,
+    staging: str,
+) -> None:
+    target = str(job["target"])
+    parent = os.path.dirname(target) or "/"
+    _update(
+        deps,
+        job,
+        status="copying",
+        progress=None,
+        progress_phase="copying",
+    )
+    raw = await asyncio.to_thread(
+        execution.host_run,
+        tar_command(job["source"], staging),
+        kind="workspace_import",
+        cwd=parent,
+    )
+    if not raw.ok:
+        raise RuntimeError(raw.stderr or "复制失败")
+    if job["_cancel"].is_set():
+        raise _Cancelled
+
+
+async def _verify_import(
+    deps: ImportDeps,
+    job: dict[str, Any],
+    staging: str,
+    body: WorkspaceImportBody,
+) -> None:
+    _update(
+        deps,
+        job,
+        status="verifying",
+        progress=None,
+        progress_phase="verifying",
+    )
+    total, files = await asyncio.to_thread(_tree_size, staging)
+    if body.quota_bytes and total > body.quota_bytes:
+        raise RuntimeError(
+            f"导入大小 {total} 超过工作区配额 {body.quota_bytes}"
+        )
+    if body.max_bytes and total > body.max_bytes:
+        raise RuntimeError(
+            f"导入大小 {total} 超过上限 {body.max_bytes}"
+        )
+    if files > body.max_files:
+        raise RuntimeError(
+            f"导入文件数 {files} 超过上限 {body.max_files}"
+        )
+    _update(
+        deps,
+        job,
+        bytes=total,
+        files=files,
+        progress=100,
+        progress_phase="verifying",
+        processed_bytes=total,
+        total_bytes=total,
+        processed_files=files,
+    )
+    if job["_cancel"].is_set():
+        raise _Cancelled
+
+
+async def _revision_import(
+    deps: ImportDeps,
+    context: AgentContext,
+    execution: Any,
+    target: str,
+    staging: str,
+    job: dict[str, Any],
+) -> dict[str, Any]:
+    _update(
+        deps,
+        job,
+        status="revisioning",
+        progress=0,
+        progress_phase="revisioning",
+    )
+    await asyncio.to_thread(_attach_git_history, target, staging)
+    revision = await asyncio.to_thread(
+        _create_revision,
+        execution,
+        staging,
+        workspace_id=context.workspace_id,
+        actor=context.user,
+        archive_root=_archive_root(deps.settings),
+        label="import",
+        on_progress=_progress_reporter(
+            deps, job, status="revisioning", phase="revisioning"
+        ),
+    )
+    if job["_cancel"].is_set():
+        raise _Cancelled
+    return revision
+
+
+async def _activate_import(
+    deps: ImportDeps,
+    job: dict[str, Any],
+    staging: str,
+    target: str,
+    revision: dict[str, Any],
+) -> None:
+    _update(
+        deps,
+        job,
+        status="activating",
+        progress=99,
+        progress_phase="activating",
+    )
+    await asyncio.to_thread(_activate_replace, staging, target)
+    _update(
+        deps,
+        job,
+        status="active",
+        progress=100,
+        progress_phase="active",
+        revision=revision,
+        staging="",
+    )
+
+
 async def _run_import(
     deps: ImportDeps,
     context: AgentContext,
@@ -630,115 +796,13 @@ async def _run_import(
         if execution is None:
             raise RuntimeError("执行面不可用，无法导入")
         target = context.workspace
-        _recover_swap(target)
-        staging = f"{target}.import-{job['job_id']}"
-        parent = os.path.dirname(target) or "/"
-        os.makedirs(parent, exist_ok=True)
-        _update(deps, job, staging=staging)
-
-        raw = await asyncio.to_thread(
-            execution.host_run,
-            f"mkdir -p {shlex.quote(staging)}",
-            kind="workspace_import_prepare",
-            cwd=parent,
+        staging = await _prepare_import(deps, context, job, execution)
+        await _copy_import(deps, job, execution, staging)
+        await _verify_import(deps, job, staging, body)
+        revision = await _revision_import(
+            deps, context, execution, target, staging, job
         )
-        if not raw.ok:
-            raise RuntimeError(raw.stderr or "无法创建 staging 目录")
-        if job["_cancel"].is_set():
-            raise _Cancelled
-
-        _update(
-            deps,
-            job,
-            status="copying",
-            progress=None,
-            progress_phase="copying",
-        )
-        raw = await asyncio.to_thread(
-            execution.host_run,
-            tar_command(job["source"], staging),
-            kind="workspace_import",
-            cwd=parent,
-        )
-        if not raw.ok:
-            raise RuntimeError(raw.stderr or "复制失败")
-        if job["_cancel"].is_set():
-            raise _Cancelled
-
-        _update(
-            deps,
-            job,
-            status="verifying",
-            progress=None,
-            progress_phase="verifying",
-        )
-        total, files = await asyncio.to_thread(_tree_size, staging)
-        if body.quota_bytes and total > body.quota_bytes:
-            raise RuntimeError(
-                f"导入大小 {total} 超过工作区配额 {body.quota_bytes}"
-            )
-        if body.max_bytes and total > body.max_bytes:
-            raise RuntimeError(
-                f"导入大小 {total} 超过上限 {body.max_bytes}"
-            )
-        if files > body.max_files:
-            raise RuntimeError(
-                f"导入文件数 {files} 超过上限 {body.max_files}"
-            )
-        _update(
-            deps,
-            job,
-            bytes=total,
-            files=files,
-            progress=100,
-            progress_phase="verifying",
-            processed_bytes=total,
-            total_bytes=total,
-            processed_files=files,
-        )
-        if job["_cancel"].is_set():
-            raise _Cancelled
-
-        _update(
-            deps,
-            job,
-            status="revisioning",
-            progress=0,
-            progress_phase="revisioning",
-        )
-        await asyncio.to_thread(_attach_git_history, target, staging)
-        revision = await asyncio.to_thread(
-            _create_revision,
-            execution,
-            staging,
-            workspace_id=context.workspace_id,
-            actor=context.user,
-            archive_root=_archive_root(deps.settings),
-            label="import",
-            on_progress=_progress_reporter(
-                deps, job, status="revisioning", phase="revisioning"
-            ),
-        )
-        if job["_cancel"].is_set():
-            raise _Cancelled
-
-        _update(
-            deps,
-            job,
-            status="activating",
-            progress=99,
-            progress_phase="activating",
-        )
-        await asyncio.to_thread(_activate_replace, staging, target)
-        _update(
-            deps,
-            job,
-            status="active",
-            progress=100,
-            progress_phase="active",
-            revision=revision,
-            staging="",
-        )
+        await _activate_import(deps, job, staging, target, revision)
     except _Cancelled:
         _cleanup(deps, execution, staging)
         _remove_file(
@@ -767,92 +831,98 @@ async def _run_import(
             staging="",
         )
     finally:
-        if runtime is not None:
-            try:
-                await deps.close_runtime(runtime)
-            except Exception:  # noqa: BLE001 - 关闭失败不影响任务结果
-                pass
+        await _close_import_runtime(deps, runtime)
 
 
-async def _run_upload(
+async def _extract_upload(
     deps: ImportDeps,
-    context: AgentContext,
     job: dict[str, Any],
     *,
     archive_path: str,
-    workdir: str,
+    extract_dir: str,
     filename: str,
     quota_bytes: int,
     max_files: int,
     max_bytes: int,
+) -> dict[str, Any]:
+    _update(
+        deps,
+        job,
+        status="extracting",
+        progress=0,
+        progress_phase="extracting",
+    )
+    limits = ExtractLimits(
+        max_files=max_files,
+        max_total_bytes=(
+            max_bytes or quota_bytes or 0
+        ),
+        max_ratio=int(deps.settings.workspace_extract_max_ratio or 200),
+    )
+    stats = await asyncio.to_thread(
+        safe_extract,
+        archive_path,
+        extract_dir,
+        name=filename,
+        limits=limits,
+        on_progress=_progress_reporter(
+            deps, job, status="extracting", phase="extracting"
+        ),
+    )
+    if job["_cancel"].is_set():
+        raise _Cancelled
+    return stats
+
+
+async def _scan_upload(
+    deps: ImportDeps,
+    job: dict[str, Any],
+    extract_dir: str,
+    stats: dict[str, Any],
 ) -> None:
-    execution: Any = None
-    runtime: Any = None
-    extract_dir = os.path.join(workdir, "root")
-    revision: dict[str, Any] | None = None
+    _update(
+        deps,
+        job,
+        status="scanning",
+        progress=None,
+        progress_phase="scanning",
+        bytes=stats["bytes"],
+        files=stats["files"],
+        processed_bytes=stats["bytes"],
+        total_bytes=stats["bytes"],
+        processed_files=stats["files"],
+    )
+    scanner = build_scanner(deps.settings)
+    report = await asyncio.to_thread(scanner.scan, extract_dir)
+    _update(
+        deps,
+        job,
+        scan_status=report.status,
+        scan_detail=report.detail,
+    )
+    if report.status in {"warn", "failed"}:
+        raise RuntimeError(
+            f"扫描未通过（{report.status}）：{report.detail[:500]}"
+        )
+    if job["_cancel"].is_set():
+        raise _Cancelled
+
+
+async def _revision_upload(
+    deps: ImportDeps,
+    context: AgentContext,
+    job: dict[str, Any],
+    extract_dir: str,
+) -> tuple[Any, dict[str, Any]]:
+    _update(
+        deps,
+        job,
+        status="revisioning",
+        progress=0,
+        progress_phase="revisioning",
+    )
+    runtime = deps.new_runtime(context)
     try:
-        _update(
-            deps,
-            job,
-            status="extracting",
-            progress=0,
-            progress_phase="extracting",
-        )
-        limits = ExtractLimits(
-            max_files=max_files,
-            max_total_bytes=(
-                max_bytes or quota_bytes or 0
-            ),
-            max_ratio=int(deps.settings.workspace_extract_max_ratio or 200),
-        )
-        stats = await asyncio.to_thread(
-            safe_extract,
-            archive_path,
-            extract_dir,
-            name=filename,
-            limits=limits,
-            on_progress=_progress_reporter(
-                deps, job, status="extracting", phase="extracting"
-            ),
-        )
-        if job["_cancel"].is_set():
-            raise _Cancelled
-
-        _update(
-            deps,
-            job,
-            status="scanning",
-            progress=None,
-            progress_phase="scanning",
-            bytes=stats["bytes"],
-            files=stats["files"],
-            processed_bytes=stats["bytes"],
-            total_bytes=stats["bytes"],
-            processed_files=stats["files"],
-        )
-        scanner = build_scanner(deps.settings)
-        report = await asyncio.to_thread(scanner.scan, extract_dir)
-        _update(
-            deps,
-            job,
-            scan_status=report.status,
-            scan_detail=report.detail,
-        )
-        if report.status in {"warn", "failed"}:
-            raise RuntimeError(
-                f"扫描未通过（{report.status}）：{report.detail[:500]}"
-            )
-        if job["_cancel"].is_set():
-            raise _Cancelled
-
-        _update(
-            deps,
-            job,
-            status="revisioning",
-            progress=0,
-            progress_phase="revisioning",
-        )
-        runtime = deps.new_runtime(context)
         execution = getattr(runtime, "execution", None)
         if execution is None:
             raise RuntimeError("执行面不可用，无法创建 revision")
@@ -873,31 +943,85 @@ async def _run_upload(
         )
         if job["_cancel"].is_set():
             raise _Cancelled
+        return runtime, revision
+    except Exception:
+        await _close_import_runtime(deps, runtime)
+        raise
 
-        _update(
+
+async def _activate_upload(
+    deps: ImportDeps,
+    job: dict[str, Any],
+    *,
+    extract_dir: str,
+    workdir: str,
+    workspace: str,
+    revision: dict[str, Any],
+    stats: dict[str, Any],
+) -> None:
+    _update(
+        deps,
+        job,
+        status="activating",
+        progress=99,
+        progress_phase="activating",
+    )
+    await asyncio.to_thread(_activate_replace, extract_dir, workspace)
+    _remove_tree(workdir)
+    _update(
+        deps,
+        job,
+        status="active",
+        progress=100,
+        progress_phase="active",
+        revision=revision,
+        bytes=stats["bytes"],
+        files=stats["files"],
+        processed_bytes=stats["bytes"],
+        total_bytes=stats["bytes"],
+        processed_files=stats["files"],
+        staging="",
+    )
+
+
+async def _run_upload(
+    deps: ImportDeps,
+    context: AgentContext,
+    job: dict[str, Any],
+    *,
+    archive_path: str,
+    workdir: str,
+    filename: str,
+    quota_bytes: int,
+    max_files: int,
+    max_bytes: int,
+) -> None:
+    runtime: Any = None
+    extract_dir = os.path.join(workdir, "root")
+    revision: dict[str, Any] | None = None
+    try:
+        stats = await _extract_upload(
             deps,
             job,
-            status="activating",
-            progress=99,
-            progress_phase="activating",
+            archive_path=archive_path,
+            extract_dir=extract_dir,
+            filename=filename,
+            quota_bytes=quota_bytes,
+            max_files=max_files,
+            max_bytes=max_bytes,
         )
-        await asyncio.to_thread(
-            _activate_replace, extract_dir, context.workspace
+        await _scan_upload(deps, job, extract_dir, stats)
+        runtime, revision = await _revision_upload(
+            deps, context, job, extract_dir
         )
-        _remove_tree(workdir)
-        _update(
+        await _activate_upload(
             deps,
             job,
-            status="active",
-            progress=100,
-            progress_phase="active",
+            extract_dir=extract_dir,
+            workdir=workdir,
+            workspace=context.workspace,
             revision=revision,
-            bytes=stats["bytes"],
-            files=stats["files"],
-            processed_bytes=stats["bytes"],
-            total_bytes=stats["bytes"],
-            processed_files=stats["files"],
-            staging="",
+            stats=stats,
         )
     except _Cancelled:
         _remove_tree(workdir)
@@ -941,16 +1065,10 @@ async def _run_upload(
             staging="",
         )
     finally:
-        if runtime is not None:
-            try:
-                await deps.close_runtime(runtime)
-            except Exception:  # noqa: BLE001
-                pass
+        await _close_import_runtime(deps, runtime)
 
 
-def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
-    _load_jobs(deps)
-
+def _register_start_import(app: FastAPI, deps: ImportDeps) -> None:
     @app.post("/v1/workspaces/import")
     async def start_import(
         body: WorkspaceImportBody, request: Request
@@ -999,6 +1117,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
         _spawn_job(deps, job, _run_import(deps, context, job, body))
         return _public(job)
 
+def _register_import_status(app: FastAPI, deps: ImportDeps) -> None:
     @app.get("/v1/workspaces/import/{job_id}")
     async def import_status(job_id: str, request: Request) -> dict:
         if not deps.settings.workspace_registry:
@@ -1014,6 +1133,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                 )
             return _public(job)
 
+def _register_cancel_import(app: FastAPI, deps: ImportDeps) -> None:
     @app.delete("/v1/workspaces/import/{job_id}")
     async def cancel_import(job_id: str, request: Request) -> dict:
         if not deps.settings.workspace_registry:
@@ -1032,6 +1152,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
             job["_cancel"].set()
             return _public(job)
 
+def _register_start_upload(app: FastAPI, deps: ImportDeps) -> None:
     @app.post("/v1/workspaces/uploads")
     async def start_upload(
         request: Request,
@@ -1137,6 +1258,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
         )
         return _public(job)
 
+def _register_upload_status(app: FastAPI, deps: ImportDeps) -> None:
     @app.get("/v1/workspaces/uploads/{job_id}")
     async def upload_status(job_id: str, request: Request) -> dict:
         if not deps.settings.workspace_registry:
@@ -1152,6 +1274,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                 )
             return _public(job)
 
+def _register_cancel_upload(app: FastAPI, deps: ImportDeps) -> None:
     @app.delete("/v1/workspaces/uploads/{job_id}")
     async def cancel_upload(job_id: str, request: Request) -> dict:
         if not deps.settings.workspace_registry:
@@ -1170,6 +1293,7 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
             job["_cancel"].set()
             return _public(job)
 
+def _register_rollback(app: FastAPI, deps: ImportDeps) -> None:
     @app.post("/v1/workspaces/rollback")
     async def rollback(
         body: WorkspaceRollbackBody, request: Request
@@ -1225,6 +1349,135 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
         finally:
             await deps.close_runtime(runtime)
 
+def _restore_archive_path(
+    deps: ImportDeps, body: WorkspaceRestoreBody
+) -> tuple[str, str, str]:
+    root = _archive_root(deps.settings)
+    if not root:
+        raise HTTPException(
+            status_code=400, detail="未配置归档根"
+        )
+    try:
+        path = ensure_inside(
+            normalize_root(body.archive_path), root
+        )
+    except PathGuardError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"归档路径非法：{exc}"
+        ) from exc
+    if not os.path.isfile(path):
+        raise HTTPException(
+            status_code=400, detail="归档文件不存在"
+        )
+    digest = _sha256(path)
+    if body.archive_sha256 and digest != body.archive_sha256:
+        raise HTTPException(
+            status_code=400, detail="归档 sha256 不匹配"
+        )
+    if body.git_commit and not re.fullmatch(
+        r"[0-9a-fA-F]{7,64}", body.git_commit
+    ):
+        raise HTTPException(
+            status_code=400, detail="git_commit 非法"
+        )
+    return root, path, digest
+
+
+async def _restore_apply(
+    deps: ImportDeps,
+    context: AgentContext,
+    *,
+    root: str,
+    path: str,
+    digest: str,
+    body: WorkspaceRestoreBody,
+) -> dict:
+    target = context.workspace
+    _recover_swap(target)
+    staging = f"{target}.restore-{uuid.uuid4().hex[:10]}"
+    runtime: Any = None
+    pre: dict[str, Any] | None = None
+    try:
+        runtime = deps.new_runtime(context)
+        execution = getattr(runtime, "execution", None)
+        if execution is None:
+            raise HTTPException(
+                status_code=503, detail="执行面不可用"
+            )
+        if os.path.isdir(target):
+            pre = await asyncio.to_thread(
+                _create_revision,
+                execution,
+                target,
+                workspace_id=context.workspace_id,
+                actor=context.user,
+                archive_root=root,
+                label="pre-restore",
+            )
+        await asyncio.to_thread(
+            safe_extract,
+            path,
+            staging,
+            name=path,
+            limits=ExtractLimits(
+                max_files=500_000,
+                max_total_bytes=0,
+                max_single_bytes=0,
+                max_ratio=0,
+            ),
+            skip_names=frozenset(),
+        )
+        if body.git_commit:
+            raw = await asyncio.to_thread(
+                execution.host_run,
+                (
+                    "git rev-parse --verify "
+                    f"{shlex.quote(body.git_commit)}^{{commit}}"
+                ),
+                kind="workspace_revision_probe",
+                cwd=staging,
+            )
+            if not raw.ok:
+                raise HTTPException(
+                    status_code=409,
+                    detail="归档中找不到该 git commit",
+                )
+        total, files = await asyncio.to_thread(
+            _tree_size, staging
+        )
+        await asyncio.to_thread(
+            _activate_replace, staging, target
+        )
+        return {
+            "status": "active",
+            "pre_restore": pre,
+            "bytes": total,
+            "files": files,
+            "archive_sha256": digest,
+        }
+    except HTTPException:
+        _remove_file(
+            str((pre or {}).get("archive_path") or "")
+        )
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _remove_file(
+            str((pre or {}).get("archive_path") or "")
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"归档恢复失败：{type(exc).__name__}: {exc}",
+        ) from exc
+    finally:
+        _remove_tree(staging)
+        if runtime is not None:
+            try:
+                await deps.close_runtime(runtime)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _register_restore(app: FastAPI, deps: ImportDeps) -> None:
     @app.post("/v1/workspaces/restore")
     async def restore(
         body: WorkspaceRestoreBody, request: Request
@@ -1234,120 +1487,17 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
                 status_code=404, detail="工作区注册表未启用"
             )
         context = deps.context(request)
-        root = _archive_root(deps.settings)
-        if not root:
-            raise HTTPException(
-                status_code=400, detail="未配置归档根"
-            )
-        try:
-            path = ensure_inside(
-                normalize_root(body.archive_path), root
-            )
-        except PathGuardError as exc:
-            raise HTTPException(
-                status_code=400, detail=f"归档路径非法：{exc}"
-            ) from exc
-        if not os.path.isfile(path):
-            raise HTTPException(
-                status_code=400, detail="归档文件不存在"
-            )
-        digest = _sha256(path)
-        if body.archive_sha256 and digest != body.archive_sha256:
-            raise HTTPException(
-                status_code=400, detail="归档 sha256 不匹配"
-            )
-        if body.git_commit and not re.fullmatch(
-            r"[0-9a-fA-F]{7,64}", body.git_commit
-        ):
-            raise HTTPException(
-                status_code=400, detail="git_commit 非法"
-            )
+        root, path, digest = _restore_archive_path(deps, body)
+        return await _restore_apply(
+            deps,
+            context,
+            root=root,
+            path=path,
+            digest=digest,
+            body=body,
+        )
 
-        target = context.workspace
-        _recover_swap(target)
-        staging = f"{target}.restore-{uuid.uuid4().hex[:10]}"
-        runtime: Any = None
-        pre: dict[str, Any] | None = None
-        try:
-            runtime = deps.new_runtime(context)
-            execution = getattr(runtime, "execution", None)
-            if execution is None:
-                raise HTTPException(
-                    status_code=503, detail="执行面不可用"
-                )
-            if os.path.isdir(target):
-                pre = await asyncio.to_thread(
-                    _create_revision,
-                    execution,
-                    target,
-                    workspace_id=context.workspace_id,
-                    actor=context.user,
-                    archive_root=root,
-                    label="pre-restore",
-                )
-            await asyncio.to_thread(
-                safe_extract,
-                path,
-                staging,
-                name=path,
-                limits=ExtractLimits(
-                    max_files=500_000,
-                    max_total_bytes=0,
-                    max_single_bytes=0,
-                    max_ratio=0,
-                ),
-                skip_names=frozenset(),
-            )
-            if body.git_commit:
-                raw = await asyncio.to_thread(
-                    execution.host_run,
-                    (
-                        "git rev-parse --verify "
-                        f"{shlex.quote(body.git_commit)}^{{commit}}"
-                    ),
-                    kind="workspace_revision_probe",
-                    cwd=staging,
-                )
-                if not raw.ok:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="归档中找不到该 git commit",
-                    )
-            total, files = await asyncio.to_thread(
-                _tree_size, staging
-            )
-            await asyncio.to_thread(
-                _activate_replace, staging, target
-            )
-            return {
-                "status": "active",
-                "pre_restore": pre,
-                "bytes": total,
-                "files": files,
-                "archive_sha256": digest,
-            }
-        except HTTPException:
-            _remove_file(
-                str((pre or {}).get("archive_path") or "")
-            )
-            raise
-        except Exception as exc:  # noqa: BLE001
-            _remove_file(
-                str((pre or {}).get("archive_path") or "")
-            )
-            raise HTTPException(
-                status_code=500,
-                detail=f"归档恢复失败：{type(exc).__name__}: {exc}",
-            ) from exc
-        finally:
-            if os.path.isdir(staging):
-                shutil.rmtree(staging, ignore_errors=True)
-            if runtime is not None:
-                try:
-                    await deps.close_runtime(runtime)
-                except Exception:  # noqa: BLE001
-                    pass
-
+def _register_delete_archive(app: FastAPI, deps: ImportDeps) -> None:
     @app.delete("/v1/workspaces/revisions/archive")
     async def delete_archive(
         body: WorkspaceArchiveDeleteBody, request: Request
@@ -1373,3 +1523,16 @@ def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
         if os.path.isfile(path):
             os.remove(path)
         return {"ok": True, "path": path}
+
+
+def register_import_routes(app: FastAPI, deps: ImportDeps) -> None:
+    _load_jobs(deps)
+    _register_start_import(app, deps)
+    _register_import_status(app, deps)
+    _register_cancel_import(app, deps)
+    _register_start_upload(app, deps)
+    _register_upload_status(app, deps)
+    _register_cancel_upload(app, deps)
+    _register_rollback(app, deps)
+    _register_restore(app, deps)
+    _register_delete_archive(app, deps)

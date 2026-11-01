@@ -64,7 +64,7 @@ class NotificationDeps:
     rate_limit: Callable[[AuthUser], None]
 
 
-def register_notification_routes(
+def _register_list_notifications(
     app: FastAPI, deps: NotificationDeps
 ) -> None:
     @app.get("/api/notifications")
@@ -76,6 +76,9 @@ def register_notification_routes(
             return {"enabled": False, "notifications": [], "unread": 0}
         return deps.control_store.list_notifications(user.name, limit=limit)
 
+def _register_mark_notifications_read(
+    app: FastAPI, deps: NotificationDeps
+) -> None:
     @app.post("/api/notifications/read")
     async def mark_notifications_read(
         payload: ReadRequest, user: UserDep
@@ -88,6 +91,9 @@ def register_notification_routes(
         )
         return {"ok": True, "updated": updated, "enabled": True}
 
+def _register_clear_notifications(
+    app: FastAPI, deps: NotificationDeps
+) -> None:
     @app.delete("/api/notifications")
     async def clear_notifications(user: UserDep) -> dict:
         deps.rate_limit(user)
@@ -96,6 +102,9 @@ def register_notification_routes(
         removed = deps.control_store.clear_notifications(user.name)
         return {"ok": True, "removed": removed, "enabled": True}
 
+def _register_notification_stream(
+    app: FastAPI, deps: NotificationDeps
+) -> None:
     @app.get("/api/notifications/stream")
     async def notification_stream(
         request: Request, user: UserDep
@@ -135,3 +144,12 @@ def register_notification_routes(
             media_type="text/event-stream",
             headers=sse_headers(),
         )
+
+
+def register_notification_routes(
+    app: FastAPI, deps: NotificationDeps
+) -> None:
+    _register_list_notifications(app, deps)
+    _register_mark_notifications_read(app, deps)
+    _register_clear_notifications(app, deps)
+    _register_notification_stream(app, deps)

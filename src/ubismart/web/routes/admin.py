@@ -150,32 +150,57 @@ def _epoch(value: str, *, end_of_day: bool = False) -> str:
         return ""
 
 
-def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
-    def _accounts():
-        if deps.accounts is None:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": "auth.accounts_disabled",
-                    "message": "账号后端未启用",
-                },
-            )
-        return deps.accounts
+def _accounts(deps: AdminDeps):
+    if deps.accounts is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "auth.accounts_disabled",
+                "message": "账号后端未启用",
+            },
+        )
+    return deps.accounts
 
-    def _account(user_id: str) -> dict[str, Any]:
-        row = _accounts().get(user_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="用户不存在")
-        return row
 
+def _account(deps: AdminDeps, user_id: str) -> dict[str, Any]:
+    row = _accounts(deps).get(user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return row
+
+
+def _workspace_store(deps: AdminDeps):
+    if deps.workspace_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="工作区注册表未启用或控制面数据库不可用",
+        )
+    return deps.workspace_store
+
+
+def _workspace_in_tenant(
+    deps: AdminDeps, workspace_id: str, admin: AuthUser
+) -> dict:
+    row = _workspace_store(deps).get(workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    owner = _accounts(deps).get_by_username(row["owner"])
+    if owner is None or owner.get("tenant") != admin.tenant:
+        # 不跨账号租户管理别人的工作区。
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    return row
+
+
+def _register_list_users(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/users")
     async def list_users(admin: AuditorDep) -> dict:
-        return {"users": _accounts().list(deps.settings.web_account_tenant)}
+        return {"users": _accounts(deps).list(deps.settings.web_account_tenant)}
 
+def _register_create_user(app: FastAPI, deps: AdminDeps) -> None:
     @app.post("/api/admin/users")
     async def create_user(payload: CreateUserRequest, admin: AdminDep) -> dict:
         try:
-            row = _accounts().create(
+            row = _accounts(deps).create(
                 payload.username,
                 payload.password,
                 email=payload.email,
@@ -187,22 +212,23 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"user": row}
 
+def _register_update_user(app: FastAPI, deps: AdminDeps) -> None:
     @app.patch("/api/admin/users/{user_id}")
     async def update_user(
         user_id: str, payload: UpdateUserRequest, admin: AdminDep
     ) -> dict:
-        existing = _account(user_id)
+        existing = _account(deps, user_id)
         if existing["role"] == "owner" and (
             payload.status == "disabled"
             or (payload.role is not None and payload.role != "owner")
         ):
-            if _accounts().count_active_owners(existing["tenant"]) <= 1:
+            if _accounts(deps).count_active_owners(existing["tenant"]) <= 1:
                 raise HTTPException(
                     status_code=409,
                     detail="不能禁用或降级最后一个 owner",
                 )
         try:
-            row = _accounts().update(
+            row = _accounts(deps).update(
                 user_id,
                 status=payload.status,
                 role=payload.role,
@@ -215,22 +241,24 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             deps.sessions.revoke_user(user_id)
         return {"user": row}
 
+def _register_reset_password(app: FastAPI, deps: AdminDeps) -> None:
     @app.post("/api/admin/users/{user_id}/reset-password")
     async def reset_password(
         user_id: str, payload: ResetPasswordRequest, admin: AdminDep
     ) -> dict:
-        _account(user_id)
+        _account(deps, user_id)
         try:
-            _accounts().reset_password(user_id, payload.password)
+            _accounts(deps).reset_password(user_id, payload.password)
         except AccountError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         if deps.sessions is not None:
             deps.sessions.revoke_user(user_id)
         return {"ok": True}
 
+def _register_get_quota(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/users/{user_id}/quotas")
     async def get_quota(user_id: str, admin: AuditorDep) -> dict:
-        row = _account(user_id)
+        row = _account(deps, user_id)
         if deps.control_store is None:
             raise HTTPException(status_code=503, detail="控制面数据库不可用")
         today = datetime.now(UTC).date().isoformat()
@@ -244,11 +272,12 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             "usage": _usage_view(usage, deps.currency),
         }
 
+def _register_save_quota(app: FastAPI, deps: AdminDeps) -> None:
     @app.put("/api/admin/users/{user_id}/quotas")
     async def save_quota(
         user_id: str, payload: QuotaRequest, admin: AdminDep
     ) -> dict:
-        row = _account(user_id)
+        row = _account(deps, user_id)
         if deps.control_store is None:
             raise HTTPException(status_code=503, detail="控制面数据库不可用")
         quota = deps.control_store.set_quota(
@@ -261,9 +290,10 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         )
         return {"quota": quota}
 
+def _register_user_providers(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/users/{user_id}/providers")
     async def user_providers(user_id: str, admin: AuditorDep) -> dict:
-        row = _account(user_id)
+        row = _account(deps, user_id)
         target = AuthUser(
             name=row["username"],
             user_id=row["id"],
@@ -285,6 +315,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             ]
         }
 
+def _register_save_provider_key(app: FastAPI, deps: AdminDeps) -> None:
     @app.put("/api/admin/users/{user_id}/providers/{provider}")
     async def save_provider_key(
         user_id: str,
@@ -292,7 +323,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         payload: ProviderKeyRequest,
         admin: AdminDep,
     ) -> dict:
-        row = _account(user_id)
+        row = _account(deps, user_id)
         target = AuthUser(
             name=row["username"],
             user_id=row["id"],
@@ -321,11 +352,12 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             last4 = str(getter(provider) or last4)
         return {"ok": True, "last4": last4}
 
+def _register_delete_provider_key(app: FastAPI, deps: AdminDeps) -> None:
     @app.delete("/api/admin/users/{user_id}/providers/{provider}")
     async def delete_provider_key(
         user_id: str, provider: str, admin: AdminDep
     ) -> dict:
-        row = _account(user_id)
+        row = _account(deps, user_id)
         target = AuthUser(
             name=row["username"],
             user_id=row["id"],
@@ -339,6 +371,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return {"ok": True}
 
+def _register_deployment_providers(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/providers")
     async def deployment_providers(admin: AuditorDep) -> dict:
         rows = deps.provider_rows(deps.settings, _EmptyStore())
@@ -355,6 +388,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             ]
         }
 
+def _register_auth_events(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/auth-events")
     async def auth_events(
         admin: AuditorDep,
@@ -371,6 +405,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             )
         }
 
+def _register_audit(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/audit")
     async def audit(
         admin: AuditorDep,
@@ -407,6 +442,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             offset=offset,
         )
 
+def _register_health(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/health")
     async def health(admin: AuditorDep) -> dict:
         """管理端健康摘要：数据库连通性 + 进程内计数/连接数。"""
@@ -425,6 +461,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             "metrics": metrics,
         }
 
+def _register_reindex_search(app: FastAPI, deps: AdminDeps) -> None:
     @app.post("/api/admin/search/reindex")
     async def reindex_search(admin: AdminDep) -> dict:
         """重建组织成员的会话搜索索引（标题/摘要）。
@@ -445,6 +482,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         )
         return {"ok": True, "reindexed": count}
 
+def _register_usage(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/usage")
     async def usage(
         admin: AuditorDep,
@@ -479,24 +517,9 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         report["usd_to_cny"] = float(deps.currency.usd_to_cny)
         return report
 
-    def _workspace_store():
-        if deps.workspace_store is None:
-            raise HTTPException(
-                status_code=503,
-                detail="工作区注册表未启用或控制面数据库不可用",
-            )
-        return deps.workspace_store
-
-    def _workspace_in_tenant(workspace_id: str, admin: AuthUser) -> dict:
-        row = _workspace_store().get(workspace_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="工作区不存在")
-        owner = _accounts().get_by_username(row["owner"])
-        if owner is None or owner.get("tenant") != admin.tenant:
-            # 不跨账号租户管理别人的工作区。
-            raise HTTPException(status_code=404, detail="工作区不存在")
-        return row
-
+def _register_list_workspaces(
+    app: FastAPI, deps: AdminDeps
+) -> None:
     @app.get("/api/admin/workspaces")
     async def list_workspaces(
         admin: AuditorDep,
@@ -505,7 +528,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         limit: int = Query(200, ge=1, le=500),
     ) -> dict:
         """组织内可见的工作区；auditor 只拿到元数据，不含宿主路径。"""
-        store = _workspace_store()
+        store = _workspace_store(deps)
         rows = await asyncio.to_thread(
             store.list_visible,
             admin.tenant,
@@ -531,30 +554,32 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             ]
         return {"workspaces": rows}
 
+def _register_list_workspace_acl(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/workspaces/{workspace_id}/acl")
     async def list_workspace_acl(
         workspace_id: str, admin: AdminDep
     ) -> dict:
-        _workspace_in_tenant(workspace_id, admin)
+        _workspace_in_tenant(deps, workspace_id, admin)
         return {
             "workspace_id": workspace_id,
-            "grants": _workspace_store().acl_list(
+            "grants": _workspace_store(deps).acl_list(
                 admin.tenant, workspace_id
             ),
         }
 
+def _register_grant_workspace_acl(app: FastAPI, deps: AdminDeps) -> None:
     @app.put("/api/admin/workspaces/{workspace_id}/acl")
     async def grant_workspace_acl(
         workspace_id: str,
         payload: WorkspaceAclRequest,
         admin: AdminDep,
     ) -> dict:
-        _workspace_in_tenant(workspace_id, admin)
+        _workspace_in_tenant(deps, workspace_id, admin)
         grantee = payload.grantee.strip()
-        target = _accounts().get_by_username(grantee)
+        target = _accounts(deps).get_by_username(grantee)
         if target is None or target.get("tenant") != admin.tenant:
             raise HTTPException(status_code=404, detail="被授权用户不存在")
-        grant = _workspace_store().acl_grant(
+        grant = _workspace_store(deps).acl_grant(
             admin.tenant,
             workspace_id,
             grantee,
@@ -562,16 +587,18 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         )
         return {"ok": True, "grant": grant}
 
+def _register_revoke_workspace_acl(app: FastAPI, deps: AdminDeps) -> None:
     @app.delete("/api/admin/workspaces/{workspace_id}/acl/{grantee}")
     async def revoke_workspace_acl(
         workspace_id: str, grantee: str, admin: AdminDep
     ) -> dict:
-        _workspace_in_tenant(workspace_id, admin)
-        removed = _workspace_store().acl_revoke(
+        _workspace_in_tenant(deps, workspace_id, admin)
+        removed = _workspace_store(deps).acl_revoke(
             admin.tenant, workspace_id, grantee
         )
         return {"ok": True, "removed": bool(removed)}
 
+def _register_reset_user_mfa(app: FastAPI, deps: AdminDeps) -> None:
     @app.post("/api/admin/users/{user_id}/mfa-reset")
     async def reset_user_mfa(user_id: str, admin: AdminDep) -> dict:
         if deps.mfa is None:
@@ -593,6 +620,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
                 pass
         return {"ok": True}
 
+def _register_pending_approvals(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/approvals")
     async def pending_approvals(
         admin: ApproverDep,
@@ -607,6 +635,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             ),
         }
 
+def _register_approval_history(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/approvals/history")
     async def approval_history(
         admin: ApprovalReadDep,
@@ -644,6 +673,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
         data["enabled"] = True
         return data
 
+def _register_approval_stream(app: FastAPI, deps: AdminDeps) -> None:
     @app.get("/api/admin/approvals/stream")
     async def approval_stream(
         request: Request,
@@ -691,6 +721,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
             headers=sse_headers(),
         )
 
+def _register_decide_approval(app: FastAPI, deps: AdminDeps) -> None:
     @app.post("/api/admin/approvals/{approval_id}/decide")
     async def decide_approval(
         approval_id: str,
@@ -732,6 +763,7 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
                 pass
         return {"ok": True, "approval": row}
 
+def _register_batch_approvals(app: FastAPI, deps: AdminDeps) -> None:
     @app.post("/api/admin/approvals/batch")
     async def batch_approvals(
         payload: BatchApprovalRequest,
@@ -783,3 +815,31 @@ def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
                 updated,
             )
         return {"ok": True, "updated": updated, "results": results}
+
+
+def register_admin_routes(app: FastAPI, deps: AdminDeps) -> None:
+    _register_list_users(app, deps)
+    _register_create_user(app, deps)
+    _register_update_user(app, deps)
+    _register_reset_password(app, deps)
+    _register_get_quota(app, deps)
+    _register_save_quota(app, deps)
+    _register_user_providers(app, deps)
+    _register_save_provider_key(app, deps)
+    _register_delete_provider_key(app, deps)
+    _register_deployment_providers(app, deps)
+    _register_auth_events(app, deps)
+    _register_audit(app, deps)
+    _register_health(app, deps)
+    _register_reindex_search(app, deps)
+    _register_usage(app, deps)
+    _register_list_workspaces(app, deps)
+    _register_list_workspace_acl(app, deps)
+    _register_grant_workspace_acl(app, deps)
+    _register_revoke_workspace_acl(app, deps)
+    _register_reset_user_mfa(app, deps)
+    _register_pending_approvals(app, deps)
+    _register_approval_history(app, deps)
+    _register_approval_stream(app, deps)
+    _register_decide_approval(app, deps)
+    _register_batch_approvals(app, deps)

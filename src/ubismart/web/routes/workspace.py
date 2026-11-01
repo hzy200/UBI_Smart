@@ -53,7 +53,7 @@ class WorkspaceDeps:
     agent_raw: Any
 
 
-def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
+def _register_project(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/api/project")
     async def project(user: UserDep, workspace: str = "") -> dict:
         """只读探测项目解释器/包管理器；不创建环境、不执行项目代码。"""
@@ -83,6 +83,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         result["desktop_mode"] = deps.desktop_mode
         return result
 
+def _register_files(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/api/files")
     async def files(
         user: UserDep,
@@ -108,6 +109,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         except BrowseError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+def _register_file_content(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/api/file")
     async def file_content(
         user: UserDep,
@@ -133,6 +135,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         except BrowseError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+def _register_file_raw(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/api/file/raw")
     async def file_raw(
         user: UserDep,
@@ -201,6 +204,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             headers=headers,
         )
 
+def _register_file_document(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/api/file/document")
     async def file_document(
         user: UserDep,
@@ -236,6 +240,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return model.model_dump()
 
+def _register_search(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/api/search")
     async def search(
         user: UserDep,
@@ -266,6 +271,7 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
         result["content_search"] = True
         return result
 
+def _register_git_panel(app: FastAPI, deps: WorkspaceDeps) -> None:
     @app.get("/api/git")
     async def git_panel(
         user: UserDep,
@@ -293,3 +299,13 @@ def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
                 status_code=503,
                 detail=f"{type(exc).__name__}: {exc}",
             ) from exc
+
+
+def register_workspace_routes(app: FastAPI, deps: WorkspaceDeps) -> None:
+    _register_project(app, deps)
+    _register_files(app, deps)
+    _register_file_content(app, deps)
+    _register_file_raw(app, deps)
+    _register_file_document(app, deps)
+    _register_search(app, deps)
+    _register_git_panel(app, deps)

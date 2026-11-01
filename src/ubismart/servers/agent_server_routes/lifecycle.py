@@ -42,7 +42,7 @@ class LifecycleDeps:
     drain_guard: Callable[[], None] = lambda: None
 
 
-def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
+def _register_run(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.post("/v1/runs")
     async def run(body: RunBody, request: Request) -> StreamingResponse:
         deps.drain_guard()
@@ -59,6 +59,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
             )
         )
 
+def _register_stream_events(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.get("/v1/stream/{thread_id}")
     async def stream_events(
         thread_id: str, request: Request, after: int = 0
@@ -99,6 +100,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
             deps.event_key(context, thread_id), after=start
         )
 
+def _register_resume(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.post("/v1/resume/{thread_id}")
     async def resume(
         thread_id: str, body: ResumeBody, request: Request
@@ -117,6 +119,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
             )
         )
 
+def _register_resume_steering(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.post("/v1/resume_steering/{thread_id}")
     async def resume_steering(
         thread_id: str, request: Request
@@ -139,6 +142,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
             )
         )
 
+def _register_steer(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.post("/v1/steer/{thread_id}")
     async def steer(
         thread_id: str, body: SteerBody, request: Request
@@ -155,6 +159,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
         )
         return {"ok": True, "thread_id": thread_id, "action": body.action}
 
+def _register_cancel_all(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.post("/v1/cancel_all")
     async def cancel_all(request: Request) -> dict:
         """桌面关窗/升级前协作式取消；仅 A2 持内部 token 调用。"""
@@ -169,6 +174,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
                 continue
         return {"cancelled": cancelled}
 
+def _register_shutdown(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.post("/v1/shutdown")
     async def shutdown(request: Request) -> dict:
         """独立进程的优雅退出入口；由 Desktop supervisor 调用。"""
@@ -178,6 +184,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
             asyncio.get_running_loop().call_soon(callback)
         return {"ok": True}
 
+def _register_approvals(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.get("/v1/approvals/{thread_id}")
     async def approvals(thread_id: str, request: Request) -> dict:
         context = deps.context(request)
@@ -200,6 +207,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
             if temporary is not None:
                 await temporary.aclose()
 
+def _register_status(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.get("/v1/status/{thread_id}")
     async def status(thread_id: str, request: Request) -> dict:
         context = deps.context(request)
@@ -221,6 +229,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
             "last_seq": state.seq,
         }
 
+def _register_compact(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.post("/v1/compact/{thread_id}")
     async def compact(
         thread_id: str, body: CompactBody, request: Request
@@ -237,6 +246,7 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"thread_id": target}
 
+def _register_history(app: FastAPI, deps: LifecycleDeps) -> None:
     @app.get("/v1/history/{thread_id}")
     async def history(
         thread_id: str,
@@ -265,3 +275,17 @@ def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
         finally:
             if temporary is not None:
                 await temporary.aclose()
+
+
+def register_lifecycle_routes(app: FastAPI, deps: LifecycleDeps) -> None:
+    _register_run(app, deps)
+    _register_stream_events(app, deps)
+    _register_resume(app, deps)
+    _register_resume_steering(app, deps)
+    _register_steer(app, deps)
+    _register_cancel_all(app, deps)
+    _register_shutdown(app, deps)
+    _register_approvals(app, deps)
+    _register_status(app, deps)
+    _register_compact(app, deps)
+    _register_history(app, deps)

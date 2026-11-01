@@ -563,7 +563,7 @@ def register_workspace_registry_routes(
                     archive_sha256=str(
                         revision.get("archive_sha256") or ""
                     ),
-                    bytes=int(revision.get("bytes") or 0),
+                    size_bytes=int(revision.get("bytes") or 0),
                     file_count=int(revision.get("files") or 0),
                     scan_status="skipped",
                     status="active",
@@ -747,7 +747,7 @@ def register_workspace_registry_routes(
                     archive_sha256=str(
                         revision.get("archive_sha256") or ""
                     ),
-                    bytes=int(result.get("bytes") or 0),
+                    size_bytes=int(result.get("bytes") or 0),
                     file_count=int(result.get("files") or 0),
                     scan_status=str(
                         result.get("scan_status") or "skipped"
@@ -878,7 +878,7 @@ def register_workspace_registry_routes(
                 git_commit=str(pre.get("git_commit") or ""),
                 archive_path=str(pre.get("archive_path") or ""),
                 archive_sha256=str(pre.get("archive_sha256") or ""),
-                bytes=int(pre.get("bytes") or 0),
+                size_bytes=int(pre.get("bytes") or 0),
                 file_count=int(pre.get("files") or 0),
                 scan_status="skipped",
                 status="superseded",
@@ -961,7 +961,7 @@ def register_workspace_registry_routes(
                 git_commit=str(pre.get("git_commit") or ""),
                 archive_path=str(pre.get("archive_path") or ""),
                 archive_sha256=str(pre.get("archive_sha256") or ""),
-                bytes=int(pre.get("bytes") or 0),
+                size_bytes=int(pre.get("bytes") or 0),
                 file_count=int(pre.get("files") or 0),
                 scan_status="skipped",
                 status="superseded",
