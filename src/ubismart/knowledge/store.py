@@ -86,6 +86,172 @@ def _score(query: set[str], text: str) -> float:
     return len(matched) / (len(query) ** 0.5)
 
 
+def _doc_items(
+    artifact_id: str, payload: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    for chunk in payload.get("chunks") or []:
+        if not isinstance(chunk, dict):
+            continue
+        yield {
+            "kind": "doc",
+            "artifact_id": artifact_id,
+            "path": str(chunk.get("path", "")),
+            "anchor": str(chunk.get("anchor", "")),
+            "text": str(chunk.get("text", "")),
+        }
+
+
+def _claims_items(
+    artifact_id: str, payload: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    for claim in payload.get("claims") or []:
+        if not isinstance(claim, dict):
+            continue
+        yield {
+            "kind": "claims",
+            "artifact_id": artifact_id,
+            "path": str(claim.get("evidence_path", "")),
+            "anchor": str(claim.get("anchor", "")),
+            "text": " ".join(
+                str(claim.get(key, ""))
+                for key in ("claim", "quote")
+            ).strip(),
+        }
+
+
+def _arch_items(
+    artifact_id: str, payload: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    for path, symbols in (payload.get("symbols") or {}).items():
+        yield {
+            "kind": "arch",
+            "artifact_id": artifact_id,
+            "path": str(path),
+            "anchor": "",
+            "text": " ".join(
+                [str(path), *[str(item) for item in symbols]]
+            ),
+        }
+
+
+def _brief_items(
+    artifact_id: str, payload: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    yield {
+        "kind": "brief",
+        "artifact_id": artifact_id,
+        "path": "",
+        "anchor": "",
+        "text": str(payload.get("text", "")),
+    }
+
+
+def _contract_items(
+    artifact_id: str, payload: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    names = [
+        str(item.get("name", ""))
+        for item in payload.get("interfaces") or []
+        if isinstance(item, dict)
+    ]
+    files = [
+        str(path)
+        for wave in payload.get("waves") or []
+        if isinstance(wave, dict)
+        for path in wave.get("files") or []
+    ]
+    yield {
+        "kind": "contract",
+        "artifact_id": artifact_id,
+        "path": files[0] if files else "",
+        "anchor": "",
+        "text": " ".join(
+            [
+                str(payload.get("request", "")),
+                *names,
+                *files,
+                *[
+                    str(item)
+                    for item in payload.get("affected_tests") or []
+                ],
+            ]
+        ),
+    }
+
+
+_ITEM_BUILDERS = {
+    "doc": _doc_items,
+    "claims": _claims_items,
+    "arch": _arch_items,
+    "brief": _brief_items,
+    "contract": _contract_items,
+}
+
+
+def _matches(text: str, needle: str) -> bool:
+    return not needle or needle in text.lower()
+
+
+def _read_doc_items(
+    payload: dict[str, Any], needle: str
+) -> list[Any]:
+    items: list[Any] = []
+    for chunk in payload.get("chunks") or []:
+        text = str(chunk.get("text", ""))
+        if _matches(text, needle) or _matches(str(chunk.get("anchor", "")), needle):
+            items.append(chunk)
+    return items
+
+
+def _read_claims_items(
+    payload: dict[str, Any], needle: str
+) -> list[Any]:
+    items: list[Any] = []
+    for claim in payload.get("claims") or []:
+        text = " ".join(
+            str(claim.get(key, ""))
+            for key in ("claim", "quote")
+        )
+        if _matches(text, needle):
+            items.append(claim)
+    return items
+
+
+def _read_arch_items(
+    payload: dict[str, Any], needle: str
+) -> list[Any]:
+    items: list[Any] = []
+    for path, symbols in (payload.get("symbols") or {}).items():
+        text = " ".join([str(path), *map(str, symbols)])
+        if _matches(text, needle):
+            items.append(
+                {
+                    "path": path,
+                    "symbols": symbols,
+                    "imports": payload.get("imports", {}).get(path, []),
+                }
+            )
+    return items
+
+
+def _read_contract_items(
+    payload: dict[str, Any], needle: str
+) -> list[Any]:
+    if not needle or needle in json.dumps(
+        payload, ensure_ascii=False
+    ).lower():
+        return [payload]
+    return []
+
+
+_READERS = {
+    "doc": _read_doc_items,
+    "claims": _read_claims_items,
+    "arch": _read_arch_items,
+    "contract": _read_contract_items,
+}
+
+
 class KnowledgeStore:
     def __init__(self, sandbox: WslSandbox, root: str) -> None:
         self._fs = SandboxFs(sandbox, root)
@@ -194,88 +360,14 @@ class KnowledgeStore:
         self, run_id: str, kinds: list[str]
     ) -> Iterator[dict[str, Any]]:
         for kind in kinds:
+            builder = _ITEM_BUILDERS.get(kind)
+            if builder is None:
+                continue
             for artifact_id in self.list_artifacts(run_id, kind):
                 payload = self.load(run_id, kind, artifact_id)
                 if payload is None:
                     continue
-                if kind == "doc":
-                    for chunk in payload.get("chunks") or []:
-                        if not isinstance(chunk, dict):
-                            continue
-                        yield {
-                            "kind": kind,
-                            "artifact_id": artifact_id,
-                            "path": str(chunk.get("path", "")),
-                            "anchor": str(chunk.get("anchor", "")),
-                            "text": str(chunk.get("text", "")),
-                        }
-                elif kind == "claims":
-                    for claim in payload.get("claims") or []:
-                        if not isinstance(claim, dict):
-                            continue
-                        yield {
-                            "kind": kind,
-                            "artifact_id": artifact_id,
-                            "path": str(claim.get("evidence_path", "")),
-                            "anchor": str(claim.get("anchor", "")),
-                            "text": " ".join(
-                                str(claim.get(key, ""))
-                                for key in ("claim", "quote")
-                            ).strip(),
-                        }
-                elif kind == "arch":
-                    for path, symbols in (
-                        payload.get("symbols") or {}
-                    ).items():
-                        yield {
-                            "kind": kind,
-                            "artifact_id": artifact_id,
-                            "path": str(path),
-                            "anchor": "",
-                            "text": " ".join(
-                                [str(path), *[str(item) for item in symbols]]
-                            ),
-                        }
-                elif kind == "brief":
-                    yield {
-                        "kind": kind,
-                        "artifact_id": artifact_id,
-                        "path": "",
-                        "anchor": "",
-                        "text": str(payload.get("text", "")),
-                    }
-                elif kind == "contract":
-                    names = [
-                        str(item.get("name", ""))
-                        for item in payload.get("interfaces") or []
-                        if isinstance(item, dict)
-                    ]
-                    files = [
-                        str(path)
-                        for wave in payload.get("waves") or []
-                        if isinstance(wave, dict)
-                        for path in wave.get("files") or []
-                    ]
-                    yield {
-                        "kind": kind,
-                        "artifact_id": artifact_id,
-                        "path": files[0] if files else "",
-                        "anchor": "",
-                        "text": " ".join(
-                            [
-                                str(payload.get("request", "")),
-                                *names,
-                                *files,
-                                *[
-                                    str(item)
-                                    for item in payload.get(
-                                        "affected_tests"
-                                    )
-                                    or []
-                                ],
-                            ]
-                        ),
-                    }
+                yield from builder(artifact_id, payload)
 
     def search(
         self,
@@ -364,42 +456,8 @@ class KnowledgeStore:
         if payload is None:
             return {"kind": kind, "artifact_id": artifact_id, "items": []}
         needle = str(selector or "").strip().lower()
-
-        def matches(text: str) -> bool:
-            return not needle or needle in text.lower()
-
-        items: list[dict[str, Any]] = []
-        if kind == "doc":
-            for chunk in payload.get("chunks") or []:
-                text = str(chunk.get("text", ""))
-                if matches(text) or matches(str(chunk.get("anchor", ""))):
-                    items.append(chunk)
-        elif kind == "claims":
-            for claim in payload.get("claims") or []:
-                text = " ".join(
-                    str(claim.get(key, ""))
-                    for key in ("claim", "quote")
-                )
-                if matches(text):
-                    items.append(claim)
-        elif kind == "arch":
-            for path, symbols in (payload.get("symbols") or {}).items():
-                text = " ".join([str(path), *map(str, symbols)])
-                if matches(text):
-                    items.append(
-                        {
-                            "path": path,
-                            "symbols": symbols,
-                            "imports": payload.get("imports", {}).get(
-                                path, []
-                            ),
-                        }
-                    )
-        elif kind == "contract":
-            if not needle or matches(json.dumps(payload, ensure_ascii=False)):
-                items.append(payload)
-        else:
-            items.append(payload)
+        reader = _READERS.get(kind)
+        items = reader(payload, needle) if reader else [payload]
         return {
             "kind": kind,
             "artifact_id": artifact_id,

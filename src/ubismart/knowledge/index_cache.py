@@ -31,6 +31,77 @@ DEFAULT_MAX_BYTES = 512 * 1024 * 1024
 DEFAULT_TTL_DAYS = 30
 
 
+def _collect_records(
+    files_dir: Path,
+) -> list[tuple[Path, float, int]] | None:
+    try:
+        paths = list(files_dir.glob("*.json"))
+    except OSError:
+        return None
+    records: list[tuple[Path, float, int]] = []
+    for path in paths:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        records.append((path, stat.st_mtime, stat.st_size))
+    return records
+
+
+def _remove_expired(
+    records: list[tuple[Path, float, int]],
+    *,
+    now: float,
+    ttl_seconds: int,
+) -> tuple[int, list[tuple[Path, float, int]]]:
+    removed = 0
+    kept: list[tuple[Path, float, int]] = []
+    for path, mtime, size in records:
+        if ttl_seconds > 0 and now - mtime > ttl_seconds:
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                kept.append((path, mtime, size))
+        else:
+            kept.append((path, mtime, size))
+    return removed, kept
+
+
+def _trim_entries(
+    kept: list[tuple[Path, float, int]], max_entries: int
+) -> tuple[int, list[tuple[Path, float, int]]]:
+    kept = sorted(kept, key=lambda item: item[1])
+    removed = 0
+    if max_entries > 0 and len(kept) > max_entries:
+        drop = len(kept) - max_entries
+        for path, _mtime, _size in kept[:drop]:
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                pass
+        kept = kept[drop:]
+    return removed, kept
+
+
+def _trim_bytes(
+    kept: list[tuple[Path, float, int]], max_bytes: int
+) -> tuple[int, int]:
+    removed = 0
+    total = sum(size for _path, _mtime, size in kept)
+    if max_bytes > 0 and total > max_bytes:
+        while kept and total > max_bytes:
+            path, _mtime, size = kept.pop(0)
+            try:
+                path.unlink()
+                removed += 1
+                total -= size
+            except OSError:
+                pass
+    return removed, total
+
+
 class IndexCache:
     def __init__(
         self,
@@ -189,52 +260,19 @@ class IndexCache:
 
     def _prune_unlocked(self) -> dict[str, int]:
         now = time.time()
-        records: list[tuple[Path, float, int]] = []
-        try:
-            paths = list(self.files_dir.glob("*.json"))
-        except OSError:
+        records = _collect_records(self.files_dir)
+        if records is None:
             return {"removed": 0, "kept": 0, "bytes": 0}
-        for path in paths:
-            try:
-                stat = path.stat()
-            except OSError:
-                continue
-            records.append((path, stat.st_mtime, stat.st_size))
 
-        removed = 0
-        kept: list[tuple[Path, float, int]] = []
-        ttl_seconds = self.ttl_days * 86_400
-        for path, mtime, size in records:
-            if ttl_seconds > 0 and now - mtime > ttl_seconds:
-                try:
-                    path.unlink()
-                    removed += 1
-                except OSError:
-                    kept.append((path, mtime, size))
-            else:
-                kept.append((path, mtime, size))
-
-        kept.sort(key=lambda item: item[1])
-        if self.max_entries > 0 and len(kept) > self.max_entries:
-            drop = len(kept) - self.max_entries
-            for path, _mtime, _size in kept[:drop]:
-                try:
-                    path.unlink()
-                    removed += 1
-                except OSError:
-                    pass
-            kept = kept[drop:]
-
-        total = sum(size for _path, _mtime, size in kept)
-        if self.max_bytes > 0 and total > self.max_bytes:
-            while kept and total > self.max_bytes:
-                path, _mtime, size = kept.pop(0)
-                try:
-                    path.unlink()
-                    removed += 1
-                    total -= size
-                except OSError:
-                    pass
+        removed, kept = _remove_expired(
+            records,
+            now=now,
+            ttl_seconds=self.ttl_days * 86_400,
+        )
+        trimmed_entries, kept = _trim_entries(kept, self.max_entries)
+        removed += trimmed_entries
+        trimmed_bytes, total = _trim_bytes(kept, self.max_bytes)
+        removed += trimmed_bytes
         return {
             "removed": removed,
             "kept": len(kept),

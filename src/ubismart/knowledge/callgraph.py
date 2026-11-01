@@ -134,6 +134,61 @@ def _call_name(node: ast.AST) -> str:
     return ""
 
 
+def _dynamic_call_target(inner: ast.AST) -> str:
+    """返回 `getattr(obj, "x")()` / `obj["x"]()` 这类动态调用的目标名。"""
+    if isinstance(inner, ast.Call) and _call_name(inner.func) in {
+        "getattr",
+        "setattr",
+    }:
+        args = list(inner.args)
+        if len(args) >= 2 and isinstance(args[1], ast.Constant):
+            return str(args[1].value or "")
+        return ""
+    if isinstance(inner, ast.Subscript) and isinstance(
+        inner.slice, ast.Constant
+    ):
+        return str(inner.slice.value or "")
+    return ""
+
+
+def _record_python_calls(
+    body: ast.AST, caller: str, path: str
+) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    for node in ast.walk(body):
+        if node is not body and isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ):
+            continue
+        if not isinstance(node, ast.Call):
+            continue
+        line = int(getattr(node, "lineno", 0) or 0)
+        target = _dynamic_call_target(node.func)
+        if target:
+            calls.append(
+                {
+                    "file": path,
+                    "caller": caller,
+                    "callee": target,
+                    "line": line,
+                    "dynamic": True,
+                }
+            )
+            continue
+        name = _call_name(node.func)
+        if not name or name in _KEYWORDS:
+            continue
+        calls.append(
+            {
+                "file": path,
+                "caller": caller,
+                "callee": name,
+                "line": line,
+            }
+        )
+    return calls
+
+
 def _python_defs_calls(
     path: str, source: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -144,64 +199,6 @@ def _python_defs_calls(
 
     defs: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
-
-    def record_calls(
-        body: ast.AST, caller: str, *, skip_nested: bool = True
-    ) -> None:
-        for node in ast.walk(body):
-            if skip_nested and node is not body and isinstance(
-                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            ):
-                continue
-            if not isinstance(node, ast.Call):
-                continue
-            line = int(getattr(node, "lineno", 0) or 0)
-            name = _call_name(node.func)
-            inner = node.func
-            if isinstance(inner, ast.Call) and _call_name(inner.func) in {
-                "getattr",
-                "setattr",
-            }:
-                args = list(inner.args)
-                if len(args) >= 2 and isinstance(args[1], ast.Constant):
-                    target = str(args[1].value or "")
-                    if target:
-                        calls.append(
-                            {
-                                "file": path,
-                                "caller": caller,
-                                "callee": target,
-                                "line": line,
-                                "dynamic": True,
-                            }
-                        )
-                        continue
-            if isinstance(inner, ast.Subscript) and isinstance(
-                inner.slice, ast.Constant
-            ):
-                target = str(inner.slice.value or "")
-                if target:
-                    calls.append(
-                        {
-                            "file": path,
-                            "caller": caller,
-                            "callee": target,
-                            "line": line,
-                            "dynamic": True,
-                        }
-                    )
-                    continue
-            if not name or name in _KEYWORDS:
-                continue
-            calls.append(
-                {
-                    "file": path,
-                    "caller": caller,
-                    "callee": name,
-                    "line": line,
-                }
-            )
-
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             defs.append(
@@ -217,18 +214,16 @@ def _python_defs_calls(
                             "kind": "def",
                         }
                     )
-                    record_calls(item, item.name)
+                    calls.extend(_record_python_calls(item, item.name, path))
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             defs.append(
                 {"file": path, "name": node.name, "line": node.lineno, "kind": "def"}
             )
-            record_calls(node, node.name)
+            calls.extend(_record_python_calls(node, node.name, path))
     return defs, calls[:MAX_CALLS_PER_FILE]
 
 
-def _regex_defs_calls(
-    path: str, text: str
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _regex_defs(path: str, text: str) -> list[dict[str, Any]]:
     defs = [
         {
             "file": path,
@@ -247,54 +242,107 @@ def _regex_defs_calls(
         }
         for item in _macro_defs_for(path, text)
     )
-    ordered = sorted(defs, key=lambda item: int(item["line"]))
+    return sorted(defs, key=lambda item: int(item["line"]))
 
-    def caller_at(line: int) -> str:
-        caller = ""
-        for item in ordered:
-            if int(item["line"]) <= line:
-                caller = str(item["name"])
-            else:
-                break
-        return caller
 
-    calls: list[dict[str, Any]] = []
-    for match in _CALL_RE.finditer(text):
+def _caller_at(ordered: list[dict[str, Any]], line: int) -> str:
+    caller = ""
+    for item in ordered:
+        if int(item["line"]) <= line:
+            caller = str(item["name"])
+        else:
+            break
+    return caller
+
+
+def _append_regex_calls(
+    path: str,
+    text: str,
+    pattern: re.Pattern[str],
+    ordered: list[dict[str, Any]],
+    calls: list[dict[str, Any]],
+    *,
+    dynamic: bool = False,
+) -> None:
+    for match in pattern.finditer(text):
         name = match.group(1)
-        if name in _KEYWORDS:
+        if not name or name in _KEYWORDS:
             continue
         line = text.count("\n", 0, match.start()) + 1
-        calls.append(
-            {
-                "file": path,
-                "caller": caller_at(line),
-                "callee": name,
-                "line": line,
-            }
-        )
+        entry = {
+            "file": path,
+            "caller": _caller_at(ordered, line),
+            "callee": name,
+            "line": line,
+        }
+        if dynamic:
+            entry["dynamic"] = True
+        calls.append(entry)
         if len(calls) >= MAX_CALLS_PER_FILE:
             break
-    for pattern, dynamic in (
-        (_BRACKET_CALL_RE, True),
-        (_MACRO_CALL_RE, True),
-    ):
+
+
+def _regex_defs_calls(
+    path: str, text: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ordered = _regex_defs(path, text)
+    calls: list[dict[str, Any]] = []
+    _append_regex_calls(path, text, _CALL_RE, ordered, calls)
+    _append_regex_calls(
+        path, text, _BRACKET_CALL_RE, ordered, calls, dynamic=True
+    )
+    _append_regex_calls(path, text, _MACRO_CALL_RE, ordered, calls, dynamic=True)
+    return ordered, calls
+
+
+def _dynamic_python_kind(node: ast.Call) -> str:
+    name = _call_name(node.func)
+    if name in _DYNAMIC_PY_CALLS:
+        return name
+    if isinstance(node.func, ast.Subscript) and _call_name(
+        node.func.value
+    ) in {"globals", "locals"}:
+        return _call_name(node.func.value)
+    return ""
+
+
+def _dynamic_python_entries(path: str, text: str) -> list[dict[str, Any]]:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    entries: list[dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        kind = _dynamic_python_kind(node)
+        if not kind:
+            continue
+        entries.append(
+            {
+                "file": path,
+                "line": int(getattr(node, "lineno", 0) or 0),
+                "kind": kind,
+                "language": "python",
+            }
+        )
+    return entries
+
+
+def _dynamic_regex_entries(path: str, text: str) -> list[dict[str, Any]]:
+    language = language_of(path)
+    entries: list[dict[str, Any]] = []
+    for index, pattern in enumerate(_DYNAMIC_PATTERNS):
         for match in pattern.finditer(text):
-            name = match.group(1)
-            if not name or name in _KEYWORDS:
-                continue
-            line = text.count("\n", 0, match.start()) + 1
-            calls.append(
+            entries.append(
                 {
                     "file": path,
-                    "caller": caller_at(line),
-                    "callee": name,
-                    "line": line,
-                    "dynamic": dynamic,
+                    "line": text.count("\n", 0, match.start()) + 1,
+                    "kind": f"pattern-{index}",
+                    "language": language,
                 }
             )
-            if len(calls) >= MAX_CALLS_PER_FILE:
-                break
-    return defs, calls
+    return entries
 
 
 def detect_dynamic_calls(
@@ -304,46 +352,10 @@ def detect_dynamic_calls(
     found: list[dict[str, Any]] = []
     seen: set[tuple[str, int, str]] = set()
     for path, text in sources.items():
-        entries: list[dict[str, Any]] = []
         if str(path).lower().endswith((".py", ".pyi")):
-            try:
-                tree = ast.parse(text)
-            except SyntaxError:
-                tree = None
-            if tree is not None:
-                for node in ast.walk(tree):
-                    if not isinstance(node, ast.Call):
-                        continue
-                    name = _call_name(node.func)
-                    kind = ""
-                    if name in _DYNAMIC_PY_CALLS:
-                        kind = name
-                    elif isinstance(node.func, ast.Subscript) and _call_name(
-                        node.func.value
-                    ) in {"globals", "locals"}:
-                        kind = _call_name(node.func.value)
-                    if kind:
-                        entries.append(
-                            {
-                                "file": path,
-                                "line": int(
-                                    getattr(node, "lineno", 0) or 0
-                                ),
-                                "kind": kind,
-                                "language": "python",
-                            }
-                        )
+            entries = _dynamic_python_entries(path, text)
         else:
-            for index, pattern in enumerate(_DYNAMIC_PATTERNS):
-                for match in pattern.finditer(text):
-                    entries.append(
-                        {
-                            "file": path,
-                            "line": text.count("\n", 0, match.start()) + 1,
-                            "kind": f"pattern-{index}",
-                            "language": language_of(path),
-                        }
-                    )
+            entries = _dynamic_regex_entries(path, text)
         for item in entries[:MAX_DYNAMIC_PER_FILE]:
             key = (str(item["file"]), int(item["line"]), str(item["kind"]))
             if key in seen:
@@ -353,9 +365,9 @@ def detect_dynamic_calls(
     return found
 
 
-def build_call_graph(
-    sources: dict[str, str], *, max_edges: int = MAX_EDGES
-) -> list[dict[str, Any]]:
+def _collect_defs_calls(
+    sources: dict[str, str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     defs: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
     for path, text in sources.items():
@@ -365,6 +377,48 @@ def build_call_graph(
             file_defs, file_calls = _regex_defs_calls(path, text)
         defs.extend(file_defs)
         calls.extend(file_calls)
+    return defs, calls
+
+
+def _resolve_call_target(
+    call: dict[str, Any], by_name: dict[str, list[dict[str, Any]]]
+) -> tuple[dict[str, Any], str] | None:
+    """按唯一符号名解析调用目标；无法可靠解析时返回 None。"""
+    callee = str(call.get("callee", ""))
+    candidates = by_name.get(callee) or []
+    if not candidates:
+        return None
+    source_file = str(call.get("file", ""))
+    caller = str(call.get("caller", ""))
+    if caller == callee:
+        return None
+    same_file = [
+        item for item in candidates if str(item["file"]) == source_file
+    ]
+    if same_file:
+        target = same_file[0]
+        confidence = "high"
+    elif len(candidates) == 1:
+        target = candidates[0]
+        confidence = (
+            "medium"
+            if language_of(source_file)
+            == language_of(str(target["file"]))
+            else "low"
+        )
+    else:
+        # 同名多定义：无法可靠解析，跳过而不是赌一个。
+        return None
+    target_file = str(target["file"])
+    if target_file == source_file and caller == str(target["name"]):
+        return None
+    return target, confidence
+
+
+def build_call_graph(
+    sources: dict[str, str], *, max_edges: int = MAX_EDGES
+) -> list[dict[str, Any]]:
+    defs, calls = _collect_defs_calls(sources)
 
     by_name: dict[str, list[dict[str, Any]]] = {}
     for item in defs:
@@ -373,36 +427,13 @@ def build_call_graph(
     edges: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, str]] = set()
     for call in calls:
-        callee = str(call.get("callee", ""))
-        candidates = by_name.get(callee) or []
-        if not candidates:
+        resolved = _resolve_call_target(call, by_name)
+        if resolved is None:
             continue
+        target, confidence = resolved
         source_file = str(call.get("file", ""))
         caller = str(call.get("caller", ""))
-        if caller == callee:
-            continue
-        same_file = [
-            item
-            for item in candidates
-            if str(item["file"]) == source_file
-        ]
-        if same_file:
-            target = same_file[0]
-            confidence = "high"
-        elif len(candidates) == 1:
-            target = candidates[0]
-            confidence = (
-                "medium"
-                if language_of(source_file)
-                == language_of(str(target["file"]))
-                else "low"
-            )
-        else:
-            # 同名多定义：无法可靠解析，跳过而不是赌一个。
-            continue
         target_file = str(target["file"])
-        if target_file == source_file and caller == str(target["name"]):
-            continue
         key = (source_file, caller, target_file, str(target["name"]))
         if key in seen:
             continue

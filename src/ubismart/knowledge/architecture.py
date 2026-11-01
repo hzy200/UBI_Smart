@@ -268,20 +268,9 @@ def _normalize_path(path: str) -> str:
     return text.rstrip("/")
 
 
-def build_change_contract(
-    arch: ArchIndex,
-    request: str,
-    *,
-    max_modules: int = 40,
-    max_waves: int = 4,
-) -> dict[str, Any]:
-    """生成确定性的跨模块变更契约（接口 + 文件 + 波次 + 受影响测试）。"""
-    impact = impact_analysis(
-        arch, request, max_modules=max_modules
-    )
-    seed_modules = list(impact["seed_modules"])
-    seed_files = list(impact["seed_files"])
-
+def _contract_interfaces(
+    arch: ArchIndex, request: str, seed_files: list[str]
+) -> list[dict[str, Any]]:
     tokens = set(_SYMBOL_RE.findall(request))
     interfaces: list[dict[str, Any]] = []
     for path in seed_files:
@@ -301,13 +290,22 @@ def build_change_contract(
                     "callers": sorted(set(callers))[:20],
                 }
             )
-    interfaces = interfaces[:40]
+    return interfaces[:40]
 
-    # 波次：seed 模块为第 0 波，随后按反向 import 逐层展开。
+
+def _contract_waves(
+    arch: ArchIndex,
+    seed_modules: list[str],
+    seed_files: list[str],
+    gate_tests: list[str],
+    max_waves: int,
+) -> list[dict[str, Any]]:
+    """seed 模块为第 0 波，随后按反向 import 逐层展开。"""
+    cap = max(1, int(max_waves))
     waves: list[dict[str, Any]] = []
     seen: set[str] = set()
     frontier = set(seed_modules)
-    while frontier and len(waves) < max(1, int(max_waves)):
+    while frontier and len(waves) < cap:
         layer = sorted(frontier - seen)
         seen.update(layer)
         files = sorted(
@@ -325,7 +323,7 @@ def build_change_contract(
                     "stage": len(waves),
                     "modules": layer,
                     "files": files,
-                    "gate_tests": list(impact["affected_tests"])[:40],
+                    "gate_tests": list(gate_tests)[:40],
                 }
             )
         next_frontier: set[str] = set()
@@ -338,10 +336,19 @@ def build_change_contract(
                 "stage": 0,
                 "modules": [],
                 "files": list(seed_files),
-                "gate_tests": list(impact["affected_tests"])[:40],
+                "gate_tests": list(gate_tests)[:40],
             }
         )
-    # 调用图发现的跨语言调用方若不在 import 波次里，补到最后一波（或新波）。
+    return waves
+
+
+def _merge_uncovered_waves(
+    waves: list[dict[str, Any]],
+    affected_files: list[str],
+    gate_tests: list[str],
+    max_waves: int,
+) -> None:
+    """调用图发现的跨语言调用方若不在 import 波次里，补到最后一波（或新波）。"""
     covered = {
         str(path)
         for wave in waves
@@ -349,23 +356,50 @@ def build_change_contract(
     }
     uncovered = [
         str(path)
-        for path in impact["affected_files"]
+        for path in affected_files
         if str(path) not in covered
     ]
-    if uncovered:
-        if len(waves) < max(1, int(max_waves)):
-            waves.append(
-                {
-                    "stage": len(waves),
-                    "modules": [],
-                    "files": uncovered[:200],
-                    "gate_tests": list(impact["affected_tests"])[:40],
-                }
-            )
-        else:
-            waves[-1]["files"] = sorted(
-                set(waves[-1].get("files") or []) | set(uncovered)
-            )[:200]
+    if not uncovered:
+        return
+    if len(waves) < max(1, int(max_waves)):
+        waves.append(
+            {
+                "stage": len(waves),
+                "modules": [],
+                "files": uncovered[:200],
+                "gate_tests": list(gate_tests)[:40],
+            }
+        )
+    else:
+        waves[-1]["files"] = sorted(
+            set(waves[-1].get("files") or []) | set(uncovered)
+        )[:200]
+
+
+def build_change_contract(
+    arch: ArchIndex,
+    request: str,
+    *,
+    max_modules: int = 40,
+    max_waves: int = 4,
+) -> dict[str, Any]:
+    """生成确定性的跨模块变更契约（接口 + 文件 + 波次 + 受影响测试）。"""
+    impact = impact_analysis(
+        arch, request, max_modules=max_modules
+    )
+    seed_modules = list(impact["seed_modules"])
+    seed_files = list(impact["seed_files"])
+    interfaces = _contract_interfaces(arch, request, seed_files)
+    waves = _contract_waves(
+        arch,
+        seed_modules,
+        seed_files,
+        impact["affected_tests"],
+        max_waves,
+    )
+    _merge_uncovered_waves(
+        waves, impact["affected_files"], impact["affected_tests"], max_waves
+    )
 
     return {
         "request": str(request or "")[:500],
@@ -387,6 +421,58 @@ def layers_should_add_seed(
     return not waves and bool(seed_files)
 
 
+def _build_stage_maps(
+    waves: list[dict[str, Any]], cap: int
+) -> tuple[dict[str, int], dict[str, int]]:
+    file_stage: dict[str, int] = {}
+    module_stage: dict[str, int] = {}
+    for wave in waves:
+        try:
+            stage = min(cap - 1, max(0, int(wave.get("stage", 0) or 0)))
+        except (TypeError, ValueError):
+            stage = 0
+        for path in wave.get("files") or []:
+            file_stage.setdefault(_normalize_path(str(path)), stage)
+        for module in wave.get("modules") or []:
+            module_stage.setdefault(str(module), stage)
+    return file_stage, module_stage
+
+
+def _scope_stages(
+    scope: Any,
+    file_stage: dict[str, int],
+    module_stage: dict[str, int],
+) -> list[int]:
+    normalized = _normalize_path(str(scope))
+    if not normalized:
+        return []
+    matched: list[int] = []
+    if normalized in file_stage:
+        matched.append(file_stage[normalized])
+    prefix = normalized + "/"
+    for path, stage in file_stage.items():
+        if path.startswith(prefix):
+            matched.append(stage)
+    for module, stage in module_stage.items():
+        if normalized == module or normalized.startswith(module + "/"):
+            matched.append(stage)
+    return matched
+
+
+def _task_stage(
+    task: dict[str, Any],
+    file_stage: dict[str, int],
+    module_stage: dict[str, int],
+    cap: int,
+) -> int | None:
+    matched: list[int] = []
+    for scope in task.get("write_scope") or []:
+        matched.extend(_scope_stages(scope, file_stage, module_stage))
+    if not matched:
+        return None
+    return min(cap - 1, max(matched))
+
+
 def apply_change_contract(
     tasks: list[dict[str, Any]],
     contract: dict[str, Any],
@@ -402,45 +488,191 @@ def apply_change_contract(
     if not waves:
         return 0
     cap = max(1, int(max_stages))
-    file_stage: dict[str, int] = {}
-    module_stage: dict[str, int] = {}
-    for wave in waves:
-        try:
-            stage = min(cap - 1, max(0, int(wave.get("stage", 0) or 0)))
-        except (TypeError, ValueError):
-            stage = 0
-        for path in wave.get("files") or []:
-            file_stage.setdefault(_normalize_path(str(path)), stage)
-        for module in wave.get("modules") or []:
-            module_stage.setdefault(str(module), stage)
+    file_stage, module_stage = _build_stage_maps(waves, cap)
 
     changed = 0
     for task in tasks:
         if str(task.get("role", "")) != "implement":
             continue
-        matched: list[int] = []
-        for scope in task.get("write_scope") or []:
-            normalized = _normalize_path(str(scope))
-            if not normalized:
-                continue
-            if normalized in file_stage:
-                matched.append(file_stage[normalized])
-            prefix = normalized + "/"
-            for path, stage in file_stage.items():
-                if path.startswith(prefix):
-                    matched.append(stage)
-            for module, stage in module_stage.items():
-                if normalized == module or normalized.startswith(
-                    module + "/"
-                ):
-                    matched.append(stage)
-        if not matched:
+        stage = _task_stage(task, file_stage, module_stage, cap)
+        if stage is None:
             continue
-        stage = min(cap - 1, max(matched))
         if int(task.get("stage", 0) or 0) != stage:
             task["stage"] = stage
             changed += 1
     return changed
+
+
+def _expand_import_closure(
+    arch: ArchIndex,
+    seed_modules: set[str],
+    affected_files: set[str],
+    affected_modules: set[str],
+    limit: int,
+) -> None:
+    frontier = set(seed_modules)
+    while frontier and len(affected_modules) < limit:
+        next_frontier: set[str] = set()
+        for module in frontier:
+            for caller in arch.module_importers.get(module, []):
+                if caller in affected_modules:
+                    continue
+                affected_modules.add(caller)
+                next_frontier.add(caller)
+                affected_files.update(arch.module_files.get(caller, []))
+                if len(affected_modules) >= limit:
+                    break
+            if len(affected_modules) >= limit:
+                break
+        frontier = next_frontier
+
+
+def _seed_symbol_names(
+    arch: ArchIndex,
+    seeds: list[str],
+    explicit: list[str],
+    tokens: set[str],
+) -> set[str]:
+    """跨语言调用图的起点符号（显式文件或请求里提到的符号）。"""
+    explicit_set = set(explicit)
+    seed_symbol_names: set[str] = set()
+    for path in seeds:
+        for raw in arch.symbols.get(path, []):
+            name = _symbol_name(raw)
+            if not name or name.startswith("_"):
+                continue
+            if path in explicit_set or not tokens or name in tokens:
+                seed_symbol_names.add(name)
+    return seed_symbol_names
+
+
+def _callers_by_symbol(
+    calls: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    mapping: dict[str, list[dict[str, Any]]] = {}
+    for edge in calls:
+        mapping.setdefault(str(edge.get("dst_symbol", "")), []).append(edge)
+    return mapping
+
+
+def _expand_call_closure(
+    arch: ArchIndex,
+    seed_symbol_names: set[str],
+    affected_files: set[str],
+    affected_modules: set[str],
+    affected_calls: list[dict[str, Any]],
+    limit: int,
+) -> None:
+    """沿反向 call 边继续扩影响面（按唯一符号名解析）。"""
+    callers_by_symbol = _callers_by_symbol(arch.calls)
+    queue = list(seed_symbol_names)
+    visited_symbols = set(queue)
+    while queue and len(affected_files) < limit:
+        name = queue.pop(0)
+        for edge in callers_by_symbol.get(name, []):
+            affected_calls.append(edge)
+            source = str(edge.get("src_file", ""))
+            if source:
+                affected_files.add(source)
+                for module in arch.file_modules.get(source, []):
+                    affected_modules.add(module)
+            caller_symbol = str(edge.get("src_symbol", ""))
+            if caller_symbol and caller_symbol not in visited_symbols:
+                visited_symbols.add(caller_symbol)
+                queue.append(caller_symbol)
+            if len(affected_files) >= limit:
+                break
+
+
+def _affected_tests(
+    arch: ArchIndex,
+    affected_files: set[str],
+    affected_modules: set[str],
+) -> list[str]:
+    affected_tests: list[str] = []
+    for test in arch.tests:
+        if any(stem in test for stem in affected_files):
+            affected_tests.append(test)
+            continue
+        imports = arch.imports.get(test, [])
+        if any(
+            module in affected_modules
+            or any(module.startswith(item + ".") for item in affected_modules)
+            for module in imports
+        ):
+            affected_tests.append(test)
+    return affected_tests
+
+
+def _lsp_callers_by_file(
+    calls: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    mapping: dict[str, list[dict[str, Any]]] = {}
+    for edge in calls:
+        if edge.get("kind") == "lsp" and not edge.get("dst_symbol"):
+            mapping.setdefault(str(edge.get("dst_file", "")), []).append(edge)
+    return mapping
+
+
+def _expand_lsp_closure(
+    arch: ArchIndex,
+    affected_files: set[str],
+    affected_calls: list[dict[str, Any]],
+    limit: int,
+) -> None:
+    """LSP 边是文件级 definition：沿反向文件边继续扩调用方。"""
+    lsp_callers_by_file = _lsp_callers_by_file(arch.calls)
+    changed = True
+    while changed and len(affected_files) < limit:
+        changed = False
+        for path in list(affected_files):
+            for edge in lsp_callers_by_file.get(path, []):
+                source = str(edge.get("src_file", ""))
+                if source and source not in affected_files:
+                    affected_files.add(source)
+                    affected_calls.append(edge)
+                    changed = True
+                if len(affected_files) >= limit:
+                    break
+            if len(affected_files) >= limit:
+                break
+
+
+def _nearby_dynamic_calls(
+    arch: ArchIndex,
+    seeds: list[str],
+    affected_files: set[str],
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in arch.dynamic_calls
+        if not item.get("resolved")
+        and (
+            str(item.get("file", "")) in seeds
+            or str(item.get("file", "")) in affected_files
+        )
+    ]
+
+
+def _fallback_reason(
+    arch: ArchIndex,
+    sampled_incomplete: bool,
+    nearby_dynamic: list[dict[str, Any]],
+) -> tuple[bool, str]:
+    fallback = bool(
+        arch.unparsed
+        or arch.dynamic
+        or sampled_incomplete
+        or nearby_dynamic
+    )
+    reasons = []
+    if arch.unparsed or arch.dynamic:
+        reasons.append("存在无法静态解析/动态 import 的文件")
+    if sampled_incomplete:
+        reasons.append("仓库过大，架构索引为抽样结果")
+    if nearby_dynamic:
+        reasons.append("变更附近存在动态/反射/宏调用")
+    return fallback, "；".join(reasons)
 
 
 def impact_analysis(
@@ -460,119 +692,31 @@ def impact_analysis(
     seed_modules: set[str] = set()
     for path in seeds:
         seed_modules.update(arch.file_modules.get(path, []))
-    frontier = set(seed_modules)
     affected_files = {path for path in seeds if path in arch.files}
     affected_modules = set(seed_modules)
     limit = max(1, int(max_modules))
-    while frontier and len(affected_modules) < limit:
-        next_frontier: set[str] = set()
-        for module in frontier:
-            for caller in arch.module_importers.get(module, []):
-                if caller in affected_modules:
-                    continue
-                affected_modules.add(caller)
-                next_frontier.add(caller)
-                affected_files.update(arch.module_files.get(caller, []))
-                if len(affected_modules) >= limit:
-                    break
-            if len(affected_modules) >= limit:
-                break
-        frontier = next_frontier
 
-    # 跨语言调用图：沿反向 call 边继续扩影响面（按唯一符号名解析）。
-    seed_symbol_names: set[str] = set()
-    explicit_set = set(explicit)
-    for path in seeds:
-        for raw in arch.symbols.get(path, []):
-            name = _symbol_name(raw)
-            if not name or name.startswith("_"):
-                continue
-            if path in explicit_set or not tokens or name in tokens:
-                seed_symbol_names.add(name)
-    callers_by_symbol: dict[str, list[dict[str, Any]]] = {}
-    for edge in arch.calls:
-        callers_by_symbol.setdefault(
-            str(edge.get("dst_symbol", "")), []
-        ).append(edge)
+    _expand_import_closure(
+        arch, seed_modules, affected_files, affected_modules, limit
+    )
+    seed_symbol_names = _seed_symbol_names(arch, seeds, explicit, tokens)
     affected_calls: list[dict[str, Any]] = []
-    queue = list(seed_symbol_names)
-    visited_symbols = set(queue)
-    while queue and len(affected_files) < limit:
-        name = queue.pop(0)
-        for edge in callers_by_symbol.get(name, []):
-            affected_calls.append(edge)
-            source = str(edge.get("src_file", ""))
-            if source:
-                affected_files.add(source)
-                for module in arch.file_modules.get(source, []):
-                    affected_modules.add(module)
-            caller_symbol = str(edge.get("src_symbol", ""))
-            if caller_symbol and caller_symbol not in visited_symbols:
-                visited_symbols.add(caller_symbol)
-                queue.append(caller_symbol)
-            if len(affected_files) >= limit:
-                break
-
-    affected_tests = []
-    for test in arch.tests:
-        if any(stem in test for stem in affected_files):
-            affected_tests.append(test)
-            continue
-        imports = arch.imports.get(test, [])
-        if any(
-            module in affected_modules
-            or any(module.startswith(item + ".") for item in affected_modules)
-            for module in imports
-        ):
-            affected_tests.append(test)
-
-    # LSP 边是文件级 definition：沿反向文件边继续扩调用方。
-    lsp_callers_by_file: dict[str, list[dict[str, Any]]] = {}
-    for edge in arch.calls:
-        if edge.get("kind") == "lsp" and not edge.get("dst_symbol"):
-            lsp_callers_by_file.setdefault(
-                str(edge.get("dst_file", "")), []
-            ).append(edge)
-    changed = True
-    while changed and len(affected_files) < limit:
-        changed = False
-        for path in list(affected_files):
-            for edge in lsp_callers_by_file.get(path, []):
-                source = str(edge.get("src_file", ""))
-                if source and source not in affected_files:
-                    affected_files.add(source)
-                    affected_calls.append(edge)
-                    changed = True
-                if len(affected_files) >= limit:
-                    break
-            if len(affected_files) >= limit:
-                break
-
-    nearby_dynamic = [
-        item
-        for item in arch.dynamic_calls
-        if not item.get("resolved")
-        and (
-            str(item.get("file", "")) in seeds
-            or str(item.get("file", "")) in affected_files
-        )
-    ]
-    sampled_incomplete = bool(
-        (arch.sample or {}).get("truncated")
+    _expand_call_closure(
+        arch,
+        seed_symbol_names,
+        affected_files,
+        affected_modules,
+        affected_calls,
+        limit,
     )
-    fallback = bool(
-        arch.unparsed
-        or arch.dynamic
-        or sampled_incomplete
-        or nearby_dynamic
+    affected_tests = _affected_tests(arch, affected_files, affected_modules)
+    _expand_lsp_closure(arch, affected_files, affected_calls, limit)
+
+    nearby_dynamic = _nearby_dynamic_calls(arch, seeds, affected_files)
+    sampled_incomplete = bool((arch.sample or {}).get("truncated"))
+    fallback, reason = _fallback_reason(
+        arch, sampled_incomplete, nearby_dynamic
     )
-    reasons = []
-    if arch.unparsed or arch.dynamic:
-        reasons.append("存在无法静态解析/动态 import 的文件")
-    if sampled_incomplete:
-        reasons.append("仓库过大，架构索引为抽样结果")
-    if nearby_dynamic:
-        reasons.append("变更附近存在动态/反射/宏调用")
     return {
         "seed_files": sorted(seeds),
         "seed_modules": sorted(seed_modules),
@@ -583,5 +727,5 @@ def impact_analysis(
         "dynamic_calls": nearby_dynamic[:20],
         "dynamic_call_count": len(nearby_dynamic),
         "fallback": fallback,
-        "reason": "；".join(reasons),
+        "reason": reason,
     }
