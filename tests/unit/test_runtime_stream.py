@@ -875,7 +875,7 @@ def test_run_config_carries_trace_metadata(tmp_path) -> None:
 
     config = graph.configs[-1]
     assert config["run_name"] == f"agent:{THREAD}"
-    assert "coding-agent" in config["tags"]
+    assert "ubismart" in config["tags"]
     assert config["metadata"]["thread_id"] == THREAD
     assert config["configurable"]["thread_id"] == THREAD
 
