@@ -20,10 +20,10 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 
 | 指标 | 值 |
 | --- | --- |
-| 快反馈用例 | **3,143** |
-| 覆盖率 | **84.70%** |
-| 总语句 | **35,319** |
-| 未覆盖 | **5,405** |
+| 快反馈用例 | **3,473** |
+| 覆盖率 | **84.28%** |
+| 总语句 | **43,413** |
+| 未覆盖 | **6,826** |
 | 承重模块目标 | **85%** |
 
 ## 承重模块
@@ -31,7 +31,7 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 | 模块 | 当前 | 棘轮下限 | 目标 |
 | --- | ---: | ---: | ---: |
 | `control/accounts.py` | 87.2% | 87.1% | 85% |
-| `control/approvals.py` | 96.5% | 96.8% | 85% |
+| `control/approvals.py` | 98.2% | 96.8% | 85% |
 | `control/credentials.py` | 95.8% | 94.8% | 85% |
 | `control/mfa.py` | 92.8% | 91.8% | 85% |
 | `control/oidc.py` | 99.2% | 98.2% | 85% |
@@ -39,7 +39,7 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 | `control/store/audit.py` | 81.1% | 80.0% | 85% |
 | `control/store/base.py` | 93.0% | 92.0% | 85% |
 | `control/store/notifications.py` | 89.6% | 88.6% | 85% |
-| `control/store/search.py` | 88.8% | 87.8% | 85% |
+| `control/store/search.py` | 89.8% | 87.8% | 85% |
 | `control/store/sessions.py` | 100.0% | 99.0% | 85% |
 | `control/store/usage.py` | 100.0% | 99.0% | 85% |
 | `control/store/usage_common.py` | 100.0% | 99.0% | 85% |
@@ -54,11 +54,11 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 | `sandbox/pathguard.py` | 100.0% | 99.0% | 85% |
 | `sandbox/policy.py` | 92.0% | 91.0% | 85% |
 | `sandbox/snapshots.py` | 76.8% | 75.8% | 85% |
-| `servers/agent_server_routes/workspace_import.py` | 88.1% | 87.1% | 85% |
+| `servers/agent_server_routes/workspace_import.py` | 89.0% | 87.1% | 85% |
 | `tools/code_intel.py` | 98.9% | 97.9% | 85% |
 | `tools/files.py` | 88.5% | 88.3% | 85% |
 | `tools/git.py` | 96.0% | 95.8% | 85% |
-| `web/routes/admin.py` | 83.4% | 89.3% | 85% |
+| `web/routes/admin.py` | 90.8% | 89.3% | 85% |
 | `web/routes/auth.py` | 100.0% | 99.0% | 85% |
 | `web/routes/runs.py` | 86.3% | 85.5% | 85% |
 

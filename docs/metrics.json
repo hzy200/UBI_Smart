@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "tests": 3143,
+  "tests": 3473,
   "coverage": {
-    "statements": 35319,
-    "missing": 5405,
-    "percent": 84.7,
+    "statements": 43413,
+    "missing": 6826,
+    "percent": 84.28,
     "modules": {
       "control/accounts.py": 87.25,
-      "control/approvals.py": 96.49,
+      "control/approvals.py": 98.25,
       "control/credentials.py": 95.83,
       "control/mfa.py": 92.78,
       "control/oidc.py": 99.18,
@@ -15,7 +15,7 @@
       "control/store/audit.py": 81.13,
       "control/store/base.py": 93.02,
       "control/store/notifications.py": 89.58,
-      "control/store/search.py": 88.79,
+      "control/store/search.py": 89.84,
       "control/store/sessions.py": 100.0,
       "control/store/usage.py": 100.0,
       "control/store/usage_common.py": 100.0,
@@ -30,11 +30,11 @@
       "sandbox/pathguard.py": 100.0,
       "sandbox/policy.py": 92.01,
       "sandbox/snapshots.py": 76.79,
-      "servers/agent_server_routes/workspace_import.py": 88.13,
+      "servers/agent_server_routes/workspace_import.py": 89.0,
       "tools/code_intel.py": 98.86,
       "tools/files.py": 88.5,
       "tools/git.py": 96.0,
-      "web/routes/admin.py": 83.38,
+      "web/routes/admin.py": 90.75,
       "web/routes/auth.py": 100.0,
       "web/routes/runs.py": 86.26
     }
@@ -46,7 +46,7 @@
       "floor": 87.1
     },
     "control/approvals.py": {
-      "actual": 96.49,
+      "actual": 98.25,
       "floor": 96.8
     },
     "control/credentials.py": {
@@ -78,7 +78,7 @@
       "floor": 88.6
     },
     "control/store/search.py": {
-      "actual": 88.79,
+      "actual": 89.84,
       "floor": 87.8
     },
     "control/store/sessions.py": {
@@ -138,7 +138,7 @@
       "floor": 75.8
     },
     "servers/agent_server_routes/workspace_import.py": {
-      "actual": 88.13,
+      "actual": 89.0,
       "floor": 87.1
     },
     "tools/code_intel.py": {
@@ -154,7 +154,7 @@
       "floor": 95.8
     },
     "web/routes/admin.py": {
-      "actual": 83.38,
+      "actual": 90.75,
       "floor": 89.3
     },
     "web/routes/auth.py": {

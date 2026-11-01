@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,20 @@ def _record(store: ApprovalStore, *, level: int = 3, call: str = "c1") -> None:
         level_int=level,
         requested_by="alice",
     )
+
+
+def test_history_filters_by_epoch_range(tmp_path) -> None:
+    control = _store(tmp_path)
+    approvals = ApprovalStore(control.engine)
+    _record(approvals)
+    result = approvals.history(
+        "default",
+        from_ts="0",
+        to_ts=str(int(time.time()) + 60),
+    )
+    assert result["total"] == 1
+    assert result["records"][0]["call_id"] == "c1"
+    control.close()
 
 
 def test_self_approval_is_rejected(tmp_path) -> None:

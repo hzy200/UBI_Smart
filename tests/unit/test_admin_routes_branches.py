@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from fastapi import FastAPI
@@ -10,12 +10,14 @@ from fastapi.testclient import TestClient
 
 from ubismart.config import Settings
 from ubismart.control.accounts import AccountError
+from ubismart.platform.secrets_store import SecretStoreUnavailable
 from ubismart.web.auth import AuthUser
 from ubismart.web.dependencies import current_user
 from ubismart.web.routes.admin import (
     AdminDeps,
     _day,
     _EmptyStore,
+    _epoch,
     register_admin_routes,
 )
 
@@ -204,3 +206,55 @@ def test_deployment_providers_uses_empty_store() -> None:
     response = client.get("/api/admin/providers")
     assert response.status_code == 200
     assert response.json() == {"providers": []}
+
+
+def test_epoch_accepts_date_and_iso_forms() -> None:
+    assert _epoch("") == ""
+    assert _epoch("not-a-date") == ""
+    start = int(datetime(2026, 10, 1, tzinfo=UTC).timestamp())
+    end = int(datetime(2026, 10, 1, 23, 59, 59, tzinfo=UTC).timestamp())
+    assert _epoch("2026-10-01") == str(start)
+    assert _epoch("2026-10-01", end_of_day=True) == str(end)
+    aware = int(datetime(2026, 10, 1, 12, tzinfo=UTC).timestamp())
+    assert _epoch("2026-10-01T12:00:00Z") == str(aware)
+    # 无时区的 ISO 按 UTC 解释。
+    assert _epoch("2026-10-01T12:00:00") == str(aware)
+
+
+class _KeyStore:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.deleted: list[str] = []
+
+    def delete(self, provider: str) -> None:
+        if self.error is not None:
+            raise self.error
+        self.deleted.append(provider)
+
+
+def test_delete_provider_key_and_storage_error() -> None:
+    store = _KeyStore()
+    deps = _deps(
+        provider_rows=lambda settings, store: [{"name": "deepseek"}],
+        user_store=lambda user: store,
+    )
+    client = _client(deps)
+    response = client.delete("/api/admin/users/u1/providers/deepseek")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert store.deleted == ["deepseek"]
+
+    broken = _KeyStore(SecretStoreUnavailable("主密钥不可用"))
+    client = _client(_deps(user_store=lambda user: broken))
+    response = client.delete("/api/admin/users/u1/providers/deepseek")
+    assert response.status_code == 503
+
+
+def test_audit_disabled_and_unknown_user() -> None:
+    client = _client(_deps(control_store=None))
+    assert client.get("/api/admin/audit").status_code == 503
+
+    client = _client(_deps())
+    response = client.get("/api/admin/audit", params={"user": "nobody"})
+    assert response.status_code == 200
+    assert response.json() == {"records": [], "total": 0, "has_more": False}
