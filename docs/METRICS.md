@@ -20,10 +20,10 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 
 | 指标 | 值 |
 | --- | --- |
-| 快反馈用例 | **3,473** |
-| 覆盖率 | **84.28%** |
+| 快反馈用例 | **3,474** |
+| 覆盖率 | **84.31%** |
 | 总语句 | **43,413** |
-| 未覆盖 | **6,826** |
+| 未覆盖 | **6,811** |
 | 承重模块目标 | **85%** |
 
 ## 承重模块
@@ -43,7 +43,7 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 | `control/store/sessions.py` | 100.0% | 99.0% | 85% |
 | `control/store/usage.py` | 100.0% | 99.0% | 85% |
 | `control/store/usage_common.py` | 100.0% | 99.0% | 85% |
-| `control/store/usage_record.py` | 83.3% | 82.3% | 85% |
+| `control/store/usage_record.py` | 94.4% | 82.3% | 85% |
 | `control/store/usage_report.py` | 97.7% | 96.7% | 85% |
 | `control/store/usage_reserve.py` | 90.5% | 89.5% | 85% |
 | `execution/service.py` | 92.0% | 91.0% | 85% |

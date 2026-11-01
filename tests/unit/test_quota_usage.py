@@ -39,6 +39,20 @@ def _record(
     }
 
 
+def test_usage_fallback_dialect_paths(tmp_path, monkeypatch) -> None:
+    """非 SQLite/MySQL 方言走通用 ORM 兜底（CI 无 MySQL 时也覆盖该分支）。"""
+    store = _store(tmp_path)
+    monkeypatch.setattr(store.engine.dialect, "name", "postgresql")
+    applied = store.record_usage(
+        "default",
+        "alice",
+        [_record(digest="h-fallback", epoch="e1", input_tokens=7, cost=0.1)],
+    )
+    assert applied == 1
+    day = store.get_usage_day("default", "alice", DAY)
+    assert day["input_tokens"] == 7
+
+
 def test_resume_usage_is_counted_by_delta(tmp_path) -> None:
     store = _store(tmp_path)
     store.record_usage(

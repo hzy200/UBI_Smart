@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "tests": 3473,
+  "tests": 3474,
   "coverage": {
     "statements": 43413,
-    "missing": 6826,
-    "percent": 84.28,
+    "missing": 6811,
+    "percent": 84.31,
     "modules": {
       "control/accounts.py": 87.25,
       "control/approvals.py": 98.25,
@@ -19,7 +19,7 @@
       "control/store/sessions.py": 100.0,
       "control/store/usage.py": 100.0,
       "control/store/usage_common.py": 100.0,
-      "control/store/usage_record.py": 83.33,
+      "control/store/usage_record.py": 94.44,
       "control/store/usage_report.py": 97.67,
       "control/store/usage_reserve.py": 90.52,
       "execution/service.py": 92.01,
@@ -94,7 +94,7 @@
       "floor": 99.0
     },
     "control/store/usage_record.py": {
-      "actual": 83.33,
+      "actual": 94.44,
       "floor": 82.3
     },
     "control/store/usage_report.py": {
