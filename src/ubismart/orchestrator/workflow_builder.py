@@ -53,29 +53,55 @@ def _wave_scopes(wave: dict[str, Any]) -> list[str]:
     return scopes
 
 
-def build_dynamic_plan(
-    request: str,
-    summary: dict[str, Any],
-    settings: Settings,
-    *,
-    write_available: bool,
-) -> dict[str, Any] | None:
-    """有 ChangeContract 且跨波次时，直接生成接口优先的任务图。"""
-    if not bool(getattr(settings, "deep_workflows_enabled", False)):
-        return None
-    if not write_available:
-        return None
-    contract = summary.get("change_contract") or {}
-    waves = [
+def _contract_waves(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
         wave
         for wave in (contract.get("waves") or [])
         if isinstance(wave, dict)
     ]
-    if len(waves) < 2:
-        return None
-    waves.sort(key=lambda item: int(item.get("stage", 0) or 0))
 
-    max_tasks = max(1, int(settings.orchestrator_max_tasks or 6))
+
+def _tasks_for_wave(
+    tasks: list[dict[str, Any]],
+    *,
+    scopes: list[str],
+    request: str,
+    stage: int,
+    previous: list[str],
+    max_tasks: int,
+) -> list[str]:
+    wave_ids: list[str] = []
+    for index, scope in enumerate(scopes):
+        if len(tasks) >= max_tasks:
+            break
+        task_id = f"w{stage}-{index + 1}"
+        tasks.append(
+            {
+                "id": task_id,
+                "role": "implement",
+                "goal": (
+                    f"{request}（第 {stage + 1} 波，范围：{scope}）"
+                ),
+                "inputs": [],
+                "acceptance": [
+                    "只修改 write_scope 内文件",
+                    "保持调用方/接口一致",
+                ],
+                "depends_on": list(previous),
+                "depends_mode": "any" if previous else "full",
+                "write_scope": [scope],
+                "stage": stage,
+            }
+        )
+        wave_ids.append(task_id)
+    return wave_ids
+
+
+def _build_wave_tasks(
+    waves: list[dict[str, Any]],
+    request: str,
+    max_tasks: int,
+) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     previous: list[str] = []
     for wave in waves:
@@ -85,35 +111,24 @@ def build_dynamic_plan(
         scopes = _wave_scopes(wave)
         if not scopes:
             continue
-        wave_ids: list[str] = []
-        for index, scope in enumerate(scopes):
-            if len(tasks) >= max_tasks:
-                break
-            task_id = f"w{stage}-{index + 1}"
-            tasks.append(
-                {
-                    "id": task_id,
-                    "role": "implement",
-                    "goal": (
-                        f"{request}（第 {stage + 1} 波，范围：{scope}）"
-                    ),
-                    "inputs": [],
-                    "acceptance": [
-                        "只修改 write_scope 内文件",
-                        "保持调用方/接口一致",
-                    ],
-                    "depends_on": list(previous),
-                    "depends_mode": "any" if previous else "full",
-                    "write_scope": [scope],
-                    "stage": stage,
-                }
-            )
-            wave_ids.append(task_id)
+        wave_ids = _tasks_for_wave(
+            tasks,
+            scopes=scopes,
+            request=request,
+            stage=stage,
+            previous=previous,
+            max_tasks=max_tasks,
+        )
         if wave_ids:
             previous = wave_ids
+    return tasks
 
-    if not tasks:
-        return None
+
+def _append_verify_task(
+    tasks: list[dict[str, Any]],
+    contract: dict[str, Any],
+    max_tasks: int,
+) -> list[dict[str, Any]]:
     tests = [
         str(item) for item in (contract.get("affected_tests") or [])[:40]
     ]
@@ -131,6 +146,32 @@ def build_dynamic_plan(
                 "stage": last_stage + 1,
             }
         )
+    return tasks
+
+
+def build_dynamic_plan(
+    request: str,
+    summary: dict[str, Any],
+    settings: Settings,
+    *,
+    write_available: bool,
+) -> dict[str, Any] | None:
+    """有 ChangeContract 且跨波次时，直接生成接口优先的任务图。"""
+    if not bool(getattr(settings, "deep_workflows_enabled", False)):
+        return None
+    if not write_available:
+        return None
+    contract = summary.get("change_contract") or {}
+    waves = _contract_waves(contract)
+    if len(waves) < 2:
+        return None
+    waves.sort(key=lambda item: int(item.get("stage", 0) or 0))
+
+    max_tasks = max(1, int(settings.orchestrator_max_tasks or 6))
+    tasks = _build_wave_tasks(waves, request, max_tasks)
+    if not tasks:
+        return None
+    tasks = _append_verify_task(tasks, contract, max_tasks)
     return {
         "workflow": "architecture_change",
         "reason": (

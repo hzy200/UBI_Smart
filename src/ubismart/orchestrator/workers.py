@@ -35,6 +35,413 @@ from ubismart.tools.testrun import run_verification
 WorkerRunner = Callable[..., Awaitable[WorkerResult]]
 
 
+def _make_instructions_loader(
+    sandbox: WslSandbox, root: str, trusted: bool
+) -> Callable[[], str]:
+    # 指令加载要起一次 WSL `find`：延迟到第一次真正跑 worker 时再做，
+    # 纯 direct 会话不为编排功能付启动成本。
+    cache: list[str] = []
+
+    def load() -> str:
+        if not cache:
+            try:
+                text = load_project_instructions(
+                    sandbox,
+                    root,
+                    trusted=trusted,
+                )
+            except Exception:  # noqa: BLE001 - 指令读取失败不阻断 worker
+                text = ""
+            cache.append(text)
+        return cache[0]
+
+    return load
+
+
+def _search_memories(
+    memory: Any,
+    task: dict[str, Any],
+    parent_request: str,
+    top_k: int,
+) -> list[str]:
+    """按任务目标筛 top-K；记忆读取失败不能阻断 worker。"""
+    query = f"{task.get('goal', '')}\n{parent_request}"
+    try:
+        return memory.search(query, top_k)
+    except Exception:  # noqa: BLE001 - 记忆是增强信息，不是执行前提
+        return []
+
+
+def _select_readonly_runner(
+    role: str,
+    escalate: bool,
+    explore_runner: DelegateRunner | None,
+    review_runner: DelegateRunner | None,
+    explore_fallback_runner: DelegateRunner | None,
+    review_fallback_runner: DelegateRunner | None,
+) -> DelegateRunner | None:
+    runner = explore_runner if role == "explore" else review_runner
+    fallback = (
+        explore_fallback_runner
+        if role == "explore"
+        else review_fallback_runner
+    )
+    if escalate and fallback is not None:
+        runner = fallback
+    return runner
+
+
+async def _run_readonly(
+    task: dict[str, Any],
+    *,
+    task_id: str,
+    role: str,
+    goal: str,
+    worker_id: str,
+    retry_note: str,
+    parent_request: str,
+    session_brief: str,
+    cwd: str,
+    config: RunnableConfig | None,
+    cancel: Callable[[], bool] | None,
+    dependency_context: dict[str, Any] | None,
+    memories: list[str],
+    escalate: bool,
+    explore_runner: DelegateRunner | None,
+    review_runner: DelegateRunner | None,
+    explore_fallback_runner: DelegateRunner | None,
+    review_fallback_runner: DelegateRunner | None,
+    report_review_runner: Callable[..., Awaitable[WorkerResult]] | None,
+    instructions: Callable[[], str],
+) -> WorkerResult:
+    report_inputs = any(
+        str(item).lower().endswith((".md", ".docx", ".pdf"))
+        for item in (task.get("inputs") or [])
+    )
+    if role == "review" and report_inputs and report_review_runner is not None:
+        return await report_review_runner(
+            task,
+            parent_request=parent_request,
+            session_brief=session_brief,
+            cwd=cwd,
+            config=config,
+            cancel=cancel,
+            dependency_context=dependency_context or {},
+        )
+    runner = _select_readonly_runner(
+        role,
+        escalate,
+        explore_runner,
+        review_runner,
+        explore_fallback_runner,
+        review_fallback_runner,
+    )
+    if runner is None:
+        return WorkerResult(
+            task_id=task_id,
+            role=role,
+            worker_id=worker_id,
+            goal=goal,
+            status="failed",
+            summary=f"{role} worker 未配置（orchestrator 缺少 runner）",
+        )
+    artifact = await runner(
+        args={
+            "goal": f"{goal}\n{retry_note}" if retry_note else goal,
+            "paths": list(task.get("inputs") or []),
+            "repo_map": str(task.get("repo_map") or ""),
+            "session_brief": session_brief,
+            "memories": memories,
+            "instructions": instructions(),
+            "reason": f"编排器派发的只读 {role} 任务",
+        },
+        call_id=task_id,
+        parent_request=parent_request,
+        cwd=cwd,
+        config=config,
+        cancel=cancel,
+    )
+    return WorkerResult(
+        task_id=task_id,
+        role=role,
+        worker_id=worker_id,
+        goal=goal,
+        status=artifact.status,
+        summary=artifact.summary,
+        files=list(artifact.relevant_files),
+        findings=list(artifact.findings),
+        citations=list(artifact.citations),
+        proposed_tasks=list(artifact.proposed_tasks),
+        input_tokens=artifact.input_tokens,
+        output_tokens=artifact.output_tokens,
+        duration_ms=int(artifact.duration_ms or 0),
+        # 只读 worker 的工具调用也要透传：runtime 用
+        # `len(result.tool_calls)` 统计 WorkerFinished.tool_calls。
+        # 漏掉这一项会让所有 explore/review worker 看起来一次工具都没用。
+        tool_calls=list(artifact.tool_calls),
+        llm_ms=artifact.llm_ms,
+        tool_ms=artifact.tool_ms,
+        timed_out=artifact.timed_out,
+        budget_used={
+            "input_tokens": artifact.input_tokens,
+            "output_tokens": artifact.output_tokens,
+        },
+    )
+
+
+async def _run_implement(
+    task: dict[str, Any],
+    *,
+    task_id: str,
+    role: str,
+    goal: str,
+    worker_id: str,
+    parent_request: str,
+    session_brief: str,
+    cwd: str,
+    config: RunnableConfig | None,
+    cancel: Callable[[], bool] | None,
+    memories: list[str],
+    escalate: bool,
+    implement_runner: ImplementRunner | None,
+    implement_fallback_runner: ImplementRunner | None,
+    instructions: Callable[[], str],
+) -> WorkerResult:
+    active_runner = implement_runner
+    if escalate and implement_fallback_runner is not None:
+        active_runner = implement_fallback_runner
+    if active_runner is None:
+        return WorkerResult(
+            task_id=task_id,
+            role=role,
+            worker_id=worker_id,
+            goal=goal,
+            status="failed",
+            summary="实现 worker 未配置（需要开启写编排 + --write + 干净 git 仓库）",
+        )
+    return await active_runner(
+        task,
+        parent_request=parent_request,
+        cwd=cwd,
+        config=config,
+        cancel=cancel,
+        session_brief=session_brief,
+        memories=memories,
+        instructions=instructions(),
+    )
+
+
+async def _run_document(
+    task: dict[str, Any],
+    *,
+    task_id: str,
+    role: str,
+    goal: str,
+    worker_id: str,
+    parent_request: str,
+    session_brief: str,
+    cwd: str,
+    config: RunnableConfig | None,
+    cancel: Callable[[], bool] | None,
+    dependency_context: dict[str, Any] | None,
+    memories: list[str],
+    document_runner: Callable[..., Awaitable[WorkerResult]] | None,
+    vision_runner: Callable[..., Awaitable[WorkerResult]] | None,
+    author_runner: Callable[..., Awaitable[WorkerResult]] | None,
+    instructions: Callable[[], str],
+) -> WorkerResult:
+    runner = {
+        "document": document_runner,
+        "vision": vision_runner,
+        "author": author_runner,
+    }.get(role)
+    if runner is None:
+        return WorkerResult(
+            task_id=task_id,
+            role=role,
+            worker_id=worker_id,
+            goal=goal,
+            status="failed",
+            summary=f"{role} worker 未配置",
+        )
+    return await runner(
+        task,
+        parent_request=parent_request,
+        session_brief=session_brief,
+        cwd=cwd,
+        config=config,
+        cancel=cancel,
+        dependency_context=dependency_context or {},
+        memories=memories,
+        instructions=instructions(),
+    )
+
+
+async def _run_test(
+    *,
+    task_id: str,
+    role: str,
+    goal: str,
+    worker_id: str,
+    sandbox: WslSandbox,
+    root: str,
+    cancel: Callable[[], bool] | None,
+) -> WorkerResult:
+    if cancel is not None and cancel():
+        return WorkerResult(
+            task_id=task_id,
+            role=role,
+            worker_id=worker_id,
+            goal=goal,
+            status="cancelled",
+            summary="已按用户要求取消。",
+        )
+    result = await asyncio.to_thread(
+        run_verification, sandbox, root, allow_manifest=False
+    )
+    if result.status == "ok":
+        status = "success"
+    elif result.status == "failed":
+        status = "failed"
+    else:
+        # not_configured / skipped：没验证，不等于通过
+        status = "partial"
+    findings = [
+        f"{issue.location} {issue.message}".strip()
+        for issue in result.issues
+    ]
+    if result.failed_tests:
+        findings.append("失败测试：" + "、".join(result.failed_tests))
+    return WorkerResult(
+        task_id=task_id,
+        role=role,
+        worker_id=worker_id,
+        goal=goal,
+        status=status,
+        summary=result.summary or result.render(),
+        findings=findings,
+        verification=result.model_dump(),
+        duration_ms=result.duration_ms or 0,
+    )
+
+
+async def _run_worker(
+    task: dict[str, Any],
+    *,
+    parent_request: str,
+    session_brief: str,
+    cwd: str,
+    config: RunnableConfig | None,
+    cancel: Callable[[], bool] | None,
+    dependency_context: dict[str, Any] | None,
+    explore_runner: DelegateRunner | None,
+    review_runner: DelegateRunner | None,
+    implement_runner: ImplementRunner | None,
+    explore_fallback_runner: DelegateRunner | None,
+    review_fallback_runner: DelegateRunner | None,
+    implement_fallback_runner: ImplementRunner | None,
+    document_runner: Callable[..., Awaitable[WorkerResult]] | None,
+    vision_runner: Callable[..., Awaitable[WorkerResult]] | None,
+    author_runner: Callable[..., Awaitable[WorkerResult]] | None,
+    report_review_runner: Callable[..., Awaitable[WorkerResult]] | None,
+    sandbox: WslSandbox,
+    root: str,
+    memory: Any,
+    memory_top_k: int,
+    instructions: Callable[[], str],
+) -> WorkerResult:
+    task_id = str(task.get("id", ""))
+    role = str(task.get("role", "explore"))
+    goal = str(task.get("goal", ""))
+    retry_note = format_retry_context(task)
+    worker_id = f"{role}:{task_id}"
+    memories = _search_memories(memory, task, parent_request, memory_top_k)
+    escalate = bool(task.get("escalate"))
+
+    if role in {"explore", "review"}:
+        return await _run_readonly(
+            task,
+            task_id=task_id,
+            role=role,
+            goal=goal,
+            worker_id=worker_id,
+            retry_note=retry_note,
+            parent_request=parent_request,
+            session_brief=session_brief,
+            cwd=cwd,
+            config=config,
+            cancel=cancel,
+            dependency_context=dependency_context,
+            memories=memories,
+            escalate=escalate,
+            explore_runner=explore_runner,
+            review_runner=review_runner,
+            explore_fallback_runner=explore_fallback_runner,
+            review_fallback_runner=review_fallback_runner,
+            report_review_runner=report_review_runner,
+            instructions=instructions,
+        )
+
+    if role == "implement":
+        return await _run_implement(
+            task,
+            task_id=task_id,
+            role=role,
+            goal=goal,
+            worker_id=worker_id,
+            parent_request=parent_request,
+            session_brief=session_brief,
+            cwd=cwd,
+            config=config,
+            cancel=cancel,
+            memories=memories,
+            escalate=escalate,
+            implement_runner=implement_runner,
+            implement_fallback_runner=implement_fallback_runner,
+            instructions=instructions,
+        )
+
+    if role in {"document", "vision", "author"}:
+        return await _run_document(
+            task,
+            task_id=task_id,
+            role=role,
+            goal=goal,
+            worker_id=worker_id,
+            parent_request=parent_request,
+            session_brief=session_brief,
+            cwd=cwd,
+            config=config,
+            cancel=cancel,
+            dependency_context=dependency_context,
+            memories=memories,
+            document_runner=document_runner,
+            vision_runner=vision_runner,
+            author_runner=author_runner,
+            instructions=instructions,
+        )
+
+    if role == "test":
+        return await _run_test(
+            task_id=task_id,
+            role=role,
+            goal=goal,
+            worker_id=worker_id,
+            sandbox=sandbox,
+            root=root,
+            cancel=cancel,
+        )
+
+    return WorkerResult(
+        task_id=task_id,
+        role=role,
+        worker_id=worker_id,
+        goal=goal,
+        status="failed",
+        summary=f"Phase 3A 不支持 worker 角色：{role}",
+    )
+
+
 def make_worker_runner(
     *,
     explore_runner: DelegateRunner | None,
@@ -77,30 +484,9 @@ def make_worker_runner(
     memory = wrap_memory(
         LayeredMemory(project_memory, global_memory), effective
     )
-    # 指令加载要起一次 WSL `find`：延迟到第一次真正跑 worker 时再做，
-    # 纯 direct 会话不为编排功能付启动成本。
-    instructions_cache: list[str] = []
-
-    def _instructions() -> str:
-        if not instructions_cache:
-            try:
-                text = load_project_instructions(
-                    sandbox,
-                    root,
-                    trusted=effective.trust_repo_instructions,
-                )
-            except Exception:  # noqa: BLE001 - 指令读取失败不阻断 worker
-                text = ""
-            instructions_cache.append(text)
-        return instructions_cache[0]
-
-    def _memories(task: dict[str, Any], parent_request: str) -> list[str]:
-        """按任务目标筛 top-K；记忆读取失败不能阻断 worker。"""
-        query = f"{task.get('goal', '')}\n{parent_request}"
-        try:
-            return memory.search(query, memory_top_k)
-        except Exception:  # noqa: BLE001 - 记忆是增强信息，不是执行前提
-            return []
+    instructions = _make_instructions_loader(
+        sandbox, root, effective.trust_repo_instructions
+    )
 
     async def run(
         task: dict[str, Any],
@@ -112,185 +498,29 @@ def make_worker_runner(
         cancel: Callable[[], bool] | None = None,
         dependency_context: dict[str, Any] | None = None,
     ) -> WorkerResult:
-        task_id = str(task.get("id", ""))
-        role = str(task.get("role", "explore"))
-        goal = str(task.get("goal", ""))
-        retry_note = format_retry_context(task)
-        worker_id = f"{role}:{task_id}"
-        memories = _memories(task, parent_request)
-        escalate = bool(task.get("escalate"))
-
-        if role in {"explore", "review"}:
-            report_inputs = any(
-                str(item).lower().endswith((".md", ".docx", ".pdf"))
-                for item in (task.get("inputs") or [])
-            )
-            if role == "review" and report_inputs and report_review_runner is not None:
-                return await report_review_runner(
-                    task,
-                    parent_request=parent_request,
-                    session_brief=session_brief,
-                    cwd=cwd,
-                    config=config,
-                    cancel=cancel,
-                    dependency_context=dependency_context or {},
-                )
-            runner = explore_runner if role == "explore" else review_runner
-            fallback = (
-                explore_fallback_runner
-                if role == "explore"
-                else review_fallback_runner
-            )
-            if escalate and fallback is not None:
-                runner = fallback
-            if runner is None:
-                return WorkerResult(
-                    task_id=task_id,
-                    role=role,
-                    worker_id=worker_id,
-                    goal=goal,
-                    status="failed",
-                    summary=f"{role} worker 未配置（orchestrator 缺少 runner）",
-                )
-            artifact = await runner(
-                args={
-                    "goal": f"{goal}\n{retry_note}" if retry_note else goal,
-                    "paths": list(task.get("inputs") or []),
-                    "repo_map": str(task.get("repo_map") or ""),
-                    "session_brief": session_brief,
-                    "memories": memories,
-                    "instructions": _instructions(),
-                    "reason": f"编排器派发的只读 {role} 任务",
-                },
-                call_id=task_id,
-                parent_request=parent_request,
-                cwd=cwd,
-                config=config,
-                cancel=cancel,
-            )
-            return WorkerResult(
-                task_id=task_id,
-                role=role,
-                worker_id=worker_id,
-                goal=goal,
-                status=artifact.status,
-                summary=artifact.summary,
-                files=list(artifact.relevant_files),
-                findings=list(artifact.findings),
-                citations=list(artifact.citations),
-                proposed_tasks=list(artifact.proposed_tasks),
-                input_tokens=artifact.input_tokens,
-                output_tokens=artifact.output_tokens,
-                duration_ms=int(artifact.duration_ms or 0),
-                # 只读 worker 的工具调用也要透传：runtime 用
-                # `len(result.tool_calls)` 统计 WorkerFinished.tool_calls。
-                # 漏掉这一项会让所有 explore/review worker 看起来一次工具都没用。
-                tool_calls=list(artifact.tool_calls),
-                llm_ms=artifact.llm_ms,
-                tool_ms=artifact.tool_ms,
-                timed_out=artifact.timed_out,
-                budget_used={
-                    "input_tokens": artifact.input_tokens,
-                    "output_tokens": artifact.output_tokens,
-                },
-            )
-
-        if role == "implement":
-            active_runner = implement_runner
-            if escalate and implement_fallback_runner is not None:
-                active_runner = implement_fallback_runner
-            if active_runner is None:
-                return WorkerResult(
-                    task_id=task_id,
-                    role=role,
-                    worker_id=worker_id,
-                    goal=goal,
-                    status="failed",
-                    summary="实现 worker 未配置（需要开启写编排 + --write + 干净 git 仓库）",
-                )
-            return await active_runner(
-                task,
-                parent_request=parent_request,
-                cwd=cwd,
-                config=config,
-                cancel=cancel,
-                session_brief=session_brief,
-                memories=memories,
-                instructions=_instructions(),
-            )
-
-        if role in {"document", "vision", "author"}:
-            runner = {
-                "document": document_runner,
-                "vision": vision_runner,
-                "author": author_runner,
-            }.get(role)
-            if runner is None:
-                return WorkerResult(
-                    task_id=task_id,
-                    role=role,
-                    worker_id=worker_id,
-                    goal=goal,
-                    status="failed",
-                    summary=f"{role} worker 未配置",
-                )
-            return await runner(
-                task,
-                parent_request=parent_request,
-                session_brief=session_brief,
-                cwd=cwd,
-                config=config,
-                cancel=cancel,
-                dependency_context=dependency_context or {},
-                memories=memories,
-                instructions=_instructions(),
-            )
-
-        if role == "test":
-            if cancel is not None and cancel():
-                return WorkerResult(
-                    task_id=task_id,
-                    role=role,
-                    worker_id=worker_id,
-                    goal=goal,
-                    status="cancelled",
-                    summary="已按用户要求取消。",
-                )
-            result = await asyncio.to_thread(
-                run_verification, sandbox, root, allow_manifest=False
-            )
-            if result.status == "ok":
-                status = "success"
-            elif result.status == "failed":
-                status = "failed"
-            else:
-                # not_configured / skipped：没验证，不等于通过
-                status = "partial"
-            findings = [
-                f"{issue.location} {issue.message}".strip()
-                for issue in result.issues
-            ]
-            if result.failed_tests:
-                findings.append("失败测试：" + "、".join(result.failed_tests))
-            return WorkerResult(
-                task_id=task_id,
-                role=role,
-                worker_id=worker_id,
-                goal=goal,
-                status=status,
-                summary=result.summary or result.render(),
-                findings=findings,
-                verification=result.model_dump(),
-                duration_ms=result.duration_ms or 0,
-            )
-
-        return WorkerResult(
-            task_id=task_id,
-            role=role,
-            worker_id=worker_id,
-            goal=goal,
-            status="failed",
-            summary=f"Phase 3A 不支持 worker 角色：{role}",
+        return await _run_worker(
+            task,
+            parent_request=parent_request,
+            session_brief=session_brief,
+            cwd=cwd,
+            config=config,
+            cancel=cancel,
+            dependency_context=dependency_context,
+            explore_runner=explore_runner,
+            review_runner=review_runner,
+            implement_runner=implement_runner,
+            explore_fallback_runner=explore_fallback_runner,
+            review_fallback_runner=review_fallback_runner,
+            implement_fallback_runner=implement_fallback_runner,
+            document_runner=document_runner,
+            vision_runner=vision_runner,
+            author_runner=author_runner,
+            report_review_runner=report_review_runner,
+            sandbox=sandbox,
+            root=root,
+            memory=memory,
+            memory_top_k=memory_top_k,
+            instructions=instructions,
         )
 
     return run

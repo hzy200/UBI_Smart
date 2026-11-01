@@ -14,6 +14,7 @@ import asyncio
 import json
 import re
 import time
+from functools import partial
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -419,6 +420,108 @@ def _citation_alias(path: str) -> str:
     return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", stem)
 
 
+def _known_document_paths(
+    doc_units: list[dict[str, Any]], inputs: list[str]
+) -> set[str]:
+    known = {
+        str(unit.get("path", "")).strip()
+        for unit in doc_units
+        if str(unit.get("path", "")).strip()
+    }
+    known.update(str(path).strip() for path in inputs if str(path).strip())
+    return known
+
+
+def _citation_aliases(known: set[str]) -> dict[str, str]:
+    return {
+        alias: path
+        for path in known
+        # 单字母/过短的文件名（a.pdf、b.pdf）容易误匹配，不作为名字线索。
+        if (alias := _citation_alias(path)) and len(alias) >= 3
+    }
+
+
+def _anchor_path_map(
+    sources: list[dict[str, Any]] | None, known: set[str]
+) -> dict[str, set[str]]:
+    anchor_paths: dict[str, set[str]] = {}
+    for source in sources or []:
+        if not isinstance(source, dict):
+            continue
+        path = str(source.get("path", "")).strip()
+        anchor = str(source.get("anchor", "")).strip()
+        if path in known and anchor:
+            anchor_paths.setdefault(anchor, set()).add(path)
+    return anchor_paths
+
+
+def _anchor_alias_map(
+    sources: list[dict[str, Any]] | None,
+) -> dict[str, str]:
+    anchor_aliases: dict[str, str] = {}
+    for source in sources or []:
+        if not isinstance(source, dict):
+            continue
+        original = str(source.get("anchor_original", "")).strip()
+        current = str(source.get("anchor", "")).strip()
+        if original and current and original != current:
+            anchor_aliases.setdefault(original, current)
+    return anchor_aliases
+
+
+def _placeholder_path_target(
+    text: str,
+    start: int,
+    aliases: dict[str, str],
+    anchor_paths: dict[str, set[str]],
+    anchor_key: str,
+) -> str:
+    """占位路径没有默认文档时，用前文提到的文件名或唯一锚点消歧。"""
+    tail = text[max(0, start - 600) : start]
+    tail_norm = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", tail.lower())
+    best_position, best_path = -1, ""
+    for alias, candidate in aliases.items():
+        position = tail_norm.rfind(alias)
+        if position > best_position:
+            best_position, best_path = position, candidate
+    if best_path:
+        return best_path
+    unique = anchor_paths.get(anchor_key) or set()
+    if len(unique) == 1:
+        return next(iter(unique))
+    return ""
+
+
+def _replace_citation_path(
+    match: re.Match[str],
+    *,
+    text: str,
+    known: set[str],
+    default: str,
+    aliases: dict[str, str],
+    anchor_paths: dict[str, set[str]],
+    anchor_aliases: dict[str, str],
+) -> str:
+    path, anchor = match.group(1), match.group(2)
+    anchor_key = anchor.strip()
+    normalized_anchor = anchor_aliases.get(anchor_key, anchor)
+    if path in known:
+        target = path
+    elif not _is_placeholder_path(path):
+        return match.group(0)
+    elif default:
+        target = default
+    else:
+        target = _placeholder_path_target(
+            text, match.start(), aliases, anchor_paths, anchor_key
+        )
+    if not target:
+        return match.group(0)
+    if target == path and normalized_anchor == anchor:
+        return match.group(0)
+    return f"[来源: {target}#{normalized_anchor}]"
+
+
 def _normalize_citation_paths(
     summary: str,
     doc_units: list[dict[str, Any]],
@@ -432,73 +535,20 @@ def _normalize_citation_paths(
     无法消歧就保留原样，交给 judge 报出来。
     """
     text = str(summary or "")
-    known = {
-        str(unit.get("path", "")).strip()
-        for unit in doc_units
-        if str(unit.get("path", "")).strip()
-    }
-    known.update(str(path).strip() for path in inputs if str(path).strip())
+    known = _known_document_paths(doc_units, inputs)
     if not known:
         return text
     default = next(iter(known)) if len(known) == 1 else ""
-    aliases = {
-        alias: path
-        for path in known
-        # 单字母/过短的文件名（a.pdf、b.pdf）容易误匹配，不作为名字线索。
-        if (alias := _citation_alias(path)) and len(alias) >= 3
-    }
-    anchor_paths: dict[str, set[str]] = {}
-    for source in sources or []:
-        if not isinstance(source, dict):
-            continue
-        path = str(source.get("path", "")).strip()
-        anchor = str(source.get("anchor", "")).strip()
-        if path in known and anchor:
-            anchor_paths.setdefault(anchor, set()).add(path)
-    anchor_aliases: dict[str, str] = {}
-    for source in sources or []:
-        if not isinstance(source, dict):
-            continue
-        original = str(source.get("anchor_original", "")).strip()
-        current = str(source.get("anchor", "")).strip()
-        if original and current and original != current:
-            anchor_aliases.setdefault(original, current)
-
-    def _replace(match: re.Match[str]) -> str:
-        path, anchor = match.group(1), match.group(2)
-        anchor_key = anchor.strip()
-        normalized_anchor = anchor_aliases.get(anchor_key, anchor)
-        target = ""
-        if path in known:
-            target = path
-        elif _is_placeholder_path(path):
-            if default:
-                target = default
-            else:
-                tail = text[max(0, match.start() - 600) : match.start()]
-                tail_norm = re.sub(
-                    r"[^0-9a-z\u4e00-\u9fff]+", "", tail.lower()
-                )
-                best_position, best_path = -1, ""
-                for alias, candidate in aliases.items():
-                    position = tail_norm.rfind(alias)
-                    if position > best_position:
-                        best_position, best_path = position, candidate
-                if best_path:
-                    target = best_path
-                else:
-                    unique = anchor_paths.get(anchor_key) or set()
-                    if len(unique) == 1:
-                        target = next(iter(unique))
-        else:
-            return match.group(0)
-        if not target:
-            return match.group(0)
-        if target == path and normalized_anchor == anchor:
-            return match.group(0)
-        return f"[来源: {target}#{normalized_anchor}]"
-
-    return _CITATION_REF_RE.sub(_replace, text)
+    replacer = partial(
+        _replace_citation_path,
+        text=text,
+        known=known,
+        default=default,
+        aliases=_citation_aliases(known),
+        anchor_paths=_anchor_path_map(sources, known),
+        anchor_aliases=_anchor_alias_map(sources),
+    )
+    return _CITATION_REF_RE.sub(replacer, text)
 
 
 def _resolve_evidence_path(
@@ -791,6 +841,75 @@ def _sanitize_citations(
     return _CITATION_REF_RE.sub(_replace, str(text or ""))
 
 
+class _BoundedLines:
+    """按字符预算累积输出行，超预算时记录截断标记。"""
+
+    def __init__(self, budget: int) -> None:
+        self.budget = budget
+        self.lines: list[str] = []
+        self.used = 0
+        self.truncated = False
+
+    def add(self, line: str) -> bool:
+        text = str(line)
+        if self.used + len(text) + 1 > self.budget:
+            self.truncated = True
+            return False
+        self.lines.append(text)
+        self.used += len(text) + 1
+        return True
+
+
+def _append_context_matrix(
+    out: _BoundedLines, entry: dict[str, Any]
+) -> bool:
+    for item in entry.get("matrix") or []:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path", ""))
+        title = str(item.get("title", ""))
+        if not out.add(
+            f"  · 矩阵 {path}" + (f" | {title}" if title else "")
+        ):
+            return False
+        for key, label in MATRIX_SLOTS:
+            value = str(item.get(key, "")).strip()
+            if value and not out.add(f"    {label}: {value[:300]}"):
+                return False
+    return True
+
+
+def _append_context_findings(
+    out: _BoundedLines, entry: dict[str, Any]
+) -> bool:
+    for finding in (entry.get("findings") or [])[:8]:
+        if not out.add(f"  · {str(finding)[:500]}"):
+            return False
+    return True
+
+
+def _append_context_sources(
+    out: _BoundedLines,
+    entry: dict[str, Any],
+    source_limit: int,
+    quote_chars: int,
+) -> bool:
+    for source in _balanced_sources(
+        list(entry.get("sources") or []), int(source_limit)
+    ):
+        claim = str(source.get("claim", "")).strip()
+        quote = str(source.get("quote", ""))[: max(0, int(quote_chars))]
+        label = "证据" if claim else "引用"
+        detail = f"{claim} — {quote}" if claim and quote else (claim or quote)
+        if not out.add(
+            f"  · {label}："
+            f"{source.get('path', '')}#{source.get('anchor', '')} "
+            f"{detail}"
+        ):
+            return False
+    return True
+
+
 def _context_text(
     dependency_context: dict[str, Any],
     max_chars: int = 12_000,
@@ -804,68 +923,1120 @@ def _context_text(
     避免多文档时把上游摘要堆成超过 prompt 预算的巨型上下文。
     """
     budget = max(1_000, int(max_chars))
-    lines: list[str] = []
-    used = 0
-    truncated = False
-
-    def add(line: str) -> bool:
-        nonlocal used, truncated
-        text = str(line)
-        if used + len(text) + 1 > budget:
-            truncated = True
-            return False
-        lines.append(text)
-        used += len(text) + 1
-        return True
-
-    stopped = False
+    out = _BoundedLines(budget)
     for entry in (dependency_context or {}).get("tasks") or []:
-        if stopped:
-            break
-        add(
+        out.add(
             f"- {entry.get('task_id')} ({entry.get('role')}/{entry.get('status')}): "
             f"{_strip_citation_markers(str(entry.get('summary', '')))[:1_500]}"
         )
-        for item in entry.get("matrix") or []:
-            if stopped:
+        if not _append_context_matrix(out, entry):
+            break
+        if not _append_context_findings(out, entry):
+            break
+        if not _append_context_sources(out, entry, source_limit, quote_chars):
+            break
+    if out.truncated and out.used + 16 <= budget:
+        out.lines.append("…（依赖上下文已截断）")
+    return "\n".join(out.lines) or "（依赖任务没有可用摘要）"
+
+
+class _ReadState:
+    """单篇文档读取过程中的累积状态。"""
+
+    def __init__(self) -> None:
+        self.collected: list[str] = []
+        self.image_paths: list[str] = []
+        self.ocr_needed = False
+        self.doc_ok = False
+        self.read_ranges: list[str] = []
+        self.unread: list[str] = []
+        self.doc_reason = ""
+        self.pages = 0
+
+
+class _DocumentRun:
+    """一次 document worker 调用的状态与步骤。
+
+    把读取、map-reduce、证据核验、矩阵与树状归并拆成独立方法，
+    避免所有分支堆在一个巨大的闭包里。
+    """
+
+    def __init__(
+        self,
+        *,
+        llm: BaseChatModel,
+        tools: list[Any],
+        settings: Any,
+        image_tool: Any | None,
+        knowledge_store: Any | None,
+        structured: Any,
+        consolidator: Any,
+        matrix_structured: Any,
+        task: dict[str, Any],
+        parent_request: str,
+        session_brief: str,
+        config: RunnableConfig | None,
+        dependency_context: dict[str, Any] | None,
+    ) -> None:
+        self.llm = llm
+        self.tools = tools
+        self.settings = settings
+        self.image_tool = image_tool
+        self.knowledge_store = knowledge_store
+        self.structured = structured
+        self.consolidator = consolidator
+        self.matrix_structured = matrix_structured
+        self.task = task
+        self.parent_request = parent_request
+        self.session_brief = session_brief
+        self.config = config
+        self.dependency_context = dependency_context or {}
+        self.started = time.perf_counter()
+        self.task_id = str(task.get("id", ""))
+        self.goal = str(task.get("goal", ""))
+        self.inputs = [str(item) for item in (task.get("inputs") or [])][
+            :_MAX_FILES
+        ]
+        self.tool = _find_tool(tools, DOCUMENT_READ)
+        self.page_tool = _find_tool(tools, PDF_PAGE_IMAGE)
+        self.warnings: list[str] = []
+        self.chunks: list[str] = []
+        self.doc_units: list[dict[str, Any]] = []
+        self.coverage_docs: list[dict[str, Any]] = []
+        self.coverage_findings: list[str] = []
+        self.coverage: dict[str, Any] = {"status": "complete", "documents": []}
+        self.coverage_status = "complete"
+        self.analyses: list[DocumentAnalysis] = []
+        self.analysis_paths: list[str] = []
+        self.summary_nodes: list[str] = []
+        self.matrix_entries: list[dict[str, Any]] = []
+        self.attribution_issues: list[dict[str, Any]] = []
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.map_partial = False
+        self.points: list[DocumentPoint] = []
+        self._load_limits()
+
+    def _load_limits(self) -> None:
+        settings = self.settings
+        self.page_size = max(
+            1, int(getattr(settings, "document_read_pages_per_call", 5))
+        )
+        self.max_calls = max(
+            1, int(getattr(settings, "document_read_max_calls", 3))
+        )
+        self.deep = bool(getattr(settings, "deep_workflows_enabled", False))
+        # RFC-0009：默认关闭；开启后取消固定 3 次读取，并允许分批抽取。
+        self.full_coverage = bool(
+            self.deep and getattr(settings, "document_full_coverage", False)
+        )
+        self.map_reduce = bool(
+            self.deep and getattr(settings, "document_map_reduce", False)
+        )
+        self.page_cap_limit = max(
+            1, int(getattr(settings, "document_max_pages", 200) or 1)
+        )
+        self.map_chunk_chars = max(
+            500,
+            int(getattr(settings, "document_chunk_chars", 6_000) or 6_000),
+        )
+        self.map_concurrency = max(
+            1,
+            int(getattr(settings, "document_map_concurrency", 3) or 1),
+        )
+        # 非 PDF 没有页范围可分批，靠一次读取上限 + map-reduce 切分。
+        # 默认 12k 只适合短文档；deep 模式提高到 200k，再由 map 切分。
+        self.non_pdf_max_chars = 12_000
+        if self.map_reduce:
+            self.non_pdf_max_chars = min(
+                200_000,
+                max(
+                    12_000,
+                    int(
+                        getattr(settings, "document_max_chars", 2_000_000)
+                        or 2_000_000
+                    ),
+                ),
+            )
+        # 多文档联合分析时，证据总量随文档数放大；固定 200 会截掉后页引用。
+        self.point_limit = min(
+            20_000, max(200, 800 * max(1, len(self.inputs)))
+        )
+        # 最终证据列表按文档轮转取样，避免一份长文档占满上限。
+        self.source_limit = min(
+            600, max(200, 120 * max(1, len(self.inputs)))
+        )
+
+    def _worker(
+        self, status: str, summary: str, **kwargs: Any
+    ) -> WorkerResult:
+        return WorkerResult(
+            task_id=self.task_id,
+            role="document",
+            worker_id=f"document:{self.task_id}",
+            goal=self.goal,
+            status=status,
+            summary=summary,
+            **kwargs,
+        )
+
+    async def run(self, *, cancel: Any = None) -> WorkerResult:
+        if cancel is not None and cancel():
+            return self._worker("cancelled", "已取消")
+        if self.inputs and self.tool is None:
+            return self._worker("failed", "document_read 工具未配置")
+        await self._read_inputs()
+        if not self.chunks and self.dependency_context:
+            self._use_dependency_context()
+        self._build_coverage()
+        if not self.chunks:
+            return self._worker(
+                "failed",
+                "没有可分析的文档内容"
+                + ("；" + "；".join(self.warnings[:5]) if self.warnings else ""),
+                files=self.inputs,
+                coverage=self.coverage,
+            )
+        try:
+            analysis = await self._analyze_documents()
+            self.points = list(analysis.points)
+            summary, findings, sources, status = await self._assemble(analysis)
+        except Exception as exc:  # noqa: BLE001 - LLM 失败时保留原始文本
+            summary, findings, sources, status = self._failure_outputs(exc)
+        self._persist_knowledge(summary)
+        return self._result(summary, findings, sources, status)
+
+    async def _read_inputs(self) -> None:
+        for path in self.inputs:
+            await self._read_one_document(path)
+
+    async def _read_one_document(self, path: str) -> None:
+        state = _ReadState()
+        try:
+            if path.lower().endswith(".pdf"):
+                _, outline = await self._read(
+                    path, mode="outline", max_chars=4_000
+                )
+                state.pages = int((outline or {}).get("pages") or 0)
+                if (
+                    outline
+                    and outline.get("ok")
+                    and state.pages > self.page_size
+                ):
+                    await self._read_pdf_ranges(path, state)
+            else:
+                await self._read_whole(path, "all", state)
+            if not state.collected:
+                label = f"1-{state.pages}" if state.pages else "all"
+                await self._read_whole(path, label, state)
+        except Exception as exc:  # noqa: BLE001
+            self.warnings.append(f"{path}: {type(exc).__name__}: {exc}")
+            state.doc_reason = f"{type(exc).__name__}: {exc}"
+        await self._finalize_document(path, state)
+
+    async def _read(
+        self, path: str, **kwargs: Any
+    ) -> tuple[str, dict[str, Any] | None]:
+        raw = await asyncio.to_thread(
+            self.tool.invoke,
+            {"path": path, "reason": self.goal, **kwargs},
+        )
+        text, artifact = unpack(raw)
+        return _strip_document_header(text), artifact
+
+    async def _read_whole(
+        self, path: str, label: str, state: _ReadState
+    ) -> None:
+        text, artifact = await self._read(
+            path,
+            mode="auto",
+            max_chars=self.non_pdf_max_chars,
+            include_images=True,
+            include_attachments=True,
+        )
+        if artifact:
+            state.ocr_needed = bool(artifact.get("needs_ocr"))
+            state.image_paths.extend(artifact.get("image_paths") or [])
+        if artifact and artifact.get("ok") and text.strip():
+            state.collected.append(text)
+            state.read_ranges.append(label)
+            state.doc_ok = True
+            if artifact.get("truncated"):
+                state.unread.append("tail")
+                state.doc_reason = "文档被解析器截断"
+        elif not state.collected:
+            self.warnings.append(f"{path}: {text[:300]}")
+
+    async def _read_pdf_ranges(self, path: str, state: _ReadState) -> None:
+        if self.full_coverage:
+            page_cap = min(state.pages, self.page_cap_limit)
+        else:
+            page_cap = min(state.pages, self.page_size * self.max_calls)
+        calls = max(1, (page_cap + self.page_size - 1) // self.page_size)
+        for index in range(calls):
+            start = index * self.page_size + 1
+            end = min(page_cap, (index + 1) * self.page_size)
+            text, artifact = await self._read(
+                path,
+                mode="auto",
+                page_range=f"{start}-{end}",
+                # 与单次读取上限一致：deep 模式下 5 页英文论文
+                # 常超过 12k，固定 12k 会把页范围整体标记为截断。
+                max_chars=self.non_pdf_max_chars,
+                include_images=True,
+                include_attachments=True,
+            )
+            if artifact:
+                state.ocr_needed = state.ocr_needed or bool(
+                    artifact.get("needs_ocr")
+                )
+                state.image_paths.extend(artifact.get("image_paths") or [])
+            if artifact and artifact.get("ok") and text.strip():
+                state.collected.append(text)
+                state.read_ranges.append(f"{start}-{end}")
+                state.doc_ok = True
+                if artifact.get("truncated"):
+                    state.unread.append(f"{start}-{end}(截断)")
+            else:
+                state.unread.append(f"{start}-{end}")
+                if not state.collected:
+                    self.warnings.append(f"{path}: {text[:300]}")
+        if page_cap < state.pages:
+            state.unread.append(f"{page_cap + 1}-{state.pages}")
+            state.doc_reason = (
+                f"未覆盖 {page_cap + 1}-{state.pages}"
+                f"（上限 {page_cap}/{state.pages} 页）"
+            )
+            self.warnings.append(f"{path}: {state.doc_reason}")
+
+    async def _finalize_document(
+        self, path: str, state: _ReadState
+    ) -> None:
+        if state.ocr_needed:
+            if bool(getattr(self.settings, "document_ocr_enabled", False)):
+                state.collected.extend(
+                    await self._ocr_pages(path, state.pages)
+                )
+            else:
+                self.warnings.append(
+                    f"{path}: 存在无文本层页面，默认仅处理文本型 PDF，"
+                    "已跳过扫描页"
+                )
+        if state.image_paths:
+            state.collected.extend(
+                await self._describe_images(path, state.image_paths)
+            )
+        if state.collected:
+            body_text = "\n\n".join(state.collected)
+            if not self.map_reduce:
+                body_text = body_text[:_MAX_SOURCE_CHARS]
+            self.chunks.append(f"### 来源：{path}\n{body_text}")
+            self.doc_units.append({"path": path, "text": body_text})
+        else:
+            self.warnings.append(f"{path}: 没有可用文本")
+        self.coverage_docs.append(
+            {
+                "path": path,
+                "pages": state.pages,
+                "read_ranges": state.read_ranges,
+                "unread": state.unread,
+                "status": (
+                    "complete"
+                    if state.doc_ok and not state.unread
+                    else "partial"
+                ),
+                "reason": state.doc_reason,
+            }
+        )
+        if state.unread:
+            self.warnings.append(
+                f"{path}: 未覆盖页 " + "、".join(state.unread[:5])
+            )
+
+    async def _describe_images(
+        self, path: str, image_paths: list[str]
+    ) -> list[str]:
+        if self.image_tool is None or not image_paths:
+            return []
+        out: list[str] = []
+        limit = int(getattr(self.settings, "document_image_max_items", 5))
+        for index, image_path in enumerate(image_paths[:limit], 1):
+            try:
+                raw = await asyncio.to_thread(
+                    self.image_tool.invoke,
+                    {
+                        "path": image_path,
+                        "reason": self.goal,
+                        "question": f"提取第 {index} 张图片的内容",
+                    },
+                )
+                text, _ = unpack(raw)
+                if text.strip():
+                    out.append(f"[图片 {index}]\n{text}")
+            except Exception as exc:  # noqa: BLE001
+                self.warnings.append(
+                    f"{path} 图片 {index} 理解失败："
+                    f"{type(exc).__name__}: {exc}"
+                )
+        return out
+
+    async def _ocr_pages(self, path: str, pages: int) -> list[str]:
+        if self.image_tool is None or self.page_tool is None:
+            self.warnings.append(f"{path}: 扫描页缺少渲染/图像工具")
+            return []
+        out: list[str] = []
+        limit = min(
+            pages, int(getattr(self.settings, "document_ocr_max_pages", 5))
+        )
+        for page_no in range(1, limit + 1):
+            try:
+                raw = await asyncio.to_thread(
+                    self.page_tool.invoke,
+                    {"path": path, "page": page_no, "reason": self.goal},
+                )
+                _, page_artifact = unpack(raw)
+                image_path = str(
+                    (page_artifact or {}).get("image_path") or ""
+                )
+                if not image_path:
+                    continue
+                raw = await asyncio.to_thread(
+                    self.image_tool.invoke,
+                    {
+                        "path": image_path,
+                        "reason": self.goal,
+                        "question": f"提取第 {page_no} 页的文字与关键内容",
+                    },
+                )
+                text, _ = unpack(raw)
+                if text.strip():
+                    out.append(f"[PDF page={page_no} 视觉]\n{text}")
+            except Exception as exc:  # noqa: BLE001 - 单页失败不拖垮
+                self.warnings.append(
+                    f"{path} 第 {page_no} 页视觉理解失败："
+                    f"{type(exc).__name__}: {exc}"
+                )
+        return out
+
+    def _use_dependency_context(self) -> None:
+        context = _context_text(
+            self.dependency_context,
+            max_chars=int(
+                getattr(
+                    self.settings,
+                    "orchestrator_dependency_context_chars",
+                    12_000,
+                )
+            ),
+        )
+        self.chunks.append(f"### 上游任务汇总\n{context[:_MAX_SOURCE_CHARS]}")
+
+    def _build_coverage(self) -> None:
+        self.coverage_status = (
+            "partial"
+            if any(
+                item.get("status") == "partial" for item in self.coverage_docs
+            )
+            else "complete"
+        )
+        self.coverage = {
+            "status": self.coverage_status,
+            "documents": self.coverage_docs,
+        }
+        self.coverage_findings = [
+            f"覆盖：{item.get('path', '')} 已读 "
+            f"{'、'.join(item.get('read_ranges') or []) or '无'}；未读 "
+            f"{'、'.join(item.get('unread') or []) or '无'}"
+            for item in self.coverage_docs
+            if item.get("status") == "partial"
+        ]
+
+    def _body(self, text: str) -> str:
+        return (
+            f"任务：{self.goal}\n用户原始请求：{self.parent_request}\n"
+            + (f"会话约束：{self.session_brief}\n" if self.session_brief else "")
+            + "\n文档内容：\n"
+            + text
+        )
+
+    async def _analyze(
+        self, text: str
+    ) -> tuple[DocumentAnalysis, int, int]:
+        payload = await self.structured.ainvoke(
+            [
+                SystemMessage(content=DOCUMENT_PROMPT),
+                HumanMessage(content=self._body(text)),
+            ],
+            self.config,
+        )
+        used_in = used_out = 0
+        if isinstance(payload, DocumentAnalysis):
+            return payload, 0, 0
+        if isinstance(payload, dict):
+            parsed = payload.get("parsed")
+            raw = payload.get("raw")
+            if raw is not None:
+                used_in, used_out = _usage(raw)
+            if parsed is None:
+                raw_text = str(
+                    getattr(raw, "content", "") or ""
+                ).strip()
+                raise ValueError(
+                    "结构化输出为空"
+                    + (f"：{raw_text[:300]}" if raw_text else "")
+                )
+            analysis = (
+                parsed
+                if isinstance(parsed, DocumentAnalysis)
+                else DocumentAnalysis.model_validate(parsed)
+            )
+            return analysis, used_in, used_out
+        return DocumentAnalysis.model_validate(payload), 0, 0
+
+    async def _consolidate(
+        self, text: str, prompt: str = CONSOLIDATE_PROMPT
+    ) -> tuple[str, int, int]:
+        """合并摘要/矩阵节点；解析失败时尽量从截断 JSON 里捞出 summary。"""
+        payload = await self.consolidator.ainvoke(
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content=self._body(text)),
+            ],
+            self.config,
+        )
+        used_in = used_out = 0
+        if isinstance(payload, SummaryOnly):
+            return payload.summary.strip(), 0, 0
+        if not isinstance(payload, dict):
+            return "", 0, 0
+        raw = payload.get("raw")
+        if raw is not None:
+            used_in, used_out = _usage(raw)
+        parsed = payload.get("parsed")
+        if isinstance(parsed, SummaryOnly):
+            return parsed.summary.strip(), used_in, used_out
+        if isinstance(parsed, dict):
+            return (
+                SummaryOnly.model_validate(parsed).summary.strip(),
+                used_in,
+                used_out,
+            )
+        raw_text = str(getattr(raw, "content", "") or "")
+        match = _SUMMARY_FIELD_RE.search(raw_text)
+        if match:
+            try:
+                return (
+                    json.loads(f'"{match.group(1)}"').strip(),
+                    used_in,
+                    used_out,
+                )
+            except json.JSONDecodeError:
+                pass
+        return "", used_in, used_out
+
+    async def _analyze_documents(self) -> DocumentAnalysis:
+        if self.map_reduce:
+            return await self._map_reduce_analysis()
+        analysis, used_in, used_out = await self._analyze(
+            "\n\n".join(self.chunks)
+        )
+        self.input_tokens += used_in
+        self.output_tokens += used_out
+        return analysis
+
+    def _collect_units(self) -> tuple[list[str], list[str]]:
+        units: list[str] = []
+        unit_paths: list[str] = []
+        for unit in self.doc_units:
+            path = str(unit.get("path", ""))
+            parts = _split_sections(
+                str(unit.get("text", "")), self.map_chunk_chars
+            )
+            units.extend(parts)
+            unit_paths.extend([path] * len(parts))
+        if not units:
+            for chunk in self.chunks:
+                parts = _split_sections(chunk, self.map_chunk_chars)
+                units.extend(parts)
+                unit_paths.extend([""] * len(parts))
+        return units, unit_paths
+
+    def _trim_units(
+        self, units: list[str], unit_paths: list[str]
+    ) -> tuple[list[str], list[str]]:
+        budget = max(
+            4_000,
+            int(
+                getattr(self.settings, "document_max_chars", 2_000_000)
+                or 2_000_000
+            ),
+        )
+        kept: list[str] = []
+        kept_paths: list[str] = []
+        used = 0
+        for unit, path in zip(units, unit_paths, strict=True):
+            if used + len(unit) > budget:
+                self.map_partial = True
+                self.warnings.append(
+                    f"map 文本超过 {budget} 字符，后续片段未处理"
+                )
                 break
-            if not isinstance(item, dict):
-                continue
-            path = str(item.get("path", ""))
-            title = str(item.get("title", ""))
-            if not add(
-                f"  · 矩阵 {path}" + (f" | {title}" if title else "")
-            ):
-                stopped = True
+            kept.append(unit)
+            kept_paths.append(path)
+            used += len(unit)
+        return kept, kept_paths
+
+    async def _analyze_limited(
+        self, text: str, semaphore: asyncio.Semaphore
+    ) -> tuple[DocumentAnalysis, int, int]:
+        async with semaphore:
+            return await self._analyze(text)
+
+    async def _map_reduce_analysis(self) -> DocumentAnalysis:
+        units, unit_paths = self._collect_units()
+        units, unit_paths = self._trim_units(units, unit_paths)
+        semaphore = asyncio.Semaphore(self.map_concurrency)
+        outcomes = await asyncio.gather(
+            *(
+                self._analyze_limited(unit, semaphore)
+                for unit in units
+            ),
+            return_exceptions=True,
+        )
+        for path, item in zip(unit_paths, outcomes, strict=True):
+            if isinstance(item, tuple):
+                self.analyses.append(item[0])
+                self.analysis_paths.append(path)
+                self.input_tokens += item[1]
+                self.output_tokens += item[2]
+            elif isinstance(item, Exception):
+                self.map_partial = True
+                self.warnings.append(
+                    "map 片段失败："
+                    f"{type(item).__name__}: {item}"
+                )
+        if self.analyses:
+            analysis = _merge_analyses(
+                self.analyses, point_limit=self.point_limit
+            )
+            self.summary_nodes = _summary_nodes(
+                self.analyses, self.analysis_paths
+            )
+            if self.summary_nodes:
+                analysis = analysis.model_copy(
+                    update={
+                        "summary": "\n\n".join(self.summary_nodes)[:6_000]
+                    }
+                )
+            return analysis
+        # 所有分批都失败时退回整篇一次调用（仍有上限）。
+        analysis, used_in, used_out = await self._analyze(
+            "\n\n".join(units)[:_MAX_SOURCE_CHARS]
+        )
+        self.input_tokens += used_in
+        self.output_tokens += used_out
+        self.map_partial = True
+        return analysis
+
+    def _collect_sources(
+        self, analysis: DocumentAnalysis
+    ) -> list[dict[str, Any]]:
+        candidate_sources = _verify_source_quotes(
+            [
+                {
+                    "path": _resolve_evidence_path(
+                        point.evidence_path,
+                        point.quote,
+                        self.doc_units,
+                        self.inputs,
+                    ),
+                    "anchor": point.anchor,
+                    "claim": point.claim,
+                    "quote": point.quote[:300],
+                    "confidence": point.confidence,
+                }
+                for point in analysis.points[: self.point_limit]
+                if point.claim
+            ],
+            self.doc_units,
+        )
+        # 只把“原文能定位”的证据交给下游；完全对不上的点不进入引用集，
+        # 避免 author 把章节号/作者名当成锚点照抄。
+        verified_sources = [
+            source
+            for source in candidate_sources
+            if source.get("quote_verified") is True
+            and source.get("anchor_valid") is not False
+            and _is_plausible_anchor(str(source.get("anchor", "")))
+        ]
+        usable = verified_sources or [
+            source
+            for source in candidate_sources
+            if source.get("path")
+            and source.get("anchor_valid") is not False
+            and _is_plausible_anchor(str(source.get("anchor", "")))
+        ]
+        return _balanced_sources(usable, self.source_limit)
+
+    async def _matrix_one(
+        self,
+        path: str,
+        sources: list[dict[str, Any]],
+        semaphore: asyncio.Semaphore,
+    ) -> tuple[DocumentMatrix, int, int]:
+        async with semaphore:
+            doc_analyses = [
+                item
+                for item, item_path in zip(
+                    self.analyses, self.analysis_paths, strict=True
+                )
+                if item_path == path
+            ]
+            doc_sources = [
+                source
+                for source in sources
+                if str(source.get("path", "")) == path
+            ][:12]
+            return await self._build_matrix(path, doc_analyses, doc_sources)
+
+    async def _build_matrices(
+        self, sources: list[dict[str, Any]]
+    ) -> None:
+        matrix_enabled = bool(
+            getattr(self.settings, "document_matrix_enabled", False)
+        )
+        if not (matrix_enabled and self.inputs):
+            return
+        matrix_sem = asyncio.Semaphore(self.map_concurrency)
+        matrix_outcomes = await asyncio.gather(
+            *(
+                self._matrix_one(path, sources, matrix_sem)
+                for path in self.inputs
+            ),
+            return_exceptions=True,
+        )
+        for path, item in zip(self.inputs, matrix_outcomes, strict=True):
+            if isinstance(item, tuple):
+                entry, used_in, used_out = item
+                self.matrix_entries.append(entry.model_dump())
+                self.input_tokens += used_in
+                self.output_tokens += used_out
+            else:
+                self.warnings.append(
+                    f"{path} 矩阵提炼失败："
+                    f"{type(item).__name__}: {item}"
+                )
+
+    async def _build_matrix(
+        self,
+        path: str,
+        doc_analyses: list[DocumentAnalysis],
+        doc_sources: list[dict[str, Any]],
+    ) -> tuple[DocumentMatrix, int, int]:
+        """把单篇的分片摘要压成固定槽位；失败时退化为证据要点。"""
+        stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        summaries = "\n".join(
+            item.summary.strip()
+            for item in doc_analyses
+            if item.summary.strip()
+        )
+        evidence_lines = "\n".join(
+            f"- {source.get('claim', '')} "
+            f"[{source.get('path', '')}#{source.get('anchor', '')}] "
+            f"{str(source.get('quote', ''))[:200]}"
+            for source in doc_sources[:12]
+        )
+        text = (
+            f"路径：{path}\n\n摘要：\n{summaries[:20_000]}\n\n"
+            f"证据：\n{evidence_lines}"
+        )
+        limit = max(
+            2_000,
+            int(
+                getattr(
+                    self.settings, "document_tree_input_chars", 16_000
+                )
+                or 16_000
+            ),
+        )
+        entry, used_in, used_out = await self._invoke_matrix(
+            path, stem, text, limit, doc_sources
+        )
+        updates = _matrix_updates(entry, path, stem, doc_sources)
+        return entry.model_copy(update=updates), used_in, used_out
+
+    async def _invoke_matrix(
+        self,
+        path: str,
+        stem: str,
+        text: str,
+        limit: int,
+        doc_sources: list[dict[str, Any]],
+    ) -> tuple[DocumentMatrix, int, int]:
+        used_in = used_out = 0
+        entry: DocumentMatrix | None = None
+        try:
+            payload = await self.matrix_structured.ainvoke(
+                [
+                    SystemMessage(content=MATRIX_PROMPT),
+                    HumanMessage(content=self._body(text[:limit])),
+                ],
+                self.config,
+            )
+            if isinstance(payload, dict):
+                raw = payload.get("raw")
+                parsed = payload.get("parsed")
+                if raw is not None:
+                    used_in, used_out = _usage(raw)
+                if isinstance(parsed, DocumentMatrix):
+                    entry = parsed
+                elif isinstance(parsed, dict):
+                    entry = DocumentMatrix.model_validate(parsed)
+                else:
+                    entry = None
+            elif isinstance(payload, DocumentMatrix):
+                entry = payload
+            else:
+                entry = None
+        except Exception as exc:  # noqa: BLE001 - 矩阵是增强，不阻断
+            self.warnings.append(
+                f"{path} 矩阵提炼失败：{type(exc).__name__}: {exc}"
+            )
+            entry = None
+        if entry is None:
+            entry = _fallback_matrix(path, stem, doc_sources)
+        return entry, used_in, used_out
+
+    async def _tree_reduce(self, nodes: list[str]) -> tuple[str, int, int]:
+        """分层归并：每层按 fanout 分组的节点数下降，直到一个根节点。"""
+        fanout = max(
+            2,
+            int(getattr(self.settings, "document_tree_fanout", 5) or 5),
+        )
+        limit = max(
+            2_000,
+            int(
+                getattr(
+                    self.settings, "document_tree_input_chars", 16_000
+                )
+                or 16_000
+            ),
+        )
+        used_in = used_out = 0
+        current = [node for node in nodes if node.strip()]
+        while len(current) > 1:
+            merged: list[str] = []
+            for start in range(0, len(current), fanout):
+                group = current[start : start + fanout]
+                if len(group) == 1:
+                    merged.append(group[0])
+                    continue
+                text = "\n\n".join(group)[:limit]
+                summary, node_in, node_out = await self._consolidate(
+                    text, TREE_MERGE_PROMPT
+                )
+                used_in += node_in
+                used_out += node_out
+                merged.append(summary or "\n\n".join(group)[:4_000])
+            if len(merged) == len(current):
+                # 防御：节点数不再下降时停止，避免死循环。
                 break
-            for key, label in MATRIX_SLOTS:
-                value = str(item.get(key, "")).strip()
-                if value and not add(f"    {label}: {value[:300]}"):
-                    stopped = True
-                    break
-        for finding in (entry.get("findings") or [])[:8]:
-            if stopped:
-                break
-            if not add(f"  · {str(finding)[:500]}"):
-                stopped = True
-                break
-        for source in _balanced_sources(
-            list(entry.get("sources") or []), int(source_limit)
+            current = merged
+        return (
+            current[0] if current else "",
+            used_in,
+            used_out,
+        )
+
+    async def _merge_summary(self, summary: str) -> str:
+        matrix_nodes = [
+            _render_matrix(entry) for entry in self.matrix_entries
+        ]
+        tree_nodes = (
+            matrix_nodes if len(self.inputs) > 1 else self.summary_nodes
+        ) or self.summary_nodes
+        if tree_nodes:
+            merged, used_in, used_out = await self._tree_reduce(tree_nodes)
+            self.input_tokens += used_in
+            self.output_tokens += used_out
+            if merged:
+                summary = merged
+        if len(self.inputs) > 1 and self.matrix_entries:
+            compact = "\n".join(
+                line
+                for line in (
+                    _render_matrix_compact(entry)
+                    for entry in self.matrix_entries
+                )
+                if line
+            )
+            if compact and "## 证据矩阵" not in summary:
+                summary = (
+                    summary.rstrip()
+                    + "\n\n## 证据矩阵\n"
+                    + compact
+                )
+        if len(self.inputs) > 1 and self.matrix_entries:
+            parsed = "、".join(
+                str(entry.get("path", ""))
+                + (
+                    f"（{entry.get('title')}）"
+                    if entry.get("title")
+                    else ""
+                )
+                for entry in self.matrix_entries
+            )
+            if parsed and not summary.startswith("已解析文档"):
+                summary = (
+                    f"已解析文档（{len(self.matrix_entries)} 篇）："
+                    f"{parsed}\n\n{summary}"
+                )
+        return summary
+
+    def _check_attribution(
+        self, summary: str, findings: list[str]
+    ) -> None:
+        self.attribution_issues = find_attribution_issues(
+            summary,
+            [
+                {
+                    "path": str(entry.get("path", "")),
+                    "title": str(entry.get("title", "")),
+                }
+                for entry in self.matrix_entries
+            ]
+            or [{"path": path} for path in self.inputs],
+        )
+        if self.attribution_issues:
+            findings.append(
+                f"归属校验：{len(self.attribution_issues)} 处跨文档引用不一致"
+            )
+
+    async def _assemble(
+        self, analysis: DocumentAnalysis
+    ) -> tuple[str, list[str], list[dict[str, Any]], str]:
+        summary = analysis.summary.strip() or "（无摘要）"
+        sources = self._collect_sources(analysis)
+        findings = [
+            str(source.get("claim", ""))
+            for source in sources[:20]
+            if source.get("claim")
+        ] + self.coverage_findings
+        await self._build_matrices(sources)
+        summary = await self._merge_summary(summary)
+        self._check_attribution(summary, findings)
+        summary = _sanitize_citations(
+            _append_evidence_refs(
+                _normalize_citation_paths(
+                    summary, self.doc_units, self.inputs, sources
+                ),
+                sources,
+            ),
+            sources,
+        )
+        status = (
+            "partial"
+            if self.coverage_status == "partial" or self.map_partial
+            else "success"
+        )
+        return summary, findings, sources, status
+
+    def _failure_outputs(
+        self, exc: Exception
+    ) -> tuple[str, list[str], list[dict[str, Any]], str]:
+        summary = (
+            "结构化抽取失败，保留文档摘要："
+            f"{type(exc).__name__}: {exc}\n"
+            + "\n".join(self.chunks)[:2_000]
+        )
+        return summary, self.coverage_findings, [], "partial"
+
+    def _persist_knowledge(self, summary: str) -> None:
+        run_id = str(self.task.get("knowledge_run_id") or "")
+        if (
+            self.knowledge_store is None
+            or not run_id
+            or not self.doc_units
         ):
-            claim = str(source.get("claim", "")).strip()
-            quote = str(source.get("quote", ""))[: max(0, int(quote_chars))]
-            label = "证据" if claim else "引用"
-            detail = f"{claim} — {quote}" if claim and quote else (claim or quote)
-            if not add(
-                f"  · {label}："
-                f"{source.get('path', '')}#{source.get('anchor', '')} "
-                f"{detail}"
-            ):
-                stopped = True
-                break
-    if truncated and used + 16 <= budget:
-        lines.append("…（依赖上下文已截断）")
-    return "\n".join(lines) or "（依赖任务没有可用摘要）"
+            return
+        try:
+            coverage_by_path = {
+                str(item.get("path", "")): item
+                for item in self.coverage_docs
+            }
+            chunk_payload: list[dict[str, Any]] = []
+            for unit in self.doc_units:
+                path = str(unit.get("path", ""))
+                for index, part in enumerate(
+                    _split_sections(
+                        str(unit.get("text", "")),
+                        min(self.map_chunk_chars, 4_000),
+                    ),
+                    1,
+                ):
+                    chunk_payload.append(
+                        {
+                            "chunk_id": f"{self.task_id}-{index}",
+                            "path": path,
+                            "anchor": f"part-{index}",
+                            "text": part,
+                        }
+                    )
+            claims = [
+                {
+                    "claim": point.claim,
+                    "evidence_path": _resolve_evidence_path(
+                        point.evidence_path,
+                        point.quote,
+                        self.doc_units,
+                        self.inputs,
+                    ),
+                    "anchor": point.anchor,
+                    "quote": point.quote,
+                    "confidence": point.confidence,
+                }
+                for point in self.points
+                if point.claim
+            ]
+            saved = self.knowledge_store.save_doc_index(
+                run_id,
+                self.task_id,
+                documents=[
+                    coverage_by_path.get(str(unit["path"]))
+                    or {"path": unit["path"]}
+                    for unit in self.doc_units
+                ],
+                chunks=chunk_payload,
+                summary=summary,
+            )
+            if not saved:
+                self.warnings.append("知识产物落盘失败（doc）")
+            self.knowledge_store.save_claims(
+                run_id, self.task_id, claims
+            )
+        except Exception as exc:  # noqa: BLE001 - 产物是增强，不阻断结论
+            self.warnings.append(
+                f"知识产物落盘失败：{type(exc).__name__}: {exc}"
+            )
+
+    def _result(
+        self,
+        summary: str,
+        findings: list[str],
+        sources: list[dict[str, Any]],
+        status: str,
+    ) -> WorkerResult:
+        return WorkerResult(
+            task_id=self.task_id,
+            role="document",
+            worker_id=f"document:{self.task_id}",
+            goal=self.goal,
+            status=status,
+            summary=summary,
+            files=self.inputs,
+            findings=findings,
+            sources=sources,
+            coverage=self.coverage,
+            matrix=self.matrix_entries,
+            attribution_issues=self.attribution_issues,
+            verification={
+                "matrix_entries": len(self.matrix_entries),
+                "attribution_issues": len(self.attribution_issues),
+            },
+            duration_ms=int((time.perf_counter() - self.started) * 1000),
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            error="；".join(self.warnings[:5]),
+        )
+
+
+def _summary_nodes(
+    analyses: list[DocumentAnalysis], analysis_paths: list[str]
+) -> list[str]:
+    summaries_by_path: dict[str, list[str]] = {}
+    for path, item in zip(analysis_paths, analyses, strict=True):
+        summary = item.summary.strip()
+        if summary:
+            summaries_by_path.setdefault(path, []).append(summary)
+    nodes: list[str] = []
+    position = 0
+    while True:
+        added = False
+        for path, items in summaries_by_path.items():
+            if position < len(items):
+                label = path or "未知来源"
+                nodes.append(f"## {label}\n{items[position]}")
+                added = True
+        if not added:
+            break
+        position += 1
+    return nodes
+
+
+def _fallback_matrix(
+    path: str, stem: str, doc_sources: list[dict[str, Any]]
+) -> DocumentMatrix:
+    return DocumentMatrix(
+        path=path,
+        title=stem,
+        method="；".join(
+            str(source.get("claim", ""))
+            for source in doc_sources[:5]
+        ),
+        evidence=[
+            DocumentPoint(
+                claim=str(source.get("claim", "")),
+                evidence_path=str(source.get("path", "")),
+                anchor=str(source.get("anchor", "")),
+                quote=str(source.get("quote", "")),
+                confidence=str(source.get("confidence", "medium")),
+            )
+            for source in doc_sources[:8]
+        ],
+    )
+
+
+def _matrix_updates(
+    entry: DocumentMatrix,
+    path: str,
+    stem: str,
+    doc_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    updates: dict[str, Any] = {
+        "path": path,
+        "title": entry.title.strip() or stem,
+    }
+    for key, _label in MATRIX_SLOTS:
+        updates[key] = _sanitize_citations(
+            getattr(entry, key, ""), doc_sources
+        )
+    for key, hints in _MATRIX_SLOT_HINTS.items():
+        if str(updates.get(key, "")).strip():
+            continue
+        matched = [
+            str(source.get("claim", "")).strip()
+            for source in doc_sources
+            if str(source.get("claim", "")).strip()
+            and any(
+                hint.lower()
+                in str(source.get("claim", "")).lower()
+                for hint in hints
+            )
+        ]
+        if matched:
+            updates[key] = "；".join(dict.fromkeys(matched[:3]))
+    if not entry.evidence:
+        updates["evidence"] = [
+            DocumentPoint(
+                claim=str(source.get("claim", "")),
+                evidence_path=str(source.get("path", "")),
+                anchor=str(source.get("anchor", "")),
+                quote=str(source.get("quote", "")),
+                confidence=str(source.get("confidence", "medium")),
+            )
+            for source in doc_sources[:8]
+        ]
+    return updates
 
 
 def make_document_runner(
@@ -894,942 +2065,22 @@ def make_document_runner(
         memories: list[str] | None = None,
         instructions: str = "",
     ) -> WorkerResult:
-        started = time.perf_counter()
-        task_id = str(task.get("id", ""))
-        goal = str(task.get("goal", ""))
-        inputs = [str(item) for item in (task.get("inputs") or [])][:_MAX_FILES]
-        if cancel is not None and cancel():
-            return WorkerResult(
-                task_id=task_id, role="document", worker_id=f"document:{task_id}",
-                goal=goal, status="cancelled", summary="已取消",
-            )
-        tool = _find_tool(tools, DOCUMENT_READ)
-        chunks: list[str] = []
-        warnings: list[str] = []
-        if inputs and tool is None:
-            return WorkerResult(
-                task_id=task_id, role="document", worker_id=f"document:{task_id}",
-                goal=goal, status="failed", summary="document_read 工具未配置",
-            )
-        page_size = max(
-            1, int(getattr(settings, "document_read_pages_per_call", 5))
+        state = _DocumentRun(
+            llm=llm,
+            tools=tools,
+            settings=settings,
+            image_tool=image_tool,
+            knowledge_store=knowledge_store,
+            structured=structured,
+            consolidator=consolidator,
+            matrix_structured=matrix_structured,
+            task=task,
+            parent_request=parent_request,
+            session_brief=session_brief,
+            config=config,
+            dependency_context=dependency_context,
         )
-        max_calls = max(
-            1, int(getattr(settings, "document_read_max_calls", 3))
-        )
-
-        page_tool = _find_tool(tools, PDF_PAGE_IMAGE)
-        # RFC-0009：默认关闭；开启后取消固定 3 次读取，并允许分批抽取。
-        deep = bool(getattr(settings, "deep_workflows_enabled", False))
-        full_coverage = bool(
-            deep and getattr(settings, "document_full_coverage", False)
-        )
-        map_reduce = bool(
-            deep and getattr(settings, "document_map_reduce", False)
-        )
-        page_cap_limit = max(
-            1, int(getattr(settings, "document_max_pages", 200) or 1)
-        )
-        map_chunk_chars = max(
-            500, int(getattr(settings, "document_chunk_chars", 6_000) or 6_000)
-        )
-        map_concurrency = max(
-            1,
-            int(
-                getattr(settings, "document_map_concurrency", 3) or 1
-            ),
-        )
-        # 非 PDF 没有页范围可分批，靠一次读取上限 + map-reduce 切分。
-        # 默认 12k 只适合短文档；deep 模式提高到 200k，再由 map 切分。
-        non_pdf_max_chars = 12_000
-        if map_reduce:
-            non_pdf_max_chars = min(
-                200_000,
-                max(
-                    12_000,
-                    int(
-                        getattr(settings, "document_max_chars", 2_000_000)
-                        or 2_000_000
-                    ),
-                ),
-            )
-        coverage_docs: list[dict[str, Any]] = []
-        doc_units: list[dict[str, Any]] = []
-
-        async def _read(
-            path: str, **kwargs: Any
-        ) -> tuple[str, dict[str, Any] | None]:
-            raw = await asyncio.to_thread(
-                tool.invoke,
-                {"path": path, "reason": goal, **kwargs},
-            )
-            text, artifact = unpack(raw)
-            return _strip_document_header(text), artifact
-
-        async def _describe_images(path: str, image_paths: list[str]) -> list[str]:
-            if image_tool is None or not image_paths:
-                return []
-            out: list[str] = []
-            limit = int(getattr(settings, "document_image_max_items", 5))
-            for index, image_path in enumerate(image_paths[:limit], 1):
-                try:
-                    raw = await asyncio.to_thread(
-                        image_tool.invoke,
-                        {
-                            "path": image_path,
-                            "reason": goal,
-                            "question": f"提取第 {index} 张图片的内容",
-                        },
-                    )
-                    text, _ = unpack(raw)
-                    if text.strip():
-                        out.append(f"[图片 {index}]\n{text}")
-                except Exception as exc:  # noqa: BLE001
-                    warnings.append(
-                        f"{path} 图片 {index} 理解失败："
-                        f"{type(exc).__name__}: {exc}"
-                    )
-            return out
-
-        async def _ocr_pages(path: str, pages: int) -> list[str]:
-            if image_tool is None or page_tool is None:
-                warnings.append(f"{path}: 扫描页缺少渲染/图像工具")
-                return []
-            out: list[str] = []
-            limit = min(
-                pages, int(getattr(settings, "document_ocr_max_pages", 5))
-            )
-            for page_no in range(1, limit + 1):
-                try:
-                    raw = await asyncio.to_thread(
-                        page_tool.invoke,
-                        {"path": path, "page": page_no, "reason": goal},
-                    )
-                    _, page_artifact = unpack(raw)
-                    image_path = str(
-                        (page_artifact or {}).get("image_path") or ""
-                    )
-                    if not image_path:
-                        continue
-                    raw = await asyncio.to_thread(
-                        image_tool.invoke,
-                        {
-                            "path": image_path,
-                            "reason": goal,
-                            "question": f"提取第 {page_no} 页的文字与关键内容",
-                        },
-                    )
-                    text, _ = unpack(raw)
-                    if text.strip():
-                        out.append(f"[PDF page={page_no} 视觉]\n{text}")
-                except Exception as exc:  # noqa: BLE001 - 单页失败不拖垮
-                    warnings.append(
-                        f"{path} 第 {page_no} 页视觉理解失败："
-                        f"{type(exc).__name__}: {exc}"
-                    )
-            return out
-
-        for path in inputs:
-            read_ranges: list[str] = []
-            unread: list[str] = []
-            doc_reason = ""
-            doc_ok = False
-            pages = 0
-            try:
-                collected: list[str] = []
-                image_paths: list[str] = []
-                ocr_needed = False
-                if path.lower().endswith(".pdf"):
-                    _, outline = await _read(
-                        path, mode="outline", max_chars=4_000
-                    )
-                    pages = int((outline or {}).get("pages") or 0)
-                    if outline and outline.get("ok") and pages > page_size:
-                        if full_coverage:
-                            page_cap = min(pages, page_cap_limit)
-                        else:
-                            page_cap = min(pages, page_size * max_calls)
-                        calls = max(
-                            1, (page_cap + page_size - 1) // page_size
-                        )
-                        for index in range(calls):
-                            start = index * page_size + 1
-                            end = min(page_cap, (index + 1) * page_size)
-                            text, artifact = await _read(
-                                path,
-                                mode="auto",
-                                page_range=f"{start}-{end}",
-                                # 与单次读取上限一致：deep 模式下 5 页英文论文
-                                # 常超过 12k，固定 12k 会把页范围整体标记为截断。
-                                max_chars=non_pdf_max_chars,
-                                include_images=True,
-                                include_attachments=True,
-                            )
-                            if artifact:
-                                ocr_needed = ocr_needed or bool(
-                                    artifact.get("needs_ocr")
-                                )
-                                image_paths.extend(
-                                    artifact.get("image_paths") or []
-                                )
-                            if artifact and artifact.get("ok") and text.strip():
-                                collected.append(text)
-                                read_ranges.append(f"{start}-{end}")
-                                doc_ok = True
-                                if artifact.get("truncated"):
-                                    unread.append(
-                                        f"{start}-{end}(截断)"
-                                    )
-                            else:
-                                unread.append(f"{start}-{end}")
-                                if not collected:
-                                    warnings.append(f"{path}: {text[:300]}")
-                        if page_cap < pages:
-                            unread.append(f"{page_cap + 1}-{pages}")
-                            doc_reason = (
-                                f"未覆盖 {page_cap + 1}-{pages}"
-                                f"（上限 {page_cap}/{pages} 页）"
-                            )
-                            warnings.append(f"{path}: {doc_reason}")
-                else:
-                    text, artifact = await _read(
-                        path,
-                        mode="auto",
-                        max_chars=non_pdf_max_chars,
-                        include_images=True,
-                        include_attachments=True,
-                    )
-                    if artifact:
-                        ocr_needed = bool(artifact.get("needs_ocr"))
-                        image_paths.extend(artifact.get("image_paths") or [])
-                    if artifact and artifact.get("ok") and text.strip():
-                        collected.append(text)
-                        read_ranges.append("all")
-                        doc_ok = True
-                        if artifact.get("truncated"):
-                            unread.append("tail")
-                            doc_reason = "文档被解析器截断"
-                    elif not collected:
-                        warnings.append(f"{path}: {text[:300]}")
-                if not collected:
-                    text, artifact = await _read(
-                        path,
-                        mode="auto",
-                        max_chars=non_pdf_max_chars,
-                        include_images=True,
-                        include_attachments=True,
-                    )
-                    if artifact:
-                        ocr_needed = bool(artifact.get("needs_ocr"))
-                        image_paths.extend(artifact.get("image_paths") or [])
-                    if artifact and artifact.get("ok") and text.strip():
-                        collected.append(text)
-                        read_ranges.append(
-                            f"1-{pages}" if pages else "all"
-                        )
-                        doc_ok = True
-                        if artifact.get("truncated"):
-                            unread.append("tail")
-                            doc_reason = "文档被解析器截断"
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(f"{path}: {type(exc).__name__}: {exc}")
-                doc_reason = f"{type(exc).__name__}: {exc}"
-            if ocr_needed:
-                if bool(getattr(settings, "document_ocr_enabled", False)):
-                    collected.extend(await _ocr_pages(path, pages))
-                else:
-                    warnings.append(
-                        f"{path}: 存在无文本层页面，默认仅处理文本型 PDF，"
-                        "已跳过扫描页"
-                    )
-            if image_paths:
-                collected.extend(await _describe_images(path, image_paths))
-            if collected:
-                body_text = "\n\n".join(collected)
-                if not map_reduce:
-                    body_text = body_text[:_MAX_SOURCE_CHARS]
-                chunks.append(f"### 来源：{path}\n{body_text}")
-                doc_units.append({"path": path, "text": body_text})
-            else:
-                warnings.append(f"{path}: 没有可用文本")
-            coverage_docs.append(
-                {
-                    "path": path,
-                    "pages": pages,
-                    "read_ranges": read_ranges,
-                    "unread": unread,
-                    "status": (
-                        "complete"
-                        if doc_ok and not unread
-                        else "partial"
-                    ),
-                    "reason": doc_reason,
-                }
-            )
-            if unread:
-                warnings.append(
-                    f"{path}: 未覆盖页 " + "、".join(unread[:5])
-                )
-        if not chunks and dependency_context:
-            context = _context_text(
-                dependency_context,
-                max_chars=int(
-                    getattr(
-                        settings,
-                        "orchestrator_dependency_context_chars",
-                        12_000,
-                    )
-                ),
-            )
-            chunks.append(f"### 上游任务汇总\n{context[:_MAX_SOURCE_CHARS]}")
-        coverage_status = (
-            "partial"
-            if any(
-                item.get("status") == "partial" for item in coverage_docs
-            )
-            else "complete"
-        )
-        coverage = {
-            "status": coverage_status,
-            "documents": coverage_docs,
-        }
-        coverage_findings = [
-            f"覆盖：{item.get('path', '')} 已读 "
-            f"{'、'.join(item.get('read_ranges') or []) or '无'}；未读 "
-            f"{'、'.join(item.get('unread') or []) or '无'}"
-            for item in coverage_docs
-            if item.get("status") == "partial"
-        ]
-
-        if not chunks:
-            return WorkerResult(
-                task_id=task_id, role="document", worker_id=f"document:{task_id}",
-                goal=goal, status="failed",
-                summary="没有可分析的文档内容" + (
-                    "；" + "；".join(warnings[:5]) if warnings else ""
-                ),
-                files=inputs,
-                coverage=coverage,
-            )
-
-        def _body(text: str) -> str:
-            return (
-                f"任务：{goal}\n用户原始请求：{parent_request}\n"
-                + (f"会话约束：{session_brief}\n" if session_brief else "")
-                + "\n文档内容：\n"
-                + text
-            )
-
-        async def _analyze(
-            text: str,
-        ) -> tuple[DocumentAnalysis, int, int]:
-            payload = await structured.ainvoke(
-                [
-                    SystemMessage(content=DOCUMENT_PROMPT),
-                    HumanMessage(content=_body(text)),
-                ],
-                config,
-            )
-            used_in = used_out = 0
-            if isinstance(payload, DocumentAnalysis):
-                return payload, 0, 0
-            if isinstance(payload, dict):
-                parsed = payload.get("parsed")
-                raw = payload.get("raw")
-                if raw is not None:
-                    used_in, used_out = _usage(raw)
-                if parsed is None:
-                    raw_text = str(
-                        getattr(raw, "content", "") or ""
-                    ).strip()
-                    raise ValueError(
-                        "结构化输出为空"
-                        + (f"：{raw_text[:300]}" if raw_text else "")
-                    )
-                analysis = (
-                    parsed
-                    if isinstance(parsed, DocumentAnalysis)
-                    else DocumentAnalysis.model_validate(parsed)
-                )
-                return analysis, used_in, used_out
-            return DocumentAnalysis.model_validate(payload), 0, 0
-
-        async def _consolidate(
-            text: str, prompt: str = CONSOLIDATE_PROMPT
-        ) -> tuple[str, int, int]:
-            """合并摘要/矩阵节点；解析失败时尽量从截断 JSON 里捞出 summary。"""
-            payload = await consolidator.ainvoke(
-                [
-                    SystemMessage(content=prompt),
-                    HumanMessage(content=_body(text)),
-                ],
-                config,
-            )
-            used_in = used_out = 0
-            if isinstance(payload, SummaryOnly):
-                return payload.summary.strip(), 0, 0
-            if not isinstance(payload, dict):
-                return "", 0, 0
-            raw = payload.get("raw")
-            if raw is not None:
-                used_in, used_out = _usage(raw)
-            parsed = payload.get("parsed")
-            if isinstance(parsed, SummaryOnly):
-                return parsed.summary.strip(), used_in, used_out
-            if isinstance(parsed, dict):
-                return (
-                    SummaryOnly.model_validate(parsed).summary.strip(),
-                    used_in,
-                    used_out,
-                )
-            raw_text = str(getattr(raw, "content", "") or "")
-            match = _SUMMARY_FIELD_RE.search(raw_text)
-            if match:
-                try:
-                    return (
-                        json.loads(f'"{match.group(1)}"').strip(),
-                        used_in,
-                        used_out,
-                    )
-                except json.JSONDecodeError:
-                    pass
-            return "", used_in, used_out
-
-        async def _build_matrix(
-            path: str,
-            doc_analyses: list[DocumentAnalysis],
-            doc_sources: list[dict[str, Any]],
-        ) -> tuple[DocumentMatrix, int, int]:
-            """把单篇的分片摘要压成固定槽位；失败时退化为证据要点。"""
-            stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-            summaries = "\n".join(
-                item.summary.strip()
-                for item in doc_analyses
-                if item.summary.strip()
-            )
-            evidence_lines = "\n".join(
-                f"- {source.get('claim', '')} "
-                f"[{source.get('path', '')}#{source.get('anchor', '')}] "
-                f"{str(source.get('quote', ''))[:200]}"
-                for source in doc_sources[:12]
-            )
-            text = (
-                f"路径：{path}\n\n摘要：\n{summaries[:20_000]}\n\n"
-                f"证据：\n{evidence_lines}"
-            )
-            limit = max(
-                2_000,
-                int(
-                    getattr(
-                        settings, "document_tree_input_chars", 16_000
-                    )
-                    or 16_000
-                ),
-            )
-            used_in = used_out = 0
-            try:
-                payload = await matrix_structured.ainvoke(
-                    [
-                        SystemMessage(content=MATRIX_PROMPT),
-                        HumanMessage(content=_body(text[:limit])),
-                    ],
-                    config,
-                )
-                if isinstance(payload, dict):
-                    raw = payload.get("raw")
-                    parsed = payload.get("parsed")
-                    if raw is not None:
-                        used_in, used_out = _usage(raw)
-                    if isinstance(parsed, DocumentMatrix):
-                        entry = parsed
-                    elif isinstance(parsed, dict):
-                        entry = DocumentMatrix.model_validate(parsed)
-                    else:
-                        entry = None
-                elif isinstance(payload, DocumentMatrix):
-                    entry = payload
-                else:
-                    entry = None
-            except Exception as exc:  # noqa: BLE001 - 矩阵是增强，不阻断
-                warnings.append(
-                    f"{path} 矩阵提炼失败：{type(exc).__name__}: {exc}"
-                )
-                entry = None
-            if entry is None:
-                entry = DocumentMatrix(
-                    path=path,
-                    title=stem,
-                    method="；".join(
-                        str(source.get("claim", ""))
-                        for source in doc_sources[:5]
-                    ),
-                    evidence=[
-                        DocumentPoint(
-                            claim=str(source.get("claim", "")),
-                            evidence_path=str(source.get("path", "")),
-                            anchor=str(source.get("anchor", "")),
-                            quote=str(source.get("quote", "")),
-                            confidence=str(
-                                source.get("confidence", "medium")
-                            ),
-                        )
-                        for source in doc_sources[:8]
-                    ],
-                )
-            updates: dict[str, Any] = {
-                "path": path,
-                "title": entry.title.strip() or stem,
-            }
-            for key, _label in MATRIX_SLOTS:
-                updates[key] = _sanitize_citations(
-                    getattr(entry, key, ""), doc_sources
-                )
-            for key, hints in _MATRIX_SLOT_HINTS.items():
-                if str(updates.get(key, "")).strip():
-                    continue
-                matched = [
-                    str(source.get("claim", "")).strip()
-                    for source in doc_sources
-                    if str(source.get("claim", "")).strip()
-                    and any(
-                        hint.lower()
-                        in str(source.get("claim", "")).lower()
-                        for hint in hints
-                    )
-                ]
-                if matched:
-                    updates[key] = "；".join(
-                        dict.fromkeys(matched[:3])
-                    )
-            if not entry.evidence:
-                updates["evidence"] = [
-                    DocumentPoint(
-                        claim=str(source.get("claim", "")),
-                        evidence_path=str(source.get("path", "")),
-                        anchor=str(source.get("anchor", "")),
-                        quote=str(source.get("quote", "")),
-                        confidence=str(source.get("confidence", "medium")),
-                    )
-                    for source in doc_sources[:8]
-                ]
-            return entry.model_copy(update=updates), used_in, used_out
-
-        async def _tree_reduce(
-            nodes: list[str],
-        ) -> tuple[str, int, int]:
-            """分层归并：每层按 fanout 分组的节点数下降，直到一个根节点。"""
-            fanout = max(
-                2,
-                int(getattr(settings, "document_tree_fanout", 5) or 5),
-            )
-            limit = max(
-                2_000,
-                int(
-                    getattr(
-                        settings, "document_tree_input_chars", 16_000
-                    )
-                    or 16_000
-                ),
-            )
-            used_in = used_out = 0
-            current = [node for node in nodes if node.strip()]
-            while len(current) > 1:
-                merged: list[str] = []
-                for start in range(0, len(current), fanout):
-                    group = current[start : start + fanout]
-                    if len(group) == 1:
-                        merged.append(group[0])
-                        continue
-                    text = "\n\n".join(group)[:limit]
-                    summary, node_in, node_out = await _consolidate(
-                        text, TREE_MERGE_PROMPT
-                    )
-                    used_in += node_in
-                    used_out += node_out
-                    merged.append(
-                        summary or "\n\n".join(group)[:4_000]
-                    )
-                if len(merged) == len(current):
-                    # 防御：节点数不再下降时停止，避免死循环。
-                    break
-                current = merged
-            return (
-                current[0] if current else "",
-                used_in,
-                used_out,
-            )
-
-        input_tokens = 0
-        output_tokens = 0
-        map_partial = False
-        points: list[DocumentPoint] = []
-        # 多文档联合分析时，证据总量随文档数放大；固定 200 会截掉后页引用。
-        point_limit = min(20_000, max(200, 800 * max(1, len(inputs))))
-        # 最终证据列表按文档轮转取样，避免一份长文档占满上限。
-        source_limit = min(600, max(200, 120 * max(1, len(inputs))))
-        analyses: list[DocumentAnalysis] = []
-        analysis_paths: list[str] = []
-        summary_nodes: list[str] = []
-        matrix_entries: list[dict[str, Any]] = []
-        attribution_issues: list[dict[str, Any]] = []
-        try:
-            if map_reduce:
-                units: list[str] = []
-                unit_paths: list[str] = []
-                for unit in doc_units:
-                    path = str(unit.get("path", ""))
-                    parts = _split_sections(
-                        str(unit.get("text", "")), map_chunk_chars
-                    )
-                    units.extend(parts)
-                    unit_paths.extend([path] * len(parts))
-                if not units:
-                    for chunk in chunks:
-                        parts = _split_sections(chunk, map_chunk_chars)
-                        units.extend(parts)
-                        unit_paths.extend([""] * len(parts))
-                budget = max(
-                    4_000,
-                    int(
-                        getattr(
-                            settings, "document_max_chars", 2_000_000
-                        )
-                        or 2_000_000
-                    ),
-                )
-                kept: list[str] = []
-                kept_paths: list[str] = []
-                used = 0
-                for unit, path in zip(units, unit_paths, strict=True):
-                    if used + len(unit) > budget:
-                        map_partial = True
-                        warnings.append(
-                            f"map 文本超过 {budget} 字符，后续片段未处理"
-                        )
-                        break
-                    kept.append(unit)
-                    kept_paths.append(path)
-                    used += len(unit)
-                units = kept
-                unit_paths = kept_paths
-                semaphore = asyncio.Semaphore(map_concurrency)
-
-                async def _one(
-                    text: str,
-                ) -> tuple[DocumentAnalysis, int, int]:
-                    async with semaphore:
-                        return await _analyze(text)
-
-                outcomes = await asyncio.gather(
-                    *(_one(unit) for unit in units), return_exceptions=True
-                )
-                for path, item in zip(unit_paths, outcomes, strict=True):
-                    if isinstance(item, tuple):
-                        analyses.append(item[0])
-                        analysis_paths.append(path)
-                        input_tokens += item[1]
-                        output_tokens += item[2]
-                    elif isinstance(item, Exception):
-                        map_partial = True
-                        warnings.append(
-                            "map 片段失败："
-                            f"{type(item).__name__}: {item}"
-                        )
-                if analyses:
-                    analysis = _merge_analyses(
-                        analyses, point_limit=point_limit
-                    )
-                    summaries_by_path: dict[str, list[str]] = {}
-                    for path, item in zip(analysis_paths, analyses, strict=True):
-                        summary = item.summary.strip()
-                        if summary:
-                            summaries_by_path.setdefault(path, []).append(
-                                summary
-                            )
-                    summary_nodes: list[str] = []
-                    position = 0
-                    while True:
-                        added = False
-                        for path, items in summaries_by_path.items():
-                            if position < len(items):
-                                label = path or "未知来源"
-                                summary_nodes.append(
-                                    f"## {label}\n{items[position]}"
-                                )
-                                added = True
-                        if not added:
-                            break
-                        position += 1
-                    if summary_nodes:
-                        analysis = analysis.model_copy(
-                            update={
-                                "summary": "\n\n".join(
-                                    summary_nodes
-                                )[:6_000]
-                            }
-                        )
-                else:
-                    # 所有分批都失败时退回整篇一次调用（仍有上限）。
-                    analysis, used_in, used_out = await _analyze(
-                        "\n\n".join(units)[:_MAX_SOURCE_CHARS]
-                    )
-                    input_tokens += used_in
-                    output_tokens += used_out
-                    map_partial = True
-            else:
-                analysis, used_in, used_out = await _analyze(
-                    "\n\n".join(chunks)
-                )
-                input_tokens += used_in
-                output_tokens += used_out
-            points = list(analysis.points)
-            summary = analysis.summary.strip() or "（无摘要）"
-            candidate_sources = _verify_source_quotes(
-                [
-                    {
-                        "path": _resolve_evidence_path(
-                            point.evidence_path,
-                            point.quote,
-                            doc_units,
-                            inputs,
-                        ),
-                        "anchor": point.anchor,
-                        "claim": point.claim,
-                        "quote": point.quote[:300],
-                        "confidence": point.confidence,
-                    }
-                    for point in analysis.points[:point_limit]
-                    if point.claim
-                ],
-                doc_units,
-            )
-            # 只把“原文能定位”的证据交给下游；完全对不上的点不进入引用集，
-            # 避免 author 把章节号/作者名当成锚点照抄。
-            verified_sources = [
-                source
-                for source in candidate_sources
-                if source.get("quote_verified") is True
-                and source.get("anchor_valid") is not False
-                and _is_plausible_anchor(str(source.get("anchor", "")))
-            ]
-            usable = verified_sources or [
-                source
-                for source in candidate_sources
-                if source.get("path")
-                and source.get("anchor_valid") is not False
-                and _is_plausible_anchor(str(source.get("anchor", "")))
-            ]
-            sources = _balanced_sources(usable, source_limit)
-            findings = [
-                str(source.get("claim", ""))
-                for source in sources[:20]
-                if source.get("claim")
-            ] + coverage_findings
-            matrix_enabled = bool(
-                getattr(settings, "document_matrix_enabled", False)
-            )
-            if matrix_enabled and inputs:
-                matrix_sem = asyncio.Semaphore(map_concurrency)
-
-                async def _matrix_one(
-                    path: str,
-                ) -> tuple[DocumentMatrix, int, int]:
-                    async with matrix_sem:
-                        doc_analyses = [
-                            item
-                            for item, item_path in zip(
-                                analyses, analysis_paths, strict=True
-                            )
-                            if item_path == path
-                        ]
-                        doc_sources = [
-                            source
-                            for source in sources
-                            if str(source.get("path", "")) == path
-                        ][:12]
-                        return await _build_matrix(
-                            path, doc_analyses, doc_sources
-                        )
-
-                matrix_outcomes = await asyncio.gather(
-                    *(_matrix_one(path) for path in inputs),
-                    return_exceptions=True,
-                )
-                for path, item in zip(
-                    inputs, matrix_outcomes, strict=True
-                ):
-                    if isinstance(item, tuple):
-                        entry, used_in, used_out = item
-                        matrix_entries.append(entry.model_dump())
-                        input_tokens += used_in
-                        output_tokens += used_out
-                    else:
-                        warnings.append(
-                            f"{path} 矩阵提炼失败："
-                            f"{type(item).__name__}: {item}"
-                        )
-            matrix_nodes = [
-                _render_matrix(entry) for entry in matrix_entries
-            ]
-            tree_nodes = (
-                matrix_nodes if len(inputs) > 1 else summary_nodes
-            ) or summary_nodes
-            if tree_nodes:
-                merged, used_in, used_out = await _tree_reduce(tree_nodes)
-                input_tokens += used_in
-                output_tokens += used_out
-                if merged:
-                    summary = merged
-            if len(inputs) > 1 and matrix_entries:
-                compact = "\n".join(
-                    line
-                    for line in (
-                        _render_matrix_compact(entry)
-                        for entry in matrix_entries
-                    )
-                    if line
-                )
-                if compact and "## 证据矩阵" not in summary:
-                    summary = (
-                        summary.rstrip()
-                        + "\n\n## 证据矩阵\n"
-                        + compact
-                    )
-            if len(inputs) > 1 and matrix_entries:
-                parsed = "、".join(
-                    str(entry.get("path", ""))
-                    + (
-                        f"（{entry.get('title')}）"
-                        if entry.get("title")
-                        else ""
-                    )
-                    for entry in matrix_entries
-                )
-                if parsed and not summary.startswith("已解析文档"):
-                    summary = (
-                        f"已解析文档（{len(matrix_entries)} 篇）："
-                        f"{parsed}\n\n{summary}"
-                    )
-            attribution_issues = find_attribution_issues(
-                summary,
-                [
-                    {
-                        "path": str(entry.get("path", "")),
-                        "title": str(entry.get("title", "")),
-                    }
-                    for entry in matrix_entries
-                ]
-                or [{"path": path} for path in inputs],
-            )
-            if attribution_issues:
-                findings.append(
-                    f"归属校验：{len(attribution_issues)} 处跨文档引用不一致"
-                )
-            summary = _sanitize_citations(
-                _append_evidence_refs(
-                    _normalize_citation_paths(
-                        summary, doc_units, inputs, sources
-                    ),
-                    sources,
-                ),
-                sources,
-            )
-            status = (
-                "partial"
-                if coverage_status == "partial" or map_partial
-                else "success"
-            )
-        except Exception as exc:  # noqa: BLE001 - LLM 失败时保留原始文本
-            summary = (
-                "结构化抽取失败，保留文档摘要："
-                f"{type(exc).__name__}: {exc}\n"
-                + "\n".join(chunks)[:2_000]
-            )
-            findings = coverage_findings
-            sources = []
-            status = "partial"
-
-        run_id = str(task.get("knowledge_run_id") or "")
-        if knowledge_store is not None and run_id and doc_units:
-            try:
-                coverage_by_path = {
-                    str(item.get("path", "")): item
-                    for item in coverage_docs
-                }
-                chunk_payload: list[dict[str, Any]] = []
-                for unit in doc_units:
-                    path = str(unit.get("path", ""))
-                    for index, part in enumerate(
-                        _split_sections(
-                            str(unit.get("text", "")),
-                            min(map_chunk_chars, 4_000),
-                        ),
-                        1,
-                    ):
-                        chunk_payload.append(
-                            {
-                                "chunk_id": f"{task_id}-{index}",
-                                "path": path,
-                                "anchor": f"part-{index}",
-                                "text": part,
-                            }
-                        )
-                claims = [
-                    {
-                        "claim": point.claim,
-                        "evidence_path": _resolve_evidence_path(
-                            point.evidence_path,
-                            point.quote,
-                            doc_units,
-                            inputs,
-                        ),
-                        "anchor": point.anchor,
-                        "quote": point.quote,
-                        "confidence": point.confidence,
-                    }
-                    for point in points
-                    if point.claim
-                ]
-                saved = knowledge_store.save_doc_index(
-                    run_id,
-                    task_id,
-                    documents=[
-                        coverage_by_path.get(str(unit["path"]))
-                        or {"path": unit["path"]}
-                        for unit in doc_units
-                    ],
-                    chunks=chunk_payload,
-                    summary=summary,
-                )
-                if not saved:
-                    warnings.append("知识产物落盘失败（doc）")
-                knowledge_store.save_claims(run_id, task_id, claims)
-            except Exception as exc:  # noqa: BLE001 - 产物是增强，不阻断结论
-                warnings.append(
-                    f"知识产物落盘失败：{type(exc).__name__}: {exc}"
-                )
-        return WorkerResult(
-            task_id=task_id,
-            role="document",
-            worker_id=f"document:{task_id}",
-            goal=goal,
-            status=status,
-            summary=summary,
-            files=inputs,
-            findings=findings,
-            sources=sources,
-            coverage=coverage,
-            matrix=matrix_entries,
-            attribution_issues=attribution_issues,
-            verification={
-                "matrix_entries": len(matrix_entries),
-                "attribution_issues": len(attribution_issues),
-            },
-            duration_ms=int((time.perf_counter() - started) * 1000),
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            error="；".join(warnings[:5]),
-        )
+        return await state.run(cancel=cancel)
 
     return run
 
@@ -1907,6 +2158,397 @@ def make_vision_runner(*, tools: list[Any]) -> Any:
     return run
 
 
+def _author_worker(
+    task_id: str,
+    goal: str,
+    status: str,
+    summary: str,
+    **kwargs: Any,
+) -> WorkerResult:
+    return WorkerResult(
+        task_id=task_id,
+        role="author",
+        worker_id=f"author:{task_id}",
+        goal=goal,
+        status=status,
+        summary=summary,
+        **kwargs,
+    )
+
+
+def _author_target(
+    settings: Any,
+    task: dict[str, Any],
+    goal: str,
+    parent_request: str,
+) -> tuple[str, str, list[str]]:
+    fmt = str(task.get("output_format") or "").strip().lower()
+    if fmt not in {"md", "docx", "pdf"}:
+        fmt = resolve_output_format(goal, parent_request)
+    report_dir = str(
+        getattr(settings, "report_output_dir", ".agent/artifacts/reports")
+    ).strip("/")
+    out_path = str(task.get("output_path") or "").strip()
+    if not out_path:
+        out_path = f"{report_dir}/report.{fmt}"
+    # 路径归一化后再校验：报告工具本身也会拒绝越界，但 worker 层
+    # 先拦一次能给出更明确的失败原因，且不依赖工具的实现细节。
+    out_path = out_path.replace("\\", "/")
+    while out_path.startswith("./"):
+        out_path = out_path[2:]
+    scopes = [
+        str(scope).strip().replace("\\", "/").rstrip("/")
+        for scope in (task.get("write_scope") or [])
+        if str(scope).strip()
+    ]
+    return fmt, out_path, scopes
+
+
+def _author_out_of_scope(out_path: str, scopes: list[str]) -> bool:
+    return (
+        out_path.startswith("/")
+        or ".." in out_path.split("/")
+        or bool(scopes and not _within_scope(out_path, scopes))
+    )
+
+
+def _author_dependency_paths(
+    dependency_context: dict[str, Any] | None,
+) -> set[str]:
+    return {
+        str(source.get("path", "")).strip()
+        for entry in (dependency_context or {}).get("tasks") or []
+        for source in entry.get("sources") or []
+        if isinstance(source, dict) and str(source.get("path", "")).strip()
+    }
+
+
+def _author_context(
+    settings: Any,
+    dependency_context: dict[str, Any],
+    dependency_paths: set[str],
+) -> str:
+    # 多文档时至少给每篇留 6 条证据，避免只看到第一篇。
+    source_limit = max(
+        int(getattr(settings, "author_evidence_top_k", 12) or 12),
+        6 * max(1, len(dependency_paths)),
+    )
+    if bool(getattr(settings, "deep_workflows_enabled", False)):
+        return _context_text(
+            dependency_context,
+            max_chars=int(
+                getattr(
+                    settings, "author_evidence_max_chars", 24_000
+                )
+                or 24_000
+            ),
+            source_limit=source_limit,
+            quote_chars=500,
+        )
+    return _context_text(
+        dependency_context,
+        max_chars=int(
+            getattr(
+                settings,
+                "orchestrator_dependency_context_chars",
+                12_000,
+            )
+        ),
+        source_limit=source_limit,
+    )
+
+
+def _author_searched_context(
+    settings: Any,
+    knowledge_store: Any | None,
+    run_id: str,
+    goal: str,
+    parent_request: str,
+    context: str,
+) -> str:
+    if knowledge_store is None or not run_id:
+        return context
+    try:
+        from ubismart.knowledge.embedding import (
+            make_knowledge_embedder,
+        )
+
+        embedder, _ = make_knowledge_embedder(settings)
+        results = knowledge_store.search(
+            run_id,
+            f"{goal} {parent_request}",
+            top_k=int(
+                getattr(settings, "author_evidence_top_k", 12) or 12
+            ),
+            embedder=embedder,
+            mode=str(
+                getattr(
+                    settings, "knowledge_search_mode", "lexical"
+                )
+                or "lexical"
+            ),
+        )
+        if results:
+            context = (
+                "宿主自动检索到的证据（优先使用）：\n"
+                + knowledge_store.render_search(run_id, results)
+                + "\n\n"
+                + context
+            )
+    except Exception:  # noqa: BLE001 - 检索是增强，不阻断写作
+        pass
+    return context
+
+
+def _author_body(
+    parent_request: str,
+    goal: str,
+    fmt: str,
+    context: str,
+    required_sections: list[str],
+) -> str:
+    body = (
+        f"用户原始请求：{parent_request}\n任务：{goal}\n"
+        f"输出格式：{fmt}\n\n可用的上游证据：\n{context}"
+    )
+    if required_sections:
+        body += (
+            "\n\n必须包含以下 Markdown 二级标题（一字不差）："
+            + "、".join(required_sections)
+        )
+    return body
+
+
+async def _author_draft(
+    llm: BaseChatModel,
+    body: str,
+    config: RunnableConfig | None,
+) -> tuple[str, Any | None]:
+    response = None
+    try:
+        response = await llm.ainvoke(
+            [
+                SystemMessage(content=AUTHOR_PROMPT),
+                HumanMessage(content=body),
+            ],
+            config,
+        )
+        content = getattr(response, "content", "")
+        if not isinstance(content, str):
+            content = str(content)
+        content = content.strip()
+    except Exception:  # noqa: BLE001 - 回退到确定性拼装
+        return "", None
+    return content, response
+
+
+def _author_fallback_content(goal: str, context: str) -> str:
+    return (
+        f"# {goal}\n\n"
+        "## 关键信息\n\n"
+        + "\n".join(
+            f"- {line}" for line in context.splitlines() if line.strip()
+        )
+        + "\n\n## 局限性\n\n本报告由上游摘要自动拼装，未经过模型润色。\n"
+    )
+
+
+def _author_sources(
+    dependency_context: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    return [
+        dict(source)
+        for entry in (dependency_context or {}).get("tasks") or []
+        for source in (entry.get("sources") or [])
+        if isinstance(source, dict)
+    ]
+
+
+def _author_references(
+    content: str, sources: list[dict[str, Any]]
+) -> str:
+    if not sources:
+        return content
+    seen: set[str] = set()
+    lines: list[str] = []
+    for source in sources:
+        ref = f"{source.get('path', '')}#{source.get('anchor', '')}"
+        if not ref.strip("#") or ref in seen:
+            continue
+        seen.add(ref)
+        lines.append(f"- {ref}")
+    if lines:
+        content = (
+            content.rstrip()
+            + "\n\n## 参考来源\n\n"
+            + "\n".join(lines)
+            + "\n"
+        )
+    return content
+
+
+async def _author_export(
+    tool: Any,
+    task: dict[str, Any],
+    *,
+    content: str,
+    out_path: str,
+    goal: str,
+    fmt: str,
+) -> tuple[str, dict[str, Any] | None]:
+    raw = await asyncio.to_thread(
+        tool.invoke,
+        {
+            "content": content,
+            "out_path": out_path,
+            "reason": goal,
+            "format": fmt,
+            "title": goal[:120],
+            "template": str(task.get("template") or ""),
+            "required_sections": [
+                str(item)
+                for item in (task.get("required_sections") or [])
+                if str(item).strip()
+            ],
+        },
+    )
+    return unpack(raw)
+
+
+async def _author_self_check(
+    tools: list[Any], out_path: str, goal: str, fmt: str
+) -> tuple[list[str], str]:
+    findings = [f"输出格式：{fmt}"]
+    check_error = ""
+    checker = _find_tool(tools, REPORT_CHECK)
+    if checker is None:
+        return findings, check_error
+    try:
+        check_text, check = unpack(
+            await asyncio.to_thread(
+                checker.invoke, {"path": out_path, "reason": goal}
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - 自检失败不丢报告
+        check_text, check = "", {"ok": False, "warnings": [str(exc)]}
+    if not check or not check.get("ok"):
+        warnings = [
+            str(item) for item in (check or {}).get("warnings") or []
+        ]
+        check_error = "；".join(warnings)[:500] or check_text[:500]
+        findings.append("报告自检未通过：" + check_error)
+    else:
+        findings.append("报告自检通过")
+    return findings, check_error
+
+
+async def _run_author(
+    *,
+    llm: BaseChatModel,
+    tools: list[Any],
+    settings: Any,
+    knowledge_store: Any | None,
+    task: dict[str, Any],
+    parent_request: str,
+    dependency_context: dict[str, Any] | None,
+    config: RunnableConfig | None,
+    cancel: Any,
+) -> WorkerResult:
+    started = time.perf_counter()
+    task_id = str(task.get("id", ""))
+    goal = str(task.get("goal", ""))
+    if cancel is not None and cancel():
+        return _author_worker(task_id, goal, "cancelled", "已取消")
+    fmt, out_path, scopes = _author_target(
+        settings, task, goal, parent_request
+    )
+    if _author_out_of_scope(out_path, scopes):
+        return _author_worker(
+            task_id,
+            goal,
+            "failed",
+            f"报告输出不在 write_scope 内：{out_path}",
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+    tool = _find_tool(tools, REPORT_EXPORT)
+    if tool is None:
+        return _author_worker(
+            task_id, goal, "failed", "report_export 工具未配置"
+        )
+
+    dependency_paths = _author_dependency_paths(dependency_context)
+    context = _author_context(
+        settings, dependency_context or {}, dependency_paths
+    )
+    run_id = str(task.get("knowledge_run_id") or "")
+    context = _author_searched_context(
+        settings, knowledge_store, run_id, goal, parent_request, context
+    )
+    required_sections = [
+        str(item).strip()
+        for item in (task.get("required_sections") or [])
+        if str(item).strip()
+    ]
+    body = _author_body(
+        parent_request, goal, fmt, context, required_sections
+    )
+    content, response = await _author_draft(llm, body, config)
+    if not content:
+        content = _author_fallback_content(goal, context)
+    sources = _author_sources(dependency_context)
+    content = _sanitize_citations(content, sources)
+    content = _author_references(content, sources)
+    try:
+        text, artifact = await _author_export(
+            tool,
+            task,
+            content=content,
+            out_path=out_path,
+            goal=goal,
+            fmt=fmt,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _author_worker(
+            task_id,
+            goal,
+            "failed",
+            f"报告导出失败：{type(exc).__name__}: {exc}",
+            error=str(exc),
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+    if not artifact or not artifact.get("ok"):
+        return _author_worker(
+            task_id,
+            goal,
+            "failed",
+            text[:1_500],
+            error=text[:1_500],
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+    findings, check_error = await _author_self_check(
+        tools, out_path, goal, fmt
+    )
+    input_tokens, output_tokens = (
+        _usage(response) if response is not None else (0, 0)
+    )
+    return _author_worker(
+        task_id,
+        goal,
+        "partial" if check_error else "success",
+        f"已生成 {fmt.upper()} 报告：{out_path}"
+        + (f"（自检：{check_error}）" if check_error else ""),
+        files=[out_path],
+        findings=findings,
+        output_format=fmt,
+        output_path=out_path,
+        error=check_error,
+        sources=sources[:50],
+        duration_ms=int((time.perf_counter() - started) * 1000),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+
+
 def make_author_runner(
     *,
     llm: BaseChatModel,
@@ -1923,254 +2565,16 @@ def make_author_runner(
         cancel: Any = None,
         **_: Any,
     ) -> WorkerResult:
-        started = time.perf_counter()
-        task_id = str(task.get("id", ""))
-        goal = str(task.get("goal", ""))
-        if cancel is not None and cancel():
-            return WorkerResult(
-                task_id=task_id, role="author", worker_id=f"author:{task_id}",
-                goal=goal, status="cancelled", summary="已取消",
-            )
-        fmt = str(task.get("output_format") or "").strip().lower()
-        if fmt not in {"md", "docx", "pdf"}:
-            fmt = resolve_output_format(goal, parent_request)
-        report_dir = str(
-            getattr(settings, "report_output_dir", ".agent/artifacts/reports")
-        ).strip("/")
-        out_path = str(task.get("output_path") or "").strip()
-        if not out_path:
-            out_path = f"{report_dir}/report.{fmt}"
-        # 路径归一化后再校验：报告工具本身也会拒绝越界，但 worker 层
-        # 先拦一次能给出更明确的失败原因，且不依赖工具的实现细节。
-        out_path = out_path.replace("\\", "/")
-        while out_path.startswith("./"):
-            out_path = out_path[2:]
-        scopes = [
-            str(scope).strip().replace("\\", "/").rstrip("/")
-            for scope in (task.get("write_scope") or [])
-            if str(scope).strip()
-        ]
-        if (
-            out_path.startswith("/")
-            or ".." in out_path.split("/")
-            or (scopes and not _within_scope(out_path, scopes))
-        ):
-            return WorkerResult(
-                task_id=task_id,
-                role="author",
-                worker_id=f"author:{task_id}",
-                goal=goal,
-                status="failed",
-                summary=f"报告输出不在 write_scope 内：{out_path}",
-                duration_ms=int((time.perf_counter() - started) * 1000),
-            )
-        tool = _find_tool(tools, REPORT_EXPORT)
-        if tool is None:
-            return WorkerResult(
-                task_id=task_id, role="author", worker_id=f"author:{task_id}",
-                goal=goal, status="failed", summary="report_export 工具未配置",
-            )
-
-        dependency_paths = {
-            str(source.get("path", "")).strip()
-            for entry in (dependency_context or {}).get("tasks") or []
-            for source in entry.get("sources") or []
-            if isinstance(source, dict) and str(source.get("path", "")).strip()
-        }
-        # 多文档时至少给每篇留 6 条证据，避免只看到第一篇。
-        source_limit = max(
-            int(getattr(settings, "author_evidence_top_k", 12) or 12),
-            6 * max(1, len(dependency_paths)),
-        )
-        if bool(getattr(settings, "deep_workflows_enabled", False)):
-            context = _context_text(
-                dependency_context or {},
-                max_chars=int(
-                    getattr(
-                        settings, "author_evidence_max_chars", 24_000
-                    )
-                    or 24_000
-                ),
-                source_limit=source_limit,
-                quote_chars=500,
-            )
-        else:
-            context = _context_text(
-                dependency_context or {},
-                max_chars=int(
-                    getattr(
-                        settings,
-                        "orchestrator_dependency_context_chars",
-                        12_000,
-                    )
-                ),
-                source_limit=source_limit,
-            )
-        run_id = str(task.get("knowledge_run_id") or "")
-        if knowledge_store is not None and run_id:
-            try:
-                from ubismart.knowledge.embedding import (
-                    make_knowledge_embedder,
-                )
-
-                embedder, _ = make_knowledge_embedder(settings)
-                results = knowledge_store.search(
-                    run_id,
-                    f"{goal} {parent_request}",
-                    top_k=int(
-                        getattr(settings, "author_evidence_top_k", 12) or 12
-                    ),
-                    embedder=embedder,
-                    mode=str(
-                        getattr(
-                            settings, "knowledge_search_mode", "lexical"
-                        )
-                        or "lexical"
-                    ),
-                )
-                if results:
-                    context = (
-                        "宿主自动检索到的证据（优先使用）：\n"
-                        + knowledge_store.render_search(run_id, results)
-                        + "\n\n"
-                        + context
-                    )
-            except Exception:  # noqa: BLE001 - 检索是增强，不阻断写作
-                pass
-        required_sections = [
-            str(item).strip()
-            for item in (task.get("required_sections") or [])
-            if str(item).strip()
-        ]
-        body = (
-            f"用户原始请求：{parent_request}\n任务：{goal}\n"
-            f"输出格式：{fmt}\n\n可用的上游证据：\n{context}"
-        )
-        if required_sections:
-            body += (
-                "\n\n必须包含以下 Markdown 二级标题（一字不差）："
-                + "、".join(required_sections)
-            )
-        response = None
-        try:
-            response = await llm.ainvoke(
-                [SystemMessage(content=AUTHOR_PROMPT), HumanMessage(content=body)],
-                config,
-            )
-            content = getattr(response, "content", "")
-            if not isinstance(content, str):
-                content = str(content)
-            content = content.strip()
-        except Exception:  # noqa: BLE001 - 回退到确定性拼装
-            content = ""
-        if not content:
-            content = (
-                f"# {goal}\n\n"
-                "## 关键信息\n\n"
-                + "\n".join(
-                    f"- {line}" for line in context.splitlines() if line.strip()
-                )
-                + "\n\n## 局限性\n\n本报告由上游摘要自动拼装，未经过模型润色。\n"
-            )
-        sources = [
-            dict(source)
-            for entry in (dependency_context or {}).get("tasks") or []
-            for source in (entry.get("sources") or [])
-            if isinstance(source, dict)
-        ]
-        content = _sanitize_citations(content, sources)
-        if sources:
-            seen: set[str] = set()
-            lines: list[str] = []
-            for source in sources:
-                ref = f"{source.get('path', '')}#{source.get('anchor', '')}"
-                if not ref.strip("#") or ref in seen:
-                    continue
-                seen.add(ref)
-                lines.append(f"- {ref}")
-            if lines:
-                content = (
-                    content.rstrip()
-                    + "\n\n## 参考来源\n\n"
-                    + "\n".join(lines)
-                    + "\n"
-                )
-        try:
-            raw = await asyncio.to_thread(
-                tool.invoke,
-                {
-                    "content": content,
-                    "out_path": out_path,
-                    "reason": goal,
-                    "format": fmt,
-                    "title": goal[:120],
-                    "template": str(task.get("template") or ""),
-                    "required_sections": [
-                        str(item)
-                        for item in (task.get("required_sections") or [])
-                        if str(item).strip()
-                    ],
-                },
-            )
-            text, artifact = unpack(raw)
-        except Exception as exc:  # noqa: BLE001
-            return WorkerResult(
-                task_id=task_id, role="author", worker_id=f"author:{task_id}",
-                goal=goal, status="failed",
-                summary=f"报告导出失败：{type(exc).__name__}: {exc}",
-                error=str(exc),
-                duration_ms=int((time.perf_counter() - started) * 1000),
-            )
-        if not artifact or not artifact.get("ok"):
-            return WorkerResult(
-                task_id=task_id, role="author", worker_id=f"author:{task_id}",
-                goal=goal, status="failed", summary=text[:1_500],
-                error=text[:1_500],
-                duration_ms=int((time.perf_counter() - started) * 1000),
-            )
-        findings = [f"输出格式：{fmt}"]
-        check_error = ""
-        checker = _find_tool(tools, REPORT_CHECK)
-        if checker is not None:
-            try:
-                check_text, check = unpack(
-                    await asyncio.to_thread(
-                        checker.invoke, {"path": out_path, "reason": goal}
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001 - 自检失败不丢报告
-                check_text, check = "", {"ok": False, "warnings": [str(exc)]}
-            if not check or not check.get("ok"):
-                warnings = [
-                    str(item) for item in (check or {}).get("warnings") or []
-                ]
-                check_error = "；".join(warnings)[:500] or check_text[:500]
-                findings.append("报告自检未通过：" + check_error)
-            else:
-                findings.append("报告自检通过")
-        input_tokens, output_tokens = _usage(response) if response is not None else (0, 0)
-        return WorkerResult(
-            task_id=task_id,
-            role="author",
-            worker_id=f"author:{task_id}",
-            goal=goal,
-            status="partial" if check_error else "success",
-            summary=f"已生成 {fmt.upper()} 报告：{out_path}"
-            + (f"（自检：{check_error}）" if check_error else ""),
-            files=[out_path],
-            findings=findings,
-            output_format=fmt,
-            output_path=out_path,
-            error=check_error,
-            sources=[
-                dict(source)
-                for entry in (dependency_context or {}).get("tasks") or []
-                for source in (entry.get("sources") or [])
-                if isinstance(source, dict)
-            ][:50],
-            duration_ms=int((time.perf_counter() - started) * 1000),
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+        return await _run_author(
+            llm=llm,
+            tools=tools,
+            settings=settings,
+            knowledge_store=knowledge_store,
+            task=task,
+            parent_request=parent_request,
+            dependency_context=dependency_context,
+            config=config,
+            cancel=cancel,
         )
 
     return run

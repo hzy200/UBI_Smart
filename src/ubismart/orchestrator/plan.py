@@ -290,6 +290,531 @@ def _completed_view(
     return "\n".join(lines) or "（无）"
 
 
+def _ensure_repo_map(
+    summary: dict[str, Any],
+    repo_map_builder: Callable[[], dict[str, Any]] | None,
+) -> None:
+    # lazy 模式下 survey 没有构建 repo_map；确认要编排后在这里补一次，
+    # 失败按空串继续（worker 仍可从零搜索）。
+    if repo_map_builder is None or summary.get("repo_map"):
+        return
+    try:
+        summary.update(repo_map_builder() or {})
+    except Exception:  # noqa: BLE001 - 索引失败不阻断规划
+        pass
+
+
+def _plan_windows(
+    settings: Settings, contract_waves: list[Any]
+) -> tuple[bool, int]:
+    effective_sequential = bool(
+        settings.orchestrator_sequential_writes or len(contract_waves) > 1
+    )
+    effective_max_stages = max(
+        int(settings.orchestrator_max_write_stages or 2),
+        int(settings.deep_max_write_stages or 4) if contract_waves else 0,
+        len(contract_waves),
+    )
+    return effective_sequential, effective_max_stages
+
+
+def _prepare_tasks(
+    raw: list[Any],
+    contract_waves: list[Any],
+    contract: dict[str, Any],
+    effective_max_stages: int,
+) -> list[dict[str, Any]]:
+    """转成 dict，并在有契约时按波次分 stage。"""
+    data = [
+        item.model_dump()
+        if hasattr(item, "model_dump")
+        else dict(item)
+        for item in raw
+    ]
+    if contract_waves:
+        apply_change_contract(
+            data,
+            contract,
+            max_stages=effective_max_stages,
+        )
+    return data
+
+
+def _validate_plan_tasks(
+    raw: list[Any],
+    *,
+    contract_waves: list[Any],
+    contract: dict[str, Any],
+    effective_max_stages: int,
+    request: str,
+    settings: Settings,
+    write_mode: bool,
+    author_mode: bool,
+    effective_sequential: bool,
+) -> tuple[list[dict[str, Any]], bool, list[str]]:
+    return validate_tasks(
+        _prepare_tasks(raw, contract_waves, contract, effective_max_stages),
+        request=request,
+        max_tasks=settings.orchestrator_max_tasks,
+        allow_write=write_mode,
+        allow_overlap=settings.orchestrator_allow_overlap,
+        allow_author=author_mode,
+        max_documents=settings.orchestrator_document_max_docs,
+        max_images=settings.orchestrator_document_max_images,
+        allow_sequential_write=effective_sequential,
+        max_write_stages=effective_max_stages,
+    )
+
+
+def _write_mode(
+    state: AgentState,
+    *,
+    allow_write: bool,
+    settings: Settings,
+    merged_any: bool,
+    fix_mode: bool,
+) -> bool:
+    return bool(
+        allow_write
+        and settings.orchestrator_write_enabled
+        and state.get("workflow")
+        in {"orchestrated_implement", "architecture_change"}
+        and (not merged_any or fix_mode)
+    )
+
+
+def _role_rules(
+    settings: Settings,
+    *,
+    document_mode: bool,
+    author_mode: bool,
+    write_mode: bool,
+) -> tuple[str, str]:
+    if document_mode:
+        role_notes = _DOCUMENT_ROLE_NOTES
+        if author_mode:
+            role_notes += "\n" + _AUTHOR_ROLE_NOTE
+        write_rules = _DOCUMENT_RULES.format(
+            author=" / author" if author_mode else ""
+        )
+        if author_mode:
+            write_rules += "\n" + _DOCUMENT_AUTHOR_RULES
+        return role_notes, write_rules
+    if write_mode:
+        role_notes = _IMPLEMENT_ROLE_NOTES
+        write_rules = _IMPLEMENT_RULES + "\n" + (
+            _SEQUENTIAL_WRITE_RULES
+            if settings.orchestrator_sequential_writes
+            else _NO_SEQUENTIAL_WRITE_RULES
+        )
+        if settings.orchestrator_allow_overlap:
+            write_rules += (
+                "\n- 允许不同 implement 修改同一文件；"
+                "宿主会用 3-way 合并；"
+                "冲突时只回滚冲突文件所在分量。"
+            )
+        return role_notes, write_rules
+    return _READ_ONLY_ROLE_NOTES, _READ_ONLY_RULES
+
+
+def _build_plan_body(
+    *,
+    request: str,
+    session_brief: str,
+    recovery_notice: str,
+    summary: dict[str, Any],
+    state: AgentState,
+    replan_mode: bool,
+    fix_mode: bool,
+    completed_tasks: list[dict[str, Any]],
+    existing_status: dict[str, str],
+    results: list[dict[str, Any]],
+    merged_any: bool,
+) -> str:
+    body = f"用户请求：{request}\n\n"
+    if session_brief:
+        body += (
+            "之前轮次的会话约束（继续遵守）：\n"
+            f"{session_brief}\n\n"
+        )
+    if recovery_notice:
+        body += f"上次运行中断的恢复提示：\n{recovery_notice}\n\n"
+    body += (
+        f"仓库画像：{compact_repo_summary(summary)}\n\n"
+        f"工作流：{state.get('workflow', '')}\n\n"
+    )
+    if replan_mode:
+        body += (
+            "用户要求重新规划剩余工作。以下任务已经完成，不要重复：\n"
+            f"{_completed_view(completed_tasks, existing_status, results)}\n\n"
+        )
+        if merged_any:
+            body += (
+                "注意：已有实现补丁合并；"
+                "新增任务只能使用 explore/test/review。\n\n"
+            )
+    if fix_mode:
+        body += (
+            "这是自动验证失败后的修复轮：只生成针对失败项的 implement "
+            "任务，不要重做已经完成的功能，也不要重新规划整个请求。\n\n"
+        )
+    body += "请生成任务图。"
+    return body
+
+
+async def _invoke_plan(
+    structured: Any,
+    *,
+    prompt: str,
+    body: str,
+    config: RunnableConfig,
+    settings: Settings,
+    retry_events: list[dict[str, Any]],
+    label: str,
+) -> Any:
+    return await retry_async(
+        lambda: structured.ainvoke(
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content=body),
+            ],
+            config,
+        ),
+        attempts=settings.retry_attempts,
+        base_delay=settings.retry_base_delay_s,
+        max_delay=settings.retry_max_delay_s,
+        max_total_wait=settings.retry_max_total_wait_s,
+        on_retry=retry_events.append,
+        label=label,
+    )
+
+
+async def _acquire_tasks(
+    *,
+    prefetched: list[dict[str, Any]],
+    replan_mode: bool,
+    state: AgentState,
+    structured: Any,
+    prompt: str,
+    body: str,
+    config: RunnableConfig,
+    settings: Settings,
+    request: str,
+    write_mode: bool,
+    author_mode: bool,
+    contract_waves: list[Any],
+    contract: dict[str, Any],
+    effective_sequential: bool,
+    effective_max_stages: int,
+    retry_events: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool, list[str]]:
+    def validate(raw: list[Any]) -> tuple[list[dict[str, Any]], bool, list[str]]:
+        return _validate_plan_tasks(
+            raw,
+            contract_waves=contract_waves,
+            contract=contract,
+            effective_max_stages=effective_max_stages,
+            request=request,
+            settings=settings,
+            write_mode=write_mode,
+            author_mode=author_mode,
+            effective_sequential=effective_sequential,
+        )
+
+    if prefetched and not replan_mode:
+        # select_workflow 已经把任务图一并返回；不要再付一次 LLM 往返。
+        tasks, degraded, errors = validate(prefetched)
+        degraded = degraded or bool(state.get("prefetched_degraded"))
+        return prefetched, tasks, degraded, errors
+    try:
+        graph = await _invoke_plan(
+            structured,
+            prompt=prompt,
+            body=body,
+            config=config,
+            settings=settings,
+            retry_events=retry_events,
+            label="plan_tasks",
+        )
+        raw_tasks = [task.model_dump() for task in graph.tasks]
+        tasks, degraded, errors = validate(raw_tasks)
+        degraded = degraded or bool(graph.degraded)
+        return raw_tasks, tasks, degraded, errors
+    except Exception:  # noqa: BLE001 - 规划失败降级
+        tasks, degraded, errors = validate([])
+        return [], tasks, degraded, errors
+
+
+async def _repair_degraded_plan(
+    *,
+    structured: Any,
+    prompt: str,
+    body: str,
+    config: RunnableConfig,
+    settings: Settings,
+    retry_events: list[dict[str, Any]],
+    tasks: list[dict[str, Any]],
+    degraded: bool,
+    errors: list[str],
+    raw_tasks: list[dict[str, Any]],
+    request: str,
+    write_mode: bool,
+    author_mode: bool,
+    contract_waves: list[Any],
+    contract: dict[str, Any],
+    effective_sequential: bool,
+    effective_max_stages: int,
+) -> tuple[list[dict[str, Any]], bool, list[str]]:
+    # 校验失败时先给模型一次带错误反馈的修复机会；仍然失败才走
+    # 确定性降级（write/document 的单任务兜底）。所有修复结果仍需
+    # 重新经过 host 校验，安全边界不变。
+    repair_note = (
+        "\n\n上次任务图未通过宿主校验，请修正后重新输出**完整**任务图。\n"
+        "校验错误：\n"
+        + "\n".join(f"- {item}" for item in errors[:10])
+        + "\n\n上次任务图：\n"
+        + json.dumps(raw_tasks, ensure_ascii=False, default=str)[:4_000]
+    )
+    repaired_graph: TaskGraph | None = None
+    try:
+        repaired_graph = await _invoke_plan(
+            structured,
+            prompt=prompt + repair_note,
+            body=body,
+            config=config,
+            settings=settings,
+            retry_events=retry_events,
+            label="plan_tasks_repair",
+        )
+    except Exception:  # noqa: BLE001 - 修复失败按原降级处理
+        repaired_graph = None
+    if repaired_graph is None:
+        return tasks, degraded, errors
+    repaired_tasks, repaired_degraded, repaired_errors = _validate_plan_tasks(
+        [task.model_dump() for task in repaired_graph.tasks],
+        contract_waves=contract_waves,
+        contract=contract,
+        effective_max_stages=effective_max_stages,
+        request=request,
+        settings=settings,
+        write_mode=write_mode,
+        author_mode=author_mode,
+        effective_sequential=effective_sequential,
+    )
+    repaired_degraded = repaired_degraded or bool(repaired_graph.degraded)
+    if not repaired_degraded:
+        return (
+            repaired_tasks,
+            False,
+            [f"初次校验失败（{len(errors)} 项），修复后通过"],
+        )
+    return (
+        tasks,
+        degraded,
+        errors + [f"修复仍失败：{item}" for item in repaired_errors[:5]],
+    )
+
+
+def _fallback_write_plan(
+    *,
+    tasks: list[dict[str, Any]],
+    degraded: bool,
+    errors: list[str],
+    request: str,
+    summary: dict[str, Any],
+    settings: Settings,
+) -> tuple[list[dict[str, Any]], bool, list[str]]:
+    fallback = _default_write_task(request, summary)
+    if fallback is None:
+        return (
+            tasks,
+            degraded,
+            errors
+            + ["写编排降级：工作区没有可用的顶层目录或文件作为 write_scope"],
+        )
+    tasks, fallback_degraded, fallback_errors = validate_tasks(
+        [fallback],
+        request=request,
+        max_tasks=settings.orchestrator_max_tasks,
+        allow_write=True,
+    )
+    if not fallback_degraded:
+        return tasks, True, errors
+    return tasks, degraded, errors + fallback_errors
+
+
+def _document_cap_errors(
+    summary: dict[str, Any], fallback_tasks: list[dict[str, Any]]
+) -> list[str]:
+    available_docs = len(
+        set(
+            list(summary.get("uploads") or [])
+            + list(summary.get("documents") or [])
+        )
+    )
+    available_images = len(set(summary.get("images") or []))
+    kept_docs = sum(
+        1 for task in fallback_tasks if task["role"] == "document"
+    )
+    kept_images = sum(
+        1 for task in fallback_tasks if task["role"] == "vision"
+    )
+    errors: list[str] = []
+    if available_docs > kept_docs:
+        errors.append(
+            f"文档数 {available_docs} 超过上限，"
+            f"已保留前 {kept_docs} 个；其余未进入本轮"
+        )
+    if available_images > kept_images:
+        errors.append(
+            f"图片数 {available_images} 超过上限，"
+            f"已保留前 {kept_images} 个；其余未进入本轮"
+        )
+    return errors
+
+
+def _fallback_document_plan(
+    *,
+    tasks: list[dict[str, Any]],
+    degraded: bool,
+    errors: list[str],
+    request: str,
+    summary: dict[str, Any],
+    settings: Settings,
+    author_mode: bool,
+) -> tuple[list[dict[str, Any]], bool, list[str]]:
+    fallback_tasks = _default_document_tasks(
+        request, summary, settings, allow_author=author_mode
+    )
+    if not fallback_tasks:
+        return (
+            tasks,
+            degraded,
+            errors + ["文档管线降级：没有找到可读取的文档/图片清单"],
+        )
+    tasks, fallback_degraded, fallback_errors = validate_tasks(
+        fallback_tasks,
+        request=request,
+        max_tasks=settings.orchestrator_max_tasks,
+        allow_write=False,
+        allow_author=author_mode,
+    )
+    if not fallback_degraded:
+        degraded = True
+    else:
+        errors = errors + fallback_errors
+    errors = errors + _document_cap_errors(summary, fallback_tasks)
+    return tasks, degraded, errors
+
+
+def _should_add_explore_tests(
+    *,
+    degraded: bool,
+    write_mode: bool,
+    document_mode: bool,
+    tasks: list[dict[str, Any]],
+    settings: Settings,
+) -> bool:
+    return bool(
+        not degraded
+        and not write_mode
+        and not document_mode
+        and len(tasks) == 1
+        and settings.orchestrator_add_explore_tests
+    )
+
+
+def _append_explore_test(
+    tasks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    used = {task["id"] for task in tasks}
+    extra_id = "explore-tests"
+    while extra_id in used:
+        extra_id += "-2"
+    tasks.append(
+        {
+            "id": extra_id,
+            "role": "explore",
+            "goal": "定位与用户请求相关的测试文件，并总结现有断言/期望行为",
+            "inputs": [],
+            "acceptance": ["列出相关测试文件与关键断言"],
+            "depends_on": [],
+        }
+    )
+    return tasks
+
+
+def _prefix_task_ids(
+    tasks: list[dict[str, Any]], prefix: str
+) -> list[dict[str, Any]]:
+    mapping = {str(task["id"]): f"{prefix}{task['id']}" for task in tasks}
+    for task in tasks:
+        old_id = str(task["id"])
+        task["id"] = mapping[old_id]
+        task["depends_on"] = [
+            mapping.get(str(dep), str(dep))
+            for dep in task.get("depends_on") or []
+        ]
+    return tasks
+
+
+def _apply_replan(
+    tasks: list[dict[str, Any]],
+    completed_tasks: list[dict[str, Any]],
+    state: AgentState,
+    settings: Settings,
+) -> tuple[list[dict[str, Any]], str]:
+    prefix = f"r{int(state.get('steering_replans', 1))}-"
+    tasks = _prefix_task_ids(tasks, prefix)
+    cap = max(settings.orchestrator_max_tasks - len(completed_tasks), 1)
+    tasks = completed_tasks + tasks[:cap]
+    revised_reason = (
+        f"用户要求重规划：保留 {len(completed_tasks)} 个已完成任务，"
+        f"新增 {len(tasks) - len(completed_tasks)} 个"
+    )
+    return tasks, revised_reason
+
+
+def _fix_prefix(state: AgentState) -> str:
+    return f"fx{max(1, int(state.get('orchestrator_fix_rounds_used', 1)))}-"
+
+
+def _attach_task_context(
+    tasks: list[dict[str, Any]],
+    summary: dict[str, Any],
+    state: AgentState,
+) -> None:
+    # repo map / 知识产物 run id 随任务下发。
+    repo_map = str(summary.get("repo_map") or "").strip()
+    knowledge_run_id = str(
+        state.get("knowledge_run_id")
+        or summary.get("knowledge_run_id")
+        or ""
+    ).strip()
+    if repo_map:
+        for task in tasks:
+            task["repo_map"] = repo_map
+    if knowledge_run_id:
+        for task in tasks:
+            task["knowledge_run_id"] = knowledge_run_id
+
+
+def _initial_status(
+    tasks: list[dict[str, Any]],
+    completed_tasks: list[dict[str, Any]],
+    existing_status: dict[str, str],
+) -> dict[str, str]:
+    keep_ids = {task["id"] for task in completed_tasks}
+    return {
+        task["id"]: (
+            existing_status.get(task["id"], "pending")
+            if task["id"] in keep_ids
+            else "pending"
+        )
+        for task in tasks
+    }
+
+
 def make_plan_tasks_node(
     llm: BaseChatModel,
     settings: Settings,
@@ -311,40 +836,10 @@ def make_plan_tasks_node(
             or {}
         )
         contract_waves = contract.get("waves") or []
-        effective_sequential = bool(
-            settings.orchestrator_sequential_writes
-            or len(contract_waves) > 1
+        effective_sequential, effective_max_stages = _plan_windows(
+            settings, contract_waves
         )
-        effective_max_stages = max(
-            int(settings.orchestrator_max_write_stages or 2),
-            int(settings.deep_max_write_stages or 4)
-            if contract_waves
-            else 0,
-            len(contract_waves),
-        )
-
-        def _prepare(raw: list[Any]) -> list[dict[str, Any]]:
-            """转成 dict，并在有契约时按波次分 stage。"""
-            data = [
-                item.model_dump()
-                if hasattr(item, "model_dump")
-                else dict(item)
-                for item in raw
-            ]
-            if contract_waves:
-                apply_change_contract(
-                    data,
-                    contract,
-                    max_stages=effective_max_stages,
-                )
-            return data
-        # lazy 模式下 survey 没有构建 repo_map；确认要编排后在这里补一次，
-        # 失败按空串继续（worker 仍可从零搜索）。
-        if repo_map_builder is not None and not summary.get("repo_map"):
-            try:
-                summary.update(repo_map_builder() or {})
-            except Exception:  # noqa: BLE001 - 索引失败不阻断规划
-                pass
+        _ensure_repo_map(summary, repo_map_builder)
         session_brief = str(state.get("session_brief") or "").strip()
         recovery_notice = str(state.get("recovery_notice") or "").strip()
         replan_mode = bool(state.get("steering_replan"))
@@ -361,12 +856,12 @@ def make_plan_tasks_node(
             result.get("role") == "implement" and result.get("merged")
             for result in results
         )
-        write_mode = bool(
-            allow_write
-            and settings.orchestrator_write_enabled
-            and state.get("workflow")
-            in {"orchestrated_implement", "architecture_change"}
-            and (not merged_any or fix_mode)
+        write_mode = _write_mode(
+            state,
+            allow_write=allow_write,
+            settings=settings,
+            merged_any=merged_any,
+            fix_mode=fix_mode,
         )
         document_mode = state.get("workflow") == "document_pipeline"
         author_mode = bool(document_mode and allow_write and not merged_any)
@@ -376,327 +871,120 @@ def make_plan_tasks_node(
             if fix_mode
             else settings.orchestrator_max_tasks
         )
-        if document_mode:
-            role_notes = _DOCUMENT_ROLE_NOTES
-            if author_mode:
-                role_notes += "\n" + _AUTHOR_ROLE_NOTE
-            write_rules = _DOCUMENT_RULES.format(
-                author=" / author" if author_mode else ""
-            )
-            if author_mode:
-                write_rules += "\n" + _DOCUMENT_AUTHOR_RULES
-        elif write_mode:
-            role_notes = _IMPLEMENT_ROLE_NOTES
-            write_rules = _IMPLEMENT_RULES + "\n" + (
-                _SEQUENTIAL_WRITE_RULES
-                if settings.orchestrator_sequential_writes
-                else _NO_SEQUENTIAL_WRITE_RULES
-            )
-            if settings.orchestrator_allow_overlap:
-                write_rules += (
-                    "\n- 允许不同 implement 修改同一文件；"
-                    "宿主会用 3-way 合并；"
-                    "冲突时只回滚冲突文件所在分量。"
-                )
-        else:
-            role_notes = _READ_ONLY_ROLE_NOTES
-            write_rules = _READ_ONLY_RULES
-        body = (
-            f"用户请求：{request}\n\n"
-            + (
-                "之前轮次的会话约束（继续遵守）：\n"
-                f"{session_brief}\n\n"
-                if session_brief
-                else ""
-            )
-            + (
-                f"上次运行中断的恢复提示：\n{recovery_notice}\n\n"
-                if recovery_notice
-                else ""
-            )
-            + f"仓库画像：{compact_repo_summary(summary)}\n\n"
-            f"工作流：{state.get('workflow', '')}\n\n"
+        role_notes, write_rules = _role_rules(
+            settings,
+            document_mode=document_mode,
+            author_mode=author_mode,
+            write_mode=write_mode,
         )
-        if replan_mode:
-            body += (
-                "用户要求重新规划剩余工作。以下任务已经完成，不要重复：\n"
-                f"{_completed_view(completed_tasks, existing_status, results)}\n\n"
-            )
-            if merged_any:
-                body += "注意：已有实现补丁合并；新增任务只能使用 explore/test/review。\n\n"
-        if fix_mode:
-            body += (
-                "这是自动验证失败后的修复轮：只生成针对失败项的 implement "
-                "任务，不要重做已经完成的功能，也不要重新规划整个请求。\n\n"
-            )
-        body += "请生成任务图。"
+        body = _build_plan_body(
+            request=request,
+            session_brief=session_brief,
+            recovery_notice=recovery_notice,
+            summary=summary,
+            state=state,
+            replan_mode=replan_mode,
+            fix_mode=fix_mode,
+            completed_tasks=completed_tasks,
+            existing_status=existing_status,
+            results=results,
+            merged_any=merged_any,
+        )
+        prompt = PLAN_TASKS_PROMPT.format(
+            max_tasks=plan_max_tasks,
+            role_notes=role_notes,
+            write_rules=write_rules,
+        )
 
-        tasks: list[dict[str, Any]] = []
-        degraded = False
         retry_events: list[dict[str, Any]] = []
-        errors: list[str] = []
-        raw_tasks: list[dict[str, Any]] = []
         prefetched = [
             dict(task) for task in (state.get("prefetched_tasks") or [])
         ]
-        if prefetched and not replan_mode:
-            # select_workflow 已经把任务图一并返回；不要再付一次 LLM 往返。
-            raw_tasks = prefetched
-            tasks, degraded, errors = validate_tasks(
-                _prepare(prefetched),
-                request=request,
-                max_tasks=settings.orchestrator_max_tasks,
-                allow_write=write_mode,
-                allow_overlap=settings.orchestrator_allow_overlap,
-                allow_author=author_mode,
-                max_documents=settings.orchestrator_document_max_docs,
-                max_images=settings.orchestrator_document_max_images,
-                allow_sequential_write=effective_sequential,
-                max_write_stages=effective_max_stages,
-            )
-            degraded = degraded or bool(state.get("prefetched_degraded"))
-        else:
-            try:
-                graph = await retry_async(
-                    lambda: structured.ainvoke(
-                        [
-                            SystemMessage(
-                                content=PLAN_TASKS_PROMPT.format(
-                                    max_tasks=plan_max_tasks,
-                                    role_notes=role_notes,
-                                    write_rules=write_rules,
-                                )
-                            ),
-                            HumanMessage(content=body),
-                        ],
-                        config,
-                    ),
-                    attempts=settings.retry_attempts,
-                    base_delay=settings.retry_base_delay_s,
-                    max_delay=settings.retry_max_delay_s,
-                    max_total_wait=settings.retry_max_total_wait_s,
-                    on_retry=retry_events.append,
-                    label="plan_tasks",
-                )
-                raw_tasks = [task.model_dump() for task in graph.tasks]
-                tasks, degraded, errors = validate_tasks(
-                    _prepare(raw_tasks),
-                    request=request,
-                    max_tasks=settings.orchestrator_max_tasks,
-                    allow_write=write_mode,
-                    allow_overlap=settings.orchestrator_allow_overlap,
-                    allow_author=author_mode,
-                    max_documents=settings.orchestrator_document_max_docs,
-                    max_images=settings.orchestrator_document_max_images,
-                    allow_sequential_write=effective_sequential,
-                    max_write_stages=effective_max_stages,
-                )
-                degraded = degraded or bool(graph.degraded)
-            except Exception:  # noqa: BLE001 - 规划失败降级
-                tasks, degraded, errors = validate_tasks(
-                    [],
-                    request=request,
-                    max_tasks=settings.orchestrator_max_tasks,
-                    allow_write=write_mode,
-                    allow_overlap=settings.orchestrator_allow_overlap,
-                    allow_author=author_mode,
-                    max_documents=settings.orchestrator_document_max_docs,
-                    max_images=settings.orchestrator_document_max_images,
-                    allow_sequential_write=effective_sequential,
-                    max_write_stages=effective_max_stages,
-                )
+        raw_tasks, tasks, degraded, errors = await _acquire_tasks(
+            prefetched=prefetched,
+            replan_mode=replan_mode,
+            state=state,
+            structured=structured,
+            prompt=prompt,
+            body=body,
+            config=config,
+            settings=settings,
+            request=request,
+            write_mode=write_mode,
+            author_mode=author_mode,
+            contract_waves=contract_waves,
+            contract=contract,
+            effective_sequential=effective_sequential,
+            effective_max_stages=effective_max_stages,
+            retry_events=retry_events,
+        )
 
-        # 校验失败时先给模型一次带错误反馈的修复机会；仍然失败才走
-        # 确定性降级（write/document 的单任务兜底）。所有修复结果仍需
-        # 重新经过 host 校验，安全边界不变。
         if (
             degraded
             and raw_tasks
             and not replan_mode
             and settings.orchestrator_plan_repair
         ):
-            repair_note = (
-                "\n\n上次任务图未通过宿主校验，请修正后重新输出**完整**任务图。\n"
-                "校验错误：\n"
-                + "\n".join(f"- {item}" for item in errors[:10])
-                + "\n\n上次任务图：\n"
-                + json.dumps(raw_tasks, ensure_ascii=False, default=str)[:4_000]
+            tasks, degraded, errors = await _repair_degraded_plan(
+                structured=structured,
+                prompt=prompt,
+                body=body,
+                config=config,
+                settings=settings,
+                retry_events=retry_events,
+                tasks=tasks,
+                degraded=degraded,
+                errors=errors,
+                raw_tasks=raw_tasks,
+                request=request,
+                write_mode=write_mode,
+                author_mode=author_mode,
+                contract_waves=contract_waves,
+                contract=contract,
+                effective_sequential=effective_sequential,
+                effective_max_stages=effective_max_stages,
             )
-            repaired_graph: TaskGraph | None = None
-            try:
-                repaired_graph = await retry_async(
-                    lambda: structured.ainvoke(
-                        [
-                            SystemMessage(
-                                content=PLAN_TASKS_PROMPT.format(
-                                    max_tasks=plan_max_tasks,
-                                    role_notes=role_notes,
-                                    write_rules=write_rules,
-                                )
-                                + repair_note
-                            ),
-                            HumanMessage(content=body),
-                        ],
-                        config,
-                    ),
-                    attempts=settings.retry_attempts,
-                    base_delay=settings.retry_base_delay_s,
-                    max_delay=settings.retry_max_delay_s,
-                    max_total_wait=settings.retry_max_total_wait_s,
-                    on_retry=retry_events.append,
-                    label="plan_tasks_repair",
-                )
-            except Exception:  # noqa: BLE001 - 修复失败按原降级处理
-                repaired_graph = None
-            if repaired_graph is not None:
-                repaired_tasks, repaired_degraded, repaired_errors = (
-                    validate_tasks(
-                        _prepare(
-                            [task.model_dump() for task in repaired_graph.tasks]
-                        ),
-                        request=request,
-                        max_tasks=settings.orchestrator_max_tasks,
-                        allow_write=write_mode,
-                        allow_overlap=settings.orchestrator_allow_overlap,
-                        allow_author=author_mode,
-                        max_documents=settings.orchestrator_document_max_docs,
-                        max_images=settings.orchestrator_document_max_images,
-                        allow_sequential_write=effective_sequential,
-                        max_write_stages=effective_max_stages,
-                    )
-                )
-                repaired_degraded = repaired_degraded or bool(
-                    repaired_graph.degraded
-                )
-                if not repaired_degraded:
-                    tasks = repaired_tasks
-                    degraded = False
-                    errors = [
-                        f"初次校验失败（{len(errors)} 项），修复后通过"
-                    ]
-                else:
-                    errors = errors + [
-                        f"修复仍失败：{item}" for item in repaired_errors[:5]
-                    ]
 
         if degraded and write_mode:
-            fallback = _default_write_task(request, summary)
-            if fallback is not None:
-                tasks, fallback_degraded, fallback_errors = validate_tasks(
-                    [fallback],
-                    request=request,
-                    max_tasks=settings.orchestrator_max_tasks,
-                    allow_write=True,
-                )
-                if not fallback_degraded:
-                    degraded = True
-                else:
-                    errors = errors + fallback_errors
-            else:
-                errors.append(
-                    "写编排降级：工作区没有可用的顶层目录或文件作为 write_scope"
-                )
+            tasks, degraded, errors = _fallback_write_plan(
+                tasks=tasks,
+                degraded=degraded,
+                errors=errors,
+                request=request,
+                summary=summary,
+                settings=settings,
+            )
 
         if degraded and document_mode:
-            fallback_tasks = _default_document_tasks(
-                request, summary, settings, allow_author=author_mode
+            tasks, degraded, errors = _fallback_document_plan(
+                tasks=tasks,
+                degraded=degraded,
+                errors=errors,
+                request=request,
+                summary=summary,
+                settings=settings,
+                author_mode=author_mode,
             )
-            if fallback_tasks:
-                tasks, fallback_degraded, fallback_errors = validate_tasks(
-                    fallback_tasks,
-                    request=request,
-                    max_tasks=settings.orchestrator_max_tasks,
-                    allow_write=False,
-                    allow_author=author_mode,
-                )
-                if not fallback_degraded:
-                    degraded = True
-                else:
-                    errors = errors + fallback_errors
-                available_docs = len(
-                    set(
-                        list(summary.get("uploads") or [])
-                        + list(summary.get("documents") or [])
-                    )
-                )
-                available_images = len(set(summary.get("images") or []))
-                kept_docs = sum(
-                    1 for task in fallback_tasks if task["role"] == "document"
-                )
-                kept_images = sum(
-                    1 for task in fallback_tasks if task["role"] == "vision"
-                )
-                if available_docs > kept_docs:
-                    errors.append(
-                        f"文档数 {available_docs} 超过上限，"
-                        f"已保留前 {kept_docs} 个；其余未进入本轮"
-                    )
-                if available_images > kept_images:
-                    errors.append(
-                        f"图片数 {available_images} 超过上限，"
-                        f"已保留前 {kept_images} 个；其余未进入本轮"
-                    )
-            else:
-                errors.append(
-                    "文档管线降级：没有找到可读取的文档/图片清单"
-                )
 
-        if (
-            not degraded
-            and not write_mode
-            and not document_mode
-            and len(tasks) == 1
-            and settings.orchestrator_add_explore_tests
+        if _should_add_explore_tests(
+            degraded=degraded,
+            write_mode=write_mode,
+            document_mode=document_mode,
+            tasks=tasks,
+            settings=settings,
         ):
-            used = {task["id"] for task in tasks}
-            extra_id = "explore-tests"
-            while extra_id in used:
-                extra_id += "-2"
-            tasks.append(
-                {
-                    "id": extra_id,
-                    "role": "explore",
-                    "goal": "定位与用户请求相关的测试文件，并总结现有断言/期望行为",
-                    "inputs": [],
-                    "acceptance": ["列出相关测试文件与关键断言"],
-                    "depends_on": [],
-                }
-            )
+            tasks = _append_explore_test(tasks)
 
         revised_reason = ""
         if replan_mode:
-            prefix = f"r{int(state.get('steering_replans', 1))}-"
-            mapping = {
-                str(task["id"]): f"{prefix}{task['id']}" for task in tasks
-            }
-            for task in tasks:
-                old_id = str(task["id"])
-                task["id"] = mapping[old_id]
-                task["depends_on"] = [
-                    mapping.get(str(dep), str(dep))
-                    for dep in task.get("depends_on") or []
-                ]
-            cap = max(settings.orchestrator_max_tasks - len(completed_tasks), 1)
-            tasks = completed_tasks + tasks[:cap]
-            revised_reason = (
-                f"用户要求重规划：保留 {len(completed_tasks)} 个已完成任务，"
-                f"新增 {len(tasks) - len(completed_tasks)} 个"
+            tasks, revised_reason = _apply_replan(
+                tasks, completed_tasks, state, settings
             )
 
         if fix_mode and not replan_mode:
             # 修复轮复用同一条会话：给任务 id 加前缀，避免与上一轮的
             # worker_results 撞 id 导致 fan-in 只看到旧结果。
-            prefix = f"fx{max(1, int(state.get('orchestrator_fix_rounds_used', 1)))}-"
-            mapping = {
-                str(task["id"]): f"{prefix}{task['id']}" for task in tasks
-            }
-            for task in tasks:
-                old_id = str(task["id"])
-                task["id"] = mapping[old_id]
-                task["depends_on"] = [
-                    mapping.get(str(dep), str(dep))
-                    for dep in task.get("depends_on") or []
-                ]
+            tasks = _prefix_task_ids(tasks, _fix_prefix(state))
 
         # 完全重复的只读任务只保留一个；只删没有依赖方的任务，不改 depends_on。
         tasks, deduped_ids = dedupe_readonly_tasks(tasks)
@@ -704,31 +992,9 @@ def make_plan_tasks_node(
             errors.append(
                 "已去重重复只读任务：" + "、".join(deduped_ids[:5])
             )
+        _attach_task_context(tasks, summary, state)
         parallel = parallel_stats(tasks)
-
-        # repo map / 知识产物 run id 随任务下发。
-        repo_map = str(summary.get("repo_map") or "").strip()
-        knowledge_run_id = str(
-            state.get("knowledge_run_id")
-            or summary.get("knowledge_run_id")
-            or ""
-        ).strip()
-        if repo_map:
-            for task in tasks:
-                task["repo_map"] = repo_map
-        if knowledge_run_id:
-            for task in tasks:
-                task["knowledge_run_id"] = knowledge_run_id
-
-        keep_ids = {task["id"] for task in completed_tasks}
-        status = {
-            task["id"]: (
-                existing_status.get(task["id"], "pending")
-                if task["id"] in keep_ids
-                else "pending"
-            )
-            for task in tasks
-        }
+        status = _initial_status(tasks, completed_tasks, existing_status)
         attempts = dict(state.get("task_attempts") or {})
         return {
             "tasks": tasks,

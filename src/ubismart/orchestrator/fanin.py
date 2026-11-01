@@ -98,6 +98,277 @@ def _handoff_entry(
     }
 
 
+def _latest_results(
+    results: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    # 同一任务可能重试多次：fan-in 只看最后一次尝试。
+    latest: dict[str, dict[str, Any]] = {}
+    for result in results:
+        task_id = str(result.get("task_id", ""))
+        previous = latest.get(task_id)
+        if previous is None or int(result.get("attempt", 1)) >= int(
+            previous.get("attempt", 1)
+        ):
+            latest[task_id] = result
+    return latest
+
+
+def _merged_count(latest: dict[str, dict[str, Any]]) -> int:
+    return sum(
+        1
+        for result in latest.values()
+        if result.get("role") == "implement" and result.get("merged")
+    )
+
+
+def _file_overlaps(
+    latest: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    file_tasks: dict[str, list[str]] = {}
+    for result in latest.values():
+        for path in result.get("files") or []:
+            file_tasks.setdefault(str(path), []).append(
+                str(result.get("task_id", "?"))
+            )
+    return {
+        path: task_ids
+        for path, task_ids in file_tasks.items()
+        if len(set(task_ids)) > 1
+    }
+
+
+def _unfinished_tasks(
+    tasks: list[dict[str, Any]], status: dict[str, str]
+) -> list[str]:
+    return [
+        task["id"]
+        for task in tasks
+        if status.get(task["id"], "pending")
+        in {"pending", "blocked", "cancelled"}
+    ]
+
+
+def _artifact_key(result: dict[str, Any]) -> tuple[str, int]:
+    return (
+        str(result.get("task_id", "")),
+        max(1, int(result.get("attempt", 1) or 1)),
+    )
+
+
+def _save_artifacts(
+    *,
+    settings: Settings,
+    sandbox: WslSandbox | None,
+    root: str,
+    artifacts: bool,
+    config: RunnableConfig,
+    ordered: list[dict[str, Any]],
+) -> tuple[str, dict[tuple[str, int], str], list[dict[str, Any]]]:
+    # 先落 artifact，再拼文本：文本里的「完整结果」路径必须指向已经存在
+    # 的文件。落盘失败只影响可追溯性，不影响本次汇总。
+    artifact_by_key: dict[tuple[str, int], str] = {}
+    artifact_items: list[dict[str, Any]] = []
+    run_id = ""
+    if not (artifacts and sandbox is not None and root):
+        return run_id, artifact_by_key, artifact_items
+    thread_id = str(
+        (((config or {}).get("configurable")) or {}).get("thread_id", "")
+    )
+    run_id = make_run_id(thread_id, time.strftime("%Y%m%dT%H%M%S"))
+    store = ArtifactStore(sandbox, root, run_id)
+    for result in ordered:
+        rel = store.save_result(result)
+        if not rel:
+            continue
+        key = _artifact_key(result)
+        artifact_by_key[key] = rel
+        artifact_items.append(
+            {
+                "task_id": key[0],
+                "attempt": key[1],
+                "status": str(result.get("status", "")),
+                "artifact_id": rel,
+            }
+        )
+    return run_id, artifact_by_key, artifact_items
+
+
+def _merge_note(result: dict[str, Any]) -> str:
+    if result.get("role") != "implement":
+        return ""
+    if result.get("merged"):
+        return "，已合并"
+    if result.get("merge_error"):
+        return f"，合并失败：{result['merge_error'][:200]}"
+    if result.get("patch_path"):
+        return "，补丁未合并"
+    return ""
+
+
+def _render_sources(sources: list[Any]) -> str:
+    rendered = []
+    for source in sources[:8]:
+        if not isinstance(source, dict):
+            continue
+        rendered.append(
+            f"{source.get('path', '')}#{source.get('anchor', '')}"
+        )
+    return "、".join(rendered)
+
+
+def _render_block(
+    result: dict[str, Any],
+    artifact_by_key: dict[tuple[str, int], str],
+    per_task: int,
+) -> str:
+    task_id = result.get("task_id", "?")
+    role = result.get("role", "")
+    state_text = result.get("status", "")
+    attempt = int(result.get("attempt", 1))
+    retry_note = f"（第 {attempt} 次尝试）" if attempt > 1 else ""
+    summary = str(result.get("summary", "")).strip()
+    merge_note = _merge_note(result)
+    block_lines = [
+        f"- {task_id} ({role}/{state_text}){retry_note}"
+        f"{merge_note}: {summary}"
+    ]
+    files = result.get("files") or []
+    if files:
+        block_lines.append(
+            "  相关文件：" + "、".join(str(f) for f in files[:8])
+        )
+    findings = result.get("findings") or []
+    if findings:
+        block_lines.append(
+            "  发现：" + "；".join(str(f) for f in findings[:5])
+        )
+    sources = result.get("sources") or []
+    if sources:
+        rendered = _render_sources(sources)
+        if rendered:
+            block_lines.append("  引用：" + rendered)
+    block = "\n".join(block_lines)
+    artifact = artifact_by_key.get((str(task_id), attempt), "")
+    artifact_line = f"\n  完整结果：{artifact}" if artifact else ""
+    if len(block) + len(artifact_line) > per_task:
+        keep = max(per_task - len(artifact_line), 0)
+        block = block[:keep] + "…（任务摘要已截断）"
+    return block + artifact_line
+
+
+def _build_head(
+    *,
+    merged_count: int,
+    overlaps: dict[str, list[str]],
+    unfinished: list[str],
+    artifact_items: list[dict[str, Any]],
+) -> list[str]:
+    head = [
+        "[编排器汇总]\n"
+        "注意：以下为 worker 已确认的只读事实；"
+        "直接据此规划与实现，不要重复探索。"
+    ]
+    if merged_count:
+        head[0] += (
+            "\n以下实现任务已由 worker 完成并合并到主工作区；"
+            "优先验证与最小修复，不要重做已完成部分。"
+        )
+    if overlaps:
+        head.append("多 worker 关注同一文件：")
+        for path, task_ids in list(overlaps.items())[:10]:
+            head.append(f"- {path}（{', '.join(sorted(set(task_ids)))}）")
+    if unfinished:
+        head.append("未执行/阻塞的任务：" + "、".join(unfinished))
+    if artifact_items:
+        # 放在 blocks 之前：全局截断从尾部切，索引必须优先保留。
+        head.append("worker 完整结果（可用 file_read 回读）：")
+        for item in artifact_items[:10]:
+            head.append(
+                f"- {item['task_id']} 第 {item['attempt']} 次："
+                f"{item['artifact_id']}"
+            )
+    return head
+
+
+def _status_counts(
+    status: dict[str, str],
+) -> tuple[int, int, int, int]:
+    completed = sum(1 for value in status.values() if value == "success")
+    partial = sum(1 for value in status.values() if value == "partial")
+    cancelled_count = sum(
+        1 for value in status.values() if value == "cancelled"
+    )
+    failed = sum(
+        1 for value in status.values()
+        if value in {"failed", "blocked", "cancelled"}
+    )
+    return completed, partial, cancelled_count, failed
+
+
+def _budget_note(state: AgentState) -> str:
+    budget_note = ""
+    token_limit = int(state.get("token_budget_limit") or 0)
+    token_spent = int(state.get("token_budget_spent") or 0)
+    if token_limit > 0:
+        budget_note = f"，token {token_spent}/{token_limit}"
+        if state.get("token_budget_exhausted"):
+            budget_note += "（预算耗尽）"
+    return budget_note
+
+
+def _token_budget(
+    state: AgentState, token_limit: int, token_spent: int
+) -> dict[str, Any]:
+    if token_limit <= 0:
+        return {}
+    return {
+        "limit": token_limit,
+        "spent": token_spent,
+        "reserved": int(state.get("token_budget_reserved") or 0),
+        "exhausted": bool(state.get("token_budget_exhausted")),
+    }
+
+
+def _build_handoff(
+    *,
+    run_id: str,
+    ordered: list[dict[str, Any]],
+    artifact_by_key: dict[tuple[str, int], str],
+    unfinished: list[str],
+    overlaps: dict[str, list[str]],
+    completed: int,
+    partial: int,
+    cancelled_count: int,
+    failed: int,
+    merged_count: int,
+    token_limit: int,
+    token_spent: int,
+    state: AgentState,
+) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "tasks": [
+            _handoff_entry(
+                result, artifact_by_key.get(_artifact_key(result), "")
+            )
+            for result in ordered
+        ],
+        "unfinished": unfinished,
+        "overlaps": {
+            path: sorted(set(task_ids))
+            for path, task_ids in overlaps.items()
+        },
+        "counts": {
+            "completed": completed,
+            "partial": partial,
+            "failed": failed,
+            "cancelled": cancelled_count,
+            "merged": merged_count,
+        },
+        "token_budget": _token_budget(state, token_limit, token_spent),
+    }
+
+
 def make_synthesize_node(
     settings: Settings,
     *,
@@ -110,215 +381,59 @@ def make_synthesize_node(
         status = mark_blocked(tasks, state.get("task_status") or {})
         results = state.get("worker_results") or []
 
-        # 同一任务可能重试多次：fan-in 只看最后一次尝试。
-        latest: dict[str, dict[str, Any]] = {}
-        for result in results:
-            task_id = str(result.get("task_id", ""))
-            previous = latest.get(task_id)
-            if previous is None or int(result.get("attempt", 1)) >= int(
-                previous.get("attempt", 1)
-            ):
-                latest[task_id] = result
-
-        merged_count = sum(
-            1
-            for result in latest.values()
-            if result.get("role") == "implement" and result.get("merged")
-        )
-        file_tasks: dict[str, list[str]] = {}
-        for result in latest.values():
-            for path in result.get("files") or []:
-                file_tasks.setdefault(str(path), []).append(
-                    str(result.get("task_id", "?"))
-                )
-        overlaps = {
-            path: task_ids
-            for path, task_ids in file_tasks.items()
-            if len(set(task_ids)) > 1
-        }
-        unfinished = [
-            task["id"]
-            for task in tasks
-            if status.get(task["id"], "pending")
-            in {"pending", "blocked", "cancelled"}
-        ]
+        latest = _latest_results(results)
+        merged_count = _merged_count(latest)
+        overlaps = _file_overlaps(latest)
+        unfinished = _unfinished_tasks(tasks, status)
 
         limit = max(int(settings.orchestrator_context_chars), 500)
         ordered = sorted(latest.values(), key=_fanin_rank)
         per_task = max(200, limit // max(len(ordered), 1))
 
-        # 先落 artifact，再拼文本：文本里的「完整结果」路径必须指向已经存在
-        # 的文件。落盘失败只影响可追溯性，不影响本次汇总。
-        artifact_by_key: dict[tuple[str, int], str] = {}
-        artifact_items: list[dict[str, Any]] = []
-        run_id = ""
-        if artifacts and sandbox is not None and root:
-            thread_id = str(
-                (((config or {}).get("configurable")) or {}).get(
-                    "thread_id", ""
-                )
-            )
-            run_id = make_run_id(thread_id, time.strftime("%Y%m%dT%H%M%S"))
-            store = ArtifactStore(sandbox, root, run_id)
-            for result in ordered:
-                rel = store.save_result(result)
-                if not rel:
-                    continue
-                key = (
-                    str(result.get("task_id", "")),
-                    max(1, int(result.get("attempt", 1) or 1)),
-                )
-                artifact_by_key[key] = rel
-                artifact_items.append(
-                    {
-                        "task_id": key[0],
-                        "attempt": key[1],
-                        "status": str(result.get("status", "")),
-                        "artifact_id": rel,
-                    }
-                )
+        run_id, artifact_by_key, artifact_items = _save_artifacts(
+            settings=settings,
+            sandbox=sandbox,
+            root=root,
+            artifacts=artifacts,
+            config=config,
+            ordered=ordered,
+        )
 
-        blocks: list[str] = []
-        for result in ordered:
-            task_id = result.get("task_id", "?")
-            role = result.get("role", "")
-            state_text = result.get("status", "")
-            attempt = int(result.get("attempt", 1))
-            retry_note = f"（第 {attempt} 次尝试）" if attempt > 1 else ""
-            summary = str(result.get("summary", "")).strip()
-            merge_note = ""
-            if role == "implement":
-                if result.get("merged"):
-                    merge_note = "，已合并"
-                elif result.get("merge_error"):
-                    merge_note = f"，合并失败：{result['merge_error'][:200]}"
-                elif result.get("patch_path"):
-                    merge_note = "，补丁未合并"
-            block_lines = [
-                f"- {task_id} ({role}/{state_text}){retry_note}"
-                f"{merge_note}: {summary}"
-            ]
-            files = result.get("files") or []
-            if files:
-                block_lines.append(
-                    "  相关文件：" + "、".join(str(f) for f in files[:8])
-                )
-            findings = result.get("findings") or []
-            if findings:
-                block_lines.append(
-                    "  发现：" + "；".join(str(f) for f in findings[:5])
-                )
-            sources = result.get("sources") or []
-            if sources:
-                rendered = []
-                for source in sources[:8]:
-                    if not isinstance(source, dict):
-                        continue
-                    rendered.append(
-                        f"{source.get('path', '')}#{source.get('anchor', '')}"
-                    )
-                if rendered:
-                    block_lines.append("  引用：" + "、".join(rendered))
-            block = "\n".join(block_lines)
-            artifact = artifact_by_key.get((str(task_id), attempt), "")
-            artifact_line = (
-                f"\n  完整结果：{artifact}" if artifact else ""
-            )
-            if len(block) + len(artifact_line) > per_task:
-                keep = max(per_task - len(artifact_line), 0)
-                block = block[:keep] + "…（任务摘要已截断）"
-            blocks.append(block + artifact_line)
-
-        head = [
-            "[编排器汇总]\n"
-            "注意：以下为 worker 已确认的只读事实；"
-            "直接据此规划与实现，不要重复探索。"
+        blocks = [
+            _render_block(result, artifact_by_key, per_task)
+            for result in ordered
         ]
-        if merged_count:
-            head[0] += (
-                "\n以下实现任务已由 worker 完成并合并到主工作区；"
-                "优先验证与最小修复，不要重做已完成部分。"
-            )
-        if overlaps:
-            head.append("多 worker 关注同一文件：")
-            for path, task_ids in list(overlaps.items())[:10]:
-                head.append(
-                    f"- {path}（{', '.join(sorted(set(task_ids)))}）"
-                )
-        if unfinished:
-            head.append("未执行/阻塞的任务：" + "、".join(unfinished))
-        if artifact_items:
-            # 放在 blocks 之前：全局截断从尾部切，索引必须优先保留。
-            head.append("worker 完整结果（可用 file_read 回读）：")
-            for item in artifact_items[:10]:
-                head.append(
-                    f"- {item['task_id']} 第 {item['attempt']} 次："
-                    f"{item['artifact_id']}"
-                )
+        head = _build_head(
+            merged_count=merged_count,
+            overlaps=overlaps,
+            unfinished=unfinished,
+            artifact_items=artifact_items,
+        )
 
         context = "\n".join([*head, *blocks])
         if len(context) > limit:
             context = context[:limit] + "\n…（汇总已截断）"
 
-        completed = sum(1 for value in status.values() if value == "success")
-        partial = sum(1 for value in status.values() if value == "partial")
-        cancelled_count = sum(
-            1 for value in status.values() if value == "cancelled"
-        )
-        failed = sum(
-            1 for value in status.values()
-            if value in {"failed", "blocked", "cancelled"}
-        )
-        budget_note = ""
+        completed, partial, cancelled_count, failed = _status_counts(status)
+        budget_note = _budget_note(state)
         token_limit = int(state.get("token_budget_limit") or 0)
         token_spent = int(state.get("token_budget_spent") or 0)
-        if token_limit > 0:
-            budget_note = f"，token {token_spent}/{token_limit}"
-            if state.get("token_budget_exhausted"):
-                budget_note += "（预算耗尽）"
 
-        handoff = {
-            "run_id": run_id,
-            "tasks": [
-                _handoff_entry(
-                    result,
-                    artifact_by_key.get(
-                        (
-                            str(result.get("task_id", "")),
-                            max(1, int(result.get("attempt", 1) or 1)),
-                        ),
-                        "",
-                    ),
-                )
-                for result in ordered
-            ],
-            "unfinished": unfinished,
-            "overlaps": {
-                path: sorted(set(task_ids))
-                for path, task_ids in overlaps.items()
-            },
-            "counts": {
-                "completed": completed,
-                "partial": partial,
-                "failed": failed,
-                "cancelled": cancelled_count,
-                "merged": merged_count,
-            },
-            "token_budget": (
-                {
-                    "limit": token_limit,
-                    "spent": token_spent,
-                    "reserved": int(
-                        state.get("token_budget_reserved") or 0
-                    ),
-                    "exhausted": bool(
-                        state.get("token_budget_exhausted")
-                    ),
-                }
-                if token_limit > 0
-                else {}
-            ),
-        }
+        handoff = _build_handoff(
+            run_id=run_id,
+            ordered=ordered,
+            artifact_by_key=artifact_by_key,
+            unfinished=unfinished,
+            overlaps=overlaps,
+            completed=completed,
+            partial=partial,
+            cancelled_count=cancelled_count,
+            failed=failed,
+            merged_count=merged_count,
+            token_limit=token_limit,
+            token_spent=token_spent,
+            state=state,
+        )
         return {
             "task_status": status,
             "worker_context": context,

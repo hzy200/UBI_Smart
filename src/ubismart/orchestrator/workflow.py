@@ -148,6 +148,236 @@ def rule_workflow(
     return None
 
 
+_FORCED_WORKFLOWS = frozenset(
+    {
+        "direct",
+        "parallel_readonly",
+        "orchestrated_implement",
+        "document_pipeline",
+        "architecture_change",
+    }
+)
+
+
+def _write_available(
+    state: AgentState, summary: dict[str, Any], settings: Settings,
+    allow_write: bool,
+) -> bool:
+    fix_mode = bool(state.get("orchestrator_fix_mode"))
+    return bool(
+        settings.orchestrator_write_enabled
+        and allow_write
+        and summary.get("git")
+        and summary.get("git_root")
+        and (summary.get("git_clean") or fix_mode)
+    )
+
+
+def _forced_result(
+    state: AgentState, write_available: bool
+) -> dict[str, Any] | None:
+    forced = str(state.get("force_workflow") or "").strip()
+    if forced not in _FORCED_WORKFLOWS:
+        return None
+    if forced == "orchestrated_implement" and not write_available:
+        forced = "parallel_readonly"
+    return {
+        "workflow": forced,
+        "workflow_reason": "修复轮强制工作流",
+        "prefetched_tasks": [],
+        "prefetched_degraded": False,
+        "force_workflow": "",
+        "transient_retries": 0,
+    }
+
+
+def _dynamic_result(
+    request: str,
+    summary: dict[str, Any],
+    settings: Settings,
+    write_available: bool,
+) -> dict[str, Any] | None:
+    built = build_dynamic_plan(
+        request,
+        summary,
+        settings,
+        write_available=write_available,
+    )
+    if built is None:
+        return None
+    return {
+        "workflow": built["workflow"],
+        "workflow_reason": built["reason"],
+        "prefetched_tasks": built["tasks"],
+        "prefetched_degraded": False,
+        "force_workflow": "",
+        "transient_retries": 0,
+    }
+
+
+def _plan_prompts(
+    settings: Settings, write_available: bool
+) -> tuple[str, str]:
+    # 规则不确定时一次调用同时拿到 workflow 和任务图，省掉
+    # select → plan 的第二次 LLM 往返。
+    from ubismart.orchestrator.plan import (
+        _IMPLEMENT_ROLE_NOTES,
+        _IMPLEMENT_RULES,
+        _NO_SEQUENTIAL_WRITE_RULES,
+        _READ_ONLY_ROLE_NOTES,
+        _READ_ONLY_RULES,
+        _SEQUENTIAL_WRITE_RULES,
+        PLAN_TASKS_PROMPT,
+    )
+
+    write_rules = _READ_ONLY_RULES
+    if write_available:
+        write_rules = _IMPLEMENT_RULES + "\n" + (
+            _SEQUENTIAL_WRITE_RULES
+            if settings.orchestrator_sequential_writes
+            else _NO_SEQUENTIAL_WRITE_RULES
+        )
+    task_prompt = PLAN_TASKS_PROMPT.format(
+        max_tasks=settings.orchestrator_max_tasks,
+        role_notes=(
+            _IMPLEMENT_ROLE_NOTES if write_available else _READ_ONLY_ROLE_NOTES
+        ),
+        write_rules=write_rules,
+    )
+    workflow_prompt = WORKFLOW_PROMPT
+    if settings.orchestrator_sequential_writes:
+        workflow_prompt += (
+            "\n写任务允许按 stage 分波：后一波 implement 可以依赖"
+            " stage 更小的 implement；同一 stage 仍必须写范围不重叠"
+            "且不能互相依赖。"
+        )
+    return workflow_prompt, task_prompt
+
+
+def _decision_body(
+    *,
+    request: str,
+    session_brief: str,
+    recovery_notice: str,
+    summary: dict[str, Any],
+) -> str:
+    body = f"用户请求：{request}\n\n"
+    if session_brief:
+        body += (
+            "之前轮次的会话约束（继续遵守）：\n"
+            f"{session_brief}\n\n"
+        )
+    if recovery_notice:
+        body += f"上次运行中断的恢复提示：\n{recovery_notice}\n\n"
+    body += (
+        f"仓库画像：{compact_repo_summary(summary)}\n\n"
+        "请先选择 workflow，再给出任务图。"
+        "输出 JSON："
+        '{"workflow": "direct|parallel_readonly|orchestrated_implement|document_pipeline",'
+        ' "reason": "一句话", "tasks": [...]}'
+    )
+    return body
+
+
+async def _invoke_workflow_plan(
+    structured: Any,
+    *,
+    prompt: str,
+    body: str,
+    config: RunnableConfig,
+    settings: Settings,
+    retry_events: list[dict[str, Any]],
+) -> Any:
+    try:
+        return await retry_async(
+            lambda: structured.ainvoke(
+                [
+                    SystemMessage(content=prompt),
+                    HumanMessage(content=body),
+                ],
+                config,
+            ),
+            attempts=settings.retry_attempts,
+            base_delay=settings.retry_base_delay_s,
+            max_delay=settings.retry_max_delay_s,
+            max_total_wait=settings.retry_max_total_wait_s,
+            on_retry=retry_events.append,
+            label="select_workflow",
+        )
+    except Exception:  # noqa: BLE001 - 选择失败不能拖垮图
+        return None
+
+
+def _decision_from_plan(
+    plan: Any,
+) -> tuple[WorkflowDecision | None, list[dict[str, Any]], bool]:
+    if isinstance(plan, WorkflowPlan):
+        return (
+            WorkflowDecision(workflow=plan.workflow, reason=plan.reason),
+            [task.model_dump() for task in plan.tasks],
+            bool(plan.degraded),
+        )
+    if isinstance(plan, WorkflowDecision):
+        return plan, [], False
+    return None, [], False
+
+
+def _dedupe_prefetched(
+    decision: WorkflowDecision, prefetched: list[dict[str, Any]]
+) -> tuple[WorkflowDecision, list[dict[str, Any]]]:
+    # 预取任务先去重；完全相同的只读任务没有必要各跑一个 worker。
+    if not prefetched:
+        return decision, prefetched
+    prefetched, deduped = dedupe_readonly_tasks(prefetched)
+    if deduped:
+        decision = WorkflowDecision(
+            workflow=decision.workflow,
+            reason=(
+                f"{decision.reason}；去重只读任务 {len(deduped)} 个"
+            ).strip("；"),
+        )
+    return decision, prefetched
+
+
+def _collapse_serial_plan(
+    decision: WorkflowDecision,
+    prefetched: list[dict[str, Any]],
+    settings: Settings,
+) -> tuple[WorkflowDecision, list[dict[str, Any]]]:
+    # 链式任务的并行收益接近 1：走 direct 更便宜，也不会更慢。
+    if (
+        decision.workflow == "parallel_readonly"
+        and prefetched
+        and not worth_parallelizing(
+            prefetched, settings.orchestrator_min_parallel_gain
+        )
+    ):
+        decision = WorkflowDecision(
+            workflow="direct",
+            reason=(
+                f"并行收益不足（{len(prefetched)} 个任务的关键路径"
+                f"接近串行），回退 direct"
+            ),
+        )
+        prefetched = []
+    return decision, prefetched
+
+
+def _downgrade_write_plan(
+    decision: WorkflowDecision,
+    prefetched: list[dict[str, Any]],
+    write_available: bool,
+) -> tuple[WorkflowDecision, list[dict[str, Any]]]:
+    # 模型可能无视条件选择写模板；这里做硬性兜底。
+    if decision.workflow == "orchestrated_implement" and not write_available:
+        decision = WorkflowDecision(
+            workflow="parallel_readonly",
+            reason="写编排不可用，回退为只读并行",
+        )
+        prefetched = []
+    return decision, prefetched
+
+
 def make_select_workflow_node(
     llm: BaseChatModel, settings: Settings, *, allow_write: bool = False
 ) -> Callable[[AgentState, RunnableConfig], Awaitable[dict[str, Any]]]:
@@ -162,47 +392,19 @@ def make_select_workflow_node(
         summary = state.get("repo_summary") or {}
         session_brief = str(state.get("session_brief") or "").strip()
         recovery_notice = str(state.get("recovery_notice") or "").strip()
-        fix_mode = bool(state.get("orchestrator_fix_mode"))
-        write_available = bool(
-            settings.orchestrator_write_enabled
-            and allow_write
-            and summary.get("git")
-            and summary.get("git_root")
-            and (summary.get("git_clean") or fix_mode)
+        write_available = _write_available(
+            state, summary, settings, allow_write
         )
-        forced = str(state.get("force_workflow") or "").strip()
-        if forced in {
-            "direct",
-            "parallel_readonly",
-            "orchestrated_implement",
-            "document_pipeline",
-            "architecture_change",
-        }:
-            if forced == "orchestrated_implement" and not write_available:
-                forced = "parallel_readonly"
-            return {
-                "workflow": forced,
-                "workflow_reason": "修复轮强制工作流",
-                "prefetched_tasks": [],
-                "prefetched_degraded": False,
-                "force_workflow": "",
-                "transient_retries": 0,
-            }
-        built = build_dynamic_plan(
-            request,
-            summary,
-            settings,
-            write_available=write_available,
+
+        forced = _forced_result(state, write_available)
+        if forced is not None:
+            return forced
+
+        dynamic = _dynamic_result(
+            request, summary, settings, write_available
         )
-        if built is not None:
-            return {
-                "workflow": built["workflow"],
-                "workflow_reason": built["reason"],
-                "prefetched_tasks": built["tasks"],
-                "prefetched_degraded": False,
-                "force_workflow": "",
-                "transient_retries": 0,
-            }
+        if dynamic is not None:
+            return dynamic
 
         decision = rule_workflow(
             request, summary, settings, write_available=write_available
@@ -212,129 +414,39 @@ def make_select_workflow_node(
         retry_events: list[dict[str, Any]] = []
 
         if decision is None:
-            # 规则不确定时一次调用同时拿到 workflow 和任务图，省掉
-            # select → plan 的第二次 LLM 往返。
-            from ubismart.orchestrator.plan import (
-                _IMPLEMENT_ROLE_NOTES,
-                _IMPLEMENT_RULES,
-                _NO_SEQUENTIAL_WRITE_RULES,
-                _READ_ONLY_ROLE_NOTES,
-                _READ_ONLY_RULES,
-                _SEQUENTIAL_WRITE_RULES,
-                PLAN_TASKS_PROMPT,
+            workflow_prompt, task_prompt = _plan_prompts(
+                settings, write_available
             )
-
-            write_rules = _READ_ONLY_RULES
-            if write_available:
-                write_rules = _IMPLEMENT_RULES + "\n" + (
-                    _SEQUENTIAL_WRITE_RULES
-                    if settings.orchestrator_sequential_writes
-                    else _NO_SEQUENTIAL_WRITE_RULES
-                )
-            task_prompt = PLAN_TASKS_PROMPT.format(
-                max_tasks=settings.orchestrator_max_tasks,
-                role_notes=(
-                    _IMPLEMENT_ROLE_NOTES
-                    if write_available
-                    else _READ_ONLY_ROLE_NOTES
-                ),
-                write_rules=write_rules,
+            body = _decision_body(
+                request=request,
+                session_brief=session_brief,
+                recovery_notice=recovery_notice,
+                summary=summary,
             )
-            workflow_prompt = WORKFLOW_PROMPT
-            if settings.orchestrator_sequential_writes:
-                workflow_prompt += (
-                    "\n写任务允许按 stage 分波：后一波 implement 可以依赖"
-                    " stage 更小的 implement；同一 stage 仍必须写范围不重叠"
-                    "且不能互相依赖。"
-                )
-            body = (
-                f"用户请求：{request}\n\n"
-                + (
-                    "之前轮次的会话约束（继续遵守）：\n"
-                    f"{session_brief}\n\n"
-                    if session_brief
-                    else ""
-                )
-                + (
-                    f"上次运行中断的恢复提示：\n{recovery_notice}\n\n"
-                    if recovery_notice
-                    else ""
-                )
-                + f"仓库画像：{compact_repo_summary(summary)}\n\n"
-                "请先选择 workflow，再给出任务图。"
-                "输出 JSON："
-                '{"workflow": "direct|parallel_readonly|orchestrated_implement|document_pipeline",'
-                ' "reason": "一句话", "tasks": [...]}'
+            plan = await _invoke_workflow_plan(
+                structured,
+                prompt=workflow_prompt + "\n\n" + task_prompt,
+                body=body,
+                config=config,
+                settings=settings,
+                retry_events=retry_events,
             )
-            try:
-                plan = await retry_async(
-                    lambda: structured.ainvoke(
-                        [
-                            SystemMessage(
-                                content=workflow_prompt + "\n\n" + task_prompt
-                            ),
-                            HumanMessage(content=body),
-                        ],
-                        config,
-                    ),
-                    attempts=settings.retry_attempts,
-                    base_delay=settings.retry_base_delay_s,
-                    max_delay=settings.retry_max_delay_s,
-                    max_total_wait=settings.retry_max_total_wait_s,
-                    on_retry=retry_events.append,
-                    label="select_workflow",
-                )
-            except Exception:  # noqa: BLE001 - 选择失败不能拖垮图
-                plan = None
-
-            if isinstance(plan, WorkflowPlan):
-                decision = WorkflowDecision(
-                    workflow=plan.workflow, reason=plan.reason
-                )
-                prefetched = [task.model_dump() for task in plan.tasks]
-                prefetched_degraded = bool(plan.degraded)
-            elif isinstance(plan, WorkflowDecision):
-                decision = plan
+            decision, prefetched, prefetched_degraded = _decision_from_plan(
+                plan
+            )
 
         if decision is None:
             decision = WorkflowDecision(
                 workflow="direct", reason="工作流选择失败，回退 direct"
             )
 
-        # 预取任务先去重；完全相同的只读任务没有必要各跑一个 worker。
-        if prefetched:
-            prefetched, deduped = dedupe_readonly_tasks(prefetched)
-            if deduped:
-                decision = WorkflowDecision(
-                    workflow=decision.workflow,
-                    reason=(
-                        f"{decision.reason}；去重只读任务 {len(deduped)} 个"
-                    ).strip("；"),
-                )
-        # 链式任务的并行收益接近 1：走 direct 更便宜，也不会更慢。
-        if (
-            decision.workflow == "parallel_readonly"
-            and prefetched
-            and not worth_parallelizing(
-                prefetched, settings.orchestrator_min_parallel_gain
-            )
-        ):
-            decision = WorkflowDecision(
-                workflow="direct",
-                reason=(
-                    f"并行收益不足（{len(prefetched)} 个任务的关键路径"
-                    f"接近串行），回退 direct"
-                ),
-            )
-            prefetched = []
-
-        # 模型可能无视条件选择写模板；这里做硬性兜底。
-        if decision.workflow == "orchestrated_implement" and not write_available:
-            decision = WorkflowDecision(
-                workflow="parallel_readonly",
-                reason="写编排不可用，回退为只读并行",
-            )
-            prefetched = []
+        decision, prefetched = _dedupe_prefetched(decision, prefetched)
+        decision, prefetched = _collapse_serial_plan(
+            decision, prefetched, settings
+        )
+        decision, prefetched = _downgrade_write_plan(
+            decision, prefetched, write_available
+        )
 
         return {
             "workflow": decision.workflow,

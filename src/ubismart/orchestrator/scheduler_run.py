@@ -1122,6 +1122,125 @@ class SchedulerRun:
             reason=abandon_reason, timed_out=timed_out
         )
 
+    def _ready_is_stale(self, task_id: str) -> bool:
+        return (
+            self.status.get(task_id, "pending") != "pending"
+            or task_id in self.in_flight
+        )
+
+    def _forget_ready(self, task_id: str) -> None:
+        self.queued.discard(task_id)
+        self.ready_at.pop(task_id, None)
+
+    def _block_role_budget(self, task: dict[str, Any]) -> None:
+        task_id = str(task["id"])
+        role = str(task.get("role", ""))
+        self.status[task_id] = "blocked"
+        task["blocked_reason"] = f"{role} 角色 token 预算已耗尽"
+        self.emit_blocked(task_id, str(task["blocked_reason"]))
+        self._forget_ready(task_id)
+
+    def _scan_ready(
+        self,
+    ) -> tuple[
+        tuple[tuple[int, int, str], dict[str, Any], int] | None,
+        list[tuple[int, int, str]],
+        bool,
+        bool,
+    ]:
+        chosen: (
+            tuple[tuple[int, int, str], dict[str, Any], int] | None
+        ) = None
+        deferred: list[tuple[int, int, str]] = []
+        stage_deferred = False
+        budget_blocked = False
+        while self.ready:
+            entry = heapq.heappop(self.ready)
+            task_id = entry[2]
+            if self._ready_is_stale(task_id):
+                self._forget_ready(task_id)
+                continue
+            task = self.by_id.get(task_id)
+            if task is None:
+                self._forget_ready(task_id)
+                continue
+            if not self.stage_ready(task):
+                stage_deferred = True
+                deferred.append(entry)
+                continue
+            if self.role_budget_exhausted(task):
+                self._block_role_budget(task)
+                continue
+            if not self.role_available(task):
+                deferred.append(entry)
+                continue
+            if (
+                str(task.get("role", "")) == "implement"
+                and self.implement_backpressure()
+            ):
+                deferred.append(entry)
+                continue
+            reserve = self.estimate_tokens(task)
+            if self.budget.can_reserve(reserve):
+                self._forget_ready(task_id)
+                chosen = (entry, task, reserve)
+                break
+            budget_blocked = True
+            deferred.append(entry)
+        return chosen, deferred, stage_deferred, budget_blocked
+
+    def _budget_really_exhausted(self) -> bool:
+        # 真的耗尽 = 即便释放所有只读预留也放不下任何 ready 任务。
+        # 否则先等在飞任务结算（实际用量常低于预留），避免过早止损。
+        reserves = [
+            self.estimate_tokens(self.by_id[task_id])
+            for _entry, _order, task_id in self.ready
+            if task_id in self.by_id
+        ]
+        min_reserve = min(reserves) if reserves else 0
+        available = (
+            max(0, self.budget.limit - self.budget.spent)
+            if self.budget.enabled
+            else 0
+        )
+        return not self.in_flight or min_reserve > available
+
+    def _handle_no_candidate(
+        self, *, stage_deferred: bool, budget_blocked: bool
+    ) -> None:
+        if budget_blocked and self._budget_really_exhausted():
+            self.token_budget_exhausted = True
+            # 停派发；只读在飞取消，implement 跑完并照常合并。
+            self.stop = True
+            self._cancel_readonly_inflight()
+            self._block_pending("token 预算耗尽，未派发")
+            return
+        if (
+            self.in_flight
+            or self.implement_backpressure()
+            or stage_deferred
+        ):
+            return
+        if self.budget.enabled:
+            self.token_budget_exhausted = True
+        self._block_pending("token 预算不足以启动任何剩余任务")
+
+    def _launch_candidate(
+        self,
+        chosen: tuple[tuple[int, int, str], dict[str, Any], int],
+    ) -> None:
+        entry, task, reserve = chosen
+        task_id = str(task["id"])
+        if not self.budget.reserve(task_id, reserve):
+            heapq.heappush(self.ready, entry)
+            self.queued.add(task_id)
+            return
+        self.attempts[task_id] = self.attempts.get(task_id, 0) + 1
+        self.queued_at[task_id] = time.monotonic()
+        future = asyncio.create_task(self.run_one(task))
+        self.in_flight[task_id] = future
+        self.future_task[future] = task_id
+
     def dispatch_ready(self, now: float) -> None:
         while (
             self.ready
@@ -1129,107 +1248,20 @@ class SchedulerRun:
             and len(self.in_flight) < self.rate_limit.current_limit
             and self.rate_limit.can_launch(now)
         ):
-            chosen: (
-                tuple[tuple[int, int, str], dict[str, Any], int]
-                | None
-            ) = None
-            deferred: list[tuple[int, int, str]] = []
-            stage_deferred = False
-            budget_blocked = False
-            while self.ready:
-                entry = heapq.heappop(self.ready)
-                task_id = entry[2]
-                if (
-                    self.status.get(task_id, "pending") != "pending"
-                    or task_id in self.in_flight
-                ):
-                    self.queued.discard(task_id)
-                    self.ready_at.pop(task_id, None)
-                    continue
-                task = self.by_id.get(task_id)
-                if task is None:
-                    self.queued.discard(task_id)
-                    self.ready_at.pop(task_id, None)
-                    continue
-                if not self.stage_ready(task):
-                    stage_deferred = True
-                    deferred.append(entry)
-                    continue
-                role = str(task.get("role", ""))
-                if self.role_budget_exhausted(task):
-                    self.status[task_id] = "blocked"
-                    task["blocked_reason"] = (
-                        f"{role} 角色 token 预算已耗尽"
-                    )
-                    self.emit_blocked(
-                        task_id, str(task["blocked_reason"])
-                    )
-                    self.queued.discard(task_id)
-                    self.ready_at.pop(task_id, None)
-                    continue
-                if not self.role_available(task):
-                    deferred.append(entry)
-                    continue
-                if role == "implement" and self.implement_backpressure():
-                    deferred.append(entry)
-                    continue
-                reserve = self.estimate_tokens(task)
-                if self.budget.can_reserve(reserve):
-                    self.queued.discard(task_id)
-                    self.ready_at.pop(task_id, None)
-                    chosen = (entry, task, reserve)
-                    break
-                budget_blocked = True
-                deferred.append(entry)
+            chosen, deferred, stage_deferred, budget_blocked = (
+                self._scan_ready()
+            )
             for entry in deferred:
                 heapq.heappush(self.ready, entry)
 
             if chosen is None:
-                if budget_blocked:
-                    # 真的耗尽 = 即便释放所有只读预留也放不下任何 ready 任务。
-                    # 否则先等在飞任务结算（实际用量常低于预留），避免过早止损。
-                    reserves = [
-                        self.estimate_tokens(self.by_id[task_id])
-                        for _entry, _order, task_id in self.ready
-                        if task_id in self.by_id
-                    ]
-                    min_reserve = min(reserves) if reserves else 0
-                    available = (
-                        max(0, self.budget.limit - self.budget.spent)
-                        if self.budget.enabled
-                        else 0
-                    )
-                    if not self.in_flight or min_reserve > available:
-                        self.token_budget_exhausted = True
-                        # 停派发；只读在飞取消，implement 跑完并照常合并。
-                        self.stop = True
-                        self._cancel_readonly_inflight()
-                        self._block_pending("token 预算耗尽，未派发")
-                        return
-                if (
-                    self.in_flight
-                    or self.implement_backpressure()
-                    or stage_deferred
-                ):
-                    return
-                if self.budget.enabled:
-                    self.token_budget_exhausted = True
-                self._block_pending("token 预算不足以启动任何剩余任务")
+                self._handle_no_candidate(
+                    stage_deferred=stage_deferred,
+                    budget_blocked=budget_blocked,
+                )
                 return
 
-            entry, task, reserve = chosen
-            task_id = str(task["id"])
-            if not self.budget.reserve(task_id, reserve):
-                heapq.heappush(self.ready, entry)
-                self.queued.add(task_id)
-                return
-            self.attempts[task_id] = (
-                self.attempts.get(task_id, 0) + 1
-            )
-            self.queued_at[task_id] = time.monotonic()
-            future = asyncio.create_task(self.run_one(task))
-            self.in_flight[task_id] = future
-            self.future_task[future] = task_id
+            self._launch_candidate(chosen)
 
     async def drain_completed(
         self, done: set[asyncio.Task[WorkerResult]]

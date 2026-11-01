@@ -65,121 +65,138 @@ def _scopes_overlap(left: str, right: str) -> bool:
     return _scope_contains(left, right) or _scope_contains(right, left)
 
 
-def validate_tasks(
+def _coerce_raw_tasks(
     raw: list[TaskSpec | dict[str, Any]] | None,
-    *,
-    request: str,
-    max_tasks: int,
-    allow_write: bool = False,
-    allow_overlap: bool = False,
-    allow_author: bool = False,
-    max_documents: int | None = None,
-    max_images: int | None = None,
-    allow_sequential_write: bool = False,
-    max_write_stages: int | None = None,
-) -> tuple[list[dict[str, Any]], bool, list[str]]:
-    """把模型输出归一化为任务列表。
-
-    返回 `(tasks, degraded, errors)`。任何结构问题都退化为单 explore 任务，
-    不做部分采纳 —— 半张图比明确的降级更难排查。
-    """
+) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     for item in raw or []:
         if isinstance(item, TaskSpec):
             tasks.append(item.model_dump())
         elif isinstance(item, dict):
             tasks.append(dict(item))
-    errors: list[str] = []
-    if not tasks:
-        errors.append("任务图为空")
-    # **先检查原始长度再截断**：先截断的话这个分支永远不可能触发，
-    # 超限的任务图会被静默丢弃一部分。
-    if len(tasks) > max_tasks:
-        errors.append(f"任务数 {len(tasks)} 超过上限 {max_tasks}")
-    tasks = tasks[: max(max_tasks, 1)]
+    return tasks
 
-    ids: list[str] = []
-    for task in tasks:
-        task_id = str(task.get("id", "")).strip()
-        goal = str(task.get("goal", "")).strip()
-        role = str(task.get("role", "explore"))
-        if not task_id:
-            errors.append("任务 id 为空")
-        if task_id in ids:
-            errors.append(f"任务 id 重复：{task_id}")
-        ids.append(task_id)
-        if not goal:
-            errors.append(f"任务 {task_id or '?'} 没有 goal")
-        if role not in ALLOWED_ROLES:
-            errors.append(f"任务 {task_id or '?'} 的角色不允许：{role}")
-        if role == "implement" and not allow_write:
-            errors.append(f"任务 {task_id or '?'} 是 implement，但当前未启用写编排")
-        if role == "author" and not allow_author:
-            errors.append(f"任务 {task_id or '?'} 是 author，但当前没有写权限")
-        task["id"] = task_id
-        task["goal"] = goal
-        task["role"] = role
-        task["inputs"] = [str(v) for v in (task.get("inputs") or [])]
-        task["acceptance"] = [str(v) for v in (task.get("acceptance") or [])]
-        task["depends_on"] = [str(v) for v in (task.get("depends_on") or [])]
-        mode = str(task.get("depends_mode", "full")).strip().lower()
-        if mode not in {"full", "any"}:
-            errors.append(
-                f"任务 {task_id or '?'} 的 depends_mode 非法：{mode}"
-            )
-            mode = "full"
-        # implement 的 depends_mode 在依赖关系解析后统一校验：顺序写下
-        # implement→implement 依赖必须是 any（partial 也可能已合并）。
-        task["depends_mode"] = mode
+
+def _normalize_depends_mode(
+    task: dict[str, Any], task_id: str, errors: list[str]
+) -> str:
+    mode = str(task.get("depends_mode", "full")).strip().lower()
+    if mode not in {"full", "any"}:
+        errors.append(f"任务 {task_id or '?'} 的 depends_mode 非法：{mode}")
+        mode = "full"
+    return mode
+
+
+def _normalize_stage(
+    task: dict[str, Any], task_id: str, errors: list[str]
+) -> int:
+    try:
+        return max(0, int(task.get("stage", 0) or 0))
+    except (TypeError, ValueError):
+        errors.append(f"任务 {task_id or '?'} 的 stage 非法")
+        return 0
+
+
+def _normalize_author_fields(
+    task: dict[str, Any], task_id: str, errors: list[str]
+) -> None:
+    output_format = str(task.get("output_format", "")).strip().lower()
+    if output_format not in {"", "md", "docx", "pdf"}:
+        errors.append(
+            f"任务 {task_id or '?'} 的 output_format 非法：{output_format}"
+        )
+        output_format = "md"
+    task["output_format"] = output_format or "md"
+    task["output_path"] = str(task.get("output_path", "")).strip()
+    task["template"] = str(task.get("template", "")).strip()
+    task["sources"] = [
+        dict(item)
+        for item in (task.get("sources") or [])
+        if isinstance(item, dict)
+    ]
+
+
+def _normalize_task_budgets(task: dict[str, Any]) -> None:
+    # 任务级预算：模型给的值只做归一化，真正的上限由宿主在 runner 里
+    # 与全局配置取小；非法值直接丢弃，避免把 worker 预算设成负数。
+    for budget_key in (
+        "max_repairs",
+        "max_rounds",
+        "timeout",
+        "max_tokens",
+        "priority",
+    ):
+        raw_value = task.get(budget_key)
+        if raw_value is None:
+            continue
         try:
-            task["stage"] = max(0, int(task.get("stage", 0) or 0))
+            task[budget_key] = max(0, int(raw_value))
         except (TypeError, ValueError):
-            errors.append(f"任务 {task_id or '?'} 的 stage 非法")
-            task["stage"] = 0
-        if role == "author":
-            output_format = str(task.get("output_format", "")).strip().lower()
-            if output_format not in {"", "md", "docx", "pdf"}:
-                errors.append(
-                    f"任务 {task_id or '?'} 的 output_format 非法：{output_format}"
-                )
-                output_format = "md"
-            task["output_format"] = output_format or "md"
-            task["output_path"] = str(task.get("output_path", "")).strip()
-            task["template"] = str(task.get("template", "")).strip()
-            task["sources"] = [
-                dict(item)
-                for item in (task.get("sources") or [])
-                if isinstance(item, dict)
-            ]
-        # 任务级预算：模型给的值只做归一化，真正的上限由宿主在 runner 里
-        # 与全局配置取小；非法值直接丢弃，避免把 worker 预算设成负数。
-        for budget_key in (
-            "max_repairs",
-            "max_rounds",
-            "timeout",
-            "max_tokens",
-            "priority",
-        ):
-            raw_value = task.get(budget_key)
-            if raw_value is None:
-                continue
-            try:
-                task[budget_key] = max(0, int(raw_value))
-            except (TypeError, ValueError):
-                task.pop(budget_key, None)
-        raw_scope = [str(v) for v in (task.get("write_scope") or [])]
-        scope = [_normalize_scope(item) for item in raw_scope]
-        scope = [item for item in scope if item]
-        task["write_scope"] = scope
-        if role in {"implement", "author"}:
-            if not scope:
-                errors.append(
-                    f"任务 {task_id or '?'} 是 {role}，但没有 write_scope"
-                )
-        elif scope:
-            errors.append(f"任务 {task_id or '?'} 是只读角色，却声明了 write_scope")
+            task.pop(budget_key, None)
 
-    known = set(ids)
+
+def _normalize_write_scope(
+    task: dict[str, Any],
+    task_id: str,
+    role: str,
+    errors: list[str],
+) -> None:
+    raw_scope = [str(v) for v in (task.get("write_scope") or [])]
+    scope = [_normalize_scope(item) for item in raw_scope]
+    scope = [item for item in scope if item]
+    task["write_scope"] = scope
+    if role in {"implement", "author"}:
+        if not scope:
+            errors.append(
+                f"任务 {task_id or '?'} 是 {role}，但没有 write_scope"
+            )
+    elif scope:
+        errors.append(f"任务 {task_id or '?'} 是只读角色，却声明了 write_scope")
+
+
+def _normalize_task(
+    task: dict[str, Any],
+    ids: list[str],
+    errors: list[str],
+    *,
+    allow_write: bool,
+    allow_author: bool,
+) -> None:
+    task_id = str(task.get("id", "")).strip()
+    goal = str(task.get("goal", "")).strip()
+    role = str(task.get("role", "explore"))
+    if not task_id:
+        errors.append("任务 id 为空")
+    if task_id in ids:
+        errors.append(f"任务 id 重复：{task_id}")
+    ids.append(task_id)
+    if not goal:
+        errors.append(f"任务 {task_id or '?'} 没有 goal")
+    if role not in ALLOWED_ROLES:
+        errors.append(f"任务 {task_id or '?'} 的角色不允许：{role}")
+    if role == "implement" and not allow_write:
+        errors.append(f"任务 {task_id or '?'} 是 implement，但当前未启用写编排")
+    if role == "author" and not allow_author:
+        errors.append(f"任务 {task_id or '?'} 是 author，但当前没有写权限")
+    task["id"] = task_id
+    task["goal"] = goal
+    task["role"] = role
+    task["inputs"] = [str(v) for v in (task.get("inputs") or [])]
+    task["acceptance"] = [str(v) for v in (task.get("acceptance") or [])]
+    task["depends_on"] = [str(v) for v in (task.get("depends_on") or [])]
+    # implement 的 depends_mode 在依赖关系解析后统一校验：顺序写下
+    # implement→implement 依赖必须是 any（partial 也可能已合并）。
+    task["depends_mode"] = _normalize_depends_mode(task, task_id, errors)
+    task["stage"] = _normalize_stage(task, task_id, errors)
+    if role == "author":
+        _normalize_author_fields(task, task_id, errors)
+    _normalize_task_budgets(task)
+    _normalize_write_scope(task, task_id, role, errors)
+
+
+def _validate_dependency_refs(
+    tasks: list[dict[str, Any]], known: set[str], errors: list[str]
+) -> None:
     for task in tasks:
         deps = task.get("depends_on") or []
         for dep in deps:
@@ -188,16 +205,33 @@ def validate_tasks(
             elif dep not in known:
                 errors.append(f"任务 {task['id']} 依赖不存在的 {dep}")
 
-    by_id = {task["id"]: task for task in tasks}
-    if allow_sequential_write and max_write_stages is not None:
-        for task in tasks:
-            if task["role"] != "implement":
-                continue
-            if int(task.get("stage", 0) or 0) > int(max_write_stages):
-                errors.append(
-                    f"任务 {task['id']} 的 stage {task['stage']} "
-                    f"超过写波次上限 {max_write_stages}"
-                )
+
+def _validate_stage_limit(
+    tasks: list[dict[str, Any]],
+    errors: list[str],
+    *,
+    allow_sequential_write: bool,
+    max_write_stages: int | None,
+) -> None:
+    if not allow_sequential_write or max_write_stages is None:
+        return
+    for task in tasks:
+        if task["role"] != "implement":
+            continue
+        if int(task.get("stage", 0) or 0) > int(max_write_stages):
+            errors.append(
+                f"任务 {task['id']} 的 stage {task['stage']} "
+                f"超过写波次上限 {max_write_stages}"
+            )
+
+
+def _validate_implement_dependencies(
+    tasks: list[dict[str, Any]],
+    by_id: dict[str, dict[str, Any]],
+    errors: list[str],
+    *,
+    allow_sequential_write: bool,
+) -> None:
     # implement 默认必须互相独立：worktree 都基于同一个 HEAD，若一个依赖
     # 另一个，后者的 worktree 看不到前者的改动。开启顺序写后，只允许依赖
     # stage 严格更小的 implement（前一波已合并，worktree 会被注入基线）。
@@ -225,6 +259,14 @@ def validate_tasks(
                     f"但 stage 必须严格更小（{dep_stage} >= {task_stage}）"
                 )
 
+
+def _normalize_implement_depends_modes(
+    tasks: list[dict[str, Any]],
+    by_id: dict[str, dict[str, Any]],
+    errors: list[str],
+    *,
+    allow_sequential_write: bool,
+) -> None:
     # 顺序写：implement→implement 依赖用 any。partial 表示补丁已经合并、
     # 只是 worker 内部验证未通过；下一波仍应基于这个合并结果继续。
     for task in tasks:
@@ -243,6 +285,14 @@ def validate_tasks(
             )
             task["depends_mode"] = "full"
 
+
+def _validate_role_limits(
+    tasks: list[dict[str, Any]],
+    errors: list[str],
+    *,
+    max_documents: int | None,
+    max_images: int | None,
+) -> None:
     authors = [task for task in tasks if task.get("role") == "author"]
     if len(authors) > 3:
         errors.append("author 任务最多 3 个（显式多格式时每种格式一个）")
@@ -264,24 +314,107 @@ def validate_tasks(
             f"vision 任务数 {len(images)} 超过上限 {max_images}"
         )
 
+
+def _validate_write_overlaps(
+    tasks: list[dict[str, Any]],
+    errors: list[str],
+    *,
+    allow_overlap: bool,
+    allow_sequential_write: bool,
+) -> None:
     # 默认并发写范围必须两两不重叠；开启 allow_overlap 后交给 3-way 合并。
-    if not allow_overlap:
-        implement = [task for task in tasks if task["role"] == "implement"]
-        for index, left in enumerate(implement):
-            for right in implement[index + 1 :]:
-                # 顺序写允许跨 stage 的 scope 重叠（后一波本来就基于前一波）；
-                # 同 stage 仍必须两两不重叠。
-                if allow_sequential_write and int(
-                    left.get("stage", 0) or 0
-                ) != int(right.get("stage", 0) or 0):
-                    continue
-                for left_scope in left.get("write_scope") or []:
-                    for right_scope in right.get("write_scope") or []:
-                        if _scopes_overlap(left_scope, right_scope):
-                            errors.append(
-                                f"写范围重叠：{left['id']} {left_scope} 与 "
-                                f"{right['id']} {right_scope}"
-                            )
+    if allow_overlap:
+        return
+    implement = [task for task in tasks if task["role"] == "implement"]
+    for index, left in enumerate(implement):
+        for right in implement[index + 1 :]:
+            # 顺序写允许跨 stage 的 scope 重叠（后一波本来就基于前一波）；
+            # 同 stage 仍必须两两不重叠。
+            if allow_sequential_write and int(
+                left.get("stage", 0) or 0
+            ) != int(right.get("stage", 0) or 0):
+                continue
+            for left_scope in left.get("write_scope") or []:
+                for right_scope in right.get("write_scope") or []:
+                    if _scopes_overlap(left_scope, right_scope):
+                        errors.append(
+                            f"写范围重叠：{left['id']} {left_scope} 与 "
+                            f"{right['id']} {right_scope}"
+                        )
+
+
+def validate_tasks(
+    raw: list[TaskSpec | dict[str, Any]] | None,
+    *,
+    request: str,
+    max_tasks: int,
+    allow_write: bool = False,
+    allow_overlap: bool = False,
+    allow_author: bool = False,
+    max_documents: int | None = None,
+    max_images: int | None = None,
+    allow_sequential_write: bool = False,
+    max_write_stages: int | None = None,
+) -> tuple[list[dict[str, Any]], bool, list[str]]:
+    """把模型输出归一化为任务列表。
+
+    返回 `(tasks, degraded, errors)`。任何结构问题都退化为单 explore 任务，
+    不做部分采纳 —— 半张图比明确的降级更难排查。
+    """
+    tasks = _coerce_raw_tasks(raw)
+    errors: list[str] = []
+    if not tasks:
+        errors.append("任务图为空")
+    # **先检查原始长度再截断**：先截断的话这个分支永远不可能触发，
+    # 超限的任务图会被静默丢弃一部分。
+    if len(tasks) > max_tasks:
+        errors.append(f"任务数 {len(tasks)} 超过上限 {max_tasks}")
+    tasks = tasks[: max(max_tasks, 1)]
+
+    ids: list[str] = []
+    for task in tasks:
+        _normalize_task(
+            task,
+            ids,
+            errors,
+            allow_write=allow_write,
+            allow_author=allow_author,
+        )
+
+    known = set(ids)
+    _validate_dependency_refs(tasks, known, errors)
+
+    by_id = {task["id"]: task for task in tasks}
+    _validate_stage_limit(
+        tasks,
+        errors,
+        allow_sequential_write=allow_sequential_write,
+        max_write_stages=max_write_stages,
+    )
+    _validate_implement_dependencies(
+        tasks,
+        by_id,
+        errors,
+        allow_sequential_write=allow_sequential_write,
+    )
+    _normalize_implement_depends_modes(
+        tasks,
+        by_id,
+        errors,
+        allow_sequential_write=allow_sequential_write,
+    )
+    _validate_role_limits(
+        tasks,
+        errors,
+        max_documents=max_documents,
+        max_images=max_images,
+    )
+    _validate_write_overlaps(
+        tasks,
+        errors,
+        allow_overlap=allow_overlap,
+        allow_sequential_write=allow_sequential_write,
+    )
 
     if not errors and _has_cycle(tasks):
         errors.append("任务图存在环")

@@ -197,6 +197,38 @@ def _workspace_changed_paths(
     return paths
 
 
+def _parse_status_flags(stdout: str) -> dict[str, str]:
+    flags: dict[str, str] = {}
+    for line in stdout.splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep:
+            flags[key] = value
+    return flags
+
+
+def _dirty_workspace_error(
+    sandbox: WslSandbox,
+    root: str,
+    allow_dirty_paths: set[str] | None,
+) -> tuple[bool, str]:
+    # `.agent/` 里是 worktree、patch、快照等 agent 自己的产物；并发 worker
+    # 互相看到对方刚创建的 worktree 是正常现象，不能据此判定"用户工作区脏"。
+    if allow_dirty_paths is None:
+        return False, "工作区有未提交改动，写 worker 已禁用"
+    actual = _workspace_changed_paths(sandbox, root)
+    if actual is None:
+        return False, "无法读取工作区改动，写 worker 已拒绝"
+    extra = sorted(actual - set(allow_dirty_paths))
+    if extra:
+        preview = "、".join(extra[:5])
+        more = f" 等 {len(extra)} 个" if len(extra) > 5 else ""
+        return False, (
+            "工作区存在不属于本次已合并结果的改动，"
+            f"写 worker 已拒绝：{preview}{more}"
+        )
+    return True, ""
+
+
 def _git_ready(
     sandbox: WslSandbox,
     root: str,
@@ -231,11 +263,7 @@ if [ -z "$dirty" ]; then echo "CLEAN=1"; else echo "CLEAN=0"; fi
     )
     if not result.ok:
         return False, "无法确认 git 仓库状态"
-    flags: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        key, sep, value = line.strip().partition("=")
-        if sep:
-            flags[key] = value
+    flags = _parse_status_flags(result.stdout)
     if flags.get("INSIDE") != "1":
         return False, "工作区不是 git 仓库"
     # worktree 基于整个仓库的 HEAD，patch 路径也是仓库相对的。工作区若只是
@@ -244,22 +272,8 @@ if [ -z "$dirty" ]; then echo "CLEAN=1"; else echo "CLEAN=0"; fi
         return False, "工作区不是 git 仓库根目录（写编排需要以仓库根作为工作区）"
     if flags.get("HEAD") != "1":
         return False, "git 仓库还没有 HEAD（需要至少一次提交）"
-    # `.agent/` 里是 worktree、patch、快照等 agent 自己的产物；并发 worker
-    # 互相看到对方刚创建的 worktree 是正常现象，不能据此判定"用户工作区脏"。
     if flags.get("CLEAN") != "1":
-        if allow_dirty_paths is None:
-            return False, "工作区有未提交改动，写 worker 已禁用"
-        actual = _workspace_changed_paths(sandbox, root)
-        if actual is None:
-            return False, "无法读取工作区改动，写 worker 已拒绝"
-        extra = sorted(actual - set(allow_dirty_paths))
-        if extra:
-            preview = "、".join(extra[:5])
-            more = f" 等 {len(extra)} 个" if len(extra) > 5 else ""
-            return False, (
-                "工作区存在不属于本次已合并结果的改动，"
-                f"写 worker 已拒绝：{preview}{more}"
-            )
+        return _dirty_workspace_error(sandbox, root, allow_dirty_paths)
     return True, ""
 
 
@@ -364,20 +378,9 @@ def _impacted_tests(
     return related_test_files(build_index(sources), changed)
 
 
-def _seed_worktree(
-    sandbox: WslSandbox,
-    root: str,
-    worktree: str,
-    task_id: str,
-    settings: Settings,
-) -> tuple[bool, str, str, list[str], int]:
-    """把主工作区已合并的未提交改动注入新 worktree，并返回基线树。
-
-    不 commit、不移动 HEAD：先用 `git diff` 生成补丁，apply 到 worktree 后
-    用 `git write-tree` 记录基线树，后续 worker 补丁以这棵树为 diff 基准。
-    返回值：(ok, error, base_ref, seed_files, seed_bytes)。
-    """
-    excludes = stage_args()
+def _collect_seed_patch(
+    sandbox: WslSandbox, root: str, excludes: str
+) -> tuple[str | None, list[str], set[str], list[str]]:
     tracked = host_run(
         sandbox,
         f"git diff --binary HEAD -- . {excludes}",
@@ -386,7 +389,12 @@ def _seed_worktree(
         cwd=root,
     )
     if not tracked.ok:
-        return False, f"无法生成基线补丁：{tracked.render(300)}", "", [], 0
+        return (
+            f"无法生成基线补丁：{tracked.render(300)}",
+            [],
+            set(),
+            [],
+        )
     chunks = [tracked.stdout]
 
     names = host_run(
@@ -410,20 +418,34 @@ def _seed_worktree(
         cwd=root,
     )
     if not listing.ok:
-        return False, f"无法列出未跟踪文件：{listing.render(300)}", "", [], 0
+        return (
+            f"无法列出未跟踪文件：{listing.render(300)}",
+            [],
+            set(),
+            [],
+        )
     untracked = [item for item in listing.stdout.split("\0") if item.strip()]
     seed_paths.update(untracked)
+    return None, chunks, seed_paths, untracked
+
+
+def _seed_file_limit_error(
+    seed_paths: set[str], settings: Settings
+) -> str | None:
     max_files = max(
         int(getattr(settings, "orchestrator_seed_max_files", 200) or 0), 0
     )
     if len(seed_paths) > max_files:
-        return (
-            False,
-            f"seed 文件数 {len(seed_paths)} 超过上限 {max_files}",
-            "",
-            [],
-            0,
-        )
+        return f"seed 文件数 {len(seed_paths)} 超过上限 {max_files}"
+    return None
+
+
+def _append_untracked_patches(
+    sandbox: WslSandbox,
+    root: str,
+    chunks: list[str],
+    untracked: list[str],
+) -> str | None:
     for path in untracked:
         result = host_run(
             sandbox,
@@ -436,13 +458,105 @@ def _seed_worktree(
         if result.stdout:
             chunks.append(result.stdout)
         elif not result.ok:
-            return (
-                False,
-                f"无法读取未跟踪文件 {path}：{result.render(200)}",
-                "",
-                [],
-                0,
-            )
+            return f"无法读取未跟踪文件 {path}：{result.render(200)}"
+    return None
+
+
+def _apply_seed_patch(
+    sandbox: WslSandbox,
+    root: str,
+    worktree: str,
+    task_id: str,
+    excludes: str,
+    data: bytes,
+) -> tuple[bool, str, str]:
+    patch_rel = posixpath.join(
+        ".agent", "seeds", f"{_safe_id(task_id)}.patch"
+    )
+    patch_abs = posixpath.join(root, patch_rel)
+    try:
+        SandboxFs(sandbox, root).write_bytes(patch_rel, data)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"无法写入基线补丁：{exc}", ""
+    try:
+        applied = host_run(
+            sandbox,
+            f"git apply --binary {shlex.quote(patch_abs)}",
+            origin=HOST_ORIGIN,
+            kind="git_apply",
+            cwd=worktree,
+        )
+        if not applied.ok:
+            return False, f"基线补丁应用失败：{applied.render(300)}", ""
+        add = host_run(
+            sandbox,
+            f"git add -A -- . {excludes}",
+            origin=HOST_ORIGIN,
+            kind="git_seed_baseline",
+            cwd=worktree,
+        )
+        ignored_warning = "ignored by one of your .gitignore" in (
+            add.stderr or ""
+        ).lower()
+        if not add.ok and not ignored_warning:
+            return False, f"无法记录基线：{add.render(300)}", ""
+        tree = host_run(
+            sandbox,
+            "git write-tree",
+            origin=HOST_ORIGIN,
+            kind="git_seed_baseline",
+            cwd=worktree,
+        )
+        base_ref = (
+            tree.stdout.strip().splitlines()[-1].strip()
+            if tree.stdout.strip()
+            else ""
+        )
+        if not tree.ok or not base_ref:
+            return False, "无法记录基线树", ""
+        host_run(
+            sandbox,
+            "git reset -q",
+            origin=HOST_ORIGIN,
+            kind="git_reset",
+            cwd=worktree,
+        )
+        return True, "", base_ref
+    finally:
+        host_run(
+            sandbox,
+            f"rm -f {shlex.quote(patch_abs)}",
+            origin=HOST_ORIGIN,
+            kind="merge_temp_cleanup",
+            cwd=root,
+        )
+
+
+def _seed_worktree(
+    sandbox: WslSandbox,
+    root: str,
+    worktree: str,
+    task_id: str,
+    settings: Settings,
+) -> tuple[bool, str, str, list[str], int]:
+    """把主工作区已合并的未提交改动注入新 worktree，并返回基线树。
+
+    不 commit、不移动 HEAD：先用 `git diff` 生成补丁，apply 到 worktree 后
+    用 `git write-tree` 记录基线树，后续 worker 补丁以这棵树为 diff 基准。
+    返回值：(ok, error, base_ref, seed_files, seed_bytes)。
+    """
+    excludes = stage_args()
+    error, chunks, seed_paths, untracked = _collect_seed_patch(
+        sandbox, root, excludes
+    )
+    if error:
+        return False, error, "", [], 0
+    error = _seed_file_limit_error(seed_paths, settings)
+    if error:
+        return False, error, "", [], 0
+    error = _append_untracked_patches(sandbox, root, chunks, untracked)
+    if error:
+        return False, error, "", [], 0
 
     patch = "".join(chunks)
     if not patch.strip():
@@ -460,73 +574,12 @@ def _seed_worktree(
             [],
             0,
         )
-
-    patch_rel = posixpath.join(
-        ".agent", "seeds", f"{_safe_id(task_id)}.patch"
+    ok, error, base_ref = _apply_seed_patch(
+        sandbox, root, worktree, task_id, excludes, data
     )
-    patch_abs = posixpath.join(root, patch_rel)
-    try:
-        SandboxFs(sandbox, root).write_bytes(patch_rel, data)
-    except Exception as exc:  # noqa: BLE001
-        return False, f"无法写入基线补丁：{exc}", "", [], 0
-    try:
-        applied = host_run(
-            sandbox,
-            f"git apply --binary {shlex.quote(patch_abs)}",
-            origin=HOST_ORIGIN,
-            kind="git_apply",
-            cwd=worktree,
-        )
-        if not applied.ok:
-            return (
-                False,
-                f"基线补丁应用失败：{applied.render(300)}",
-                "",
-                [],
-                0,
-            )
-        add = host_run(
-            sandbox,
-            f"git add -A -- . {excludes}",
-            origin=HOST_ORIGIN,
-            kind="git_seed_baseline",
-            cwd=worktree,
-        )
-        ignored_warning = "ignored by one of your .gitignore" in (
-            add.stderr or ""
-        ).lower()
-        if not add.ok and not ignored_warning:
-            return False, f"无法记录基线：{add.render(300)}", "", [], 0
-        tree = host_run(
-            sandbox,
-            "git write-tree",
-            origin=HOST_ORIGIN,
-            kind="git_seed_baseline",
-            cwd=worktree,
-        )
-        base_ref = (
-            tree.stdout.strip().splitlines()[-1].strip()
-            if tree.stdout.strip()
-            else ""
-        )
-        if not tree.ok or not base_ref:
-            return False, "无法记录基线树", "", [], 0
-        host_run(
-            sandbox,
-            "git reset -q",
-            origin=HOST_ORIGIN,
-            kind="git_reset",
-            cwd=worktree,
-        )
-        return True, "", base_ref, sorted(seed_paths), len(data)
-    finally:
-        host_run(
-            sandbox,
-            f"rm -f {shlex.quote(patch_abs)}",
-            origin=HOST_ORIGIN,
-            kind="merge_temp_cleanup",
-            cwd=root,
-        )
+    if not ok:
+        return False, error, "", [], 0
+    return True, "", base_ref, sorted(seed_paths), len(data)
 
 
 def _make_patch(
@@ -610,6 +663,599 @@ def _build_worker_messages(
     ]
 
 
+def _normalize_implement_scopes(task: dict[str, Any]) -> list[str]:
+    return [
+        str(scope).strip().replace("\\", "/").rstrip("/")
+        for scope in (task.get("write_scope") or [])
+        if str(scope).strip()
+    ]
+
+
+def _baseline_paths(task: dict[str, Any]) -> set[str]:
+    return {
+        str(path).strip()
+        for path in (task.get("baseline_paths") or [])
+        if str(path).strip()
+    }
+
+
+def _coerce_positive(raw: Any, default: int) -> int:
+    return max(int(raw if raw is not None else default), 1)
+
+
+def _resolve_max_tokens(raw: Any, settings: Settings) -> int:
+    value = raw if raw is not None else settings.orchestrator_task_tokens or 0
+    return max(int(value), 0)
+
+
+class _ImplementRun:
+    """单次 implement worker 执行的状态与步骤。"""
+
+    def __init__(
+        self,
+        *,
+        llm: BaseChatModel,
+        sandbox: WslSandbox,
+        root: str,
+        settings: Settings,
+        default_rounds: int,
+        max_repairs: int,
+        default_timeout: int,
+        task: dict[str, Any],
+        parent_request: str,
+        cwd: str,
+        config: RunnableConfig | None,
+        cancel: Callable[[], bool] | None,
+        session_brief: str,
+        memories: list[str] | None,
+        instructions: str,
+    ) -> None:
+        self.llm = llm
+        self.sandbox = sandbox
+        self.root = root
+        self.settings = settings
+        self.max_repairs = max_repairs
+        self.task = task
+        self.parent_request = parent_request
+        self.cwd = cwd
+        self.config = config
+        self.cancel = cancel
+        self.session_brief = session_brief
+        self.memories = memories
+        self.instructions = instructions
+        self.started = time.monotonic()
+        self.task_id = str(task.get("id", ""))
+        self.safe = _safe_id(self.task_id)
+        self.goal = str(task.get("goal", "")).strip()
+        self.retry_note = format_retry_context(task)
+        self.scopes = _normalize_implement_scopes(task)
+        self.worker_id = f"implement:{self.task_id}"
+        self.child_config = _child_config(config, self.task_id)
+        # 任务级预算优先于全局默认；None 继承全局。轮次/超时至少为 1，
+        # token 预算 0 表示不限制。
+        self.max_rounds = _coerce_positive(
+            task.get("max_rounds"), default_rounds
+        )
+        self.timeout = _coerce_positive(
+            task.get("timeout"), default_timeout
+        )
+        self.max_tokens = _resolve_max_tokens(
+            task.get("max_tokens"), settings
+        )
+        # 修复轮的任务可能是 stage=0，但仍需要基线注入；调度器用
+        # seed_from_workspace 显式标记，而不是靠 stage 推断。
+        self.sequential = bool(task.get("seed_from_workspace"))
+        self.baseline_paths = _baseline_paths(task)
+        self.worktree = posixpath.join(
+            root, ".agent", "worktrees", self.safe
+        )
+        self.worktree_parent = posixpath.join(
+            root, ".agent", "worktrees"
+        )
+        self.base_ref = "HEAD"
+        self.seed_files: list[str] = []
+        self.seed_bytes = 0
+        self.seed_error = ""
+        self.created: Any = None
+        self.tools: list[Any] = []
+        self.tool_map: dict[str, BaseTool] = {}
+        self.child_llm: Any = None
+        self.messages: list[Any] = []
+        self.records: list[dict[str, Any]] = []
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.llm_ms = 0
+        self.tool_ms = 0
+        self.scope_violations: list[str] = []
+        self.verification: dict[str, Any] = {}
+        self.error = ""
+        self.cancelled = False
+        self.timed_out = False
+        self.budget_exhausted = False
+
+    async def run(self) -> WorkerResult:
+        prepared = await self._prepare()
+        if prepared is not None:
+            return prepared
+        # 无论正常结束、超时、异常还是被 scheduler 取消，worktree 都必须清掉。
+        try:
+            await self._run_with_timeout()
+            return await self._finish()
+        finally:
+            await self._cleanup_worktree()
+
+    async def _prepare(self) -> WorkerResult | None:
+        if not self.scopes:
+            return self._failed("implement 任务没有 write_scope，拒绝执行")
+        ready, reason = await self._check_git()
+        if not ready:
+            return self._failed(reason)
+        if not await self._create_worktree():
+            return self._failed(
+                f"创建 worktree 失败：{self.created.render(400)}",
+                error=self.created.stderr,
+            )
+        if self.sequential and not await self._seed():
+            await self._cleanup_worktree()
+            return self._failed(self.seed_error)
+        self._build_agent()
+        return None
+
+    async def _check_git(self) -> tuple[bool, str]:
+        if self.sequential:
+            return await asyncio.to_thread(
+                _git_ready,
+                self.sandbox,
+                self.root,
+                allow_dirty_paths=self.baseline_paths,
+            )
+        return await asyncio.to_thread(_git_ready, self.sandbox, self.root)
+
+    async def _shell(
+        self, command: str, *, kind: str, cwd: str | None = None
+    ) -> Any:
+        """把同步沙箱调用挪出事件循环，避免阻塞同批其它 worker。"""
+        return await asyncio.to_thread(
+            host_run,
+            self.sandbox,
+            command,
+            origin=HOST_ORIGIN,
+            kind=kind,
+            cwd=cwd or self.root,
+        )
+
+    def _failed(self, summary: str, *, error: str = "") -> WorkerResult:
+        return WorkerResult(
+            task_id=self.task_id,
+            role="implement",
+            worker_id=self.worker_id,
+            goal=self.goal,
+            status="failed",
+            summary=summary,
+            error=error,
+            duration_ms=int((time.monotonic() - self.started) * 1000),
+        )
+
+    def _remove_worktree(self) -> None:
+        try:
+            host_run(
+                self.sandbox,
+                f"git worktree remove --force "
+                f"{shlex.quote(self.worktree)}",
+                origin=HOST_ORIGIN,
+                kind="git_worktree",
+                cwd=self.root,
+            )
+            host_run(
+                self.sandbox,
+                "git worktree prune",
+                origin=HOST_ORIGIN,
+                kind="git_worktree",
+                cwd=self.root,
+            )
+        except Exception:  # noqa: BLE001 - 清理失败不覆盖原始结果
+            pass
+
+    async def _create_worktree(self) -> bool:
+        # 清理守卫从**创建之前**就生效：取消可能正好落在下面某个 await
+        # 上，此时 worktree 目录可能已经部分创建。
+        try:
+            await self._shell(
+                f"mkdir -p {shlex.quote(self.worktree_parent)}",
+                kind="worktree_prepare",
+            )
+            await self._shell(
+                f"git worktree remove --force {shlex.quote(self.worktree)}",
+                kind="git_worktree",
+            )
+            await self._shell(
+                f"rm -rf {shlex.quote(self.worktree)}",
+                kind="worktree_cleanup",
+            )
+            created = await self._shell(
+                f"git worktree add --detach "
+                f"{shlex.quote(self.worktree)} HEAD",
+                kind="git_worktree",
+            )
+        except asyncio.CancelledError:
+            self._remove_worktree()
+            raise
+        self.created = created
+        if created.ok:
+            return True
+        self._remove_worktree()
+        return False
+
+    async def _cleanup_worktree(self) -> None:
+        """移除本次 worker 的 worktree；取消路径也必须执行。
+
+        `git worktree remove` / `prune` 是宿主清理动作，不经过 worker
+        工具。取消发生在 `await` 点时，finally 仍要把它跑完，否则
+        `.agent/worktrees/` 会残留。
+
+        正常路径把清理丢到线程里；**已被取消时改走同步清理**：
+        取消状态下再次 `await` 会被立刻打断，清理可能只做了一半。
+        同步调用虽然短暂阻塞事件循环，但只发生在取消/超时路径。
+        """
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            self._remove_worktree()
+            return
+        try:
+            await asyncio.shield(
+                asyncio.to_thread(self._remove_worktree)
+            )
+        except asyncio.CancelledError:
+            self._remove_worktree()
+            raise
+
+    async def _seed(self) -> bool:
+        (
+            seeded,
+            self.seed_error,
+            self.base_ref,
+            self.seed_files,
+            self.seed_bytes,
+        ) = await asyncio.to_thread(
+            _seed_worktree,
+            self.sandbox,
+            self.root,
+            self.worktree,
+            self.task_id,
+            self.settings,
+        )
+        return seeded
+
+    def _build_agent(self) -> None:
+        scoped = self.settings.model_copy(
+            update={"wsl_workspace": self.worktree}
+        )
+        # 写时边界：文件工具在 I/O 之前就会拒绝 write_scope 外的路径。
+        # 事后 `_within_scope` 的 diff 校验仍保留，作为第二道防线。
+        tools = [
+            tool
+            for tool in build_tools(
+                scoped,
+                allow_write=True,
+                sandbox=self.sandbox,
+                write_scope=(
+                    self.scopes
+                    if self.settings.orchestrator_write_scope_enforce
+                    else None
+                ),
+                # worktree 内独立缓存；写路径会失效，不能与主工作区共享。
+                read_cache=ReadCache(self.settings.read_cache_max_bytes),
+            )
+            if tool.name in IMPLEMENT_TOOL_NAMES
+        ]
+        # 静态白名单断言：implement worker 永远不应拿到 shell/git/deps/test。
+        assert set(tool.name for tool in tools) <= IMPLEMENT_TOOL_NAMES
+        self.tools = tools
+        self.tool_map = {tool.name: tool for tool in tools}
+        self.child_llm = self.llm.bind_tools(tools)
+        self.messages = _build_worker_messages(
+            task=self.task,
+            worktree=self.worktree,
+            scopes=self.scopes,
+            max_rounds=self.max_rounds,
+            memories=self.memories,
+            instructions=self.instructions,
+            parent_request=self.parent_request,
+            session_brief=self.session_brief,
+            repo_map=str(self.task.get("repo_map") or "").strip(),
+            retry_note=self.retry_note,
+        )
+
+    async def _invoke_call(
+        self, round_index: int, index: int, call: dict[str, Any]
+    ) -> bool:
+        """执行一条工具调用并回灌结果；返回 True 表示已被取消。"""
+        if self.cancel is not None and self.cancel():
+            return True
+        name = str(call.get("name", ""))
+        call_id = str(call.get("id", "")) or f"r{round_index}-{index}"
+        call_args = dict(call.get("args") or {})
+        tool = self.tool_map.get(name)
+        tool_started = time.monotonic()
+        artifact: dict[str, Any] | None = None
+        if tool is None:
+            content = (
+                f"错误：实现 worker 没有 {name} 工具。"
+                f"可用工具：{sorted(self.tool_map)}"
+            )
+            ok = False
+        else:
+            try:
+                with tool_execution_context(
+                    f"worker:{self.task_id}", call_id
+                ):
+                    raw = await asyncio.to_thread(
+                        tool.invoke,
+                        call_args,
+                        self.child_config,
+                    )
+                content, artifact = unpack(raw)
+                ok = (
+                    bool(artifact.get("ok", True))
+                    if isinstance(artifact, dict)
+                    else True
+                )
+            except Exception as exc:  # noqa: BLE001
+                content = f"工具执行异常：{type(exc).__name__}: {exc}"
+                ok = False
+        duration_ms = int((time.monotonic() - tool_started) * 1000)
+        self.tool_ms += duration_ms
+        if (
+            isinstance(artifact, dict)
+            and artifact.get("rejected")
+            and name in {WRITE_TOOL_NAME, EDIT_TOOL_NAME}
+        ):
+            bad_path = str(artifact.get("path") or "")
+            if bad_path:
+                self.scope_violations.append(bad_path)
+        self.records.append(
+            {
+                "call_id": call_id,
+                "name": name,
+                "args": call_args,
+                "ok": ok,
+                "duration_ms": duration_ms,
+                "round": round_index,
+            }
+        )
+        self.messages.append(
+            ToolMessage(
+                content=content,
+                tool_call_id=call_id,
+                name=name,
+            )
+        )
+        return False
+
+    async def _run_rounds(self) -> str:
+        for round_index in range(1, self.max_rounds + 1):
+            if self.cancel is not None and self.cancel():
+                self.cancelled = True
+                return "cancelled"
+            llm_started = time.monotonic()
+            response = await retry_async(
+                lambda: self.child_llm.ainvoke(
+                    self.messages, self.child_config
+                ),
+                attempts=self.settings.retry_attempts,
+                base_delay=self.settings.retry_base_delay_s,
+                max_delay=self.settings.retry_max_delay_s,
+                max_total_wait=self.settings.retry_max_total_wait_s,
+                label=f"implement:{self.task_id}",
+            )
+            self.llm_ms += int(
+                (time.monotonic() - llm_started) * 1000
+            )
+            used_in, used_out = _usage(response)
+            self.input_tokens += used_in
+            self.output_tokens += used_out
+            self.messages.append(response)
+            if (
+                self.max_tokens > 0
+                and self.input_tokens + self.output_tokens >= self.max_tokens
+            ):
+                self.budget_exhausted = True
+                return "budget"
+            calls = getattr(response, "tool_calls", None) or []
+            if not calls:
+                break
+            for index, call in enumerate(calls):
+                if await self._invoke_call(round_index, index, call):
+                    self.cancelled = True
+                    return "cancelled"
+        return "done"
+
+    async def _verify(self) -> str:
+        changed = await asyncio.to_thread(
+            _changed_files, self.sandbox, self.worktree, self.base_ref
+        )
+        if not changed:
+            return "no_changes"
+        related = await asyncio.to_thread(
+            _impacted_tests, self.sandbox, self.worktree, list(changed)
+        )
+        result = await asyncio.to_thread(
+            run_verification,
+            self.sandbox,
+            self.worktree,
+            allow_manifest=False,
+            only=tuple(related),
+            # 有相关测试时 worker 只跑子集；合并后的主 agent
+            # 仍会跑完整 verify，避免多 worker 各跑一遍全量。
+            full_after_selected=not related,
+        )
+        self.verification = result.model_dump()
+        if result.status == "ok":
+            return "ok"
+        if _peer_dependency_failure(
+            self.verification, list(changed), self.scopes
+        ):
+            self.verification["peer_dependency"] = True
+            self.verification["note"] = (
+                "测试依赖同批其它 implement worker 的改动；"
+                "等待合并后由主 agent 完整验证"
+            )
+            return "peer"
+        return "failed"
+
+    async def _loop(self) -> None:
+        repairs = int(
+            self.task.get("max_repairs")
+            if self.task.get("max_repairs") is not None
+            else self.max_repairs
+        )
+        for attempt in range(repairs + 1):
+            if await self._run_rounds() != "done":
+                return
+            outcome = await self._verify()
+            if outcome in {"ok", "peer", "no_changes"}:
+                return
+            if attempt < repairs:
+                self.messages.append(
+                    HumanMessage(
+                        content=format_verification_feedback(
+                            self.verification,
+                            attempt=attempt + 1,
+                            limit=repairs + 1,
+                        )
+                    )
+                )
+                continue
+            return
+
+    async def _run_with_timeout(self) -> None:
+        try:
+            await asyncio.wait_for(self._loop(), timeout=self.timeout)
+        except TimeoutError:
+            self.timed_out = True
+            self.error = f"实现 worker 超时（>{self.timeout}s）"
+        except Exception as exc:  # noqa: BLE001
+            self.error = f"{type(exc).__name__}: {exc}"
+        if self.budget_exhausted and not self.error:
+            self.error = f"任务 token 预算已用尽（>{self.max_tokens}）"
+        # 取消可能在最后一条工具调用之后才到：此时补丁还没合并，
+        # 直接丢弃 worktree 比先落 patch 再由 dispatch 拦更干净。
+        if not self.cancelled and self.cancel is not None and self.cancel():
+            self.cancelled = True
+
+    async def _finish(self) -> WorkerResult:
+        if self.cancelled:
+            return WorkerResult(
+                task_id=self.task_id,
+                role="implement",
+                worker_id=self.worker_id,
+                goal=self.goal,
+                status="cancelled",
+                summary="已按用户要求取消，改动未合并。",
+                input_tokens=self.input_tokens,
+                output_tokens=self.output_tokens,
+                duration_ms=int(
+                    (time.monotonic() - self.started) * 1000
+                ),
+                llm_ms=self.llm_ms,
+                tool_ms=self.tool_ms,
+                timed_out=self.timed_out,
+                scope_violations=list(self.scope_violations),
+                tool_calls=self.records,
+                seed_files=list(self.seed_files),
+                seed_bytes=self.seed_bytes,
+                budget_used={
+                    "input_tokens": self.input_tokens,
+                    "output_tokens": self.output_tokens,
+                    "tool_calls": len(self.records),
+                },
+            )
+
+        changed = await asyncio.to_thread(
+            _changed_files, self.sandbox, self.worktree, self.base_ref
+        )
+        out_of_scope = [
+            path
+            for path in changed
+            if not _within_scope(path, self.scopes)
+        ]
+        patch_path = ""
+        status = "failed"
+        summary = (
+            text_of(self.messages[-1]).strip() if self.messages else ""
+        )
+
+        if out_of_scope:
+            status = "failed"
+            self.error = (
+                self.error
+                or f"修改了 write_scope 外的文件：{', '.join(out_of_scope)}"
+            )
+        elif not changed:
+            status = "failed"
+            self.error = self.error or "实现 worker 没有产生任何文件改动"
+        else:
+            patch_path = await asyncio.to_thread(
+                _make_patch,
+                self.sandbox,
+                self.worktree,
+                self.root,
+                self.task_id,
+                self.base_ref,
+            )
+            if not patch_path:
+                status = "failed"
+                self.error = self.error or "无法生成补丁"
+            elif self.verification.get("status") == "ok":
+                status = "success"
+            else:
+                status = "partial"
+
+        if not summary:
+            summary = (
+                str(self.verification.get("summary") or "")
+                or self.error
+                or status
+            )
+        findings = [
+            f"{issue.get('location', '')} {issue.get('message', '')}".strip()
+            for issue in (self.verification.get("issues") or [])
+        ]
+        if out_of_scope:
+            findings.append("越界修改：" + ", ".join(out_of_scope))
+
+        return WorkerResult(
+            task_id=self.task_id,
+            role="implement",
+            worker_id=self.worker_id,
+            goal=self.goal,
+            status=status,
+            summary=summary,
+            files=changed,
+            findings=findings,
+            verification=self.verification,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            duration_ms=int((time.monotonic() - self.started) * 1000),
+            llm_ms=self.llm_ms,
+            tool_ms=self.tool_ms,
+            timed_out=self.timed_out,
+            error=self.error,
+            patch_path=patch_path,
+            tool_calls=self.records,
+            seed_files=list(self.seed_files),
+            seed_bytes=self.seed_bytes,
+            scope_violations=sorted(
+                {*self.scope_violations, *out_of_scope}
+            ),
+            budget_used={
+                "input_tokens": self.input_tokens,
+                "output_tokens": self.output_tokens,
+                "tool_calls": len(self.records),
+            },
+        )
+
+
 def make_implement_runner(
     *,
     llm: BaseChatModel,
@@ -632,491 +1278,23 @@ def make_implement_runner(
         memories: list[str] | None = None,
         instructions: str = "",
     ) -> WorkerResult:
-        started = time.monotonic()
-        task_id = str(task.get("id", ""))
-        safe = _safe_id(task_id)
-        goal = str(task.get("goal", "")).strip()
-        retry_note = format_retry_context(task)
-        scopes = [
-            str(scope).strip().replace("\\", "/").rstrip("/")
-            for scope in (task.get("write_scope") or [])
-            if str(scope).strip()
-        ]
-        worker_id = f"implement:{task_id}"
-        child_config = _child_config(config, task_id)
-        # 任务级预算优先于全局默认；None 继承全局。轮次/超时至少为 1，
-        # token 预算 0 表示不限制。
-        raw_rounds = task.get("max_rounds")
-        raw_timeout = task.get("timeout")
-        raw_tokens = task.get("max_tokens")
-        max_rounds = max(
-            int(raw_rounds if raw_rounds is not None else default_rounds), 1
-        )
-        timeout = max(
-            int(raw_timeout if raw_timeout is not None else default_timeout), 1
-        )
-        max_tokens = max(
-            int(
-                raw_tokens
-                if raw_tokens is not None
-                else settings.orchestrator_task_tokens or 0
-            ),
-            0,
-        )
-
-        async def shell(command: str, *, kind: str, cwd: str | None = None):
-            """把同步沙箱调用挪出事件循环，避免阻塞同批其它 worker。"""
-            return await asyncio.to_thread(
-                host_run,
-                sandbox,
-                command,
-                origin=HOST_ORIGIN,
-                kind=kind,
-                cwd=cwd or root,
-            )
-
-        def failed(summary: str, *, error: str = "") -> WorkerResult:
-            return WorkerResult(
-                task_id=task_id,
-                role="implement",
-                worker_id=worker_id,
-                goal=goal,
-                status="failed",
-                summary=summary,
-                error=error,
-                duration_ms=int((time.monotonic() - started) * 1000),
-            )
-
-        if not scopes:
-            return failed("implement 任务没有 write_scope，拒绝执行")
-        # 修复轮的任务可能是 stage=0，但仍需要基线注入；调度器用
-        # seed_from_workspace 显式标记，而不是靠 stage 推断。
-        sequential = bool(task.get("seed_from_workspace"))
-        baseline_paths = {
-            str(path).strip()
-            for path in (task.get("baseline_paths") or [])
-            if str(path).strip()
-        }
-        if sequential:
-            ready, reason = await asyncio.to_thread(
-                _git_ready,
-                sandbox,
-                root,
-                allow_dirty_paths=baseline_paths,
-            )
-        else:
-            ready, reason = await asyncio.to_thread(_git_ready, sandbox, root)
-        if not ready:
-            return failed(reason)
-
-        worktree = posixpath.join(root, ".agent", "worktrees", safe)
-        worktree_parent = posixpath.join(root, ".agent", "worktrees")
-
-        def remove_worktree() -> None:
-            try:
-                host_run(
-                    sandbox,
-                    f"git worktree remove --force {shlex.quote(worktree)}",
-                    origin=HOST_ORIGIN,
-                    kind="git_worktree",
-                    cwd=root,
-                )
-                host_run(
-                    sandbox,
-                    "git worktree prune",
-                    origin=HOST_ORIGIN,
-                    kind="git_worktree",
-                    cwd=root,
-                )
-            except Exception:  # noqa: BLE001 - 清理失败不覆盖原始结果
-                pass
-
-        # 清理守卫从**创建之前**就生效：取消可能正好落在下面某个 await
-        # 上，此时 worktree 目录可能已经部分创建。
-        try:
-            await shell(
-                f"mkdir -p {shlex.quote(worktree_parent)}",
-                kind="worktree_prepare",
-            )
-            await shell(
-                f"git worktree remove --force {shlex.quote(worktree)}",
-                kind="git_worktree",
-            )
-            await shell(
-                f"rm -rf {shlex.quote(worktree)}",
-                kind="worktree_cleanup",
-            )
-            created = await shell(
-                f"git worktree add --detach {shlex.quote(worktree)} HEAD",
-                kind="git_worktree",
-            )
-        except asyncio.CancelledError:
-            remove_worktree()
-            raise
-        if not created.ok:
-            remove_worktree()
-            return failed(
-                f"创建 worktree 失败：{created.render(400)}",
-                error=created.stderr,
-            )
-
-        async def cleanup_worktree() -> None:
-            """移除本次 worker 的 worktree；取消路径也必须执行。
-
-            `git worktree remove` / `prune` 是宿主清理动作，不经过 worker
-            工具。取消发生在 `await` 点时，finally 仍要把它跑完，否则
-            `.agent/worktrees/` 会残留。
-
-            正常路径把清理丢到线程里；**已被取消时改走同步清理**：
-            取消状态下再次 `await` 会被立刻打断，清理可能只做了一半。
-            同步调用虽然短暂阻塞事件循环，但只发生在取消/超时路径。
-            """
-            current = asyncio.current_task()
-            if current is not None and current.cancelling():
-                remove_worktree()
-                return
-            try:
-                await asyncio.shield(asyncio.to_thread(remove_worktree))
-            except asyncio.CancelledError:
-                remove_worktree()
-                raise
-
-        base_ref = "HEAD"
-        seed_files: list[str] = []
-        seed_bytes = 0
-        if sequential:
-            (
-                seeded,
-                seed_error,
-                base_ref,
-                seed_files,
-                seed_bytes,
-            ) = await asyncio.to_thread(
-                _seed_worktree,
-                sandbox,
-                root,
-                worktree,
-                task_id,
-                settings,
-            )
-            if not seeded:
-                await cleanup_worktree()
-                return failed(seed_error)
-
-        scoped = settings.model_copy(update={"wsl_workspace": worktree})
-        # 写时边界：文件工具在 I/O 之前就会拒绝 write_scope 外的路径。
-        # 事后 `_within_scope` 的 diff 校验仍保留，作为第二道防线。
-        tools = [
-            tool
-            for tool in build_tools(
-                scoped,
-                allow_write=True,
-                sandbox=sandbox,
-                write_scope=(
-                    scopes if settings.orchestrator_write_scope_enforce else None
-                ),
-                # worktree 内独立缓存；写路径会失效，不能与主工作区共享。
-                read_cache=ReadCache(settings.read_cache_max_bytes),
-            )
-            if tool.name in IMPLEMENT_TOOL_NAMES
-        ]
-        # 静态白名单断言：implement worker 永远不应拿到 shell/git/deps/test。
-        assert set(tool.name for tool in tools) <= IMPLEMENT_TOOL_NAMES
-        tool_map: dict[str, BaseTool] = {tool.name: tool for tool in tools}
-        child_llm = llm.bind_tools(tools)
-
-        messages = _build_worker_messages(
+        engine = _ImplementRun(
+            llm=llm,
+            sandbox=sandbox,
+            root=root,
+            settings=settings,
+            default_rounds=default_rounds,
+            max_repairs=max_repairs,
+            default_timeout=default_timeout,
             task=task,
-            worktree=worktree,
-            scopes=scopes,
-            max_rounds=max_rounds,
+            parent_request=parent_request,
+            cwd=cwd,
+            config=config,
+            cancel=cancel,
+            session_brief=session_brief,
             memories=memories,
             instructions=instructions,
-            parent_request=parent_request,
-            session_brief=session_brief,
-            repo_map=str(task.get("repo_map") or "").strip(),
-            retry_note=retry_note,
         )
-        records: list[dict[str, Any]] = []
-        input_tokens = 0
-        output_tokens = 0
-        llm_ms = 0
-        tool_ms = 0
-        scope_violations: list[str] = []
-        verification: dict[str, Any] = {}
-        error = ""
-        cancelled = False
-        timed_out = False
-        budget_exhausted = False
-
-        async def invoke_call(
-            round_index: int, index: int, call: dict[str, Any]
-        ) -> bool:
-            """执行一条工具调用并回灌结果；返回 True 表示已被取消。"""
-            nonlocal tool_ms
-            if cancel is not None and cancel():
-                return True
-            name = str(call.get("name", ""))
-            call_id = str(call.get("id", "")) or f"r{round_index}-{index}"
-            call_args = dict(call.get("args") or {})
-            tool = tool_map.get(name)
-            tool_started = time.monotonic()
-            artifact: dict[str, Any] | None = None
-            if tool is None:
-                content = (
-                    f"错误：实现 worker 没有 {name} 工具。"
-                    f"可用工具：{sorted(tool_map)}"
-                )
-                ok = False
-            else:
-                try:
-                    with tool_execution_context(
-                        f"worker:{task_id}", call_id
-                    ):
-                        raw = await asyncio.to_thread(
-                            tool.invoke,
-                            call_args,
-                            child_config,
-                        )
-                    content, artifact = unpack(raw)
-                    ok = (
-                        bool(artifact.get("ok", True))
-                        if isinstance(artifact, dict)
-                        else True
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    content = f"工具执行异常：{type(exc).__name__}: {exc}"
-                    ok = False
-            duration_ms = int((time.monotonic() - tool_started) * 1000)
-            tool_ms += duration_ms
-            if (
-                isinstance(artifact, dict)
-                and artifact.get("rejected")
-                and name in {WRITE_TOOL_NAME, EDIT_TOOL_NAME}
-            ):
-                bad_path = str(artifact.get("path") or "")
-                if bad_path:
-                    scope_violations.append(bad_path)
-            records.append(
-                {
-                    "call_id": call_id,
-                    "name": name,
-                    "args": call_args,
-                    "ok": ok,
-                    "duration_ms": duration_ms,
-                    "round": round_index,
-                }
-            )
-            messages.append(
-                ToolMessage(
-                    content=content,
-                    tool_call_id=call_id,
-                    name=name,
-                )
-            )
-            return False
-
-        async def _loop() -> None:
-            nonlocal input_tokens, output_tokens, verification, cancelled
-            nonlocal budget_exhausted, llm_ms, tool_ms
-            raw_repairs = task.get("max_repairs")
-            repairs = int(
-                raw_repairs if raw_repairs is not None else max_repairs
-            )
-            for attempt in range(repairs + 1):
-                for round_index in range(1, max_rounds + 1):
-                    if cancel is not None and cancel():
-                        cancelled = True
-                        return
-                    llm_started = time.monotonic()
-                    response = await retry_async(
-                        lambda: child_llm.ainvoke(messages, child_config),
-                        attempts=settings.retry_attempts,
-                        base_delay=settings.retry_base_delay_s,
-                        max_delay=settings.retry_max_delay_s,
-                        max_total_wait=settings.retry_max_total_wait_s,
-                        label=f"implement:{task_id}",
-                    )
-                    llm_ms += int((time.monotonic() - llm_started) * 1000)
-                    used_in, used_out = _usage(response)
-                    input_tokens += used_in
-                    output_tokens += used_out
-                    messages.append(response)
-                    if (
-                        max_tokens > 0
-                        and input_tokens + output_tokens >= max_tokens
-                    ):
-                        budget_exhausted = True
-                        return
-                    calls = getattr(response, "tool_calls", None) or []
-                    if not calls:
-                        break
-                    for index, call in enumerate(calls):
-                        if await invoke_call(round_index, index, call):
-                            cancelled = True
-                            return
-
-                changed = await asyncio.to_thread(
-                    _changed_files, sandbox, worktree, base_ref
-                )
-                if not changed:
-                    return
-                related = await asyncio.to_thread(
-                    _impacted_tests, sandbox, worktree, list(changed)
-                )
-                result = await asyncio.to_thread(
-                    run_verification,
-                    sandbox,
-                    worktree,
-                    allow_manifest=False,
-                    only=tuple(related),
-                    # 有相关测试时 worker 只跑子集；合并后的主 agent
-                    # 仍会跑完整 verify，避免多 worker 各跑一遍全量。
-                    full_after_selected=not related,
-                )
-                verification = result.model_dump()
-                if result.status == "ok":
-                    return
-                if _peer_dependency_failure(
-                    verification, list(changed), scopes
-                ):
-                    verification["peer_dependency"] = True
-                    verification["note"] = (
-                        "测试依赖同批其它 implement worker 的改动；"
-                        "等待合并后由主 agent 完整验证"
-                    )
-                    return
-                if attempt < repairs:
-                    messages.append(
-                        HumanMessage(
-                            content=format_verification_feedback(
-                                verification,
-                                attempt=attempt + 1,
-                                limit=repairs + 1,
-                            )
-                        )
-                    )
-                    continue
-                return
-
-        async def finish() -> WorkerResult:
-            nonlocal error
-            if cancelled:
-                return WorkerResult(
-                    task_id=task_id,
-                    role="implement",
-                    worker_id=worker_id,
-                    goal=goal,
-                    status="cancelled",
-                    summary="已按用户要求取消，改动未合并。",
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    duration_ms=int((time.monotonic() - started) * 1000),
-                    llm_ms=llm_ms,
-                    tool_ms=tool_ms,
-                    timed_out=timed_out,
-                    scope_violations=list(scope_violations),
-                    tool_calls=records,
-                    seed_files=list(seed_files),
-                    seed_bytes=seed_bytes,
-                    budget_used={
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
-                        "tool_calls": len(records),
-                    },
-                )
-
-            changed = await asyncio.to_thread(
-                _changed_files, sandbox, worktree, base_ref
-            )
-            out_of_scope = [
-                path for path in changed if not _within_scope(path, scopes)
-            ]
-            patch_path = ""
-            status = "failed"
-            summary = text_of(messages[-1]).strip() if messages else ""
-
-            if out_of_scope:
-                status = "failed"
-                error = (
-                    error
-                    or f"修改了 write_scope 外的文件：{', '.join(out_of_scope)}"
-                )
-            elif not changed:
-                status = "failed"
-                error = error or "实现 worker 没有产生任何文件改动"
-            else:
-                patch_path = await asyncio.to_thread(
-                    _make_patch, sandbox, worktree, root, task_id, base_ref
-                )
-                if not patch_path:
-                    status = "failed"
-                    error = error or "无法生成补丁"
-                elif verification.get("status") == "ok":
-                    status = "success"
-                else:
-                    status = "partial"
-
-            if not summary:
-                summary = (
-                    str(verification.get("summary") or "") or error or status
-                )
-            findings = [
-                f"{issue.get('location', '')} {issue.get('message', '')}".strip()
-                for issue in (verification.get("issues") or [])
-            ]
-            if out_of_scope:
-                findings.append("越界修改：" + ", ".join(out_of_scope))
-
-            return WorkerResult(
-                task_id=task_id,
-                role="implement",
-                worker_id=worker_id,
-                goal=goal,
-                status=status,
-                summary=summary,
-                files=changed,
-                findings=findings,
-                verification=verification,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                duration_ms=int((time.monotonic() - started) * 1000),
-                llm_ms=llm_ms,
-                tool_ms=tool_ms,
-                timed_out=timed_out,
-                error=error,
-                patch_path=patch_path,
-                tool_calls=records,
-                seed_files=list(seed_files),
-                seed_bytes=seed_bytes,
-                scope_violations=sorted(
-                    {*scope_violations, *out_of_scope}
-                ),
-                budget_used={
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "tool_calls": len(records),
-                },
-            )
-
-        # 无论正常结束、超时、异常还是被 scheduler 取消，worktree 都必须清掉。
-        try:
-            try:
-                await asyncio.wait_for(_loop(), timeout=timeout)
-            except TimeoutError:
-                timed_out = True
-                error = f"实现 worker 超时（>{timeout}s）"
-            except Exception as exc:  # noqa: BLE001
-                error = f"{type(exc).__name__}: {exc}"
-            if budget_exhausted and not error:
-                error = f"任务 token 预算已用尽（>{max_tokens}）"
-
-            # 取消可能在最后一条工具调用之后才到：此时补丁还没合并，
-            # 直接丢弃 worktree 比先落 patch 再由 dispatch 拦更干净。
-            if not cancelled and cancel is not None and cancel():
-                cancelled = True
-            return await finish()
-        finally:
-            await cleanup_worktree()
+        return await engine.run()
 
     return run
