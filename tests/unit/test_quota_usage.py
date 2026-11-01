@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -37,6 +38,28 @@ def _record(
         "cost_usd": cost,
         "billed_usd": cost,
     }
+
+
+def test_usage_mysql_statement_branches(tmp_path, monkeypatch) -> None:
+    """MySQL 分支只构造 SQL；用 mock session 覆盖，不依赖真实 MySQL。"""
+    store = _store(tmp_path)
+    monkeypatch.setattr(store.engine.dialect, "name", "mysql")
+    session = Mock()
+    session.execute.return_value.rowcount = 1
+    store._daily_add(
+        session,
+        tenant="default",
+        user="alice",
+        day=DAY,
+        input_tokens=7,
+    )
+    assert session.execute.called
+    assert (
+        store._insert_usage_event(
+            session, {"tenant": "default", "record_hash": "h"}
+        )
+        is True
+    )
 
 
 def test_usage_fallback_dialect_paths(tmp_path, monkeypatch) -> None:

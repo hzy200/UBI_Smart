@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "tests": 3474,
+  "tests": 3475,
   "coverage": {
     "statements": 43413,
-    "missing": 6811,
+    "missing": 6812,
     "percent": 84.31,
     "modules": {
       "control/accounts.py": 87.25,
