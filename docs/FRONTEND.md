@@ -12,7 +12,7 @@ review_cadence: 前端交互、事件契约、权限模型或桌面壳变动时
 
 本文描述 `web/` 前端的**当前实现**：功能边界、页面结构、消息呈现、
 会话/工作区绑定、授权交互、视觉规范、性能与测试约束。桌面壳的启动、
-端口、锁与后端接口另见 [GUI.md](GUI.md)；领域事件契约以
+端口、锁与后端接口见本文 §2；领域事件契约以
 [docs/contracts/events.md](contracts/events.md) 为准。
 
 ---
@@ -120,6 +120,68 @@ web/static/vendor/*                                (直接由 A2 提供)
 
 `--host-mode`（`desktop/bootstrap.py`）保留为回退入口，关闭时同样把
 “取消运行”放到后台线程，避免 Windows 标记“未响应”。
+
+### 2.1 安装、启动与桌面专属动作
+
+```bash
+conda activate agent
+pip install -e ".[web,desktop]"          # 桌面窗口
+pip install -e ".[web,desktop,secrets]"  # 需要在 GUI 里注入 API Key 时
+
+agent gui                     # 首次运行打开 WSL 配置向导
+agent gui --setup             # 重新配置
+agent gui --write             # 允许会话选择审批写/自动写
+agent gui --workspace D:\proj # 覆盖 WSL 工作区（转成 /mnt/d/proj）
+agent gui --host-mode         # 旧 Windows 宿主模式
+```
+
+WSL 模式下端口由 server 自动分配并通过握手返回；`--port` 只影响 host mode。
+只监听 `127.0.0.1`，每次启动生成随机 token；token 放在 URL fragment，不进入
+服务端日志。`WorkspaceLock` 做单实例锁。
+
+设置页“工作区与 Python”展示：WSL 原生或 `/mnt` 路径、项目 Python
+（`.venv` → `venv` → `env` → 系统 `python3`）与 Agent Python、包管理器与锁文件、
+建议测试命令与警告。桌面专属动作（浏览器模式自动隐藏）：Windows 原生文件夹
+选择、`code --remote wsl+<distro>` 打开、`/mnt` → WSL 原生目录复制（拒绝覆盖）。
+探测只读：不创建 venv、不安装依赖、不执行项目脚本。
+
+会话栏支持搜索/改名/删除（tombstone）/导出 Markdown/置顶/归档/标签；实时分屏
+各自接收 SSE；文件树带 Git M/A/D 标记、单文件最多 256 KB、图片 ≤2MB 预览；
+Git 面板只读；文件快照可接受或拒绝（回滚）；上传区显示配额；恢复中心列出
+待审批/暂停/运行中/异常中断会话。设置页可生成脱敏诊断包、检查更新（只提示，
+不自动安装）；WSL server 意外退出时按 1s/3s/7s 退避最多重启 3 次。
+
+### 2.2 桌面接口
+
+```text
+GET    /api/health
+GET    /api/workspace
+GET    /api/providers            POST /api/providers/{name}/key
+POST   /api/providers/test       DELETE /api/providers/{name}/key
+GET    /api/sessions             POST /api/sessions
+POST   /api/sessions/{thread}/model
+POST   /api/sessions/{thread}/uploads
+GET    /api/capabilities?thread_id=
+POST   /api/run                  POST /api/resume/{thread}
+POST   /api/resume_steering/{thread}
+POST   /api/steer/{thread}       GET  /api/approvals/{thread}
+GET    /api/status/{thread}      GET  /api/stream/{thread}?after=<seq>
+POST   /api/desktop/cancel_all（仅桌面模式）
+GET    /api/thread/{thread}
+GET    /api/snapshots?thread_id= GET  /api/diff?thread_id=
+POST   /api/restore              GET  /api/checkpoints/{thread}
+POST   /api/fork/{thread}        POST /api/rewind/{thread}
+GET    /api/memory               POST /api/memory
+GET    /api/audit                POST /api/context/{thread}/compact
+```
+
+桌面端所有 `/api/*` 都要求随机 Bearer token；Web 端按 `AuthConfig` 处理。
+接口按会话能力与租户授权；前端不能通过请求体自行提升权限。
+
+**安全边界**：GUI 只消费 `ApprovalRequested`，没有直接调用工具的能力；只读在
+服务端强制；密钥只进密钥环，前端只看到 `has_key`；上传目录 `.agent/uploads`
+不自动执行；模型输出经 `marked + DOMPurify` 清洗；本地服务只绑 loopback、
+随机 token、`TrustedHostMiddleware` 限制 Host，无 CORS、无 `/docs`。
 
 ---
 

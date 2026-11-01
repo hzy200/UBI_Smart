@@ -1,282 +1,85 @@
-<!-- owner: 项目作者 · last_reviewed: 2026-10-28 · review_cadence: 命令、状态数字或架构变动时 -->
+<!-- owner: 项目作者 · last_reviewed: 2026-11-01 · review_cadence: 命令、状态数字或架构变动时 -->
 
 # UBISmart
 
-[![CI](https://github.com/hzy200/coding_agent/actions/workflows/ci.yml/badge.svg)](https://github.com/hzy200/coding_agent/actions/workflows/ci.yml)
-[![Docs](https://github.com/hzy200/coding_agent/actions/workflows/docs.yml/badge.svg)](https://github.com/hzy200/coding_agent/actions/workflows/docs.yml)
+[![CI](https://github.com/hzy200/UBI_Smart/actions/workflows/ci.yml/badge.svg)](https://github.com/hzy200/UBI_Smart/actions/workflows/ci.yml)
+[![Docs](https://github.com/hzy200/UBI_Smart/actions/workflows/docs.yml/badge.svg)](https://github.com/hzy200/UBI_Smart/actions/workflows/docs.yml)
+[![Sandbox](https://github.com/hzy200/UBI_Smart/actions/workflows/sandbox.yml/badge.svg)](https://github.com/hzy200/UBI_Smart/actions/workflows/sandbox.yml)
 
 基于 LangGraph 的终端原生编程智能体。
 
-核心设计只有一条：**宿主内置工具，模型只输出意图**。LLM 不直接接触操作系统，
-只产出结构化工具调用 `{tool, args}`，由宿主校验后在 WSL2 沙箱里执行。
-文件修改走专用工具（精确替换 + diff + 写前备份），不经 shell。
+核心原则只有一条：**宿主内置工具，模型只输出意图**。LLM 不直接接触操作系统，
+只产出结构化调用 `{tool, args}`，由宿主校验后在 WSL2 沙箱中执行；文件修改走
+专用工具（精确替换 + diff + 写前备份），不经 shell。
 
-编排层采用 harness 范式：
+编排层采用 harness 范式：**orchestrator + 动态任务图 + 并发 worker + fan-in 汇总**。
+小任务走 `direct` 快速路径，大任务进入独立 orchestrator 子图。
 
-> **orchestrator + 动态任务图 + 并发 worker + fan-in 汇总**
-
-同时保留 `direct` 快速路径：小任务直接由单 agent 执行，大任务进入独立
-orchestrator 子图，拆成 DAG 并发处理，最后把结构化结果交回主 agent 收尾。
+> 本文件是入口页。架构、编排、使用、安全、运维的细节分别在
+> [ARCHITECTURE.md](docs/ARCHITECTURE.md)、[HARNESS.md](docs/HARNESS.md)、
+> [USAGE.md](docs/USAGE.md)、[THREAT_MODEL.md](docs/THREAT_MODEL.md) 等文档中。
 
 ## 当前状态
 
 | 项 | 结果 |
 |---|---|
-| 快反馈 | `pytest -m "not wsl and not wsl_env and not llm"` 选中 **3,002**（2026-10-29 实测；本机 1 条 skip，其余通过） |
-| 覆盖率 | 门槛 `fail_under=76`；实测值见 [COVERAGE.md](docs/COVERAGE.md)，用例数/覆盖率为生成快照 [METRICS.md](docs/METRICS.md) —— **不在这里手抄** |
-| 全量含 WSL | 本轮未重跑；WSL/执行面仍由 `-m wsl` / `-m execution` 平台门禁守着 |
-| lint | `ruff check src tests` 干净 |
-| 前端 | 用户端 + React 管理端构建通过，`tsc --noEmit` 通过，生成物无漂移 |
-| 企业版 | 账号/额度/用量/上游 Key 落 MySQL；`/admin` 独立 SPA；迁移 `0014` |
-| 说明 | 另有 3 个 `llm` 标记用例需要 `DEEPSEEK_API_KEY`，默认排除；不加 `-m` 时会真实调用模型 |
+| 快反馈 | `pytest -m "not wsl and not wsl_env and not llm"` 选中 **3,475**（2026-11-01 快照） |
+| 覆盖率 | **84.31%**（CI 子集；承重模块另有棘轮，见 [METRICS.md](docs/METRICS.md)） |
+| 全量含 WSL | Sandbox workflow 在 self-hosted `ubismart-wsl` runner 上通过 |
+| lint / 类型 | `ruff check src tests` 干净；`mypy` 安全/终端边界 strict 通过 |
+| 前端 | 构建、`tsc --noEmit`、单元测试、Playwright E2E 通过 |
+| 企业版 | 账号/额度/用量/上游 Key 落 MySQL；`/admin` 独立 SPA |
 
-> 上表是 **2026-10-29 本机实跑**的快照；最新结果见上方 CI badge。
-> 数字会随代码变化，长期事实源是 CI 与 `docs/contracts/`，不是这张表。
+> 数字会随代码变化，长期事实源是 CI 与 `docs/contracts/`、`docs/METRICS.md`。
+> 另有 `llm` 标记用例需要 `DEEPSEEK_API_KEY`，默认排除；不加 `-m` 会真实调用模型。
 
-四个选题创新点均已落地并有测试守着：双工具架构、可审计的命令安全策略、
-可回滚的修改流程、失败驱动的修复循环。
+## 核心设计
+
+- **双工具架构**：Git、依赖、检索、测试都是结构化工具，参数无法逃逸，等级可判定。
+- **审批唯一咽喉**：`approval_gate` 只做决定，`tools` 节点负责强制；所有工具调用
+  都经过这里。
+- **命令分级**：L0 只读 / L1 低风险写 / L2 变更 / L3 危险；复合命令取最高级别，
+  无法解析一律降级。
+- **可回滚**：写盘前留快照；回滚本身也可回滚。
+- **可审计**：审计由 runtime 写，前端绕不过；哈希链可校验。
+- **fail-closed**：审批缺失、答复无法解析、非交互环境一律拒绝。
 
 ## 架构
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ 前端：CLI / TUI / Web / Desktop GUI                                  │
-│ 只消费 Event；不导入 tools / sandbox                                 │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │ AsyncIterator[Event]
-┌───────────────────────────────▼──────────────────────────────────────┐
-│ AgentRuntime                                                         │
-│  · 唯一编排入口   · checkpoint / audit / steering                    │
-│  · 根据仓库规模选择 direct 或 orchestrated                           │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │ LangGraph（subgraphs=True）
-          ┌─────────────────────┴─────────────────────┐
-          │ direct 快速路径                          │ harness 路径
-          ▼                                           ▼
-  planner → act ⇄ approval_gate → tools        orchestrator 子图
-          → verify → review → advance            survey
-          → steering_step → replan               → select_and_plan
-          → respond                              → scheduler ⇄ steering_dispatch
-                                                 → fan_in
-                                                       │
-                                                       ▼
-                                                  planner → act → ...
-          │
-          │ 所有工具调用都是 {tool, args}
-          ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ WSL2 沙箱（非 root；可选 bwrap 挂载命名空间）                        │
-│  stdin → bash；ulimit/timeout；词法 + realpath 路径校验；写前快照     │
-└──────────────────────────────────────────────────────────────────────┘
-```
+四层部署形态：
 
-### 四层部署形态
-
-桌面与 Web 的拆分模式按 A1–A4 分层；CLI/TUI 仍可在同进程直接持有 runtime：
-
-```
-A1 前端（CLI / TUI / Web / Desktop）
-        │ HTTP / SSE
-A2 control_server + control/ + web/ 路由
+```text
+A1 前端：CLI / TUI / Web / Desktop
+        │ HTTP / SSE（只消费 events.py）
+A2 控制面：control_server + control/ + web/routes
         │ agent_protocol + event_transport
-A3 agent_server + runtime + graph + orchestrator
+A3 编排面：agent_server + runtime + graph + orchestrator + llm
         │ ExecutionService
-A4 execution + tools + sandbox
+A4 执行面：execution + tools + sandbox
 ```
 
-- A2 只做认证、会话目录、代理与降级，不执行工具；
-- A3 持有 runtime / 图 / 编排，通过 ExecutionService 调 A4；
-- 前端永远拿不到 `tools/` 与 `sandbox/`，因此无法绕过命令分级审批。
+前端不得导入 `tools/` 或 `sandbox/`，由 AST 测试锁定。A2 不执行工具；A3 决定审批
+与分级；A4 做最终路径/能力校验。
 
-分层边由 `tests/unit/test_architecture.py` 的 AST 扫描守住。
+两条执行路径：
 
-### 两条执行路径
+```text
+direct:      planner → act ⇄ approval_gate → tools → verify → review
+             → advance / replan → respond
 
-**direct（快速路径）**
-
-适合小仓库、单点修改、单一功能线。`planner` 分解步骤，`act ⇄ tools` 执行，
-每步结束过 `verify`（行为对不对）和 `review`（代码干不干净）；失败进入
-`repair`，修复预算用尽后由 `replan` 换做法。
-
-**orchestrated（harness 路径）**
-
-满足 `AGENT_ORCHESTRATOR_MIN_FILES` 且编排开启时进入。它在父图中是一个
-**独立子图**：
-
-```
-survey
-  → select_and_plan        # 规则优先；模糊时一次结构化调用同时给出 workflow + 任务图
-  → write_gate             # 可选：并发前一次性确认整批 write_scope
-  → scheduler              # 事件驱动 DAG；429 退避、动态只读扩展
-  ⇄ steering_dispatch      # 边界消费 /pause /cancel /add /replan
-  → fan_in                 # 结构化汇总 + 可选 reducer + artifact
-  → planner → act → ...    # 主 agent 负责最终实现、验证与答复
+orchestrated: survey → select_and_plan → write_gate → scheduler ⇄ steering
+             → fan_in → planner → act → verify → review → respond
 ```
 
-### 调度器
-
-`orchestrator/scheduler.py` 不再按批 `gather`，而是：
-
-- ready 最小堆 + `asyncio.wait(FIRST_COMPLETED)`；
-- 任一任务完成就立即解锁依赖方，不必等整批；
-- 失败任务立即短路下游；有重试额度时带上次失败上下文重跑；
-- 动态只读提议在完成点校验后立即入队；
-- `AGENT_ORCHESTRATOR_CHECKPOINT_EVERY` 到达时 drain 在飞任务再返回父图，
-  形成 checkpoint / steering 边界；
-- 全局 deadline 与 worker 级 timeout 兜底。
-
-### Worker 与并发
-
-| 角色 | 能做什么 | 隔离 |
-|---|---|---|
-| `explore` | 只读定位代码、总结事实 | 独立上下文；只读工具白名单 |
-| `review` | 只读审查风险/遗漏 | 独立上下文；只读工具白名单 |
-| `test` | 宿主运行项目测试并结构化输出 | 不调模型 |
-| `implement` | 修改 `write_scope` 内文件 | 独立 git worktree；文件工具白名单 |
-
-- worker 启动/结束通过 LangGraph custom stream 实时发出；
-- 并发上限由 `AGENT_ORCHESTRATOR_MAX_CONCURRENT_WORKERS` 控制；
-- `WslSandbox` 另有 `AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS` 背压，避免并发
-  worker 同时拉起过多 `wsl.exe`；
-- 主 agent 同一条消息里的多个**只读工具**按 `AGENT_MAX_CONCURRENT_TOOLS`
-  并发执行；写工具与有依赖的调用保持串行；
-- implement worker 只绑定文件工具（read/write/edit/move/copy/delete/mkdir/list）与
-  `search_code/find_files`，
-  不绑定 shell/git/deps/test。
-
-### 写隔离与 fan-in
-
-每个 implement worker 在独立 worktree 中修改，完成后导出 patch：
-
-```
-全部 --check → 解析路径 → 全部留快照 → 顺序 git apply → 失败则反向撤销/回滚
-```
-
-补丁按**共享文件的连通分量**分批，每个分量作为一个事务：分量内任一补丁冲突
-只回滚本分量，不会影响改其它文件的 worker，也不会留下半合并状态。
-`write_scope` 有**写时校验**：文件工具在 I/O 前就拒绝越界路径，
-事后 diff 校验保留为第二道防线。
-
-fan-in 不再只做位置截断：
-
-- 失败/阻塞任务优先展示；
-- 每个任务有独立预算；
-- 输出 `worker_context`（planner/act 使用）与 `worker_brief`（紧凑副本）；
-- 完整结果落 `.agent/artifacts/<run>/<task>/attempt-N/result.json`；
-- 报告多 worker 关注同一文件与未完成/阻塞任务。
-
-### 事件边界
-
-前端只消费 `events.py` 中的 pydantic 事件，不认识 LangGraph，也拿不到工具与沙箱。
-CLI / TUI / Web / Desktop GUI 因此都无法绕过命令分级审批。这条边界由
-`tests/unit/test_architecture.py` 用 AST 扫描守住。
-
-细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 与
-[docs/HARNESS.md](docs/HARNESS.md)。
-
-## 项目结构
-
-```
-UBISmart/
-├─ src/ubismart/
-│  ├─ runtime/                 # 唯一编排入口：core + event_map + stream + 会话/记忆/审计 mixin
-│  ├─ events.py                # 前端契约：领域事件
-│  ├─ config.py                # 配置（.env > 环境变量 > 默认值）
-│  ├─ protocol/                # 事件传输 / SSE / 消息提取 / diff / 终端文本
-│  ├─ identity/                # 身份/租户：access / tenancy / provider_profiles / 项目环境
-│  ├─ session/                 # 会话支撑：steering / 摘要 / 锁 / 恢复 / 日志 / 成本
-│  ├─ agent_protocol.py        # A2↔A3 DTO / 版本与能力协议
-│  ├─ servers/                 # A2/A3 入口与路由（agent_server / control_server / server）
-│  ├─ control/                 # A2 控制面：schema / store / 迁移 / 备份
-│  │  ├─ accounts.py           #   企业账号、scrypt 密码、登录会话
-│  │  ├─ credentials.py        #   上游 Key 的 AES-GCM 加密存储
-│  │  └─ migrations/           #   Alembic；0010 企业账号/额度/用量
-│  ├─ workspace/               # A2/A3 共用的只读工作区浏览
-│  ├─ graph/                   # 主图
-│  │  ├─ state.py              #   跨节点状态
-│  │  ├─ routing.py            #   条件边（纯函数）
-│  │  ├─ build.py              #   组装图 + recursion_limit 推导
-│  │  └─ nodes/                #   planner·act·approve·tools·verify·review
-│  │                           #   repair·advance·nudge·replan·respond·steering
-│  ├─ orchestrator/            # 独立 harness 子图
-│  │  ├─ state.py              #   OrchestratorState（窄状态契约）
-│  │  ├─ subgraph.py           #   子图组装与直接/事件驱动两种拓扑
-│  │  ├─ scheduler.py          #   事件驱动 DAG 调度
-│  │  ├─ workflow.py           #   工作流选择 + 任务图预取
-│  │  ├─ nodes.py              #   兼容导出层（实现已拆到 survey/plan/scheduler/fanin）
-│  │  ├─ workers.py            #   角色 → worker runner
-│  │  ├─ implement.py          #   worktree 写 worker
-│  │  ├─ merge.py              #   patch check/快照/apply
-│  │  ├─ artifacts.py          #   fan-in artifact store
-│  │  ├─ retry.py              #   重试上下文
-│  │  ├─ graph.py              #   任务图校验 / ready / blocked
-│  │  └─ contracts.py          #   TaskSpec / WorkerResult
-│  ├─ agents/                  # explore/review 子智能体循环
-│  ├─ sandbox/                 # 执行安全层
-│  │  ├─ wsl_exec.py           #   WSL2 执行 + 可选 bwrap + 并发信号量
-│  │  ├─ limits.py             #   ulimit / timeout
-│  │  ├─ policy.py             #   命令分级、越界升级、引号感知、fail-closed
-│  │  ├─ pathguard.py          #   词法路径守卫 + Windows↔WSL 转换
-│  │  ├─ fs.py                 #   沙箱内读写 + realpath 校验 + run 级读缓存
-│  │  └─ snapshots.py          #   写前快照
-│  ├─ execution/               # A4 执行契约
-│  │  ├─ service.py            #   ExecutionService（代理 / 回执 / 重放）
-│  │  ├─ contracts.py          #   ExecutionRequest / ExecutionResult
-│  │  ├─ sandbox_backend.py    #   WSL/Linux 沙箱适配器
-│  │  └─ host_ops.py           #   宿主内部执行 kind 白名单（ADR-0011）
-│  ├─ tools/                   # 能力层
-│  │  ├─ registry.py           #   工具注册
-│  │  ├─ artifacts.py          #   结构化产物
-│  │  ├─ shell.py              #   shell_exec
-│  │  ├─ files.py              #   file_read/write/edit/restore
-│  │  ├─ git.py  deps.py       #   git_* / deps_*
-│  │  ├─ search.py             #   search_code / find_files
-│  │  ├─ testrun.py            #   run_tests + 验证输出解析
-│  │  └─ delegate.py           #   delegate_explore
-│  ├─ llm/                     # DeepSeek 客户端 · 提示词 · 上下文裁剪
-│  ├─ memory/                  # checkpoint · 会话索引 · 长期记忆
-│  ├─ audit/                   # JSONL 审计
-│  ├─ cli/                     # 命令 + 表驱动事件渲染（cli/renderer.py）
-│  ├─ tui/                     # Textual 界面 + 表驱动事件映射
-│  ├─ web/                     # Web 路由（含 auth/admin）、用户端与管理端（A1）
-│  │  └─ frontend/src/admin/   #   React 企业控制台（独立静态入口）
-│  └─ desktop/                 # 桌面壳（A1）
-├─ tests/
-│  ├─ unit/                    # 纯逻辑 + 假图驱动的 runtime 事件流
-│  ├─ integration/             # 真实 WSL 沙箱
-│  ├─ tui/                     # 无头界面
-│  └─ eval/                    # 能力评测（需 API Key，不进 CI）
-├─ docs/                       # 架构、harness、工作流、数据库、验收、威胁模型等
-├─ scripts/demo.py             # 四场景演示脚本
-├─ .github/workflows/ci.yml    # ruff + 快反馈测试
-├─ Makefile                    # make check / test-all
-├─ pyproject.toml              # 依赖与 extras
-└─ README.md
-```
-
-**想改什么，看哪里**：
-
-| 想改… | 落点 |
-|---|---|
-| 命令分级 / 安全规则 | `sandbox/policy.py`（新工具在 `graph/nodes/approve.py::tool_level` 登记） |
-| 加一个工具 | `tools/` 写 builder → `tools/registry.py` 注册 → `approve.tool_level` 登记 |
-| 加一个图节点 | `graph/nodes/` 写节点 → `graph/build.py` 接线 → `graph/routing.py` 加边 → 在 `runtime._NODE_HANDLERS` 登记并补 `_on_*` 事件处理器 |
-| 加一个 worker 角色 | `orchestrator/workers.py` 扩展 runner → `contracts.py` 角色枚举 → 工具白名单 |
-| 改调度策略 | `orchestrator/scheduler.py`（ready/依赖/重试/deadline） |
-| 改写隔离 | `orchestrator/implement.py` + `orchestrator/merge.py` + `tools/files.py` |
-| 增加宿主内部命令 | `execution/host_ops.py` 登记 kind → 更新 ADR-0011 → 补 `test_host_ops.py` |
-| 企业账号 / 额度 / 上游 Key | `control/accounts.py`、`control/credentials.py`、`web/routes/admin.py`、`frontend/src/admin/` |
-| MySQL 表 / 迁移 | `control/schema.py` → `migrations/versions/` → 更新 `docs/DATABASE.md` 与 `test_mysql_ddl.py` |
-| 加一个前端 | 只依赖 `runtime.AgentRuntime` + `events`，**不要**导入 `tools/`/`sandbox/` |
-
-**不纳入版本控制**：`.env`（密钥）、`.agent/`（审计、checkpoint、快照、artifact、
-记忆）、`.venv/`。
+- `direct`：小仓库、单点修改、单一功能线。
+- `orchestrated`：大任务拆成 DAG，`explore`/`review`/`test`/`implement` 并发，
+  implement 在独立 git worktree 中修改，补丁由宿主串行合并。
+- 状态生命周期、路由与重置规则见 [WORKFLOW.md](docs/WORKFLOW.md)。
+- 调度、worker、fan-in 与干预语义见 [HARNESS.md](docs/HARNESS.md)。
 
 ## 快速开始
 
-### 1. 环境准备
-
-本项目开发环境固定使用 **conda 的 `agent` 环境**（Python 3.11）：
+开发环境固定使用 conda 的 `agent` 环境（Python 3.11）：
 
 ```bash
 conda create -n agent python=3.11 -y
@@ -284,43 +87,42 @@ conda activate agent
 pip install -e ".[dev,ui,web]"
 ```
 
-不要用 `uv run` / `uvx` 创建临时 `.venv`；本仓库的验证命令都以
-`D:/anaconda3/envs/agent/python.exe` 为准。
-
-| extra | 装了它才能用 |
-|---|---|
-| （无） | `agent doctor` / `sandbox-init` / `chat` / `run` |
-| `dev` | `pytest` / `ruff` / `pytest-xdist` / `pytest-cov` |
-| `ui` | `agent tui`（Textual） |
-| `web` | `agent web`（FastAPI + uvicorn） |
-| `db` | 控制面 MySQL 驱动、Alembic 迁移与 `--migrate-only` |
-| `desktop` | `agent gui`（pywebview 窗口） |
-| `secrets` | 单机 GUI 注入 API Key（OS 密钥环） |
-| `embeddings` | 记忆向量检索（fastembed 本地模型） |
-
 验证安装：
 
 ```bash
-python -c "import sys, sysconfig; print(sys.executable); print(sysconfig.get_path('scripts'))"
 agent --help
+agent doctor          # 不需要 API Key
+agent sandbox-init    # 创建沙箱工作区
 ```
 
-### 2. 配置与运行
+配置与运行：
 
 ```bash
-agent init                        # 或 cp .env.example .env；然后填入 DEEPSEEK_API_KEY
-agent doctor                      # 环境自检（不需要 API Key）
-agent sandbox-init                # 创建沙箱工作区
+agent init            # 或 cp .env.example .env，填入 DEEPSEEK_API_KEY
 agent run "看看当前工作区有哪些文件"
-agent tui                         # 终端界面
-agent gui                         # 桌面图形界面（默认只读）
-agent gui --write                 # 允许会话选择审批写/自动写
+agent tui             # 终端界面
+agent gui             # 桌面图形界面（默认只读）
+agent gui --write     # 允许会话选择审批写/自动写
+agent web             # Web 验证/多用户界面
 ```
 
-默认配置已启用 harness 路径；小仓库仍由 runtime 选择 direct 快速路径。
-写 worker 需要额外设置 `AGENT_ORCHESTRATOR_WRITE_ENABLED=true` 并使用 `--write`。
+默认启用 harness；小仓库仍走 `direct`。并发写 worker 需要
+`AGENT_ORCHESTRATOR_WRITE_ENABLED=true` 且使用 `--write`。
 
-### 命令一览
+可选 extras：
+
+| extra | 用途 |
+|---|---|
+| `dev` | pytest / ruff / mypy / xdist / coverage |
+| `ui` | `agent tui`（Textual） |
+| `web` | `agent web`（FastAPI + uvicorn） |
+| `desktop` | `agent gui`（pywebview） |
+| `db` | MySQL 驱动、Alembic 迁移 |
+| `documents` | PDF/DOCX/XLSX/PPTX 解析 |
+| `report` | Markdown/DOCX/PDF 报告导出 |
+| `secrets` / `embeddings` / `otel` | OS 密钥环 / 向量记忆 / OTLP 追踪 |
+
+## 命令一览
 
 | 命令 | 用途 |
 |---|---|
@@ -328,656 +130,129 @@ agent gui --write                 # 允许会话选择审批写/自动写
 | `agent doctor` | 环境自检：Python、依赖、API Key、WSL、检索后端、shell 隔离 |
 | `agent sandbox-init` | 创建并校验沙箱工作区 |
 | `agent chat` | 纯流式对话（无工具），验证 API 联通 |
-| `agent repl` | 带工具的交互式多轮会话（支持审批与 `/new`） |
-| `agent run <指令>` | 跑一轮任务；`-C` 指定工作区，`--write` 放开写入，`-y` 跳过确认，`--plan-only` 只预览计划 |
-| `agent resume --thread-id <id>` | 从 checkpoint 恢复审批/`/pause` 挂起的会话（跨进程） |
+| `agent repl` | 带工具的交互式多轮会话 |
+| `agent run <指令>` | 跑一轮任务；`-C` 指定工作区，`--write` 放开写入，`-y` 跳过 L2 确认 |
+| `agent resume --thread-id <id>` | 从 checkpoint 恢复挂起会话 |
 | `agent tui` | 终端界面（能力最全） |
-| `agent gui` | 桌面图形界面：SSE、计划/工具/文件、审批、快照回滚、模型/密钥、上传（需 `.[web,desktop]`，密钥注入再加 `.[secrets]`） |
-| `agent steer --thread-id <id> <action>` | 向运行中的会话注入 pause/cancel/add/replan |
-| `agent web` | Web 验证/多用户界面：SSE、审批、pause/cancel/add/replan、resume（需 `.[web]`） |
-| `agent admin create` | 在 MySQL 控制面创建企业管理员（需 `.[db]` + `AGENT_CONTROL_DB_URL`） |
+| `agent gui` | 桌面图形界面（需 `.[web,desktop]`） |
+| `agent web` | Web 验证/多用户界面（需 `.[web]`） |
+| `agent steer --thread-id <id> <action>` | 注入 pause/cancel/add/replan |
 | `agent snapshots` / `undo` / `diff` | 查看快照、回滚、看改动 |
-| `agent sessions` / `history` | 历史会话列表 / 单个会话的对话记录（支持 `--json`） |
-| `agent memory` | 查看/维护项目记忆 |
-| `agent rules` | 查看/添加/删除 `AGENT_ALLOW_RULES` 持久放行规则 |
-| `agent audit` | 查看审计日志（支持 `--json`） |
+| `agent sessions` / `history` | 历史会话 / 对话记录（支持 `--json`） |
+| `agent memory` / `rules` / `audit` | 记忆 / 持久放行规则 / 审计日志 |
+| `agent admin create` | 创建企业管理员（需 `.[db]` + `AGENT_CONTROL_DB_URL`） |
 
-Shell 补全：`agent --install-completion` / `agent --show-completion`（Typer 内置）。
-
-TUI 快捷键：`Ctrl+Q` 退出（运行中会确认） · `Ctrl+N` 新会话 · `Ctrl+L` 清屏 ·
-`F2` / `Ctrl+J` 多行输入。
-输入框内 `↑/↓` 浏览历史，`→` 接受斜杠命令补全。
-
-斜杠命令：`/help` `/new` `/clear` `/workspace` `/audit` `/snapshots` `/diff`
-`/undo` `/sessions` `/switch` `/checkpoints` `/status` `/cost` `/memory`
-`/remember` `/forget` `/quit`。
-
-运行中干预：`/pause` `/resume` `/cancel` `/add [角色] <目标>` `/replan`。
-
-## Harness 工作流
-
-### 任务图生命周期
-
-1. **survey**：一次 WSL 调用拿到顶层目录/文件、测试命令、git 是否干净；
-2. **select_and_plan**：规则优先。规则不确定时，一次结构化调用同时返回
-   `workflow` 与任务图，避免第二次规划往返；
-3. **scheduler**：ready 堆调度；依赖满足即启动；失败立即短路；
-4. **fan_in**：按失败/阻塞优先排序，生成紧凑汇总并落 artifact；
-5. **主 agent**：带着 worker 结果进入 `planner → act → verify → review`，
-   完成最终实现与答复。
-
-### 任务图规则
-
-- 任务必须有唯一 `id`、非空 `goal`；
-- `depends_on` 必须存在、无自依赖、无环；
-- `depends_mode=full` 要求依赖 success；`any` 允许消费 partial；
-- implement 任务必须有非空 `write_scope`，且任务之间不能互相依赖；
-- 并发 implement 的 `write_scope` 必须两两不重叠；
-- 运行中只允许追加只读任务（explore/test/review）；
-- 只读角色不能声明 `write_scope`。
-
-校验失败时写模式退化为单个保守 implement；只读模式退化为单 explore，
-并通过事件/审计显式标记 `degraded`。
-
-### 运行中干预
-
-| 命令 | 语义 |
-|---|---|
-| `/pause` | 在 scheduler 边界 drain 后 `interrupt()`，checkpoint 保存 |
-| `/resume` | 从 checkpoint 继续 |
-| `/cancel` | 停止派发；worker 在轮次/工具边界协作式退出 |
-| `/add [角色] <目标>` | 追加只读任务 |
-| `/replan` | 保留已完成任务，重建剩余任务图 |
-
-### 成本与稳定性
-
-- worker 可选用更便宜的模型：`AGENT_ORCHESTRATOR_WORKER_MODEL`；
-- explore/review 收尾 JSON 可直接作为报告，省掉第二次报告调用；
-- 只读 worker 共享 run 级内容缓存；
-- survey 与 git 前置检查各自合并为一次 `wsl.exe`；
-- 编排有全局 `AGENT_ORCHESTRATOR_RUN_DEADLINE_S`；
-- sandbox 有并发命令上限；
-- 瞬时错误（超时/连接重置/5xx/429/环境抖动）按 `AGENT_RETRY_*` 做有界
-  指数退避重试；语义错误与配置错误不重试；
-- 验证/审查遇到执行环境异常时**不拖垮整轮**：`verify` 记为 `error` 并直接
-  收尾，`review` 记为 `warned` 且不推进水位线；
-- 崩溃后同一 thread 重跑会为悬空的 `tool_calls` 补占位结果，避免下一轮
-  API 因消息配对不完整而 400；
-- 文件写入使用“同目录临时文件 + rename”原子替换；`EBUSY/ETXTBSY` 等
-  瞬时占用会短退避重试；
-- 模型读过的文件若在写前被外部修改，`file_write` / `file_edit` 会拒绝覆盖
-  并提示重新读取；
-- checkpoint SQLite 开启 WAL 与 `busy_timeout`，降低多前端并发锁冲突；
-- `run_status` 留在 checkpoint 里：上一轮异常中断时，新一轮会收到
-  “可能有未验证改动”的恢复提示；
-- `agent undo --last-run` 可按最近一次运行整体回滚，`--since` 按时间点，
-  两者都支持 `--dry-run`；
-- 有副作用的工具（写文件、shell 写命令、git、依赖、测试）记录
-  `started/finished`；崩溃后只有 `started` 的调用**不会自动重放**，而是明确
-  告知“结果未知”；
-- 单次运行有总墙钟上限 `AGENT_RUN_DEADLINE_S`（跨 resume 累计），自动验证有
-  独立的 `AGENT_VERIFY_TIMEOUT`；
-- WSL 连续传输失败达到 `AGENT_WSL_BREAKER_FAILURES` 后熔断，冷却期内直接
-  fail fast 并提示运行 `agent doctor`；冷却后放一个半开探测请求，成功即恢复；
-- worker / 工具 / WSL / LLM 并发由统一的 `ConcurrencyGovernor` 管理，所有
-  获取都有超时；LLM 按 provider + 全局双层限流，并根据成功/429 做 AIMD；
-- 调度器不再把 `checkpoint_every` 当作启动上限；token 预留使用同角色历史
-  用量的 EWMA，预算不足时优先选择放得下的任务，而不是全阻塞；
-- ready 队列带 aging：等待越久优先级越高，防止高优先级任务把低优先级任务饿死；
-- WSL 池保留 1 个槽位给健康探针；implement 在飞 + 待合并补丁超过阈值时
-  暂停启动新的写任务，先排空合并队列；
-- 同一工作区有单写者锁，第二个 runtime 会直接收到 `RunFailed`；
-- `run_end` 审计与 `RunFinished` 事件包含各资源池的并发/排队/等待快照；
-- LLM 的 AIMD 并发上限写入现有跨进程限流状态文件，多进程共享同一个收敛值；
-- WSL 池在饱和时按命令 p95 延迟自动降/升并发，非饱和时不因单条慢命令误降。
+Shell 补全：`agent --install-completion` / `agent --show-completion`。
 
 ## 安全模型
-
-### 命令分级
 
 | 级别 | 示例 | 行为 |
 |---|---|---|
 | L0 只读 | `ls` `cat` `grep` `git status` | 自动执行 |
-| L1 低风险写 | `mkdir` `touch`、`file_edit`、`git add` | 需 `--write`，自动执行 + 审计 |
+| L1 低风险写 | `mkdir`、`file_edit`、`git add` | 需 `--write`，自动执行 + 审计 |
 | L2 变更性 | `pip install`、`git commit`、`sed -i` | 需用户确认 |
 | L3 危险 | `rm -rf`、`git push -f`、`curl \| sh`、`sudo` | 需用户确认（标注危险） |
 
-复合命令按 `&&` `||` `;` `|` 分段取最高级别；无法解析的一律降级为 L2。
-`command` 只放行 `-v/-V`（其余递归分类）；`git config/remote/branch/tag/stash`
-按参数区分读写，`-c/--config-env/--exec-path` 为 L3；`rm -r -f` 拆分写法、
-`find -exec/-delete`、`git push +ref`、`PATH=/LD_PRELOAD=` 前缀一律 L3。
-`cp` / `ln` / `mv` 刻意不自动放行：它们能绕过文件工具的精确替换、diff 与写前备份。
-
-### 审批：决定与执行分离
-
-- `approval_gate` 只做决定（放行/询问/拒绝），保持纯函数；
-- `tools` 节点负责强制，是所有工具执行的唯一咽喉；
-- **fail closed**：审批记录缺失、答复无法解析、非交互环境，一律拒绝；
-- 审批结果一次性有效，不会跨轮次误放行；
-- 宿主内部执行（补丁合并 / worktree / 补丁生成）不经过模型，只允许
-  `execution/host_ops.py::host_run` 的 kind 白名单；未知 origin/kind 或不匹配
-  命令一律拒绝，见 [ADR-0011](docs/adr/0011-host-side-execution.md)。
-
-### 并发 worker 的权限
-
-- explore/review：只读白名单，构造时与运行时双重校验；
-- test：不调模型，由宿主运行确定性验证命令；
-- implement：只绑定文件/检索白名单，不绑定 shell/git/deps/test；
-- implement 在独立 worktree 中运行；`write_scope` 在文件工具 I/O 前强制校验；
-- 合并前 `git apply --check`、为目标文件留快照，合并串行执行；
-- 并发区**不弹审批、不调用 `interrupt()`**；审批仍属于主图或编排边界。
-
-### 可选隔离后端
-
-默认 `AGENT_SHELL_SANDBOX=off`，靠工作区 cwd 约束 + 词法升级。要内核级隔离，
-设 `AGENT_SHELL_SANDBOX=bwrap`：命令在挂载命名空间里执行，`/home`、`/root`、
-`/mnt` 不可见、仅工作区可写；配置了却不可用时**拒绝执行**，不静默降级。
-`AGENT_SHELL_NETWORK=false` 会再加 `--unshare-net`，彻底切断命令网络。
-bwrap 同时启用 `--cap-drop ALL`、`--new-session`、`--unshare-ipc`。
-
-每条 WSL 命令以 `env -i` 启动，宿主环境变量不会进入 Linux 子进程；
-`AGENT_SHELL_ENV_ALLOWLIST` 可显式放行 `JAVA_HOME` 等构建变量，含
-KEY/TOKEN/SECRET/PASSWORD 的名称始终忽略。`printenv` / `env` 归为 L3。
-
-审计、shell、search、file_read 回灌前都会对常见密钥（`sk-*`、
-GitHub/GitLab token、AWS key、JWT、Slack/Google token、私钥块、
-`password=...`、数据库连接串）做脱敏。`file_write`/`file_edit` 默认拒绝
-`.env`、私钥/证书、`.npmrc`、`.netrc`、`.aws/**`、`.kube/**`、
-`credentials*.json`、`*.tfstate`、`.git/`、`.agent/` 等敏感目标，可用
-`AGENT_WRITE_DENY_GLOBS` 追加。`AGENT_ALLOW_RULES` 可把明确安全的 L2 命令
-持久放行，但不会绕过 L3 或 `deny` 模式。
-
-资产、假设与边界见 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)。
+- 审批决定与执行分离：`approval_gate` 纯函数决定，`tools` 节点强制。
+- 审批结果一次性有效，用后即清；跨挂起/恢复仍带调用参数。
+- 路径校验做两次：词法归一化 + 沙箱内 `realpath`；符号链接逃逸被拒。
+- `.agent/`、`.env`、私钥/证书、凭据文件默认拒绝读写。
+- 可选 bwrap 内核级隔离；配置了却不可用时拒绝执行，不静默降级。
+- 完整威胁模型与残余风险见 [THREAT_MODEL.md](docs/THREAT_MODEL.md)。
 
 ## 工具
 
-| 工具 | 等级 | 说明 |
-|---|---|---|
-| `shell_exec` | 按命令内容 | bash 命令，L2/L3 需确认 |
-| `file_read` | L0 | 带行号读文件，支持 offset/limit |
-| `file_list` | L0 | 列出目录（类型 + 相对路径，可限深度） |
-| `symbol_search` | L0 | AST 符号定位（类/函数/方法 → 文件:行号） |
-| `code_intel` | L0 | LSP 定义/引用/诊断（需配置 `AGENT_LSP_COMMAND`；未配置时记为 skipped） |
-| `file_write` / `file_edit` | L1 | 精确替换、diff、写前备份 |
-| `file_edit_many` | L1 | 一次提交多条编辑（可跨文件），全量校验后一次落盘 |
-| `file_restore` | L1 | 回滚到某次修改前 |
-| `file_move` / `file_copy` / `file_mkdir` | L1 | 移动/复制/建目录，带 write_scope 与留底 |
-| `file_delete` | L2 | 删除普通文件，删除前留底，需确认 |
-| `git_status` / `git_diff` / `git_log` | L0 | 只读 |
-| `git_add` | L1 | 只动索引 |
-| `git_commit` | L2 | 产生提交，需确认 |
-| `deps_install` | L2 | 自动识别 uv/poetry/pnpm/yarn/npm/pip，需确认 |
-| `deps_list` | L0 | 只读；`pip` 缺失时回退 `python3 -m pip`，否则明确报环境错误 |
-| `search_code` / `find_files` | L0 | 按内容/文件名检索 |
-| `run_tests` | L2 | 模型主动运行测试，需确认 |
-| `delegate_explore` | L0 | 委派只读探索子智能体（需 `AGENT_EXPLORE_ENABLED=true`） |
+| 类别 | 工具 |
+|---|---|
+| Shell | `shell_exec`（按命令内容分级） |
+| 文件 | `file_read/list/write/edit/edit_many/restore/move/copy/delete/mkdir` |
+| Git | `git_status/diff/log/add/commit` |
+| 依赖 | `deps_install/list` |
+| 检索 | `search_code/find_files/symbol_search/code_intel` |
+| 测试 | `run_tests` |
+| 记忆 / 知识 | `memory_search/save`、`knowledge_read/search` |
+| 文档 / 视觉 / 报告 | `document_*`、`image_inspect`、`report_export/check/read` |
+| 委派 / 宿主 | `delegate_explore`、`host_exec` |
 
-L1 工具需要 `--write`；未登记的新工具按最危险的 L3 处理。
-
-本机 WSL2 微基准（直接调用工具，不含 LLM/审批）：常驻 shell 开启时
-`file_read` ~20ms、`search_code` ~16ms、`file_write` ~100ms；关闭时分别
-约 175ms、170ms、675ms（合并写往返后约 364ms）。
-Git、依赖、检索做成结构化工具，参数无法逃逸、等级可判定、审计可读。
-
-`.agent/` 禁止进入版本控制：`git_add` 拒绝暂存，`git_commit` 提交前检查，
-经 shell 的 `git add -A` 在策略层升级为需确认。
-
-## 文件修改与回滚
-
-修改只走 `file_read` / `file_write` / `file_edit` / `file_restore` /
-`file_move` / `file_copy` / `file_delete` / `file_mkdir`，不走 shell。
-内容经 base64 在沙箱内落盘，不经过命令行解释。
-
-- **精确替换**：`old_string` 必须唯一，出现 0 次或多次都拒绝并说明原因；
-- **路径双重校验**：词法归一化 + 沙箱内 `realpath`；符号链接逃逸（含悬空链接）会被拒；
-- **写前备份**：覆盖或编辑前存入 `.agent/backups/<快照id>/`；
-- **编排写**：worker 在 worktree 中修改，合并前额外为主工作区留快照。
-
-```bash
-agent snapshots              # 列出快照
-agent diff                   # 最近一次改动
-agent undo                   # 回滚最近一次改动
-```
-
-回滚本身也可回滚：恢复前会先把当前内容留一份。
-
-## 验证与修复循环
-
-每步做完且改过东西时自动跑验证，把输出结构化成 `文件:行号 + 消息` 再回灌：
-
-```
-验证失败 FAILED (failures=1)
-  · test_calc.py:14 self.assertEqual(average([]), 0.0)
-  · ZeroDivisionError: division by zero
-↻ 第 1/3 次修复 FAILED (failures=1)
-```
-
-- 命令按项目清单自动识别（Cargo / go / npm / pytest / make）；
-- 识别不出测试命令但有源码时，降级为**语法解析级**验证（`kind=syntax`）；
-- 什么都没跑时 `kind=none`，事件与审计的 `ok` 是三态（True/False/None）；
-- 自动 verify 不走审批；模型主动调 `run_tests` 才走 L2；
-- 修复次数有硬上限（默认 3，按步计算）；连续同一失败签名会改走 `replan`；
-- verify 通过后还有 `review`：检查语法、被改弱的测试、调试残留、写进 `.agent/` 等。
-
-## 会话与记忆
-
-```bash
-agent sessions                       # 历史会话
-agent run --thread-id <id> "继续"     # 接着某个会话
-agent memory --add "本仓库用 uv"      # 记一条项目约定
-agent memory --history               # 查看记忆备份
-agent memory --restore <备份 id>      # 恢复到某次写入前
-agent checkpoints --thread-id <id>   # 查看可回退/分叉的 checkpoint
-agent fork --thread-id <id>          # 从当前状态分叉出新会话
-agent rewind --thread-id <id> -n 1   # 回退 1 个 checkpoint（历史保留）
-```
-
-会话存在 SQLite 中，跨进程可恢复。会话列表直接归纳自审计日志。
-项目记忆是 `.agent/memory.md` 的纯文本（一行一条），每次运行用 **BM25 + 时间衰减 +
-pinned/priority 权重** 取前 `AGENT_MEMORY_TOP_K` 条注入系统提示；模型也可以用
-`memory_search` 按需检索，`--write` 会话可用 `memory_save` 记下一条稳定约定。
-写入前和读取时都会扫描密钥；高相似事实自动替换，中等相似事实保留并标记
-`conflicts_with`（`agent memory --conflicts` 查看）；来源/原因/时间/过期/线程信息
-在同目录的 `memory.meta.json`；每次写入前备份到 `.agent/memory.backups/`（保留
-20 份）。用户与模型的记忆写入都会落 `kind=memory` 审计。不可信/生产 profile 下
-`memory_save` 会升级为需确认或拒绝，且不可信仓库的记忆根按工作区哈希隔离。
-可用 `AGENT_MEMORY_GLOBAL_ROOT` 配置跨工作区全局记忆（`agent memory --global`），
-项目记忆优先于全局记忆。可选安装 `.[embeddings]` 并设置
-`AGENT_MEMORY_VECTOR_ENABLED=true` 启用本地向量混合检索（RRF）；也可用
-`provider=remote` 接 OpenAI-compatible embedding，但必须同时设置
-`AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS=true`，且 untrusted/production
-profile 一律拒绝（记忆内容会离开本机）。任何 embedding 失败都会自动回退
-BM25，`agent memory --vector-status/--reindex` 用于检查与重建索引。仓库内的 `AGENTS.md` / `CLAUDE.md` 作为分层指令单独注入。
-刻意不做后台自动提炼。
-
-## 界面
-
-**桌面 GUI**（`agent gui`）：Windows 薄壳 + WSL 内 Agent Server（Phase 1），
-复用 Web 的事件与审批链路。默认只读；会话可选择只读/审批写/自动写，按会话绑定工作区，
-支持 SSE、计划/工具/文件面板、审批、pause/cancel/add/replan、快照/diff/回滚、
-checkpoint/fork/rewind、模型选择、GUI 注入 API Key（OS 密钥环）与文件上传。
-当前拆分模式：Windows A2 `python -m ubismart.servers.control_server` +
-WSL A3 `python -m ubismart.servers.agent_server`；Windows 只通过 loopback/SSE
-访问，工具不再逐条启动 `wsl.exe`。旧命令名 `coding-agent-server` 等仍保留兼容。
-详见 [docs/GUI.md](docs/GUI.md)、[docs/PHASE0.md](docs/PHASE0.md)
-与 [docs/PHASE1.md](docs/PHASE1.md)、[docs/PHASE2.md](docs/PHASE2.md)、
-[docs/PHASE3.md](docs/PHASE3.md)、[docs/PHASE4.md](docs/PHASE4.md)、
-[docs/PHASE5.md](docs/PHASE5.md)。四层（前端/控制面/编排面/执行面）与
-Windows+Linux 跨平台契约见 [docs/PHASE_A.md](docs/PHASE_A.md)；
-Phase B 控制面首切片见 [docs/PHASE_B.md](docs/PHASE_B.md)；
-Phase C 的执行契约见 [docs/PHASE_C.md](docs/PHASE_C.md)。
-Windows 上 `agent gui` 默认走“配置向导 + WSL Agent Server + WebView”；
-Phase 2 提供专用 WSL 发行版与 Inno Setup 安装包构建脚本；
-Phase 3 增加原生文件夹选择、`/mnt` → WSL 复制、VS Code Remote-WSL 打开，
-并在设置页同时展示项目 Python 与 Agent Python（项目测试优先用项目解释器）。
-Phase 4 补齐会话搜索/改名/删除/导出、只读文件树、Git 面板、逐文件接受/拒绝、
-上传配额、恢复中心、Provider 档案与模型发现、预算与系统通知。
-Phase 5 增加脱敏诊断包、server 崩溃看门狗、清单式更新检查、diff 折叠与
-本地 OpenAI 兼容端点预设。Phase A 是先行的架构契约：前端 / 控制面 / 编排面 /
-执行面四分，Windows 用 WSL 执行面、Linux 用原生执行面，控制面可接 Windows
-本机 MySQL；当前代码行为不变。
-
-**TUI 是能力最全的终端界面**（`agent tui`）：计划面板、任务/worker 状态面板、可滚动流式输出、
-Markdown/代码块渲染、审批弹窗。侧栏常驻显示会话、工作区、权限等级、模型、
-运行状态与成本；输入框支持 ↑/↓ 命令历史、斜杠命令补全与多行编辑（F2）。
-
-**Web 是验证/多用户界面**（`agent web`）：SSE 流式对话、多会话列表、
-审批、pause/cancel/add/replan、审批/暂停后的 resume。
-默认按 `untrusted` profile 运行，并支持 Bearer Token + per-user 工作区；
-公网部署必须配置 token 与 TLS（见 [USAGE.md](docs/USAGE.md#公网--多用户部署)）。
-前端源码在 `frontend/src`，由 esbuild 构建到 `static/app.js`；CI 会跑
-`tsc --noEmit` 并校验生成物无漂移。端点与 TUI 共用同一套 runtime/steering 语义。
-Web 在 runtime 被 TTL 清理或进程重启后，会从 per-user checkpoint 重建并 resume。
-
-**企业版**（`AGENT_WEB_ACCOUNTS_ENABLED=true`）：
-
-- 企业账号、登录会话、会话目录、每日配额、token 用量与上游 Key 密文统一写入
-  MySQL；生产强制 `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL=true`；
-- 用户端改用账号密码登录（HttpOnly Session Cookie + CSRF），静态 Bearer
-  token 仍保留为过渡/内网方案；
-- **OIDC**（`AGENT_OIDC_ENABLED=true`）：Authorization Code + PKCE，
-  discovery/JWKS 验签 `iss/aud/exp/nonce`，按 `(issuer, subject)` 映射本地用户；
-  角色只接受 `AGENT_OIDC_ROLE_MAP` 的显式映射；
-- **TOTP MFA**（`AGENT_MFA_ENABLED=true`）：本地账号密码后再验动态码/恢复码；
-  密钥 AES-GCM 加密、恢复码只存哈希、同一时间步不可重放；OIDC 的 MFA 由 IdP 负责；
-- 登录失败按账号计数：15 分钟内 10 次失败后返回 429（成功登录清零）；
-  未知/禁用账号也执行 scrypt，避免时序枚举；
-- 会话管理：`GET /api/auth/sessions` 列出有效会话（不返回 token/哈希），
-  `POST /api/auth/sessions/revoke-others` 一键登出其他会话；
-- 自助密码重置：`/api/auth/password-reset/request|confirm`；token 只存哈希、
-  30 分钟有效、成功即吊销全部会话；邮件走 `AGENT_SMTP_*`，未配置时只生成
-  token；登录页提供“忘记密码”表单；
-- **四眼审批**（`AGENT_APPROVAL_FOUR_EYES=true`）：L3 审批落到管理员队列，
-  发起人的 `/api/resume` 不能自批；管理员在 `/admin` 的“审批”页决定；
-- 管理员访问 `/admin` 独立 React 控制台：注册用户、禁用/启用、重置密码、
-  重置 MFA、分配上游模型 Key、设置每日 token/人民币成本额度、查看按用户/天
-  用量、登录安全事件与待审批 L3；
-- **角色**：`owner` 所有权、`admin` 日常管理、`approver` 只处理四眼审批、
-  `auditor` 只读账号/用量/登录事件、`member` 普通开发者。`auditor` 的非 GET
-  `/api/*` 由中间件统一拒绝；前端按角色隐藏入口，但授权以后端为准；
-- **按用户访问上限**：管理员可把成员限制为 `read_only` / `write_ask` /
-  `write_auto`；新会话与已有会话在创建/运行前都会按上限钳制，不能靠请求体提权；
-- **工作区只读共享**：管理员可把工作区元数据与 revision 只读授权给同租户
-  成员（`PUT /api/admin/workspaces/{id}/acl`）。被授权者能列出/查看，不能修改
-  或把工作区绑进会话执行；非 owner 视图不返回 `root_path`/`root_handle`；
-- 上游 Key 用 AES-256-GCM 加密，主密钥来自 `AGENT_SECRET_MASTER_KEY`，页面
-  只显示后四位；
-- CLI、TUI、Web 与管理端的成本显示统一按 `AGENT_COST_CURRENCY`（默认 CNY）
-  换算；上游账单与运行时事件仍以 USD 为事实源；
-- 建库、迁移、保留策略与备份见 [docs/DATABASE.md](docs/DATABASE.md)，
-  决策见 [ADR-0021](docs/adr/0021-enterprise-mysql-account-store.md)；
-- A2 横向扩展（Redis 事件传输/限流、共享主密钥、A3 与文件系统约束）
-  见 [docs/MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md)。
-
-```bash
-mysql -u root -p < packaging/mysql/init.sql
-export AGENT_CONTROL_DB_URL='mysql+pymysql://coding_agent:***@127.0.0.1:3306/coding_agent'
-export AGENT_CONTROL_DB_AUTO_CREATE=false
-python -m ubismart.control.migrate --backup
-export AGENT_WEB_ACCOUNTS_ENABLED=true
-export AGENT_SECRET_MASTER_KEY="$(openssl rand -base64 32)"
-agent admin create --username admin --role owner
-agent web --port 8765
-```
-
-**CLI 实时干预**：`agent steer --thread-id <id> pause|cancel|add|replan`
-把指令写入 `.agent/steering/`，运行中的进程在下一个边界消费。
-Web、CLI（`agent resume`）都支持跨进程 resume；TUI 持有进程内 runtime。
-
-## 演示
-
-```bash
-python scripts/demo.py --list    # 看四个场景的说明与观察点
-python scripts/demo.py           # 全部跑一遍（真实调用模型）
-python scripts/demo.py --only 3  # 只跑某个
-```
-
-四个场景对应四个创新点：只读分析 → 命令被拦 → 修复循环 → 回滚。
-讲稿见 [docs/DEMO.md](docs/DEMO.md)。
+等级与参数以 [docs/contracts/tools.yaml](docs/contracts/tools.yaml) 为准；未登记的新工具
+按 L3 处理（fail-closed）。L1 需要 `--write`，L3 始终需要人工确认。
 
 ## 开发与测试
 
 ```bash
 conda activate agent
 
-make check            # lint + 快反馈测试
-make test-all         # 全量（含真实 WSL）
-make cov              # 快反馈子集 + 覆盖率门槛
-
-pytest -m "not wsl and not wsl_env and not llm"   # 单元 + TUI + Web + Desktop
-pytest -m "not llm"               # 全量（含真实 WSL）
+make check                                             # lint + 快反馈
+pytest -m "not wsl and not wsl_env and not llm"        # 单元 + TUI + Web + Desktop
+pytest -m "not llm"                                    # 全量（含真实 WSL）
+pytest -m wsl                                          # 只跑沙箱层
 ruff check src tests
-
-# 能力评测（真实模型，成本自负）
-python -m tests.eval.runner --suite default --repeat 2
-# 噪声感知对比
-python tests/eval/compare.py <baseline-a> <baseline-b>
-# 干预延迟基准（不调用模型）
-python tests/eval/steering_bench.py --repeat 3
-
-# LangSmith 全功能评测：139 个能力任务 + 11 个机制探针
-python tests/eval/langsmith_suite.py --upload --kinds all
-python tests/eval/langsmith_suite.py --run --kinds mechanism
-python tests/eval/langsmith_suite.py --run --smoke
+python scripts/check_docs.py --strict                  # 文档门禁
+python scripts/check_lint_budget.py                    # lint 预算棘轮
 ```
 
-CI 在无 WSL 的 runner 上跑 `ruff` + `pytest -m "not wsl and not wsl_env and not llm" --cov`，
-覆盖率门槛 76。沙箱层由本地 `-m wsl` 用例守着，CI 会显式提示这个缺口。
+- CI 在无 WSL 的 runner 上跑快反馈 + 覆盖率；WSL 门禁在
+  [sandbox.yml](.github/workflows/sandbox.yml) 的 self-hosted `wsl` runner 上执行。
+- 覆盖率门槛 `fail_under=76`；承重模块有独立棘轮，见 [COVERAGE.md](docs/COVERAGE.md)。
+- 测试分层、标记与增量选择见 [TESTING.md](docs/TESTING.md)。
+- 复杂度热点与拆分建议见 [COMPLEXITY.md](docs/COMPLEXITY.md)。
 
-### 性能基线
+## 文档地图
 
-```bash
-python scripts/phase_f_bench.py
-# 可选：--mysql-url 指向独立测试库
-```
-
-只做趋势比较，不设硬阈值。2026-10-24 本机快照：
-
-| 指标 | 结果 |
+| 想… | 读 |
 |---|---|
-| A2 启动 → `/healthz` 就绪 | 5.61s（单次样本） |
-| A2 代理 SSE 首事件 | p50 30.99ms / p95 44.32ms |
-| SQLite 控制面写入（10 行） | p50 10.55ms / p95 14.15ms |
-| ExecutionService 代理 | p50 1.018ms / p95 1.509ms |
+| 上手跑起来 | 本文件 → [USAGE.md](docs/USAGE.md) |
+| 理解分层、数据流与不变量 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| 接续任务时看状态生命周期 | [WORKFLOW.md](docs/WORKFLOW.md) |
+| 改编排、调度、worker | [HARNESS.md](docs/HARNESS.md) |
+| 查配置项 | [contracts/config.md](docs/contracts/config.md)（生成） |
+| 查工具/命令等级 | [contracts/tools.yaml](docs/contracts/tools.yaml)（生成） |
+| 安全边界与威胁模型 | [THREAT_MODEL.md](docs/THREAT_MODEL.md) |
+| 部署、数据库与多实例 | [DATABASE.md](docs/DATABASE.md)、[MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md) |
+| 桌面 GUI 与前端约束 | [FRONTEND.md](docs/FRONTEND.md) |
+| 主机能力代理（A2L） | [HOST_BROKER.md](docs/HOST_BROKER.md) |
+| CI、环境、可观测性、发布 | [CI.md](docs/CI.md)、[ENVIRONMENT.md](docs/ENVIRONMENT.md)、[OBSERVABILITY.md](docs/OBSERVABILITY.md)、[RELEASING.md](docs/RELEASING.md) |
+| 验收某条需求 | [acceptance-criteria.yaml](docs/acceptance/acceptance-criteria.yaml) |
+| 了解为什么这么做 | [adr/](docs/adr/README.md) |
+| 新增跨模块能力 | [rfc/](docs/rfc/README.md) |
+| 历史阶段与一次性报告 | [archive/](docs/archive/README.md) |
+| 出问题了 | [runbook.yaml](docs/runbook.yaml) |
+| 改某个子系统 | 对应目录的 `AGENTS.md` |
 
-完整口径与限制见 [docs/PHASE_F.md](docs/PHASE_F.md)。长会话渲染仍按
-[docs/PHASE_E.md](docs/PHASE_E.md) 的手测清单执行，不纳入脚本。
+## 配置入口
 
-测试分层：
+优先级：**命令行/构造函数参数 > `.env` > 环境变量 > 默认值**。
 
-- `tests/unit`：纯逻辑，含假图驱动的 runtime 事件流；
-- `tests/integration`：真实 WSL 沙箱，环境不具备时自动跳过；
-- `tests/tui`、`tests/unit/test_web_app.py` 与 `tests/unit/test_desktop_bootstrap.py`：无头界面；
-- `tests/eval`：能力评测，需 API Key，不进 CI。
-
-关键不变量见
-[ARCHITECTURE.md 第 6 节](docs/ARCHITECTURE.md#6-不变量)。
-
-## 配置
-
-复制 `.env.example` 为 `.env` 后按需修改。
-
-> 优先级：**命令行/构造函数参数 > `.env` > 环境变量 > 默认值**。
-> `agent doctor` 会列出两边不一致的键。
->
-> 本节只列常用项；**全量配置项以 [`docs/contracts/config.md`](docs/contracts/config.md) 为准**，
-> 那里由 `scripts/gen_contracts.py` 从 `config.py` 生成，CI 会校验漂移。
-
-### 模型与追踪
+常用项：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `DEEPSEEK_API_KEY` | — | 单 provider 时必填 |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | 主模型 |
-| `AGENT_LLM_PROVIDERS` | 空 | 多 provider JSON；空 = 用 `DEEPSEEK_*` 单 provider |
-| `AGENT_LLM_FALLBACK_ON_ERROR` | `true` | 非 429 错误是否也切换下一个 provider |
-| `AGENT_LLM_PROVIDER_MAX_WAIT_S` | `30` | 所有 provider 冷却时单次调用最多等待秒数 |
-| `AGENT_LLM_ROUTING_STRATEGY` | `cost` | `cost` 按单价排序；`priority` 按配置顺序 |
-| `AGENT_RUN_COST_BUDGET_USD` | `0` | 单次 run 成本预算；0 = 不告警 |
-| `AGENT_COST_ALERT_RATIO` | `0.8` | 达到预算该比例时发出 `cost_report` 告警 |
-| `AGENT_BILLING_ENABLED` | `false` | run 结束时拉取 provider 账单做对账 |
-| `AGENT_BILLING_TIMEOUT_S` | `10` | 账单 API 超时（秒） |
-| `AGENT_ORCHESTRATOR_WORKER_MODEL` | 空 | worker 专用模型；空 = 继承主模型 |
-| `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` | `false` / — | 调用链追踪 |
+| `AGENT_LLM_PROVIDERS` | 空 | 多 provider JSON；空 = 单 provider |
+| `AGENT_ORCHESTRATOR_ENABLED` | `true` | 启用 harness |
+| `AGENT_ORCHESTRATOR_WRITE_ENABLED` | `false` | 并发写 worker |
+| `AGENT_ORCHESTRATOR_MIN_FILES` | `30` | 进入编排的文件数门槛 |
+| `AGENT_APPROVAL_MODE` | `ask` | `ask` / `approve` / `deny` |
+| `AGENT_VERIFY_ENABLED` | `true` | 自动验证 |
+| `AGENT_SECURITY_PROFILE` | `local` | `untrusted` / `production` / `ops` 强制收紧 |
+| `AGENT_WSL_DISTRO` | `Ubuntu` | WSL 发行版 |
+| `AGENT_SHELL_SANDBOX` | `off` | `off` / `bwrap` |
+| `AGENT_CONTEXT_MAX_CHARS` | `60000` | 上下文裁剪 |
+| `AGENT_RUN_DEADLINE_S` | `1800` | 单次运行墙钟上限 |
 
-配置多个 provider 时默认按 `AGENT_LLM_ROUTING_STRATEGY=cost` 选择可用且未超配额的最便宜 provider（`priority` 策略则按配置顺序）。每个 provider 可配置 `input_cost_per_1m` / `output_cost_per_1m`、`max_tokens`、`max_cost` 配额，以及 `capabilities` / `task_types` 过滤；用量从模型回报的 usage 累计。429 会把该 provider 放入冷却并自动切到下一个，非 429 错误由 `AGENT_LLM_FALLBACK_ON_ERROR` 控制是否 fallback。冷却与用量默认写入 `.agent/rate_limits.json`（文件锁 + 原子替换），多个 `agent` 进程共享；scheduler 的限流退避也会写入同一份全局协调器。每次 run 结束前会发出 `CostReport`（tokens、费用、provider 拆分、预算告警），CLI/TUI/Web/Desktop GUI 都会展示。开启 `AGENT_BILLING_ENABLED` 后，还会按 provider 的 `billing` 配置拉取账单 API，报告账单金额与本地估算的差额；单个 provider 对账失败不会影响 run。
+全量配置（400 项）以 [contracts/config.md](docs/contracts/config.md) 为准；不要以本表当全量清单。
 
-### WSL2 沙箱
+## 企业版与多用户
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `AGENT_WSL_DISTRO` | `Ubuntu` | |
-| `AGENT_WSL_WORKSPACE` | 空 = `$HOME/agent-ws` | 支持 Windows 路径；Git Bash 下建议 `wsl:/home/u/proj` 避免 MSYS 路径转换 |
-| `AGENT_SHELL_SANDBOX` | `off` | `off` / `bwrap`；配了 bwrap 但不可用时拒绝执行 |
-| `AGENT_SHELL_NETWORK` | `true` | 仅 bwrap 生效；`false` 时加 `--unshare-net` |
-| `AGENT_SHELL_ENV_ALLOWLIST` | 空 | 显式放行给 WSL 的宿主变量名（如 `JAVA_HOME,GOPATH`）；敏感名称始终忽略 |
-| `AGENT_PERSISTENT_SHELL` | `true` | 常驻 WSL bash 会话池；失败自动退回逐命令执行 |
-| `AGENT_PERSISTENT_SHELL_POOL` | `4` | 常驻会话数量（保留并发能力） |
-| `AGENT_SHELL_TIMEOUT` | `60` | 单条命令墙钟上限 |
-| `AGENT_WRITE_DENY_GLOBS` | 空 | 追加敏感写保护 glob（`.env`/密钥/凭据文件/`.git`/`.agent` 默认已保护） |
-| `AGENT_READ_DENY_GLOBS` | 见 `.env.example` | 追加秘密文件读保护 glob；`.env.example` 等模板自动放行 |
-| `AGENT_REPO_MAP_CHARS` | `4000` | 注入 planner 的 AST repo map 字符预算（0 = 关闭） |
-| `AGENT_LSP_COMMAND` | 空 | 可选 language server 命令（如 `pylsp`）；空则 `symbol_search` 用 AST |
-| `AGENT_LSP_TIMEOUT` | `10` | LSP 请求超时（秒） |
-| `AGENT_LSP_DIAGNOSTICS_WAIT_S` | `2` | pull 诊断不可用时等待 publishDiagnostics 的最长秒数 |
-| `AGENT_SHELL_CPU_SECONDS` / `_MEMORY_MB` / `_MAX_FILE_MB` / `_MAX_PROCESSES` | `600` / `0` / `512` / `1024` | 0 = 不限制 |
-| `AGENT_SANDBOX_MAX_CONCURRENT_COMMANDS` | `8` | 同时启动的 `wsl.exe` 上限（单进程；Web 多会话共享 governor，多个独立 `agent` 进程不共享） |
-| `AGENT_MAX_CAPTURE_BYTES` | `1000000` | 单条命令 stdout/stderr 各自捕获上限（0 = 不限制）；超出部分在沙箱侧丢弃 |
+启用 `AGENT_WEB_ACCOUNTS_ENABLED=true` 后，账号、登录会话、会话目录、每日配额、
+token 用量与上游 Key 密文统一写入 MySQL；支持 OIDC、TOTP MFA、四眼审批、
+按用户访问上限与工作区只读共享。建库、迁移、备份见 [DATABASE.md](docs/DATABASE.md)；
+Redis 事件传输与多实例约束见 [MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md)。
 
-### 编排 / harness
+## 相关入口
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `AGENT_ORCHESTRATOR_ENABLED` | `true` | 启用 harness；小仓库仍走 direct 快速路径 |
-| `AGENT_ORCHESTRATOR_WRITE_SCOPE_ENFORCE` | `true` | 写时校验 `write_scope` |
-| `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` | `false` | 允许多个 implement 改同一文件；用 `git apply --3way` 合并，冲突只回滚所在分量 |
-| `AGENT_ORCHESTRATOR_FANOUT_ARTIFACTS` | `true` | fan-in 落 `.agent/artifacts/` |
-| `AGENT_ORCHESTRATOR_MIN_FILES` | `30` | 文件数达到该值才进入编排 |
-| `AGENT_ORCHESTRATOR_MAX_TASKS` | `6` | 任务总数（含动态扩展） |
-| `AGENT_ORCHESTRATOR_MAX_CONCURRENT_WORKERS` | `4` | 并发 worker 上限 |
-| `AGENT_ORCHESTRATOR_TASK_RETRIES` | `1` | 单任务失败重试次数 |
-| `AGENT_ORCHESTRATOR_TASK_TOKENS` | `0` | 单个 worker 的 token 上限（0 = 不限制）；任务可用 `max_tokens` 覆盖 |
-| `AGENT_ORCHESTRATOR_TOTAL_TOKENS` | `0` | 整个编排阶段的 token 上限；scheduler 派发前按角色预留，超限不再启动新任务 |
-| `AGENT_ORCHESTRATOR_CHECKPOINT_EVERY` | `4` | 每完成多少个任务形成一次 checkpoint/干预边界 |
-| `AGENT_ORCHESTRATOR_RUN_DEADLINE_S` | `900` | 整个编排阶段墙钟上限（0 = 不限制） |
-| `AGENT_ORCHESTRATOR_RATE_LIMIT_BACKOFF_S` | `2.0` | 429/限流时的首次退避秒数，之后指数增长（上限 30s） |
-| `AGENT_ORCHESTRATOR_CONTEXT_CHARS` | `8000` | 交给主 agent 的汇总上限（字符） |
-| `AGENT_ORCHESTRATOR_FANIN_REDUCER` | `false` | 汇总超预算/有失败时调用一次 reducer LLM；失败回退确定性结果 |
-| `AGENT_ORCHESTRATOR_WRITE_PLAN_APPROVAL` | `false` | 派发 implement 前一次性确认整批 `write_scope` |
-| `AGENT_ORCHESTRATOR_ADD_EXPLORE_TESTS` | `false` | 单任务时是否强行补一个「找测试」explore |
-| `AGENT_EXPLORE_ENABLED` | `false` | 给主 agent 绑定 `delegate_explore`；orchestrator 的 explore/review runner 不受此开关影响 |
-| `AGENT_ORCHESTRATOR_WRITE_ENABLED` | `false` | 并发写 worker；还需 `--write` + git 仓库根 + 干净工作区 |
-| `AGENT_ORCHESTRATOR_WORKER_ROUNDS` / `_REPAIRS` / `_TIMEOUT` | `12` / `2` / `240` | implement worker 的工具预算 / 修复轮次 / 墙钟上限 |
-
-### 审批 / 验证 / 审查
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `AGENT_APPROVAL_MODE` | `ask` | `ask` / `approve`（只自动放行已知 L2；未知命令为 L3，仍需确认）/ `deny` |
-| `AGENT_ALLOW_RULES` | 空 | 持久放行规则，如 `shell_exec:git status*,run_tests:*`；只覆盖 L2 ASK |
-| `AGENT_VERIFY_ENABLED` / `AGENT_VERIFY_COMMAND` | `true` / 空 | 自动验证；命令留空按清单识别 |
-| `AGENT_VERIFY_ONLY_FINAL` | `true` | 多步任务只在 verify 步/最后一步跑全量 |
-| `AGENT_REVIEW_ENABLED` | `true` | 验证通过后的确定性代码审查 |
-| `AGENT_REVIEW_LINT_BLOCKING` | `true` | 探测到的 ruff/mypy/gofmt/rustfmt 对**改动文件**的发现是否阻断；Markdown 代码块未闭合也会阻断 |
-| `AGENT_NUDGE_EMPTY_STEPS` | `true` | 一步无改动时给一次带提示的重做机会 |
-
-### 安全 profile / 多用户 Web
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `AGENT_SECURITY_PROFILE` | `local` | `untrusted` 强制 bwrap + 禁网 + ask + 不信任仓库指令/记忆；`production`/`ops` 强制 bwrap + 禁网 + deny + 只读；`agent web` 默认 untrusted |
-| `AGENT_TRUST_REPO_INSTRUCTIONS` | `true` | 是否把仓库 `AGENTS.md` / `CLAUDE.md` 当可信指令注入 |
-| `AGENT_TRUST_REPO_MEMORY` | `true` | 是否读取仓库 `.agent/memory.md`；false 时记忆移到 `AGENT_MEMORY_ROOT` / `$HOME/.agent-memory` |
-| `AGENT_READ_DENY_GLOBS` | `.env,*.pem,...` | 秘密文件读保护；`.env.example` 等模板自动放行 |
-| `AGENT_WEB_AUTH_TOKENS` | 空 | JSON `{"token":"user"}`；支持 `sha256:<hex>`；内网/过渡方案 |
-| `AGENT_WEB_AUTH_TOKENS_FILE` | 空 | 从文件读取同样格式的 token 表 |
-| `AGENT_CONTROL_DB_URL` | 空 | 控制面数据库；企业版必须为 MySQL |
-| `AGENT_CONTROL_DB_AUTO_CREATE` | `true` | 生产设为 `false`，只走 Alembic |
-| `AGENT_WEB_ACCOUNTS_ENABLED` | `false` | 启用企业账号密码登录与 `/admin` |
-| `AGENT_WEB_ACCOUNTS_REQUIRE_MYSQL` | `true` | 企业账号只允许 MySQL；SQLite 仅测试时关 |
-| `AGENT_WEB_ACCOUNT_TENANT` | `default` | 企业账号作用域 |
-| `AGENT_WEB_COOKIE_SECURE` | `false` | 跨源/HTTPS 部署必须开启；非 loopback + 账号登录未开启时拒绝启动 |
-| `AGENT_WEB_SESSION_TTL_S` | `43200` | 登录会话绝对有效期 |
-| `AGENT_WEB_SESSION_IDLE_TTL_S` | `0` | 空闲超时秒数；0 = 关闭，仍受绝对 TTL 限制 |
-| `AGENT_WEB_PUBLIC_URL` | 空 | 重置邮件里的站点根；空 = 邮件只带 token |
-| `AGENT_WEB_PASSWORD_RESET_TTL_S` | `1800` | 重置 token 有效期 |
-| `AGENT_SMTP_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_FROM` / `_STARTTLS` | 空 / `587` / … / `true` | 自助密码重置邮件投递；host 为空不发送 |
-| `AGENT_OIDC_ENABLED` | `false` | 启用 OIDC Authorization Code + PKCE；需企业账号 |
-| `AGENT_OIDC_ISSUER` / `_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URI` | 空 | OIDC 提供方与客户端；issuer 默认必须 HTTPS |
-| `AGENT_OIDC_ROLE_CLAIM` / `_ROLE_MAP` | `groups` / 空 | 只接受显式 JSON 映射，不直接把 claim 当角色 |
-| `AGENT_MFA_ENABLED` | `false` | 本地账号 TOTP；OIDC 登录的 MFA 交给 IdP |
-| `AGENT_MFA_MAX_ATTEMPTS` / `_WINDOW_STEPS` | `5` / `1` | 动态码失败上限与时间窗 |
-| `AGENT_APPROVAL_FOUR_EYES` | `false` | L3 审批必须由非发起人的 owner/admin 批准 |
-| `AGENT_APPROVAL_FOUR_EYES_MIN_LEVEL` / `_TTL_S` | `3` / `3600` | 四眼阈值与审批行存活时间 |
-| `AGENT_SECRET_MASTER_KEY` / `_FILE` | 空 | 上游 Key 与 TOTP 密钥的 AES-256-GCM 主密钥（32B） |
-| `AGENT_SECRET_MASTER_KEY_VERSION` | `1` | 主密钥代次；轮换脚本递增 |
-| `AGENT_WEB_QUOTA_RESERVE_TOKENS` | `20000` | 运行前 token 预留；0 = 只做事后限额 |
-| `AGENT_COST_CURRENCY` | `CNY` | 成本展示/额度货币；上游价格仍按 USD 记账 |
-| `AGENT_USD_TO_CNY` | `7.2` | 固定汇率；管理员额度按人民币配置 |
-| `AGENT_WEB_LOGIN_RATE_LIMIT_PER_MIN` | `10` | 每来源 IP 的登录尝试上限 |
-| `AGENT_RATE_LIMIT_BACKEND` | `memory` | `memory` / `redis`；redis 用于多实例共享限流 |
-| `AGENT_RATE_LIMIT_REDIS_URL` | 空 | redis 后端 URL；空 = 复用 `AGENT_EVENT_TRANSPORT_URL` |
-| `AGENT_METRICS_TOKEN` | 空 | A2 `/metrics` 抓取 token；空则复用普通 Web 认证 |
-| `AGENT_LOG_FORMAT` | `text` | `text` / `json`；JSON 含 request_id，不含提示词/密钥 |
-| `AGENT_WEB_OPENAPI` | `false` | 是否暴露 `/openapi.json` 与 `/docs` |
-| `AGENT_OTEL_ENDPOINT` | 空 | OTLP HTTP trace 端点；空 = 关闭，需安装 `.[otel]` |
-| `AGENT_OTEL_SERVICE_NAME` | `coding-agent` | trace 的 service.name |
-| `AGENT_OTEL_HEADERS` | 空 | collector headers，`k=v,k2=v2` |
-| `AGENT_DRAIN_TIMEOUT_S` | `60` | SIGTERM 后等待进行中运行的秒数；超时取消；A2 同值约束在途请求 |
-| `AGENT_QUOTA_RESERVATION_TTL_S` | `3600` | 配额预留守活时间，过期由其他实例清理 |
-| `AGENT_WEB_WORKSPACES_ROOT` | `$HOME/agent-ws/users`（WSL） | per-user 工作区根 |
-| `AGENT_WEB_DATA_ROOT` | `./.agent/web/users`（宿主） | per-user 审计/checkpoint/steering 根 |
-| `AGENT_WEB_MEMORY_ROOT` | `$HOME/agent-memory`（WSL） | per-user 记忆根 |
-| `AGENT_WEB_MAX_BODY_BYTES` / `_MAX_PROMPT_CHARS` | `262144` / `100000` | 请求体与 prompt 上限 |
-| `AGENT_WEB_RATE_LIMIT_PER_MIN` | `60` | 每用户 run/steer/resume 的固定窗口限流 |
-| `AGENT_WEB_MAX_RUNTIMES` / `_PER_USER` | `8` / `2` | 进程级 / 每用户活跃 runtime 上限 |
-| `AGENT_WEB_RUNTIME_TTL_S` | `1800` | 挂起 runtime 的空闲保留；resume 时从 checkpoint 重建 |
-| `AGENT_WEB_ALLOW_ANONYMOUS_LOCAL` | `true` | 未配置 token 时是否允许 loopback 匿名 |
-
-### 上下文与循环
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `AGENT_CONTEXT_MAX_CHARS` / `_MAX_TOKENS` / `_KEEP_RECENT` / `_TOOL_CHARS` | `60000` / `0` / `12` / `1500` | 上下文裁剪；字符/token 任一超限即降档，0 = 该预算关闭 |
-| `AGENT_MEMORY_TOP_K` | `8` | 每次运行注入的相关记忆条数；0 = 全部注入 |
-| `AGENT_MEMORY_GLOBAL_ROOT` | 空 = `$HOME/.agent-memory/global` | 跨工作区全局记忆根 |
-| `AGENT_MEMORY_VECTOR_ENABLED` | `false` | 开启 BM25 + 向量混合检索；失败自动回退 BM25 |
-| `AGENT_MEMORY_EMBEDDING_PROVIDER` | `local` | `local`（fastembed）/ `hash`（测试）/ `none` |
-| `AGENT_MEMORY_EMBEDDING_MODEL` | `BAAI/bge-small-zh-v1.5` | 本地模型 |
-| `AGENT_MEMORY_EMBEDDING_DIM` | `512` | 必须与模型输出维度一致 |
-| `AGENT_MEMORY_VECTOR_TOP_N` | `20` | 向量/词法各取多少候选做 RRF |
-| `AGENT_MEMORY_FUSION` | `rrf` | 当前只支持 `rrf` |
-| `AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS` | `false` | 远程 embedding 双重开关；仅 local profile 可用 |
-| `AGENT_MEMORY_EMBEDDING_BASE_URL` | 空 | OpenAI-compatible base URL，如 `https://api.openai.com/v1` |
-| `AGENT_MEMORY_EMBEDDING_API_KEY` | 空 | 远程 embedding Key |
-| `AGENT_MEMORY_EMBEDDING_TIMEOUT_S` | `10` | 远程请求超时 |
-| `AGENT_MEMORY_EMBEDDING_BATCH_SIZE` | `64` | 单次请求的事实条数 |
-| `AGENT_INSTRUCTIONS_ENABLED` | `true` | 发现并注入仓库内的 `AGENTS.md` / `CLAUDE.md`（最多 4 层、总量 24k 字符） |
-| `AGENT_SESSION_BRIEF_CHARS` | `4000` | 编排子图/worker 的会话约束摘要上限；0 = 关闭 |
-| `AGENT_READ_CACHE_MAX_BYTES` | `64MB` | run 级文件内容缓存上限（LRU）；0 = 关闭 |
-| `AGENT_SYMBOL_INDEX_TTL_S` / `AGENT_DEPS_DETECT_TTL_S` | `10` / `30` | AST 符号索引 / 包管理器探测缓存时间 |
-| `AGENT_RETRY_ATTEMPTS` / `_BASE_DELAY_S` / `_MAX_DELAY_S` / `_MAX_TOTAL_WAIT_S` | `3` / `1.0` / `30` / `60` | 节点级瞬时错误重试；attempts 为总尝试次数，1 = 不重试 |
-| `AGENT_MAX_PLAN_STEPS` / `_TOOL_ROUNDS` / `_REPAIR_ROUNDS` / `_MAX_RESUMES` | `5` / `12` / `3` / `50` | 循环与恢复上限 |
-| `AGENT_MAX_REPLANS` | `2` | 执行中重建剩余计划的次数 |
-| `AGENT_RUN_DEADLINE_S` / `AGENT_VERIFY_TIMEOUT` | `1800` / `300` | 单次运行总墙钟上限 / 自动验证独立超时（秒） |
-| `AGENT_TOOL_JOURNAL_ENABLED` | `true` | 有副作用工具的执行日志；崩溃后同一调用不自动重放 |
-| `AGENT_WSL_HEALTH_CHECK` / `_TTL_S` / `_TIMEOUT_S` | `true` / `30` / `10` | WSL 轻量健康探针与缓存 |
-| `AGENT_WSL_BREAKER_FAILURES` / `_COOLDOWN_S` / `_MAX_COOLDOWN_S` | `3` / `15` / `60` | 连续传输失败后的熔断阈值与退避上限 |
-| `AGENT_CONCURRENCY_WORKERS` / `_TOOLS` / `_WSL` | `0`（回退旧配置） | 统一资源池的 worker / 工具 / WSL 并发 |
-| `AGENT_CONCURRENCY_WSL_RESERVE` | `1` | 保留给健康探针的 WSL 槽位 |
-| `AGENT_CONCURRENCY_WSL_ADAPTIVE` / `_MIN` / `_MAX` / `_TARGET_MS` / `_LATENCY_WINDOW` | `true` / `2` / `0` / `1500` / `20` | 池子饱和时按命令 p95 延迟弹性调整 WSL 并发 |
-| `AGENT_CONCURRENCY_LLM_PER_PROVIDER` / `_GLOBAL` | `4` / `6` | LLM 每 provider 与全局并发 |
-| `AGENT_LLM_AIMD_MIN` / `_MAX` | `1` / `8` | LLM 并发自适应范围 |
-| `AGENT_ORCHESTRATOR_MAX_PENDING_MERGES` | `8` | 在飞 + 待合并 implement 的上限，超过后暂停新写任务 |
-| `AGENT_WORKSPACE_LOCK` | `true` | 同一工作区只允许一个 runtime 运行 |
-| `AGENT_MAX_DELEGATE_CALLS` / `AGENT_MAX_CONCURRENT_AGENTS` | `6` / `4` | 主 agent 委派预算与并发 |
-| `AGENT_MAX_CONCURRENT_TOOLS` | `4` | 同一消息内只读工具的并发上限；写工具始终串行 |
-
-### 持久化与审计
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `AGENT_CHECKPOINT_PATH` | 空 = `<cwd>/.agent/checkpoints.sqlite` | 填 `:memory:` 强制不落盘 |
-| `AGENT_CHECKPOINT_KEEP` | `200` | 每个会话/命名空间保留的 checkpoint 数；0 = 不轮转 |
-| `AGENT_AUDIT_ENABLED` / `AGENT_AUDIT_DIR` / `AGENT_AUDIT_MAX_MB` | `true` / `<cwd>/.agent/audit` / `256` | 审计日志；0 = 不轮转 |
-| `AGENT_AUDIT_SYSLOG_ADDRESS` | 空 | SIEM 导出地址 `host:port`（UDP syslog，JSON 行） |
-| `AGENT_AUDIT_WEBHOOK_URL` / `_TOKEN` | 空 | SIEM webhook，POST 每条审计 JSON；可选 Bearer token |
-| `AGENT_SNAPSHOT_MANIFEST_DIR` | `~/.codingagent/snapshots` | 工作区外的快照校验清单根 |
-| `AGENT_SNAPSHOT_KEEP_COUNT` / `_DAYS` | `200` / `30` | 每次运行开始清理旧快照；0 = 不按该维度清理 |
-| `AGENT_STEERING_DIR` | 空 = `<cwd>/.agent/steering` | 未消费 add/replan 与 pause 标记的跨进程持久化目录 |
-| `AGENT_RATE_LIMIT_STATE_PATH` | 空 = `<cwd>/.agent/rate_limits.json` | 跨进程 provider/全局冷却状态；`:memory:` 关闭文件共享 |
-
-状态文件位置（宿主侧与沙箱侧）见 [docs/USAGE.md](docs/USAGE.md)。
-
-## 已知限制与后续
-
-- 测试影响分析优先用 **AST import 图 + 反向依赖闭包**，并保留文件名启发式兜底；字面量 `importlib.import_module` / `__import__` 会补进 import 图，非字面量动态导入、语法错误或改动文件未被索引时**保守回退全量验证**；复杂包根仍按 `src` / `lib` 识别；
-- 共享文件的多个 implement 默认仍要求 `write_scope` 不重叠；开启 `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` 后用 3-way 合并，真实冲突只回滚共享文件所在的连通分量；
-- steering 指令与 pause 标记默认落盘并绑定 `run_id`；新 run 只清理旧 run 残留（清理动作落审计），跨进程恢复可用 `agent resume`、TUI 或 Web；
-- 任务级 token 上限与 scheduler 全局 token 准入已接入；派发预留优先用显式 `max_tokens`，否则用同角色历史用量 EWMA ×1.2（下限 500 / 上限 16000），仍不是精确的 prompt token 计数；
-- `approval_mode=approve` 只自动放行**已识别的 L2**；未登记命令、未枚举包装器与 `python -c` 等一律 L3，仍需人工确认；不可信仓库/公网部署仍应保持 `ask` 或 `deny`；
-- 真实模型回归由 `.github/workflows/llm.yml` 每周定时跑 `-m llm`（需 `DEEPSEEK_API_KEY` secret）；能力评测（`tests/eval`）仍需带 WSL2 的 runner 或本地执行，并自行承担 API 费用。
-
-## 文档
-
-| 文档 | 内容 |
-|---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层与依赖方向、运行数据流、状态生命周期、不变量、取舍理由 |
-| [docs/HARNESS.md](docs/HARNESS.md) | 独立 orchestrator 子图、事件驱动 DAG、并发 worker、fan-in、干预与评测 |
-| [docs/WORKFLOW.md](docs/WORKFLOW.md) | 运行 / 开发 / 使用三套工作流、路由与状态生命周期 |
-| [docs/COMPLEXITY.md](docs/COMPLEXITY.md) | 复杂度度量、热点分布、耦合方向与降复杂度建议 |
-| [docs/COVERAGE.md](docs/COVERAGE.md) | 覆盖率口径、P3 模块目标与剩余缺口 |
-| [docs/METRICS.md](docs/METRICS.md) | 用例数/覆盖率/承重模块快照（生成，不手改） |
-| [docs/PHASE_F.md](docs/PHASE_F.md) | 安全验收矩阵、性能基线、迁移/回滚演练 |
-| [docs/PHASE_E.md](docs/PHASE_E.md) | 前端体验、SSE 治理与长会话手测清单 |
-| [docs/CI.md](docs/CI.md) | CI/Docs 流水线步骤与覆盖率门槛 |
-| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | A2/A3 指标、JSON 日志、Prometheus 告警基线 |
-| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | 环境配置、依赖版本快照、复现与导出、常见问题 |
-| [docs/MANUAL.md](docs/MANUAL.md) | **配置指南与使用手册**：配置分组、常用配方、CLI/TUI/REPL/Web、企业版、审批、排障 |
-| [docs/DATABASE.md](docs/DATABASE.md) | MySQL 长期存储：建库、表目录、索引、保留、备份恢复与运维 |
-| [docs/USAGE.md](docs/USAGE.md) | 常见工作流、配置来源、故障排查 |
-| [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 需求逐条对照、自检清单、已知限制 |
-| [docs/rfc/](docs/rfc/README.md) | RFC 流程与模板（动手前的范围与权衡；批准后落 ADR、契约与验收锚点） |
-| [docs/adr/](docs/adr/README.md) | 架构决策记录（只增不改的“为什么”） |
-| [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | 保护对象、对手假设、T1/T2 边界 |
-| [docs/DEMO.md](docs/DEMO.md) | 答辩演示讲稿（配 `scripts/demo.py`） |
+- [AGENTS.md](AGENTS.md)：AI/开发者操作规则、禁区与命令。
+- [docs/glossary.md](docs/glossary.md)：术语。
+- [docs/archive/README.md](docs/archive/README.md)：历史阶段与快照索引。
+- [CHANGELOG.md](CHANGELOG.md)：版本变更。
