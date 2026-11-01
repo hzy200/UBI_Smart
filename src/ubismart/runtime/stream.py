@@ -403,7 +403,7 @@ class StreamMixin:
             ),
             # 这些会随 trace 一起上报，LangSmith 里可按会话/工作区/权限筛选
             "run_name": f"agent:{thread_id}",
-            "tags": ["coding-agent", f"mode:{self.policy.approval_mode}"],
+            "tags": ["ubismart", f"mode:{self.policy.approval_mode}"],
             "metadata": self._trace_metadata(thread_id),
         }
 

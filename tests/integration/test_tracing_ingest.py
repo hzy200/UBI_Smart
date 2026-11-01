@@ -124,7 +124,7 @@ def test_traces_are_ingested(mock_langsmith) -> None:
 
 def test_run_name_and_tags_are_carried(mock_langsmith) -> None:
     chain = RunnableLambda(lambda x: x * 2)
-    chain.invoke(2, {"run_name": "probe-named-run", "tags": ["coding-agent", "mode:ask"]})
+    chain.invoke(2, {"run_name": "probe-named-run", "tags": ["ubismart", "mode:ask"]})
     _flush_tracers()
 
     text = _captured_text()
@@ -159,7 +159,7 @@ def test_agent_run_config_metadata_reaches_the_tracer(mock_langsmith, tmp_path) 
     config = {
         "configurable": {"thread_id": thread_id},
         "run_name": f"agent:{thread_id}",
-        "tags": ["coding-agent", f"mode:{runtime.policy.approval_mode}"],
+        "tags": ["ubismart", f"mode:{runtime.policy.approval_mode}"],
         "metadata": runtime._trace_metadata(thread_id),
     }
     compiled.invoke({"n": 0}, config)
