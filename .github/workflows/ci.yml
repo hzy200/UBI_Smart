@@ -65,11 +65,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks 按 push 区间扫描，浅克隆拿不到 base 的父提交会直接报错。
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: 安装 CJK 字体（报告 PDF 用例）
-        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+        # ReportLab 只支持 TrueType 轮廓；Noto CJK 是 CFF，无法注册。
+        run: sudo apt-get update && sudo apt-get install -y fonts-wqy-zenhei
       - name: 安装（开发 + 界面 + 控制面数据库依赖）
         run: pip install -e ".[dev,ui,web,db,documents,report]"
       - name: 依赖锁定新鲜度
@@ -160,7 +164,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: 安装 CJK 字体（报告 PDF 用例）
-        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+        # ReportLab 只支持 TrueType 轮廓；Noto CJK 是 CFF，无法注册。
+        run: sudo apt-get update && sudo apt-get install -y fonts-wqy-zenhei
       - name: 安装（开发 + 界面 + 控制面数据库依赖）
         run: pip install -e ".[dev,ui,web,db,documents,report]"
       - name: Python 3.11 快反馈
