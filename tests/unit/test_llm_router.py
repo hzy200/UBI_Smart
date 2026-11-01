@@ -69,9 +69,13 @@ class _Provider:
 
 
 def _router(
-    *providers: _Provider, max_cooldown: float = 0.05
+    *providers: _Provider,
+    max_cooldown: float = 0.05,
+    base_cooldown: float = 0.01,
 ) -> tuple[ProviderRouter, RateLimitCoordinator]:
-    limiter = RateLimitCoordinator(base_cooldown=0.01, max_cooldown=max_cooldown)
+    limiter = RateLimitCoordinator(
+        base_cooldown=base_cooldown, max_cooldown=max_cooldown
+    )
     router = ProviderRouter(
         list(providers),
         [provider.name for provider in providers],
@@ -83,9 +87,12 @@ def _router(
 
 
 def test_rate_limited_provider_falls_back_to_the_next() -> None:
+    # 冷却窗口要明显长于 runner 的调度开销；默认 0.05s 可能在断言前过期。
     router, limiter = _router(
         _Provider("primary", error=_RateLimit("429")),
         _Provider("backup", text="from backup"),
+        base_cooldown=60,
+        max_cooldown=60,
     )
 
     result = asyncio.run(router.ainvoke([]))
