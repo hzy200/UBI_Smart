@@ -157,9 +157,10 @@ class BaseMixin:
         try:
             with self.engine.connect() as session:
                 session.execute(text("SELECT 1"))
-            return True
         except Exception:  # noqa: BLE001 - 数据库故障是预期状态
             return False
+        else:
+            return True
 
     def close(self) -> None:
         self.engine.dispose()

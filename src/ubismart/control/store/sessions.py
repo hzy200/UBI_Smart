@@ -75,6 +75,63 @@ class SessionsMixin:
                 "status": row.status,
             }
 
+    @staticmethod
+    def _upsert_session_row(
+        session: Session, tenant: str, data: dict[str, Any], now: str
+    ) -> None:
+        thread_id = str(data.get("thread_id") or "")
+        if not thread_id:
+            return
+        row = session.get(ControlSession, (str(tenant), thread_id))
+        if row is None:
+            row = ControlSession(
+                tenant=str(tenant),
+                thread_id=thread_id,
+                created_at=now,
+            )
+            session.add(row)
+        row.workspace = str(data.get("workspace") or "")
+        row.workspace_id = str(data.get("workspace_id") or "")[:36]
+        row.workspace_kind = str(data.get("workspace_kind") or "")[:16]
+        row.a2l_id = str(data.get("a2l_id") or "")[:64]
+        row.root_handle = str(data.get("root_handle") or "")[:128]
+        row.access_mode = str(data.get("access_mode") or "read_only")
+        row.model = str(data.get("model") or "")
+        row.provider = str(data.get("provider") or "")
+        row.uploaded_bytes = int(data.get("uploaded_bytes") or 0)
+        row.title = str(data.get("title") or "")
+        if "pinned" in data:
+            row.pinned = bool(data.get("pinned"))
+        if "archived" in data:
+            row.archived = bool(data.get("archived"))
+        if "tags" in data:
+            row.tags = _tags_to_text(data.get("tags"))
+        if "unread" in data:
+            row.unread = bool(data.get("unread"))
+        if "last_message" in data:
+            row.last_message = str(data.get("last_message") or "")[:160]
+        row.deleted = False
+        row.updated_at = now
+
+    @staticmethod
+    def _apply_tombstone(
+        session: Session, tenant: str, thread_id: Any, now: str
+    ) -> None:
+        thread = str(thread_id or "")
+        if not thread:
+            return
+        row = session.get(ControlSession, (str(tenant), thread))
+        if row is None:
+            row = ControlSession(
+                tenant=str(tenant),
+                thread_id=thread,
+                workspace="",
+                created_at=now,
+            )
+            session.add(row)
+        row.deleted = True
+        row.updated_at = now
+
     def save_sessions(
         self,
         tenant: str,
@@ -85,61 +142,6 @@ class SessionsMixin:
         now = _now()
         with Session(self.engine) as session, session.begin():
             for data in sessions:
-                thread_id = str(data.get("thread_id") or "")
-                if not thread_id:
-                    continue
-                row = session.get(ControlSession, (str(tenant), thread_id))
-                if row is None:
-                    row = ControlSession(
-                        tenant=str(tenant),
-                        thread_id=thread_id,
-                        created_at=now,
-                    )
-                    session.add(row)
-                row.workspace = str(data.get("workspace") or "")
-                row.workspace_id = str(
-                    data.get("workspace_id") or ""
-                )[:36]
-                row.workspace_kind = str(
-                    data.get("workspace_kind") or ""
-                )[:16]
-                row.a2l_id = str(data.get("a2l_id") or "")[:64]
-                row.root_handle = str(
-                    data.get("root_handle") or ""
-                )[:128]
-                row.access_mode = str(
-                    data.get("access_mode") or "read_only"
-                )
-                row.model = str(data.get("model") or "")
-                row.provider = str(data.get("provider") or "")
-                row.uploaded_bytes = int(data.get("uploaded_bytes") or 0)
-                row.title = str(data.get("title") or "")
-                if "pinned" in data:
-                    row.pinned = bool(data.get("pinned"))
-                if "archived" in data:
-                    row.archived = bool(data.get("archived"))
-                if "tags" in data:
-                    row.tags = _tags_to_text(data.get("tags"))
-                if "unread" in data:
-                    row.unread = bool(data.get("unread"))
-                if "last_message" in data:
-                    row.last_message = str(
-                        data.get("last_message") or ""
-                    )[:160]
-                row.deleted = False
-                row.updated_at = now
+                self._upsert_session_row(session, tenant, data, now)
             for thread_id in deleted:
-                thread = str(thread_id or "")
-                if not thread:
-                    continue
-                row = session.get(ControlSession, (str(tenant), thread))
-                if row is None:
-                    row = ControlSession(
-                        tenant=str(tenant),
-                        thread_id=thread,
-                        workspace="",
-                        created_at=now,
-                    )
-                    session.add(row)
-                row.deleted = True
-                row.updated_at = now
+                self._apply_tombstone(session, tenant, thread_id, now)

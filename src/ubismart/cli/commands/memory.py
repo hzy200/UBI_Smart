@@ -10,6 +10,151 @@ from ubismart.cli.context import AgentRuntime, console, get_settings
 from ubismart.cli.options import _WORKSPACE_OPTION
 
 
+def _print_vector_status(runtime: AgentRuntime, scope: str) -> None:
+    status = runtime.memory.status(scope=scope)
+    console.print(
+        f"[bold]向量检索[/] {'启用' if status['enabled'] else '未启用'}"
+    )
+    console.print(
+        f"provider={status['provider'] or '—'} "
+        f"model={status['model'] or '—'} "
+        f"dim={status['dimension'] or '—'}"
+    )
+    if status["error"]:
+        console.print(f"[yellow]{escape(status['error'])}[/]")
+    info = status["scopes"].get(scope) or {}
+    console.print(
+        f"{scope}: facts={info.get('facts', 0)} "
+        f"vectors={info.get('vectors', 0)} "
+        f"missing={info.get('missing', 0)} "
+        f"header_ok={info.get('header_ok', False)}"
+    )
+
+
+def _run_reindex(runtime: AgentRuntime, scope: str, force: bool) -> None:
+    result = runtime.memory.reindex(scope=scope, force=force)
+    for name, info in result.items():
+        console.print(
+            f"[green]{name}：索引 {info['indexed']} 条，"
+            f"清理 {info['pruned']} 条，当前 {info['facts']} 条[/]"
+        )
+
+
+def _show_history(runtime: AgentRuntime, scope: str) -> None:
+    entries = runtime.memory.history(limit=20, scope=scope)
+    if not entries:
+        console.print("[dim]还没有记忆备份。[/]")
+        return
+    table = Table(show_header=True, header_style="bold", box=None)
+    for column in ("备份 id", "时间"):
+        table.add_column(column)
+    for entry in entries:
+        table.add_row(entry["backup_id"], entry["created_at"])
+    console.print(table)
+
+
+def _show_conflicts(runtime: AgentRuntime, scope: str) -> None:
+    conflicts = runtime.memory.conflicts(scope=scope)
+    if not conflicts:
+        console.print("[dim]没有标记为冲突的记忆。[/]")
+        return
+    for item in conflicts:
+        console.print(
+            f"[yellow]{escape(str(item['fact']))}[/]"
+            f" ↔ {escape('；'.join(item['conflicts_with']))}"
+        )
+
+
+def _parse_priority(priority: str) -> tuple[str, str, int, int]:
+    raw_index, sep, raw_value = priority.partition("=")
+    if not sep:
+        raise ValueError("--priority 格式应为 N=值")
+    return raw_index, raw_value, int(raw_index), int(raw_value)
+
+
+def _apply_mutation(
+    runtime: AgentRuntime,
+    *,
+    restore: str,
+    clear: bool,
+    add: str,
+    forget: int,
+    pin: int,
+    unpin: int,
+    priority: str,
+    thread_id: str,
+    reason: str,
+    ttl_days: int,
+    scope: str,
+) -> None:
+    if restore:
+        runtime.restore_memory(restore, thread_id=thread_id, scope=scope)
+        console.print(f"[green]已恢复记忆备份 {escape(restore)}[/]")
+    elif clear:
+        runtime.clear_memory(thread_id=thread_id, scope=scope)
+        console.print(f"[green]已清空{scope}记忆[/]")
+    elif add:
+        runtime.remember(
+            add,
+            thread_id=thread_id,
+            reason=reason,
+            ttl_days=ttl_days or None,
+            scope=scope,
+        )
+        replaced = getattr(runtime.memory, "last_replaced", [])
+        related = getattr(runtime.memory, "last_related", [])
+        suffix = (
+            f"（已替换旧版本：{'；'.join(replaced)}）" if replaced else ""
+        )
+        if related:
+            suffix += (
+                f"（可能相关、未替换：{'；'.join(related)}；"
+                "可用 --conflicts 查看）"
+            )
+        console.print(f"[green]已记住{suffix}[/]")
+    elif forget:
+        runtime.forget(forget, thread_id=thread_id, scope=scope)
+        console.print(f"[green]已删除第 {forget} 条[/]")
+    elif pin:
+        runtime.pin_memory(pin, pinned=True, thread_id=thread_id, scope=scope)
+        console.print(f"[green]已置顶第 {pin} 条[/]")
+    elif unpin:
+        runtime.pin_memory(
+            unpin, pinned=False, thread_id=thread_id, scope=scope
+        )
+        console.print(f"[green]已取消置顶第 {unpin} 条[/]")
+    elif priority:
+        raw_index, raw_value, index, value = _parse_priority(priority)
+        runtime.set_memory_priority(
+            index,
+            value,
+            thread_id=thread_id,
+            scope=scope,
+        )
+        console.print(
+            f"[green]已设置第 {raw_index} 条优先级为 {raw_value}[/]"
+        )
+
+
+def _show_facts(runtime: AgentRuntime, scope: str) -> None:
+    facts = runtime.memories(scope=scope)
+    skipped = getattr(runtime.memory, "last_unsafe", [])
+    if skipped:
+        console.print(
+            f"[yellow]检测到 {len(skipped)} 条疑似密钥，"
+            "它们不会注入模型。[/]"
+        )
+    path_fn = getattr(runtime.memory, "path_for", None)
+    path = path_fn(scope) if callable(path_fn) else runtime.memory.path
+    if not facts:
+        console.print(f"[dim]当前没有{scope}记忆。文件位置：{path}[/]")
+        return
+
+    console.print(f"[dim]{path}（{len(facts)} 条）[/]\n")
+    for index, fact in enumerate(facts, start=1):
+        console.print(f"  {index}. {escape(fact)}")
+
+
 def memory(
     add: str = typer.Option("", "--add", help="新增一条项目记忆"),
     forget: int = typer.Option(0, "--forget", help="删除第 N 条（序号从 1 开始）"),
@@ -54,133 +199,38 @@ def memory(
     scope = "global" if global_scope else "project"
 
     if vector_status:
-        status = runtime.memory.status(scope=scope)
-        console.print(
-            f"[bold]向量检索[/] {'启用' if status['enabled'] else '未启用'}"
-        )
-        console.print(
-            f"provider={status['provider'] or '—'} "
-            f"model={status['model'] or '—'} "
-            f"dim={status['dimension'] or '—'}"
-        )
-        if status["error"]:
-            console.print(f"[yellow]{escape(status['error'])}[/]")
-        info = status["scopes"].get(scope) or {}
-        console.print(
-            f"{scope}: facts={info.get('facts', 0)} "
-            f"vectors={info.get('vectors', 0)} "
-            f"missing={info.get('missing', 0)} "
-            f"header_ok={info.get('header_ok', False)}"
-        )
+        _print_vector_status(runtime, scope)
         return
 
     if reindex or reindex_force:
-        result = runtime.memory.reindex(
-            scope=scope, force=reindex_force
-        )
-        for name, info in result.items():
-            console.print(
-                f"[green]{name}：索引 {info['indexed']} 条，"
-                f"清理 {info['pruned']} 条，当前 {info['facts']} 条[/]"
-            )
+        _run_reindex(runtime, scope, reindex_force)
         return
 
     if show_history:
-        entries = runtime.memory.history(limit=20, scope=scope)
-        if not entries:
-            console.print("[dim]还没有记忆备份。[/]")
-            return
-        table = Table(show_header=True, header_style="bold", box=None)
-        for column in ("备份 id", "时间"):
-            table.add_column(column)
-        for entry in entries:
-            table.add_row(entry["backup_id"], entry["created_at"])
-        console.print(table)
+        _show_history(runtime, scope)
         return
 
     if show_conflicts:
-        conflicts = runtime.memory.conflicts(scope=scope)
-        if not conflicts:
-            console.print("[dim]没有标记为冲突的记忆。[/]")
-            return
-        for item in conflicts:
-            console.print(
-                f"[yellow]{escape(str(item['fact']))}[/]"
-                f" ↔ {escape('；'.join(item['conflicts_with']))}"
-            )
+        _show_conflicts(runtime, scope)
         return
 
     try:
-        if restore:
-            runtime.restore_memory(
-                restore, thread_id=thread_id, scope=scope
-            )
-            console.print(f"[green]已恢复记忆备份 {escape(restore)}[/]")
-        elif clear:
-            runtime.clear_memory(thread_id=thread_id, scope=scope)
-            console.print(f"[green]已清空{scope}记忆[/]")
-        elif add:
-            runtime.remember(
-                add,
-                thread_id=thread_id,
-                reason=reason,
-                ttl_days=ttl_days or None,
-                scope=scope,
-            )
-            replaced = getattr(runtime.memory, "last_replaced", [])
-            related = getattr(runtime.memory, "last_related", [])
-            suffix = (
-                f"（已替换旧版本：{'；'.join(replaced)}）" if replaced else ""
-            )
-            if related:
-                suffix += (
-                    f"（可能相关、未替换：{'；'.join(related)}；"
-                    "可用 --conflicts 查看）"
-                )
-            console.print(f"[green]已记住{suffix}[/]")
-        elif forget:
-            runtime.forget(forget, thread_id=thread_id, scope=scope)
-            console.print(f"[green]已删除第 {forget} 条[/]")
-        elif pin:
-            runtime.pin_memory(
-                pin, pinned=True, thread_id=thread_id, scope=scope
-            )
-            console.print(f"[green]已置顶第 {pin} 条[/]")
-        elif unpin:
-            runtime.pin_memory(
-                unpin, pinned=False, thread_id=thread_id, scope=scope
-            )
-            console.print(f"[green]已取消置顶第 {unpin} 条[/]")
-        elif priority:
-            raw_index, sep, raw_value = priority.partition("=")
-            if not sep:
-                raise ValueError("--priority 格式应为 N=值")
-            runtime.set_memory_priority(
-                int(raw_index),
-                int(raw_value),
-                thread_id=thread_id,
-                scope=scope,
-            )
-            console.print(
-                f"[green]已设置第 {raw_index} 条优先级为 {raw_value}[/]"
-            )
+        _apply_mutation(
+            runtime,
+            restore=restore,
+            clear=clear,
+            add=add,
+            forget=forget,
+            pin=pin,
+            unpin=unpin,
+            priority=priority,
+            thread_id=thread_id,
+            reason=reason,
+            ttl_days=ttl_days,
+            scope=scope,
+        )
     except Exception as exc:  # noqa: BLE001 - 记忆文件读写失败要给可读提示
         console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(code=1) from exc
 
-    facts = runtime.memories(scope=scope)
-    skipped = getattr(runtime.memory, "last_unsafe", [])
-    if skipped:
-        console.print(
-            f"[yellow]检测到 {len(skipped)} 条疑似密钥，"
-            "它们不会注入模型。[/]"
-        )
-    path_fn = getattr(runtime.memory, "path_for", None)
-    path = path_fn(scope) if callable(path_fn) else runtime.memory.path
-    if not facts:
-        console.print(f"[dim]当前没有{scope}记忆。文件位置：{path}[/]")
-        return
-
-    console.print(f"[dim]{path}（{len(facts)} 条）[/]\n")
-    for index, fact in enumerate(facts, start=1):
-        console.print(f"  {index}. {escape(fact)}")
+    _show_facts(runtime, scope)

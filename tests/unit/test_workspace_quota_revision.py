@@ -36,10 +36,10 @@ def _workspace(store: WorkspaceStore, *, quota: int = 0) -> dict:
 
 def test_add_usage_within_quota(store) -> None:
     row = _workspace(store, quota=100)
-    updated = store.add_usage(row["workspace_id"], bytes=40, file_count=2)
+    updated = store.add_usage(row["workspace_id"], size_bytes=40, file_count=2)
     assert updated["used_bytes"] == 40
     assert updated["file_count"] == 2
-    again = store.add_usage(row["workspace_id"], bytes=60, file_count=1)
+    again = store.add_usage(row["workspace_id"], size_bytes=60, file_count=1)
     assert again["used_bytes"] == 100
     assert again["file_count"] == 3
 
@@ -47,19 +47,19 @@ def test_add_usage_within_quota(store) -> None:
 def test_add_usage_exceeds_quota(store) -> None:
     row = _workspace(store, quota=10)
     with pytest.raises(WorkspaceQuotaExceeded):
-        store.add_usage(row["workspace_id"], bytes=11)
+        store.add_usage(row["workspace_id"], size_bytes=11)
     assert store.get(row["workspace_id"])["used_bytes"] == 0
 
 
 def test_zero_quota_is_unlimited(store) -> None:
     row = _workspace(store, quota=0)
-    updated = store.add_usage(row["workspace_id"], bytes=10**9)
+    updated = store.add_usage(row["workspace_id"], size_bytes=10**9)
     assert updated["used_bytes"] == 10**9
 
 
 def test_set_usage_is_absolute(store) -> None:
     row = _workspace(store)
-    store.add_usage(row["workspace_id"], bytes=50, file_count=5)
+    store.add_usage(row["workspace_id"], size_bytes=50, file_count=5)
     updated = store.set_usage(
         row["workspace_id"], used_bytes=7, file_count=1
     )

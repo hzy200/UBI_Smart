@@ -122,13 +122,13 @@ def test_revision_supersedes_previous_active(store: WorkspaceStore) -> None:
         created["workspace_id"],
         actor="alice",
         archive_path="/srv/archive/1.tar.zst",
-        bytes=10,
+        size_bytes=10,
     )
     second = store.add_revision(
         created["workspace_id"],
         actor="alice",
         archive_path="/srv/archive/2.tar.zst",
-        bytes=20,
+        size_bytes=20,
     )
     rows = store.list_revisions(created["workspace_id"])
     assert [row["revision_id"] for row in rows] == [

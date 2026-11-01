@@ -36,6 +36,65 @@ def snapshots(
     console.print(f"[dim]工作区 {runtime.workspace}（最近 {len(entries)} 条）[/]\n")
     console.print(table)
 
+def _resolve_undo_prefix(
+    runtime: AgentRuntime, since: str, thread_id: str
+) -> str:
+    if since:
+        prefix = runtime._snapshot_prefix(since)
+        if not prefix:
+            console.print(f"[red]无法解析时间：{escape(since)}[/]")
+            raise typer.Exit(code=1)
+        return prefix
+    started = runtime.last_run_started_at(thread_id or None)
+    if not started:
+        console.print("[red]找不到最近一次运行记录。[/]")
+        raise typer.Exit(code=1)
+    return runtime._snapshot_prefix(started)
+
+
+def _show_planned(planned: list[Any]) -> None:
+    table = Table(show_header=True, header_style="bold", box=None)
+    table.add_column("快照 id")
+    table.add_column("文件")
+    for item in planned:
+        table.add_row(item.snapshot_id, escape(item.path))
+    console.print(f"[dim]将按新→旧回滚 {len(planned)} 处改动：[/]\n")
+    console.print(table)
+    console.print(
+        "[dim]按时间过滤；同一工作区若有并发运行，可能包含其改动。"
+        "回滚前每个文件都会先留底，仍可再次 undo。[/]"
+    )
+
+
+def _undo_run(
+    runtime: AgentRuntime,
+    *,
+    since: str,
+    thread_id: str,
+    dry_run: bool,
+    yes: bool,
+) -> None:
+    prefix = _resolve_undo_prefix(runtime, since, thread_id)
+    planned = runtime.restore_since(prefix, dry_run=True)
+    if not planned:
+        console.print("[dim]该时间之后没有产生任何快照。[/]")
+        return
+
+    _show_planned(planned)
+    if dry_run:
+        return
+    if not yes and not typer.confirm("确认回滚？", default=False):
+        raise typer.Exit(code=1)
+
+    results = runtime.restore_since(prefix)
+    failed = [item for item in results if not item.ok]
+    for item in results:
+        color = "green" if item.ok else "red"
+        console.print(f"[{color}]{escape(item.message)}[/]")
+    if failed:
+        raise typer.Exit(code=1)
+
+
 def undo(
     workspace: str = _WORKSPACE_OPTION,
     snapshot_id: str = typer.Option("", "--snapshot", help="指定快照 id，默认回滚最近一次改动"),
@@ -58,48 +117,13 @@ def undo(
     runtime = AgentRuntime(get_settings(), workspace=workspace or None)
 
     if last_run or since:
-        if since:
-            prefix = runtime._snapshot_prefix(since)
-            if not prefix:
-                console.print(f"[red]无法解析时间：{escape(since)}[/]")
-                raise typer.Exit(code=1)
-        else:
-            started = runtime.last_run_started_at(thread_id or None)
-            if not started:
-                console.print("[red]找不到最近一次运行记录。[/]")
-                raise typer.Exit(code=1)
-            prefix = runtime._snapshot_prefix(started)
-
-        planned = runtime.restore_since(prefix, dry_run=True)
-        if not planned:
-            console.print("[dim]该时间之后没有产生任何快照。[/]")
-            return
-
-        table = Table(show_header=True, header_style="bold", box=None)
-        table.add_column("快照 id")
-        table.add_column("文件")
-        for item in planned:
-            table.add_row(item.snapshot_id, escape(item.path))
-        console.print(
-            f"[dim]将按新→旧回滚 {len(planned)} 处改动：[/]\n"
+        _undo_run(
+            runtime,
+            since=since,
+            thread_id=thread_id,
+            dry_run=dry_run,
+            yes=yes,
         )
-        console.print(table)
-        console.print(
-            "[dim]按时间过滤；同一工作区若有并发运行，可能包含其改动。"
-            "回滚前每个文件都会先留底，仍可再次 undo。[/]"
-        )
-        if dry_run:
-            return
-        if not yes and not typer.confirm("确认回滚？", default=False):
-            raise typer.Exit(code=1)
-
-        results = runtime.restore_since(prefix)
-        failed = [item for item in results if not item.ok]
-        for item in results:
-            color = "green" if item.ok else "red"
-            console.print(f"[{color}]{escape(item.message)}[/]")
-        if failed:
-            raise typer.Exit(code=1)
         return
 
     result = runtime.restore(snapshot_id=snapshot_id or None, path=path or None)

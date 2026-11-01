@@ -50,6 +50,51 @@ def _write_env_allow_rules(path: Path, rules: list[str]) -> None:
     temp.write_text("\n".join(lines) + "\n", encoding="utf-8")
     temp.replace(path)
 
+def _validate_additions(additions: list[str]) -> None:
+    for rule in additions:
+        if ":" not in rule:
+            console.print(
+                f"[red]规则格式应为 tool:pattern：{escape(rule)}[/]"
+            )
+            raise typer.Exit(code=2)
+
+
+def _merge_rules(
+    current: list[str],
+    additions: list[str],
+    removals: set[str],
+    *,
+    clear: bool,
+) -> list[str]:
+    updated = [] if clear else list(current)
+    for rule in additions:
+        if rule not in updated:
+            updated.append(rule)
+    if removals:
+        updated = [rule for rule in updated if rule not in removals]
+    return updated
+
+
+def _print_rules(
+    updated: list[str], *, json_output: bool, security_profile: str
+) -> None:
+    if json_output:
+        console.print_json(
+            json.dumps({"allow_rules": updated}, ensure_ascii=False)
+        )
+        return
+    if not updated:
+        console.print("[dim]当前没有持久放行规则。[/]")
+        return
+    console.print("[bold]当前持久放行规则[/]")
+    for rule in updated:
+        console.print(f"  {escape(rule)}")
+    if str(security_profile or "").lower() != "local":
+        console.print(
+            "[yellow]注意：untrusted/production profile 会忽略 allow_rules。[/]"
+        )
+
+
 def rules(
     add: list[str] | None = _RULES_ADD_OPTION,
     remove: list[str] | None = _RULES_REMOVE_OPTION,
@@ -65,20 +110,10 @@ def rules(
     current = _read_env_allow_rules(path, settings.allow_rules)
     additions = [item.strip() for item in (add or []) if item.strip()]
     removals = {item.strip() for item in (remove or []) if item.strip()}
-    for rule in additions:
-        if ":" not in rule:
-            console.print(
-                f"[red]规则格式应为 tool:pattern：{escape(rule)}[/]"
-            )
-            raise typer.Exit(code=2)
+    _validate_additions(additions)
 
     changed = bool(additions or removals or clear)
-    updated = [] if clear else list(current)
-    for rule in additions:
-        if rule not in updated:
-            updated.append(rule)
-    if removals:
-        updated = [rule for rule in updated if rule not in removals]
+    updated = _merge_rules(current, additions, removals, clear=clear)
 
     if changed:
         try:
@@ -91,18 +126,8 @@ def rules(
             "（新进程生效）[/]"
         )
 
-    if json_output:
-        console.print_json(
-            json.dumps({"allow_rules": updated}, ensure_ascii=False)
-        )
-        return
-    if not updated:
-        console.print("[dim]当前没有持久放行规则。[/]")
-        return
-    console.print("[bold]当前持久放行规则[/]")
-    for rule in updated:
-        console.print(f"  {escape(rule)}")
-    if str(settings.security_profile or "").lower() != "local":
-        console.print(
-            "[yellow]注意：untrusted/production profile 会忽略 allow_rules。[/]"
-        )
+    _print_rules(
+        updated,
+        json_output=json_output,
+        security_profile=settings.security_profile,
+    )

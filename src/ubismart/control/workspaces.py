@@ -466,12 +466,13 @@ class WorkspaceStore:
                     session.add(row)
                     session.flush()
                     created = _row(row)
-                return created
             except IntegrityError:
                 if attempt == 1:
                     raise WorkspaceError(
                         f"工作区 slug 冲突，无法创建：{candidate}"
                     ) from None
+            else:
+                return created
         raise WorkspaceError("工作区创建失败")  # pragma: no cover
 
     def get(self, workspace_id: str) -> dict[str, Any] | None:
@@ -743,11 +744,11 @@ class WorkspaceStore:
         self,
         workspace_id: str,
         *,
-        bytes: int = 0,
+        size_bytes: int = 0,
         file_count: int = 0,
     ) -> dict[str, Any]:
         """原子增加用量；超过 quota_bytes 时拒绝（0 = 不限）。"""
-        delta_bytes = max(0, int(bytes or 0))
+        delta_bytes = max(0, int(size_bytes or 0))
         delta_files = max(0, int(file_count or 0))
         statement = (
             update(Workspace)
@@ -813,7 +814,7 @@ class WorkspaceStore:
         git_commit: str = "",
         archive_path: str = "",
         archive_sha256: str = "",
-        bytes: int = 0,
+        size_bytes: int = 0,
         file_count: int = 0,
         scan_status: str = "skipped",
         status: str = "active",
@@ -834,7 +835,7 @@ class WorkspaceStore:
             git_commit=str(git_commit or ""),
             archive_path=str(archive_path or ""),
             archive_sha256=str(archive_sha256 or ""),
-            bytes=max(0, int(bytes or 0)),
+            bytes=max(0, int(size_bytes or 0)),
             file_count=max(0, int(file_count or 0)),
             scan_status=scan_status,
             status=status,

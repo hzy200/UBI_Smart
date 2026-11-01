@@ -23,6 +23,74 @@ def _is_loopback_bind(host: str) -> bool:
     except ValueError:
         return False
 
+def _build_auth(settings, *, behind_proxy: bool):
+    from ubismart.web.auth import AuthConfig
+
+    try:
+        auth = AuthConfig.from_settings(settings)
+    except ValueError as exc:
+        console.print(f"[red]{escape(str(exc))}[/]")
+        raise typer.Exit(code=2) from exc
+
+    if behind_proxy and not auth.enabled:
+        console.print(
+            "[red]--behind-proxy 必须配置 AGENT_WEB_AUTH_TOKENS。[/] "
+            "否则反向代理转发来的请求会被当成 127.0.0.1 匿名访问。"
+        )
+        raise typer.Exit(code=2)
+    return auth
+
+
+def _validate_remote_bind(
+    host: str,
+    auth,
+    *,
+    allow_remote: bool,
+    ssl_keyfile: str,
+    ssl_certfile: str,
+    behind_proxy: bool,
+    allow_insecure_remote: bool,
+) -> None:
+    if _is_loopback_bind(host):
+        return
+    if not allow_remote:
+        console.print(
+            "[red]拒绝监听非 loopback 地址。[/] "
+            "公网部署请显式加 --allow-remote，并配置 AGENT_WEB_AUTH_TOKENS。"
+        )
+        raise typer.Exit(code=2)
+    if not auth.enabled:
+        console.print(
+            "[red]远程监听必须配置 AGENT_WEB_AUTH_TOKENS"
+            "（或 AGENT_WEB_AUTH_TOKENS_FILE）。[/]"
+        )
+        raise typer.Exit(code=2)
+    has_tls = bool(ssl_keyfile and ssl_certfile)
+    if not has_tls and not behind_proxy and not allow_insecure_remote:
+        console.print(
+            "[red]远程监听需要 TLS：[/] 提供 --ssl-keyfile/--ssl-certfile，"
+            "或声明 --behind-proxy，或显式 --allow-insecure-remote。"
+        )
+        raise typer.Exit(code=2)
+
+
+def _acquire_web_lock(data_root: Path) -> WorkspaceLock:
+    lock = WorkspaceLock(data_root, f"web-server:{data_root.resolve()}")
+    try:
+        acquired = lock.acquire()
+    except OSError as exc:
+        console.print(f"[red]无法创建 Web 单进程锁：{escape(str(exc))}[/]")
+        raise typer.Exit(code=2) from exc
+    if not acquired:
+        console.print(
+            "[red]已有一个 Web 进程在使用同一数据目录。[/] "
+            "当前 Web 按单进程共享资源池运行；请先停止另一个进程，"
+            "或通过 AGENT_WEB_DATA_ROOT 指定不同目录。"
+        )
+        raise typer.Exit(code=2)
+    return lock
+
+
 def web(
     host: str = typer.Option("127.0.0.1", "--host", help="监听地址"),
     port: int = typer.Option(8765, "--port", help="监听端口"),
@@ -64,7 +132,6 @@ def web(
         raise typer.Exit(code=2) from exc
 
     from ubismart.web import create_app
-    from ubismart.web.auth import AuthConfig
 
     settings = get_settings()
     updates: dict[str, object] = {"security_profile": security_profile}
@@ -74,40 +141,16 @@ def web(
         updates["web_serve_frontend"] = False
     settings = apply_security_profile(settings.model_copy(update=updates))
 
-    try:
-        auth = AuthConfig.from_settings(settings)
-    except ValueError as exc:
-        console.print(f"[red]{escape(str(exc))}[/]")
-        raise typer.Exit(code=2) from exc
-
-    if behind_proxy and not auth.enabled:
-        console.print(
-            "[red]--behind-proxy 必须配置 AGENT_WEB_AUTH_TOKENS。[/] "
-            "否则反向代理转发来的请求会被当成 127.0.0.1 匿名访问。"
-        )
-        raise typer.Exit(code=2)
-
-    loopback = _is_loopback_bind(host)
-    if not loopback:
-        if not allow_remote:
-            console.print(
-                "[red]拒绝监听非 loopback 地址。[/] "
-                "公网部署请显式加 --allow-remote，并配置 AGENT_WEB_AUTH_TOKENS。"
-            )
-            raise typer.Exit(code=2)
-        if not auth.enabled:
-            console.print(
-                "[red]远程监听必须配置 AGENT_WEB_AUTH_TOKENS"
-                "（或 AGENT_WEB_AUTH_TOKENS_FILE）。[/]"
-            )
-            raise typer.Exit(code=2)
-        has_tls = bool(ssl_keyfile and ssl_certfile)
-        if not has_tls and not behind_proxy and not allow_insecure_remote:
-            console.print(
-                "[red]远程监听需要 TLS：[/] 提供 --ssl-keyfile/--ssl-certfile，"
-                "或声明 --behind-proxy，或显式 --allow-insecure-remote。"
-            )
-            raise typer.Exit(code=2)
+    auth = _build_auth(settings, behind_proxy=behind_proxy)
+    _validate_remote_bind(
+        host,
+        auth,
+        allow_remote=allow_remote,
+        ssl_keyfile=ssl_keyfile,
+        ssl_certfile=ssl_certfile,
+        behind_proxy=behind_proxy,
+        allow_insecure_remote=allow_insecure_remote,
+    )
 
     if bool(ssl_keyfile) != bool(ssl_certfile):
         console.print("[red]--ssl-keyfile 与 --ssl-certfile 必须同时提供。[/]")
@@ -118,19 +161,7 @@ def web(
         if settings.web_data_root
         else Path.cwd() / ".agent" / "web" / "users"
     )
-    lock = WorkspaceLock(data_root, f"web-server:{data_root.resolve()}")
-    try:
-        acquired = lock.acquire()
-    except OSError as exc:
-        console.print(f"[red]无法创建 Web 单进程锁：{escape(str(exc))}[/]")
-        raise typer.Exit(code=2) from exc
-    if not acquired:
-        console.print(
-            "[red]已有一个 Web 进程在使用同一数据目录。[/] "
-            "当前 Web 按单进程共享资源池运行；请先停止另一个进程，"
-            "或通过 AGENT_WEB_DATA_ROOT 指定不同目录。"
-        )
-        raise typer.Exit(code=2)
+    lock = _acquire_web_lock(data_root)
 
     mode = "Bearer Token" if auth.enabled else "loopback 匿名"
     console.print(

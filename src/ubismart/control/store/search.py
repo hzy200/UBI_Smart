@@ -111,6 +111,169 @@ class SearchMixin:
         except Exception:  # noqa: BLE001 - FTS 不可用时仍可 LIKE 搜索
             _LOG.warning("FTS 索引写入失败，回退 LIKE 搜索", exc_info=True)
 
+    def _fts_rows(
+        self, scope: str, needle: str, size: int
+    ) -> list[Any]:
+        if self.engine.dialect.name != "sqlite" or len(needle) < 3:
+            return []
+        fts_query = '"' + needle.replace('"', '""') + '"'
+        try:
+            with self.engine.connect() as connection:
+                return connection.execute(
+                    text(
+                        "SELECT thread_id, title, body "
+                        "FROM control_session_fts "
+                        "WHERE tenant = :tenant "
+                        "AND control_session_fts MATCH :query "
+                        "ORDER BY rank LIMIT :limit"
+                    ),
+                    {
+                        "tenant": scope,
+                        "query": fts_query,
+                        "limit": size,
+                    },
+                ).all()
+        except Exception:  # noqa: BLE001 - FTS 缺失/语法不支持时回退
+            return []
+
+    def _like_rows(self, scope: str, needle: str, size: int) -> list[Any]:
+        pattern = f"%{needle}%"
+        with Session(self.engine) as session:
+            indexed = session.scalars(
+                select(ControlSessionSearch)
+                .where(ControlSessionSearch.tenant == scope)
+                .where(
+                    or_(
+                        ControlSessionSearch.title.like(pattern),
+                        ControlSessionSearch.body.like(pattern),
+                    )
+                )
+                .order_by(ControlSessionSearch.updated_at.desc())
+                .limit(size)
+            ).all()
+        return [(row.thread_id, row.title, row.body) for row in indexed]
+
+    def _add_transcript_hits(
+        self,
+        scope: str,
+        needle: str,
+        size: int,
+        add: Any,
+    ) -> None:
+        # 1) transcript 正文（FTS5/LIKE）
+        rows = self._fts_rows(scope, needle, size)
+        if not rows:
+            rows = self._like_rows(scope, needle, size)
+        for row in rows:
+            thread_id, title, body = row[0], row[1], row[2]
+            item = self._search_row(
+                str(thread_id), str(title), str(body), needle
+            )
+            add(
+                item["thread_id"],
+                item["title"],
+                item["snippet"],
+                "transcript",
+            )
+
+    def _add_session_hit(self, row: Any, needle: str, add: Any) -> None:
+        match_text = (
+            row.last_message
+            if needle.lower() in str(row.last_message).lower()
+            else row.title
+        )
+        snippet = self._search_row(
+            row.thread_id, row.title, match_text, needle
+        )["snippet"]
+        add(row.thread_id, row.title or row.thread_id, snippet, "title")
+
+    def _add_audit_hits(
+        self,
+        session: Any,
+        scope: str,
+        pattern: str,
+        size: int,
+        add: Any,
+        merged: dict[str, dict[str, Any]],
+    ) -> None:
+        # 3) 审计索引：kind/tool/level/decision/thread_id
+        audit_rows = session.scalars(
+            select(ControlAuditIndex)
+            .where(
+                ControlAuditIndex.tenant == scope,
+                or_(
+                    ControlAuditIndex.thread_id.like(pattern),
+                    ControlAuditIndex.kind.like(pattern),
+                    ControlAuditIndex.tool.like(pattern),
+                    ControlAuditIndex.level.like(pattern),
+                    ControlAuditIndex.decision.like(pattern),
+                ),
+            )
+            .order_by(ControlAuditIndex.ts.desc())
+            .limit(size * 4)
+        ).all()
+        missing = [
+            row.thread_id
+            for row in audit_rows
+            if row.thread_id and row.thread_id not in merged
+        ]
+        titles: dict[str, str] = {}
+        if missing:
+            for session_row in session.scalars(
+                select(ControlSession).where(
+                    ControlSession.tenant == scope,
+                    ControlSession.thread_id.in_(sorted(set(missing))),
+                )
+            ).all():
+                titles[session_row.thread_id] = session_row.title or ""
+        for row in audit_rows:
+            snippet = "审计：" + " ".join(
+                part
+                for part in (
+                    row.kind,
+                    row.tool,
+                    row.level,
+                    row.decision,
+                )
+                if part
+            )
+            add(
+                row.thread_id,
+                titles.get(row.thread_id, ""),
+                snippet,
+                "audit",
+            )
+
+    def _add_catalog_hits(
+        self,
+        scope: str,
+        needle: str,
+        size: int,
+        add: Any,
+        merged: dict[str, dict[str, Any]],
+    ) -> None:
+        pattern = f"%{needle}%"
+        # 2) 会话目录：标题 + 最后消息（覆盖没有 transcript 的旧会话）
+        with Session(self.engine) as session:
+            sessions = session.scalars(
+                select(ControlSession)
+                .where(
+                    ControlSession.tenant == scope,
+                    ControlSession.deleted.is_(False),
+                    or_(
+                        ControlSession.title.like(pattern),
+                        ControlSession.last_message.like(pattern),
+                    ),
+                )
+                .order_by(ControlSession.updated_at.desc())
+                .limit(size)
+            ).all()
+            for row in sessions:
+                self._add_session_hit(row, needle, add)
+            self._add_audit_hits(
+                session, scope, pattern, size, add, merged
+            )
+
     def search_sessions(
         self, tenant: str, query: str, *, limit: int = 20
     ) -> dict[str, Any]:
@@ -139,140 +302,8 @@ class SearchMixin:
             }
             order.append(thread)
 
-        # 1) transcript 正文（FTS5/LIKE）
-        fts_rows: list[Any] = []
-        if self.engine.dialect.name == "sqlite" and len(needle) >= 3:
-            fts_query = '"' + needle.replace('"', '""') + '"'
-            try:
-                with self.engine.connect() as connection:
-                    fts_rows = connection.execute(
-                        text(
-                            "SELECT thread_id, title, body "
-                            "FROM control_session_fts "
-                            "WHERE tenant = :tenant "
-                            "AND control_session_fts MATCH :query "
-                            "ORDER BY rank LIMIT :limit"
-                        ),
-                        {
-                            "tenant": scope,
-                            "query": fts_query,
-                            "limit": size,
-                        },
-                    ).all()
-            except Exception:  # noqa: BLE001 - FTS 缺失/语法不支持时回退
-                fts_rows = []
-        if not fts_rows:
-            pattern = f"%{needle}%"
-            with Session(self.engine) as session:
-                indexed = session.scalars(
-                    select(ControlSessionSearch)
-                    .where(ControlSessionSearch.tenant == scope)
-                    .where(
-                        or_(
-                            ControlSessionSearch.title.like(pattern),
-                            ControlSessionSearch.body.like(pattern),
-                        )
-                    )
-                    .order_by(ControlSessionSearch.updated_at.desc())
-                    .limit(size)
-                ).all()
-            fts_rows = [
-                (row.thread_id, row.title, row.body) for row in indexed
-            ]
-        for row in fts_rows:
-            thread_id, title, body = row[0], row[1], row[2]
-            item = self._search_row(
-                str(thread_id), str(title), str(body), needle
-            )
-            add(
-                item["thread_id"],
-                item["title"],
-                item["snippet"],
-                "transcript",
-            )
-
-        pattern = f"%{needle}%"
-        # 2) 会话目录：标题 + 最后消息（覆盖没有 transcript 的旧会话）
-        with Session(self.engine) as session:
-            sessions = session.scalars(
-                select(ControlSession)
-                .where(
-                    ControlSession.tenant == scope,
-                    ControlSession.deleted.is_(False),
-                    or_(
-                        ControlSession.title.like(pattern),
-                        ControlSession.last_message.like(pattern),
-                    ),
-                )
-                .order_by(ControlSession.updated_at.desc())
-                .limit(size)
-            ).all()
-            for row in sessions:
-                match_text = (
-                    row.last_message
-                    if needle.lower() in str(row.last_message).lower()
-                    else row.title
-                )
-                snippet = self._search_row(
-                    row.thread_id, row.title, match_text, needle
-                )["snippet"]
-                add(
-                    row.thread_id,
-                    row.title or row.thread_id,
-                    snippet,
-                    "title",
-                )
-
-            # 3) 审计索引：kind/tool/level/decision/thread_id
-            audit_rows = session.scalars(
-                select(ControlAuditIndex)
-                .where(
-                    ControlAuditIndex.tenant == scope,
-                    or_(
-                        ControlAuditIndex.thread_id.like(pattern),
-                        ControlAuditIndex.kind.like(pattern),
-                        ControlAuditIndex.tool.like(pattern),
-                        ControlAuditIndex.level.like(pattern),
-                        ControlAuditIndex.decision.like(pattern),
-                    ),
-                )
-                .order_by(ControlAuditIndex.ts.desc())
-                .limit(size * 4)
-            ).all()
-            missing = [
-                row.thread_id
-                for row in audit_rows
-                if row.thread_id and row.thread_id not in merged
-            ]
-            titles: dict[str, str] = {}
-            if missing:
-                for session_row in session.scalars(
-                    select(ControlSession).where(
-                        ControlSession.tenant == scope,
-                        ControlSession.thread_id.in_(sorted(set(missing))),
-                    )
-                ).all():
-                    titles[session_row.thread_id] = (
-                        session_row.title or ""
-                    )
-            for row in audit_rows:
-                snippet = "审计：" + " ".join(
-                    part
-                    for part in (
-                        row.kind,
-                        row.tool,
-                        row.level,
-                        row.decision,
-                    )
-                    if part
-                )
-                add(
-                    row.thread_id,
-                    titles.get(row.thread_id, ""),
-                    snippet,
-                    "audit",
-                )
-
+        self._add_transcript_hits(scope, needle, size, add)
+        self._add_catalog_hits(scope, needle, size, add, merged)
         results = [merged[thread] for thread in order][:size]
         return {"results": results, "enabled": True}
 
