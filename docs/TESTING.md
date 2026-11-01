@@ -141,7 +141,7 @@ python tests/eval/papers.py --case papers/report --json
 判定不止“答案看起来对”：覆盖全部文档、每篇至少一条证据、答案引用每篇、
 矩阵槽位覆盖率、`quote_verified_ratio`、跨文档 `attribution_issues`、
 报告章节与 `report_check`、确定性 judge。10 篇实测与边界见
-[DEEP_WORKFLOW_EVAL.md](DEEP_WORKFLOW_EVAL.md) §9；样本说明见
+[DEEP_WORKFLOW_EVAL.md](archive/eval/DEEP_WORKFLOW_EVAL.md) §9；样本说明见
 [`tests/eval/README.md`](../tests/eval/README.md)。
 
 ### 系统级 E2E（本地）
@@ -162,7 +162,7 @@ AGENT_SYSTEM_E2E=1 AGENT_WSL_DISTRO=CodingAgent make system-e2e
 更大规模的全量口径在 `tests/eval/langsmith_suite.py`：158 条（139 capability +
 2 agent + 17 mechanism；历史重复的 `agent/parallel_readonly` 已并入 capability
 的 workflow 断言，并新增子智能体委派用例），最近一次 L3 审批修复后实跑
-**158/158**，见 [LANGSMITH_REPORT_V3.md](LANGSMITH_REPORT_V3.md)。
+**158/158**，见 [LANGSMITH_REPORT_V3.md](archive/eval/LANGSMITH_REPORT_V3.md)。
 
 现有 default/full 已饱和时，用 `tests/eval/tasks_hard.py` 的 **hard 套件**
 （14 个并发/隐藏需求/多层/排障/性能任务）恢复区分度：
@@ -193,7 +193,7 @@ python tests/eval/runner.py --suite real --repeat 2
 `blind`；它用于观察 agent 是否能自行定位与验证，而不是顺着失败测试找答案。
 
 多语言（Node/Java）任务需要先在专用 WSL 发行版安装运行时，方案与风险见
-[POLYGLOT_PLAN.md](POLYGLOT_PLAN.md)；当前**未启用**，不影响现有套件。
+[POLYGLOT_PLAN.md](archive/plans/POLYGLOT_PLAN.md)；当前**未启用**，不影响现有套件。
 
 ## 6. 放置规则
 

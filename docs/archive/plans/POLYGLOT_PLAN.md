@@ -45,7 +45,7 @@ wsl -d CodingAgent -- javac -version
   Node 20+ 语法。
 - JDK 17 与主机版本一致；不引入 Maven/JUnit，测试用普通 `javac` + `java`
   和 `assert`/退出码。
-- 安装后需更新 `docs/PHASE_G.md` 的环境清单，并在
+- 安装后需更新 `docs/archive/phases/PHASE_G.md` 的环境清单，并在
   `tests/eval/harness.py::sandbox_capabilities` 增加 `node` / `javac` / `java`
   探测。
 - .NET SDK 需要 Microsoft 源、构建更重；等 Node/Java 跑通后再评估。

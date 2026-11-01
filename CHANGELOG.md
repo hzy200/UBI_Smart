@@ -366,7 +366,7 @@
   校验这条链路，并顺带守住三条容易出事的属性 —— 免提权安装
   （`PrivilegesRequired=lowest`）、卸载不删 `%LOCALAPPDATA%`、`.iss` 引用的
   文件与图标存在。7 条反向用例确认校验器不是空转。
-- 文档：`PHASE2.md` 补"CI 只做编译演练"的边界；`RELEASING.md` 新增
+- 文档：`archive/phases/PHASE2.md` 补"CI 只做编译演练"的边界；`RELEASING.md` 新增
   「安装包（Windows 桌面）」一节（真机构建步骤 + 签名现状）。
 
 ### CI（沙箱门禁不再空转）

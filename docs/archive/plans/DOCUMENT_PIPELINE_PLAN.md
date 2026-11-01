@@ -10,20 +10,20 @@ review_cadence: 阶段切换或范围变化时
 
 # 文档管线落地实施计划（RFC-0005 配套）
 
-> 本文件是 [RFC-0005](rfc/0005-document-image-and-report-pipeline.md) 的**实施计划**，
-> 不替代它的设计结论；决策依据见 [ADR-0024](adr/0024-document-pipeline-on-orchestrator.md)
-> 与 [ADR-0025](adr/0025-single-report-format-and-system-fonts.md)。
+> 本文件是 [RFC-0005](../../rfc/0005-document-image-and-report-pipeline.md) 的**实施计划**，
+> 不替代它的设计结论；决策依据见 [ADR-0024](../../adr/0024-document-pipeline-on-orchestrator.md)
+> 与 [ADR-0025](../../adr/0025-single-report-format-and-system-fonts.md)。
 > 所有行号对应 2026-10-30 的工作区快照，实现前需复核。
 >
 > **后续阶段**：长文档全文覆盖、map-reduce 抽取与按证据写作见
-> [RFC-0009](rfc/0009-deep-workflows-and-knowledge-artifacts.md)。
+> [RFC-0009](../../rfc/0009-deep-workflows-and-knowledge-artifacts.md)。
 > 2026-10-31 已部分落地：默认仍受“每次 5 页、最多 3 次”限制，但会报告
 > `coverage=partial` 与未读区间；开启 `AGENT_DOCUMENT_FULL_COVERAGE` /
 > `AGENT_DOCUMENT_MAP_REDUCE` 后按页数上限读全文并分批抽取。
 >
 > 2026-10-31 后续演进已完成：章节感知切分、引用跨度校验、每篇固定槽位
 > 证据矩阵、树状归并、跨文档归属校验、`document → author → report_check`
-> 报告评测。详见 §12 与 [ADR-0038](adr/0038-structured-document-matrix-and-attribution.md)。
+> 报告评测。详见 §12 与 [ADR-0038](../../adr/0038-structured-document-matrix-and-attribution.md)。
 
 ## 实施状态（2026-10-30）
 
@@ -363,7 +363,7 @@ document_read(path, mode="auto", page_range="", sheet="", slide_range="",
 ## 12. 2026-10-31 后续演进：结构化矩阵与树状归并
 
 这一节记录“长文档从能读，到多文档可比较、可归因”的增量；最终决策见
-[ADR-0038](adr/0038-structured-document-matrix-and-attribution.md)。
+[ADR-0038](../../adr/0038-structured-document-matrix-and-attribution.md)。
 
 ### 12.1 已落地
 

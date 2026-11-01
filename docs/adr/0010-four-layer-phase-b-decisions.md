@@ -13,7 +13,7 @@ review_cadence: 控制面部署形态、密钥、事件传输或前端构建方�
 ## 背景
 
 Phase A 已冻结 A1 前端 / A2 控制面 / A3 编排面 / A4 执行面的职责、
-数据归属与控制 API（见 [PHASE_A.md](../PHASE_A.md)）。进入 Phase B 前，
+数据归属与控制 API（见 [PHASE_A.md](../archive/phases/PHASE_A.md)）。进入 Phase B 前，
 需要把五个会影响实现形态的选择定下来，避免边做边改。
 
 约束：

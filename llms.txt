@@ -1,5 +1,5 @@
 # owner: 项目作者
-# last_reviewed: 2026-10-25
+# last_reviewed: 2026-11-01
 # 这是纯文本的目录卡，元数据用注释形式写在头部。
 
 # UBISmart
@@ -60,20 +60,18 @@
 
 ## L3 叙事与上下文
 
-- [README.md](README.md)：项目概览与快速开始（注意：其配置表与测试数字可能已过期）
-- [docs/onboarding.md](docs/onboarding.md)：新人上手路径
-- [docs/USAGE.md](docs/USAGE.md)：怎么用、故障排查
+- [README.md](README.md)：项目入口、快速开始、命令与文档地图
+- [docs/USAGE.md](docs/USAGE.md)：安装、配置、命令、典型工作流与排障（合并原 MANUAL/onboarding）
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：分层、数据流、不变量与取舍
+- [docs/WORKFLOW.md](docs/WORKFLOW.md)：状态生命周期与三套工作流
+- [docs/HARNESS.md](docs/HARNESS.md)：orchestrator、调度、worker 与 fan-in
+- [docs/HOST_BROKER.md](docs/HOST_BROKER.md)：A2L 宿主能力代理、host 工作区与本地授权
+- [docs/FRONTEND.md](docs/FRONTEND.md)：前端功能、桌面壳、会话视图与 UI 约束（含原 GUI）
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)：环境配置与版本快照
-- [docs/acceptance/acceptance-criteria.yaml](docs/acceptance/acceptance-criteria.yaml)：
-  验收标准（Given-When-Then + 可执行测试 ID）
+- [docs/acceptance/acceptance-criteria.yaml](docs/acceptance/acceptance-criteria.yaml)：验收标准（Given-When-Then + 可执行测试 ID）
 - [docs/runbook.yaml](docs/runbook.yaml)：故障场景 → 处置步骤
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：架构
-- [docs/FRONTEND.md](docs/FRONTEND.md)：前端功能、交互、SessionView 多会话状态、后台 SSE、实时分屏与 UI 约束
-- [docs/GUI.md](docs/GUI.md)：桌面壳、启动、接口、权限与部署
-- [docs/PHASE_A2L.md](docs/PHASE_A2L.md)：A2L 宿主能力代理 Phase 1 接口与文件清单
-- [docs/HARNESS.md](docs/HARNESS.md)：harness 设计
-- [docs/WORKFLOW.md](docs/WORKFLOW.md)：运行 / 开发 / 使用三套工作流
-- [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)：需求逐条对照与自检清单
+- [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)：需求对照摘要、已知限制与验证入口
 - [docs/COMPLEXITY.md](docs/COMPLEXITY.md)：复杂度度量与热点
-- [docs/DEMO.md](docs/DEMO.md)：答辩演示讲稿
+- [docs/COVERAGE.md](docs/COVERAGE.md) / [docs/METRICS.md](docs/METRICS.md)：覆盖率口径与生成快照
+- [docs/archive/README.md](docs/archive/README.md)：历史阶段、评测报告与计划索引
 - [tests/eval/README.md](tests/eval/README.md)：能力评测方法与噪声口径

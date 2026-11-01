@@ -178,7 +178,7 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 
 > 不要写 L1–L4：命令风险分级已经占用 L0–L4，文档还有“文档 L 层”用法。
 > 架构层一律用 **A1–A4**；客户端宿主代理固定写 **A2L**，见
-> [PHASE_A.md](PHASE_A.md)、[ADR-0015](adr/0015-host-capability-broker.md)。
+> [PHASE_A.md](archive/phases/PHASE_A.md)、[ADR-0015](adr/0015-host-capability-broker.md)。
 
 | 规范名 | 职责 | 当前锚点 |
 |---|---|---|

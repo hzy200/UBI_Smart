@@ -199,7 +199,7 @@ A3 已不再依赖 `web/` 或 `control.agent_client`：`servers/agent_server.py`
 
 | 想… | 读 |
 |---|---|
-| 上手跑起来 | `README.md` → `docs/onboarding.md` |
+| 上手跑起来 | `README.md` → `docs/USAGE.md` |
 | 查配置项 | `docs/contracts/config.md`（全量，生成） |
 | 查工具/命令等级 | `docs/contracts/tools.yaml`（生成） |
 | 查某个术语什么意思 | `docs/glossary.md` |
@@ -207,7 +207,9 @@ A3 已不再依赖 `web/` 或 `control.agent_client`：`servers/agent_server.py`
 | 想新增跨模块能力或改安全边界 | `docs/rfc/`（先写 RFC，再落 ADR、契约与验收锚点） |
 | 想知道"哪里不许碰" | 本文件第 3 节 + `docs/THREAT_MODEL.md` |
 | 改某个子系统 | 该目录下的 `AGENTS.md`，再看 `docs/ARCHITECTURE.md` |
-| 改长文档/多文档阅读 | `docs/DOCUMENT_PIPELINE_PLAN.md` §12 + `docs/adr/0038-structured-document-matrix-and-attribution.md` |
+| 改前端 / 桌面 GUI | `docs/FRONTEND.md` |
+| 改 A2L / host 工作区 | `docs/HOST_BROKER.md` + `docs/THREAT_MODEL.md` |
+| 改长文档/多文档阅读 | `docs/archive/plans/DOCUMENT_PIPELINE_PLAN.md` §12 + `docs/adr/0038-structured-document-matrix-and-attribution.md` |
 | 跑论文评测 | `tests/eval/README.md` 的“论文联合阅读标尺” |
 | 出问题了 | `docs/runbook.yaml` |
 | 验收某条需求 | `docs/acceptance/acceptance-criteria.yaml` |

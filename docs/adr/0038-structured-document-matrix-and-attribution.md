@@ -7,7 +7,7 @@
 - **Related**：[RFC-0009](../rfc/0009-deep-workflows-and-knowledge-artifacts.md)、
   [ADR-0030](0030-deep-document-flow.md)、
   [ADR-0034](0034-deep-workflow-evals.md)、
-  [ADR-0038 的评测记录](../DEEP_WORKFLOW_EVAL.md)
+  [ADR-0038 的评测记录](../archive/eval/DEEP_WORKFLOW_EVAL.md)
 
 ## Context
 

@@ -187,7 +187,7 @@ contexts:
 # 目标四层（Phase A 契约，未落地）
 # ===========================================================================
 # 当前 contexts 仍是代码事实源；target_layers 只描述未来职责与数据边界，
-# 不代表已经存在的包。实现顺序与控制 API 见 docs/PHASE_A.md。
+# 不代表已经存在的包。实现顺序与控制 API 见 docs/archive/phases/PHASE_A.md。
 target_layers:
   - id: a1-frontend
     name: 前端

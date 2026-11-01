@@ -45,7 +45,7 @@ B2 会话目录接入 + B3 SSE 事件传输重放 + B4 进程拆分与剩余 Age
 
 约束：不存 checkpoint、工作区文件、明文 API Key、Agent 运行时状态。
 生产列变更只走 Alembic；`create_all` 仅用于本地测试/首次空库。
-完整的 MySQL 建库、保留、备份与运维见 [DATABASE.md](DATABASE.md)。
+完整的 MySQL 建库、保留、备份与运维见 [DATABASE.md](../../DATABASE.md)。
 
 ### 1.2 会话目录接入
 

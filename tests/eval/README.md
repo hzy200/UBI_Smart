@@ -152,12 +152,12 @@ python tests/eval/langsmith_suite.py --run --kinds all --case-retries 1
 - 主 agent 14.69M in / 0.22M out；worker 0.72M in / 0.075M out；
 - 缓存命中率 **21.2%**（3.17M hit / 11.75M miss）；
 - 子智能体 2 个（最大同批 2）；写编排 4 worker、2 次合并；
-- 明细见 [docs/LANGSMITH_REPORT_V3.md](../../docs/LANGSMITH_REPORT_V3.md)。
+- 明细见 [LANGSMITH_REPORT_V3.md](../../docs/archive/eval/LANGSMITH_REPORT_V3.md)。
 
 历史基线（2026-10-25，`coding-agent-full-v2`）：157/157，实验
 `coding-agent-full-v2-a02ae03e`，墙钟 30m08s；1 次重跑
 （`full/validation/username`）。明细见
-[docs/LANGSMITH_REPORT_V2.md](../../docs/LANGSMITH_REPORT_V2.md)。
+[LANGSMITH_REPORT_V2.md](../../docs/archive/eval/LANGSMITH_REPORT_V2.md)。
 
 历史基线（2026-10-20，`coding-agent-full-v1`）：
 
@@ -169,7 +169,7 @@ python tests/eval/langsmith_suite.py --run --kinds all --case-retries 1
 - **139 capability 全量真实模型运行：138/139 = 99.3%**；失败任务
   `long/discount_spec` 隔离复跑通过。该轮默认 `orchestrator_write_enabled=false`、
   `explore_enabled=false`，implement 与 subagent 路径由生产试跑单独验证；
-- 量化明细见 [docs/LANGSMITH_REPORT.md](../../docs/LANGSMITH_REPORT.md)；
+- 量化明细见 [LANGSMITH_REPORT.md](../../docs/archive/eval/LANGSMITH_REPORT.md)；
 - 另用真实 CLI 跑通 direct 修复与 4 个 implement worker 的并发写编排。
 
 ## 用法
@@ -330,7 +330,7 @@ python scripts/calibrate_judge.py --input labeled.jsonl
 python scripts/calibrate_judge.py --input labeled.jsonl --llm
 ```
 
-首轮真实评测记录见 [`docs/DEEP_WORKFLOW_EVAL.md`](../../docs/DEEP_WORKFLOW_EVAL.md)。
+首轮真实评测记录见 [`docs/DEEP_WORKFLOW_EVAL.md`](../../docs/archive/eval/DEEP_WORKFLOW_EVAL.md)。
 
 千级数据集的构建/校验/切分（默认合成标注，只用于跑通流程）：
 
@@ -379,7 +379,7 @@ python tests/eval/runner.py --suite real --repeat 2
 最近一次干净工作区 `--repeat 2`（commit `3f34a2b`）：
 **5/5、5/5（100%），spread 0**，两轮 token 约 103 万，缓存命中率 7.6%。
 real 套件**也已饱和**：可见测试直接指出了失败行为，文件大小没有构成难度。
-明细见 [docs/REAL_SUITE_REPORT.md](../../docs/REAL_SUITE_REPORT.md)。
+明细见 [docs/REAL_SUITE_REPORT.md](../../docs/archive/eval/REAL_SUITE_REPORT.md)。
 
 `real_advanced` 改变信息条件，而不是继续加大文件：
 
@@ -404,21 +404,21 @@ python tests/eval/runner.py --suite blind --repeat 3
 **5/5、5/5、5/5（100%）**，`spread=0`；但 effort 显著上升：
 单任务单轮 7–12 次工具、3–7 次失败验证，`configparser` 三轮累计 21 次失败验证。
 “信息更少”提高的是成本，不是失败率。明细见
-[docs/BLIND_SUITE_REPORT.md](../../docs/BLIND_SUITE_REPORT.md)。
+[docs/BLIND_SUITE_REPORT.md](../../docs/archive/eval/BLIND_SUITE_REPORT.md)。
 
 最近一次干净工作区 `--repeat 2`（commit `5c971d5`）：
 **14/14、14/14（100%）**，`spread=0`，L3 审批 10 次全部由 harness 代为批准。
 上一版报告的 13/14 与 3/5、4/5 翻转已确认是 harness 未处理
 `ApprovalRequested` 的假象：benign 的 `cat`/`git log` 被判为 L3 后运行静默挂起，
 从外部看起来像“提前收手”。修复后同一套任务两轮全过。
-明细与根因见 [docs/REAL_ADVANCED_REPORT.md](../../docs/REAL_ADVANCED_REPORT.md)。
+明细与根因见 [docs/REAL_ADVANCED_REPORT.md](../../docs/archive/eval/REAL_ADVANCED_REPORT.md)。
 
 最近一次干净工作区 `--repeat 2`（commit `f062a78`）：
 **14/14、14/14（100%），spread 0**，两轮 token 约 238 万，缓存命中率 18.9%。
 修正任务定义缺陷后，hard 套件**也已饱和**；上一版 13/14 主要来自
 未写进提示词的要求与偶发实现错误，不能读成稳定能力缺口。
 下一步需要继续加难度，而不是把 hard 当作已解决的区分度来源。
-明细见 [docs/HARD_SUITE_REPORT.md](../../docs/HARD_SUITE_REPORT.md)。
+明细见 [docs/HARD_SUITE_REPORT.md](../../docs/archive/eval/HARD_SUITE_REPORT.md)。
 
 ## 下一把尺子：加什么、不加什么
 
@@ -568,7 +568,7 @@ baseline 记录 `approvals` / `approvals_approved`。
 | `worker_merge_attempts` / `worker_conflicts` | implement 合并尝试 / `merge_error` 非空 |
 | `merge_success_rate` / `conflict_rate` | 无合并尝试时为 `None`，不是 0% |
 | `tasks_reporting_worker_tokens` | 有多少任务真的回报了 worker 用量 |
-| `context_profile` | repo_map / worker 摘要 / 上下文裁剪报告；采样分析见 [docs/CONTEXT_PROFILE.md](../../docs/CONTEXT_PROFILE.md) |
+| `context_profile` | repo_map / worker 摘要 / 上下文裁剪报告；采样分析见 [docs/CONTEXT_PROFILE.md](../../docs/archive/eval/CONTEXT_PROFILE.md) |
 | `cache_hit_tokens` / `cache_miss_tokens` | provider 前缀缓存命中/未命中；未回报时 `None` |
 | `approvals` / `approvals_approved` | harness 代为批准的 L3 审批次数 |
 | `cache_hit_rate` | `hit / (hit + miss)`；没有回报时为 `None` |

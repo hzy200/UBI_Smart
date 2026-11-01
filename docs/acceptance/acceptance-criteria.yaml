@@ -597,7 +597,7 @@ criteria:
     then: Windows 可通过 loopback 访问静态页/API；工具走本地 bash，不再逐条 wsl.exe
     status: implemented
     tests: [tests/unit/test_server_entrypoint.py]
-    see: docs/PHASE0.md
+    see: docs/archive/phases/PHASE0.md
     note: 由 scripts/phase0_wsl_smoke.py 手工/脚本验证
 
   - id: REQ-67
@@ -617,7 +617,7 @@ criteria:
     then: 向导检测发行版、工作区、WSL Python 依赖，并保存配置
     status: implemented
     tests: [tests/unit/test_desktop_launcher.py::test_launcher_config_roundtrip]
-    see: docs/PHASE1.md
+    see: docs/archive/phases/PHASE1.md
 
   - id: REQ-69
     title: 启动器通过 stdin 传 token，A2/A3 固定端口握手
@@ -634,7 +634,7 @@ criteria:
     then: cancel_all → shutdown → 等待退出；超时才 terminate/kill；不残留 server
     status: implemented
     tests: [tests/unit/test_desktop_supervisor.py::test_server_stop_signals_shutdown]
-    see: docs/PHASE1.md
+    see: docs/archive/phases/PHASE1.md
     note: 由启动器端到端冒烟验证
 
   - id: REQ-71
@@ -652,8 +652,8 @@ criteria:
     then: 生成 CodingAgent-rootfs.tar；包含 agent 用户、/opt/coding-agent/venv、git/rg/bwrap
     status: implemented
     tests: []
-    note: 构建脚本不产生断言；产物按 docs/PHASE2.md 的手工验收清单核对
-    see: docs/PHASE2.md
+    note: 构建脚本不产生断言；产物按 docs/archive/phases/PHASE2.md 的手工验收清单核对
+    see: docs/archive/phases/PHASE2.md
 
   - id: REQ-73
     title: 启动器优先自动导入 bundled WSL 发行版
@@ -662,7 +662,7 @@ criteria:
     then: 自动 wsl --import CodingAgent，写入默认 distro/workspace/python；失败回退向导
     status: implemented
     tests: [tests/unit/test_desktop_launcher.py::test_launcher_config_roundtrip]
-    see: docs/PHASE2.md
+    see: docs/archive/phases/PHASE2.md
 
   - id: REQ-74
     title: 安装包与 WebView2 bootstrapper 构建脚本
@@ -680,7 +680,7 @@ criteria:
     then: 返回项目/Agent 两套解释器、包管理器、锁文件与警告；/mnt 明确提示性能问题
     status: implemented
     tests: [tests/unit/test_project_env.py::test_project_venv_is_preferred_over_system_python, tests/unit/test_project_env.py::test_mnt_workspace_is_flagged_as_slow]
-    see: docs/PHASE3.md
+    see: docs/archive/phases/PHASE3.md
 
   - id: REQ-76
     title: 项目测试使用项目解释器
@@ -697,7 +697,7 @@ criteria:
     then: 返回 WSL 路径；用列表参数启动 code --remote；/mnt 复制拒绝覆盖且无 shell 拼接
     status: implemented
     tests: [tests/unit/test_desktop_api.py::test_open_in_vscode_builds_wsl_remote_command, tests/unit/test_desktop_api.py::test_copy_runs_cp_without_shell_and_reports_done]
-    see: docs/PHASE3.md
+    see: docs/archive/phases/PHASE3.md
 
   - id: REQ-78
     title: 项目环境 HTTP 端点
@@ -714,7 +714,7 @@ criteria:
     then: 标题可改；搜索命中标题/thread/工作区；删除后列表隐藏且再创建返回 410；导出含对话
     status: implemented
     tests: [tests/unit/test_phase4_api.py::test_session_rename_search_export_and_delete]
-    see: docs/PHASE4.md
+    see: docs/archive/phases/PHASE4.md
 
   - id: REQ-80
     title: 文件树与只读查看器拒绝越界
@@ -771,7 +771,7 @@ criteria:
     then: zip 含 summary/配置/日志/WSL 概况；所有成员中的密钥片段都被替换为 [redacted]
     status: implemented
     tests: [tests/unit/test_phase5_desktop.py::test_collect_diagnostics_writes_redacted_zip, tests/unit/test_phase5_desktop.py::test_sanitize_redacts_common_secret_shapes]
-    see: docs/PHASE5.md
+    see: docs/archive/phases/PHASE5.md
 
   - id: REQ-87
     title: server 崩溃自动重启
@@ -796,8 +796,8 @@ criteria:
     then: diff 超过 200 行默认折叠；Provider 表单可一键填入 Ollama/LM Studio 端点
     status: implemented
     tests: []
-    note: 前端行为（frontend/src/features/providers.ts），无自动化断言；按 docs/PHASE5.md 手动验收
-    see: docs/PHASE5.md
+    note: 前端行为（frontend/src/features/providers.ts），无自动化断言；按 docs/archive/phases/PHASE5.md 手动验收
+    see: docs/archive/phases/PHASE5.md
 
   - id: REQ-90
     title: 四层架构与数据归属契约
@@ -806,7 +806,7 @@ criteria:
     then: A1-A4 职责、三种部署基线、MySQL/A3/A4/密钥的数据归属明确；Agent 功能零删减
     status: implemented
     tests: [tests/unit/test_architecture.py::test_shared_modules_stay_neutral]
-    see: docs/PHASE_A.md
+    see: docs/archive/phases/PHASE_A.md
 
   - id: REQ-91
     title: 控制面路由契约冻结
@@ -849,7 +849,7 @@ criteria:
       静态 SPA+esbuild/TS 五项决策及代价明确
     status: implemented
     tests: []
-    note: 决策记录类条目，由 docs/adr/0010 与 docs/PHASE_A.md 承担验收，无代码断言
+    note: 决策记录类条目，由 docs/adr/0010 与 docs/archive/phases/PHASE_A.md 承担验收，无代码断言
     see: docs/adr/0010-four-layer-phase-b-decisions.md
 
   - id: REQ-96
@@ -859,7 +859,7 @@ criteria:
     then: sessions/runs/audit_index/provider_profiles/usage/meta 表齐全，MySQL DDL 可编译
     status: implemented
     tests: [tests/unit/test_control_store.py::test_schema_is_mysql_compatible_and_versioned]
-    see: docs/PHASE_B.md
+    see: docs/archive/phases/PHASE_B.md
 
   - id: REQ-97
     title: 会话目录跨 A2 重启恢复
@@ -964,7 +964,7 @@ criteria:
     then: 生成 UBISmartAgent/UBISmartControl；服务只绑 loopback，环境文件含 token
     status: implemented
     tests: [tests/unit/test_layer_contracts.py::test_native_service_packaging_assets_exist]
-    see: docs/PHASE_B.md
+    see: docs/archive/phases/PHASE_B.md
 
   - id: REQ-110
     title: 前端由 esbuild/TypeScript 生成
@@ -981,7 +981,7 @@ criteria:
     then: 重复返回同一回执且不重复执行；不同 payload 抛 ExecutionConflict；seq 按 run 连续
     status: implemented
     tests: [tests/unit/test_execution_service.py::test_same_op_id_is_idempotent, tests/unit/test_execution_service.py::test_journal_survives_service_restart, tests/unit/test_execution_service.py::test_same_op_id_with_different_payload_is_a_conflict]
-    see: docs/PHASE_C.md
+    see: docs/archive/phases/PHASE_C.md
 
   - id: REQ-112
     title: WSL/Linux 共用执行契约
@@ -1054,7 +1054,7 @@ criteria:
     then: 先起 WSL A3，再起 Windows A2，A2 注入内部 URL/token 并打开窗口
     status: implemented
     tests: [tests/unit/test_desktop_topology.py::test_start_control_injects_agent_endpoint, tests/unit/test_desktop_launcher.py::test_build_control_command_enables_desktop]
-    see: docs/PHASE_D.md
+    see: docs/archive/phases/PHASE_D.md
 
   - id: REQ-121
     title: A2 周期探测 A3 并自动恢复
@@ -1121,7 +1121,7 @@ criteria:
     then: 启动握手、会话、A3 崩溃、A2 重启、DB 降级、版本不匹配、迁移失败全部通过
     status: implemented
     tests: [tests/unit/test_phase_d_smoke.py::test_help_lists_failure_drill_options]
-    see: docs/PHASE_D.md
+    see: docs/archive/phases/PHASE_D.md
 
   - id: REQ-129
     title: 主题、字体、密度与跟随系统
@@ -1130,7 +1130,7 @@ criteria:
     then: body class 与 CSS 令牌生效，设置写入 localStorage；跟随系统走 prefers-color-scheme
     status: implemented
     tests: [tests/unit/test_web_frontend_assets.py::test_theme_and_accessibility_markers]
-    see: docs/PHASE_E.md
+    see: docs/archive/phases/PHASE_E.md
 
   - id: REQ-130
     title: SSE 客户端模块与重连
@@ -1139,7 +1139,7 @@ criteria:
     then: 按 seq 去重，保留 lastSeq；自动退避重连并显示连接状态，失败可重试上一条
     status: implemented
     tests: [tests/unit/test_web_frontend_assets.py::test_bundle_is_generated_and_contains_phase_e_hooks]
-    see: docs/PHASE_E.md
+    see: docs/archive/phases/PHASE_E.md
 
   - id: REQ-131
     title: 任务字段与推理分块
@@ -1148,7 +1148,7 @@ criteria:
     then: 任务卡显示依赖/worker/耗时/token；推理按节点折叠，默认不展示
     status: implemented
     tests: [tests/unit/test_web_frontend_assets.py::test_bundle_is_generated_and_contains_phase_e_hooks]
-    see: docs/PHASE_E.md
+    see: docs/archive/phases/PHASE_E.md
 
   - id: REQ-132
     title: 代码高亮与复制
@@ -1157,7 +1157,7 @@ criteria:
     then: 使用本地 highlight.js 高亮；代码块可复制，长代码块可滚动
     status: implemented
     tests: [tests/unit/test_web_frontend_assets.py::test_vendor_assets_are_documented]
-    see: docs/PHASE_E.md
+    see: docs/archive/phases/PHASE_E.md
 
   - id: REQ-133
     title: 长会话渲染优化
@@ -1166,7 +1166,7 @@ criteria:
     then: 消息/工具/文件/任务卡使用 content-visibility，仅渲染可视区
     status: implemented
     tests: [tests/unit/test_web_frontend_assets.py::test_theme_and_accessibility_markers]
-    see: docs/PHASE_E.md
+    see: docs/archive/phases/PHASE_E.md
 
   - id: REQ-134
     title: 前端构建与类型门禁
@@ -1175,7 +1175,7 @@ criteria:
     then: 重建 static/app.js 后无漂移，tsc --noEmit 通过
     status: implemented
     tests: [tests/unit/test_web_frontend_assets.py::test_bundle_is_generated_and_contains_phase_e_hooks]
-    see: docs/PHASE_E.md
+    see: docs/archive/phases/PHASE_E.md
 
   - id: REQ-135
     title: 企业 provider Key 只以密文落控制面，主密钥与明文不落库
@@ -1209,7 +1209,7 @@ criteria:
     then: downgrade 后表消失、重升级为空、恢复后数据回到备份点
     status: implemented
     tests: [tests/unit/test_phase_f_drill.py::test_sqlite_drill_upgrade_downgrade_backup_restore]
-    see: docs/PHASE_F.md
+    see: docs/archive/phases/PHASE_F.md
 
   - id: REQ-139
     title: MySQL 迁移/回滚/备份/恢复
@@ -1218,7 +1218,7 @@ criteria:
     then: revision 回到 head，备份可恢复，数据一致
     status: implemented
     tests: [tests/unit/test_phase_f_drill.py::test_drill_help]
-    see: docs/PHASE_F.md
+    see: docs/archive/phases/PHASE_F.md
 
   - id: REQ-140
     title: 性能基线可复现
@@ -1227,7 +1227,7 @@ criteria:
     then: 输出 ExecutionService 代理、控制面写入、SSE 首事件延迟的 JSON
     status: implemented
     tests: [tests/unit/test_phase_f_drill.py::test_bench_help]
-    see: docs/PHASE_F.md
+    see: docs/archive/phases/PHASE_F.md
 
   - id: REQ-141
     title: 宿主侧执行只能走 kind 白名单
@@ -1533,7 +1533,7 @@ criteria:
       原子替换目标；失败保留旧版本；新 revision 替代旧 active。
     status: implemented
     tests: [tests/unit/test_workspace_upload_a3.py::test_activate_replace_swaps_existing_workspace, tests/unit/test_workspace_upload_a3.py::test_attach_git_history_preserves_config, tests/unit/test_workspace_upload_a3.py::test_recover_swap_restores_backup, tests/unit/test_workspace_import_proxy.py::test_active_workspace_can_import_again, tests/unit/test_workspace_import_proxy.py::test_active_import_failure_keeps_old_version, tests/unit/test_workspace_upload_proxy.py::test_active_workspace_can_upload_again]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-172
     title: steer 支持幂等键
@@ -1551,7 +1551,7 @@ criteria:
     then: A2 先写入临时文件并按块限额，再以文件句柄转发；请求结束清理临时目录
     status: implemented
     tests: [tests/unit/test_workspace_upload_proxy.py::test_upload_forwards_file, tests/unit/test_workspace_upload_proxy.py::test_upload_size_limit_is_413]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-174
     title: 从 revision 归档灾难恢复
@@ -1562,7 +1562,7 @@ criteria:
       恢复前生成 pre-restore revision；原子替换；失败不动旧工作区。
     status: implemented
     tests: [tests/unit/test_workspace_restore.py::test_restore_replaces_broken_workspace, tests/unit/test_workspace_restore.py::test_restore_rejects_sha_mismatch, tests/unit/test_workspace_restore.py::test_restore_rejects_outside_archive, tests/unit/test_workspace_restore.py::test_restore_rejects_missing_archive, tests/unit/test_workspace_upload_proxy.py::test_restore_from_archive_records_pre_and_activates, tests/unit/test_workspace_upload_proxy.py::test_restore_requires_archive, tests/unit/test_workspace_archive.py::test_skip_names_can_be_relaxed_for_restore]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-175
     title: A3 任务状态持久化与重启恢复
@@ -1573,7 +1573,7 @@ criteria:
       终态任务可继续查询，超过保留期的文件被清理。
     status: implemented
     tests: [tests/unit/test_workspace_jobs_persistence.py::test_persist_excludes_runtime_event, tests/unit/test_workspace_jobs_persistence.py::test_update_persists_status, tests/unit/test_workspace_jobs_persistence.py::test_load_terminal_job, tests/unit/test_workspace_jobs_persistence.py::test_incomplete_job_is_failed_and_cleaned, tests/unit/test_workspace_jobs_persistence.py::test_stale_terminal_job_is_removed, tests/unit/test_workspace_jobs_persistence.py::test_load_recovers_interrupted_swap]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-176
     title: 恢复中心返回真实待审批数
@@ -1582,7 +1582,7 @@ criteria:
     then: 为最多 10 个会话加载 pending approvals；失败按 0 处理，不影响列表
     status: implemented
     tests: [tests/unit/test_agent_server_recovery.py::test_recovery_counts_pending_approvals]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-177
     title: 真实模型基础运行验收
@@ -1591,7 +1591,7 @@ criteria:
     then: A2 将 key 短期注入 A3，完成一次真实运行并收到 run_finished
     status: implemented
     tests: [tests/unit/test_phase_g_e2e.py::test_help]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-178
     title: 真实审批暂停/恢复与快照回滚
@@ -1600,7 +1600,7 @@ criteria:
     then: 运行挂起为 approval_requested，resume 后完成；快照恢复删除写入文件
     status: implemented
     tests: [tests/unit/test_phase_g_e2e.py::test_help]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-179
     title: 控制面 MySQL 初始化脚本
@@ -1611,7 +1611,7 @@ criteria:
       dry-run 不连接数据库且密码脱敏。
     status: implemented
     tests: [tests/unit/test_setup_control_mysql.py::test_help, tests/unit/test_setup_control_mysql.py::test_build_statements, tests/unit/test_setup_control_mysql.py::test_invalid_identifier_is_rejected, tests/unit/test_setup_control_mysql.py::test_password_validation, tests/unit/test_setup_control_mysql.py::test_dry_run]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-180
     title: 重复运行返回可重连的 409
@@ -1631,7 +1631,7 @@ criteria:
       上传任务 active 且文件在工作区可见。
     status: implemented
     tests: [tests/unit/test_workspace_upload_a3.py::test_upload_success_activates_and_cleans, tests/unit/test_workspace_upload_proxy.py::test_upload_forwards_file, tests/unit/test_phase_g_e2e.py::test_help]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-182
     title: 内部 HMAC 签名联调
@@ -1640,7 +1640,7 @@ criteria:
     then: A3 验签通过；未签名或篡改请求返回 401
     status: implemented
     tests: [tests/unit/test_internal_hmac.py::test_agent_accepts_valid_signature, tests/unit/test_internal_hmac.py::test_agent_rejects_missing_signature, tests/unit/test_desktop_supervisor.py::test_agent_env_passes_explicit_values]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-183
     title: 多 A2 实例共享 Redis Streams 重放
@@ -1658,7 +1658,7 @@ criteria:
     then: 触发 L3 审批；拒绝后命令未执行（sentinel 仍在），运行正常收尾
     status: implemented
     tests: [tests/unit/test_phase_g_e2e.py::test_help]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-185
     title: 控制面迁移的 MySQL 方言离线编译
@@ -1667,7 +1667,7 @@ criteria:
     then: 建表/加列语句可编译，control_meta 种子数据有明确列类型
     status: implemented
     tests: [tests/unit/test_mysql_ddl.py::test_mysql_ddl_contains_all_tables, tests/unit/test_mysql_ddl.py::test_mysql_ddl_has_incremental_columns]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-186
     title: MySQL 8.0 迁移/回滚/备份恢复实跑
@@ -1676,7 +1676,7 @@ criteria:
     then: 迁移到 head、downgrade、re-upgrade、备份恢复全部成功
     status: implemented
     tests: [tests/integration/test_control_mysql.py::test_mysql_upgrade_store_backup_restore, tests/unit/test_phase_f_drill.py::test_sqlite_drill_upgrade_downgrade_backup_restore]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   - id: REQ-187
     title: 上传逐字节进度
@@ -1687,7 +1687,7 @@ criteria:
       total_bytes/processed_files；扫描阶段为不确定态；最终 100%。
     status: implemented
     tests: [tests/unit/test_workspace_archive.py::test_safe_extract_reports_progress, tests/unit/test_workspace_upload_a3.py::test_upload_success_activates_and_cleans, tests/unit/test_frontend_workspace_ui.py::test_app_js_contains_workspace_flow, tests/unit/test_frontend_workspace_ui.py::test_index_contains_registry_section]
-    see: docs/PHASE_G.md
+    see: docs/archive/phases/PHASE_G.md
 
   # ---------------------------------------------------------------- A2L（Phase 1 planned）
   - id: REQ-188
@@ -1707,7 +1707,7 @@ criteria:
           不静默改道
     status: implemented
     tests: [tests/unit/test_host_backend.py::test_service_routes_by_workspace_kind, tests/unit/test_host_backend.py::test_service_rejects_target_kind_mismatch]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   - id: REQ-190
     title: ZX 优先于任何 grant
@@ -1726,7 +1726,7 @@ criteria:
           调用必须经 ToolchainRef + 受控参数
     status: implemented
     tests: [tests/unit/test_host_toolchain_registry.py::test_summary_has_no_absolute_path]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   - id: REQ-192
     title: 安全档不得虚报
@@ -1744,7 +1744,7 @@ criteria:
           暂停/离线；不注册系统服务、不独立常驻；不得以 LocalSystem/root 运行
     status: partial
     tests: [tests/unit/test_host_broker_lifecycle.py::test_start_stop_and_single_instance, tests/unit/test_host_broker_lifecycle.py::test_pause_resume_and_offline]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   - id: REQ-194
     title: host 绝对路径不离开客户端
@@ -1764,7 +1764,7 @@ criteria:
           OP_NOT_ENABLED_IN_PHASE1
     status: implemented
     tests: [tests/integration/test_host_broker_readonly.py::test_windows_host_readonly_e2e, tests/unit/test_host_broker_channel.py::test_unknown_or_write_op_is_not_enabled]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   - id: REQ-196
     title: grant 本地闭环
@@ -1774,7 +1774,7 @@ criteria:
           grant.granted/denied；A1 不能代批准；撤销发 grant.revoke
     status: implemented
     tests: [tests/unit/test_host_broker_channel.py::test_grant_request_uses_local_consent, tests/unit/test_host_broker_channel.py::test_grant_request_can_be_denied, tests/integration/test_host_broker_readonly.py::test_acceptor_handshake_and_local_grant]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   - id: REQ-197
     title: HostFs/FileAccess 只读抽象
@@ -1784,7 +1784,7 @@ criteria:
           search_code/shell/写仍不可用
     status: implemented
     tests: [tests/unit/test_file_access.py::test_sandbox_adapter_matches_protocol, tests/integration/test_host_broker_readonly.py::test_windows_host_readonly_e2e]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   - id: REQ-198
     title: op_journal 防盲目重放
@@ -1793,7 +1793,7 @@ criteria:
     then: op_journal 返回 unknown；写/执行不盲目重放；只读可安全重试
     status: implemented
     tests: [tests/unit/test_host_op_journal.py::test_recover_marks_started_as_unknown]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   - id: REQ-199
     title: host 根目录只接受本地固定 NTFS
@@ -1802,7 +1802,7 @@ criteria:
     then: 拒绝注册，不生成 root_handle；只接受本地固定 NTFS
     status: implemented
     tests: [tests/unit/test_host_paths.py::test_validate_root_rejects_file_missing_and_home, tests/unit/test_host_paths.py::test_child_rejects_windows_ads_and_reserved_names]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   - id: REQ-200
     title: 敏感根逐次确认
@@ -1821,7 +1821,7 @@ criteria:
           A2 只落元数据；前端刷新项目列表
     status: implemented
     tests: [tests/unit/test_host_workspace_registrar.py::test_register_returns_handle_and_stores_root, tests/unit/test_agent_server_host_register.py::test_host_workspace_register_route]
-    see: docs/PHASE_A2L.md
+    see: docs/HOST_BROKER.md
 
   # ------------------------------------------------- 前后端分离（设计冻结，planned）
   - id: REQ-202

@@ -279,7 +279,7 @@ python tests/eval/papers.py --case papers/report --json
 
 ## 9. 结构化证据矩阵 + 分层归并 + 归属校验（2026-10-31）
 
-决策与代价见 [ADR-0038](adr/0038-structured-document-matrix-and-attribution.md)。
+决策与代价见 [ADR-0038](../../adr/0038-structured-document-matrix-and-attribution.md)。
 实现三项：
 
 1. **每篇固定槽位矩阵**：`DocumentMatrix` 输出 `problem/method/algorithm/

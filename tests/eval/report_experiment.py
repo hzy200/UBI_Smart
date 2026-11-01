@@ -404,7 +404,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
     parser.add_argument("--json-out", default="tests/eval/reports/langsmith_report.json")
-    parser.add_argument("--md-out", default="docs/LANGSMITH_REPORT.md")
+    parser.add_argument("--md-out", default="docs/archive/eval/LANGSMITH_REPORT.md")
     args = parser.parse_args()
 
     data = collect(args.project)

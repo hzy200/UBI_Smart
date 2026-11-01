@@ -136,7 +136,7 @@ MySQL 演练会清空该库的表，脚本强制库名包含 `test`。CI 只跑 
 
 ## 4. 未覆盖 / 人工项
 
-- 浏览器长会话渲染与交互延迟：在 `docs/PHASE_E.md` 手测清单中观察；
+- 浏览器长会话渲染与交互延迟：在 `docs/archive/phases/PHASE_E.md` 手测清单中观察；
 - WSL/bwrap 真实隔离：需要装好项目依赖的 WSL 或 Linux 主机，执行
   `pytest -m wsl` / `pytest -m execution`；
 - MySQL 最小权限账号：需要 DBA/root 环境，按 `packaging/mysql/init.sql`

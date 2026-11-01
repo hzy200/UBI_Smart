@@ -13,7 +13,7 @@ from typing import Any
 PROTOCOL_VERSION = 2
 MAX_FRAME_BYTES = 1024 * 1024
 
-# 错误码与 docs/PHASE_A2L.md §3.4 保持一致。
+# 错误码与 docs/HOST_BROKER.md §3.4 保持一致。
 DENIED_ZX = "DENIED_ZX"
 DENIED_SCOPE = "DENIED_SCOPE"
 DENIED_VERB = "DENIED_VERB"

@@ -40,7 +40,7 @@ RFC-0002 已批准，状态改为 `accepted`。批准时用户补充了以下硬
 8. **Phase 1 工具范围**：只接 `file_read/list_dir/find_files`；
    `search_code`、shell、写、编译、安装留到后续阶段。
 
-Phase 1 的接口与文件清单见 [PHASE_A2L.md](../PHASE_A2L.md)。
+Phase 1 的接口与文件清单见 [HOST_BROKER.md](../HOST_BROKER.md)。
 
 ## 1. 目标
 
@@ -83,7 +83,7 @@ A4 执行面（含 WSL 沙箱）全在服务端。工作区在服务端的 ext4 
 可调用本机编译器、产物留在本机、缺依赖可授权自动安装；并在 A1 与 A2 之间增加一层
 客户端「代理」，负责客户端与服务端之间的自动化交互（如授权后安装软件）。
 
-**约束证据**（`docs/adr/0009`、`docs/PHASE_G.md`）：
+**约束证据**（`docs/adr/0009`、`docs/archive/phases/PHASE_G.md`）：
 
 | 约束 | 初衷 | 代价 |
 |---|---|---|

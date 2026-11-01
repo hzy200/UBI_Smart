@@ -15,7 +15,7 @@ Phase A 只做**契约、归属与验收基线**，不改变现有行为。目�
 
 > 命名约定：本文用 **A1 前端 / A2 控制面 / A3 编排面 / A4 执行面** 表示架构四层。
 > 不要写成 L1–L4：项目里的 **L0–L3 是命令风险分级**，另有“文档 L 层”用法，
-> 混用会让安全判定与架构讨论串味（见 [glossary.md](glossary.md)）。
+> 混用会让安全判定与架构讨论串味（见 [glossary.md](../../glossary.md)）。
 
 ## 1. 目标与边界
 
@@ -236,7 +236,7 @@ Phase A 目标清单（Phase E 实现）：
 - [x] 关键路由/事件/会话字段/工具清单有契约测试；
 - [x] 现有行为未改变；Phase B 可以只做“控制面抽取”而不改 Agent 语义。
 
-**Phase B 决策（已确认，见 [ADR-0010](adr/0010-four-layer-phase-b-decisions.md)）**：
+**Phase B 决策（已确认，见 [ADR-0010](../../adr/0010-four-layer-phase-b-decisions.md)）**：
 
 1. **A2 在各平台都跑原生进程**：Windows 用服务/进程 + 本机 MySQL，
    Linux 用 systemd + MySQL/MariaDB；WSL 只承载 A3/A4。差异不在稳定性，

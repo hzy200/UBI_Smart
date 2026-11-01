@@ -4,48 +4,67 @@ doc_id: archive-index
 title: 归档索引
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-11-01
 review_cadence: 引用变动时
 ---
 
 # 归档索引
 
-**为什么有这个目录**：`IMPROVEMENT_PLAN.md` 与 `PLAN.md` 曾被多处引用
-（`HARNESS.md §18`、`ACCEPTANCE.md §3`、`tests/eval/README.md`），但**文件本身不存在**。
-断链比"没有文档"更糟——它让人以为有一份说明在，点进去才发现是空的。
+历史阶段、一次性评测报告与旧计划放在这里。**归档不代表当前状态**；当前
+架构、编排、使用和安全边界分别见 [../ARCHITECTURE.md](../ARCHITECTURE.md)、
+[../HARNESS.md](../HARNESS.md)、[../USAGE.md](../USAGE.md)、
+[../THREAT_MODEL.md](../THREAT_MODEL.md)。
 
-处理办法不是凭空补两份文件，而是**把引用指向这里，并说明内容现在住在哪**。
+## 阶段文档（`phases/`）
 
-## 原 `PLAN.md`（早期开发方案）
-
-早期开发方案，已被实现覆盖。它的内容现在分散在：
-
-- 架构与分层 → [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
-- 编排设计 → [`../HARNESS.md`](../HARNESS.md)
-- 工作流与状态生命周期 → [`../WORKFLOW.md`](../WORKFLOW.md)
-
-## 原 `IMPROVEMENT_PLAN.md`（缺陷与阶段计划）
-
-按原始条目去向：
-
-| 原条目 | 现在在哪 |
+| 文件 | 当前替代 |
 |---|---|
-| Q1「CI 无 WSL 的沙箱层缺口」 | [`../ACCEPTANCE.md`](../ACCEPTANCE.md) 第 3 节的口径提醒；CI 已用 `::warning::` 显式化 |
-| §3.2 W2「长程任务要提一个量级」 | [`../tests/eval/README.md`](../../tests/eval/README.md) 的「long 套件」章节（38 文件 / 约 970 行） |
-| 第四部分「任务源自真实仓库而非自造」 | 已**决定不照做**，理由见 [`../adr/0007-eval-fixture-deterministic-generator.md`](../adr/0007-eval-fixture-deterministic-generator.md) |
-| 各类缺陷与待办 | [`../tech-debt.yaml`](../tech-debt.yaml)（带 owner 与到期日） |
-| 已修的 P0 | [`../postmortem/`](../postmortem/) |
+| [`PHASE0.md`](phases/PHASE0.md) | [USAGE.md](../USAGE.md) |
+| [`PHASE1.md`](phases/PHASE1.md) | [USAGE.md](../USAGE.md)、[FRONTEND.md](../FRONTEND.md) |
+| [`PHASE2.md`](phases/PHASE2.md) | [RELEASING.md](../RELEASING.md)、`packaging/wsl/` |
+| [`PHASE3.md`](phases/PHASE3.md) | [FRONTEND.md](../FRONTEND.md) |
+| [`PHASE4.md`](phases/PHASE4.md) | [FRONTEND.md](../FRONTEND.md) |
+| [`PHASE5.md`](phases/PHASE5.md) | [FRONTEND.md](../FRONTEND.md) |
+| [`PHASE_A.md`](phases/PHASE_A.md) | [ARCHITECTURE.md](../ARCHITECTURE.md) §12 |
+| [`PHASE_B.md`](phases/PHASE_B.md) | [ARCHITECTURE.md](../ARCHITECTURE.md) §13 |
+| [`PHASE_C.md`](phases/PHASE_C.md) | [ARCHITECTURE.md](../ARCHITECTURE.md) §16 摘要 |
+| [`PHASE_D.md`](phases/PHASE_D.md) | [ARCHITECTURE.md](../ARCHITECTURE.md) §17 摘要 |
+| [`PHASE_E.md`](phases/PHASE_E.md) | [FRONTEND.md](../FRONTEND.md) |
+| [`PHASE_F.md`](phases/PHASE_F.md) | [CI.md](../CI.md)、[THREAT_MODEL.md](../THREAT_MODEL.md) |
+| [`PHASE_G.md`](phases/PHASE_G.md) | [ENVIRONMENT.md](../ENVIRONMENT.md) |
+| [`ARCHITECTURE_PHASES.md`](ARCHITECTURE_PHASES.md) | [ARCHITECTURE.md](../ARCHITECTURE.md) |
+| [`HARNESS_ROADMAP.md`](HARNESS_ROADMAP.md) | [HARNESS.md](../HARNESS.md) |
+| [`ACCEPTANCE_PHASES.md`](ACCEPTANCE_PHASES.md) | [ACCEPTANCE.md](../ACCEPTANCE.md) |
 
-## 一次性报告
+## 评测与快照（`eval/`）
 
-| 文件 | 说明 |
+| 文件 | 内容 |
 |---|---|
-| [`TEST_REPORT_2026-10-21.md`](TEST_REPORT_2026-10-21.md) | 2026-10-21 全量测试与上机运行快照；第 5 节的两个 P0 已抽成 [`../postmortem/2026-10-21-orchestrated-write.md`](../postmortem/2026-10-21-orchestrated-write.md)，本文只作历史数字 |
+| [`LANGSMITH_REPORT.md`](eval/LANGSMITH_REPORT.md) | 早期 LangSmith 评测 |
+| [`LANGSMITH_REPORT_V2.md`](eval/LANGSMITH_REPORT_V2.md) / [`V3`](eval/LANGSMITH_REPORT_V3.md) | 157/158 能力任务评测 |
+| [`HARD_SUITE_REPORT.md`](eval/HARD_SUITE_REPORT.md) | hard 套件（14 个高难度任务） |
+| [`REAL_SUITE_REPORT.md`](eval/REAL_SUITE_REPORT.md) | real 套件（标准库回归） |
+| [`REAL_ADVANCED_REPORT.md`](eval/REAL_ADVANCED_REPORT.md) | real_advanced 套件 |
+| [`BLIND_SUITE_REPORT.md`](eval/BLIND_SUITE_REPORT.md) | blind 盲测套件 |
+| [`CONTEXT_AB_REPORT.md`](eval/CONTEXT_AB_REPORT.md) | 上下文/worker 成本 A/B |
+| [`CONTEXT_PROFILE.md`](eval/CONTEXT_PROFILE.md) | 上下文画像采样 |
+| [`DEEP_WORKFLOW_EVAL.md`](eval/DEEP_WORKFLOW_EVAL.md) | 深度工作流/长文档评测 |
 
-快照只增不改。新结果另起一份，不要覆盖历史基线。
+评测方法与当前噪声口径见 [`../../tests/eval/README.md`](../../tests/eval/README.md)。
+
+## 计划（`plans/`）
+
+| 文件 | 状态 |
+|---|---|
+| [`DOCUMENT_PIPELINE_PLAN.md`](plans/DOCUMENT_PIPELINE_PLAN.md) | implemented；当前见 RFC-0005 / ADR-0038 |
+| [`POLYGLOT_PLAN.md`](plans/POLYGLOT_PLAN.md) | proposed；未实施 |
+
+## 其他
+
+- [`DEMO.md`](DEMO.md)：答辩演示讲稿（历史）。
+- [`TEST_REPORT_2026-10-21.md`](TEST_REPORT_2026-10-21.md)：全量测试快照。
 
 ## 规矩
 
-- **不要新建指向不存在文件的链接**。CI 的 `scripts/check_docs.py` 会拦断链。
-- 历史阶段（Phase 3A–4D）的坐标意义保留在 [`../HARNESS.md`](../HARNESS.md) §14，
-  不单独搬出来——它们已全部落地，只作历史参考，不代表当前状态。
+- 不要新建指向不存在文件的链接；`scripts/check_docs.py` 会拦断链。
+- 历史快照只增不改；新结果另起一份，不要覆盖历史基线。
