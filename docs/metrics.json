@@ -2,9 +2,9 @@
   "schema": 1,
   "tests": 3606,
   "coverage": {
-    "statements": 47846,
-    "missing": 7786,
-    "percent": 83.73,
+    "statements": 47850,
+    "missing": 7791,
+    "percent": 83.72,
     "modules": {
       "control/accounts.py": 87.25,
       "control/approvals.py": 98.25,

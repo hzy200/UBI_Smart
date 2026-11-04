@@ -11,6 +11,7 @@ terminate/kill 并回收。容器级配额不在这一层；它只保证“卡�
 from __future__ import annotations
 
 import multiprocessing
+import os
 import threading
 import traceback
 from collections.abc import Callable
@@ -99,10 +100,27 @@ def run_in_process(
         name=name or getattr(func, "__name__", "process-task"),
         daemon=True,
     )
+    # 子进程不需要覆盖率插桩。pytest-cov 会把 COV_CORE_* 写进环境，
+    # spawn 子进程再各自写同一个 data file 会互相锁库，表现为文档解析
+    # 进程随机失败。启动期间临时摘掉这些变量即可（父进程随后恢复）。
+    coverage_env = {
+        key: os.environ.pop(key)
+        for key in (
+            "COV_CORE_SOURCE",
+            "COV_CORE_CONFIG",
+            "COV_CORE_DATAFILE",
+            "COV_CORE_SESSION",
+            "COVERAGE_PROCESS_START",
+        )
+        if key in os.environ
+    }
     try:
         process.start()
         # 父进程不持有子端；否则 poll 永远等不到 EOF。
         child_conn.close()
+    finally:
+        os.environ.update(coverage_env)
+    try:
         if timeout_s > 0:
             ready = parent_conn.poll(timeout_s)
         else:

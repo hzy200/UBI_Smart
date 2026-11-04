@@ -200,7 +200,11 @@ def test_lease_heartbeat_marks_lost() -> None:
             fake, "alice:t1", "lease-1", ttl_s=3, interval_s=0.01
         )
         await heartbeat.start()
-        await asyncio.sleep(0.05)
+        # 固定 sleep 在满载 CI 上可能竞争不过事件循环；轮询到 lost 或超时。
+        for _ in range(100):
+            if heartbeat.lost:
+                break
+            await asyncio.sleep(0.01)
         await heartbeat.stop()
         return heartbeat.lost
 
