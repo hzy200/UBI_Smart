@@ -328,3 +328,17 @@ def test_rename_runs_realpath_checked_mv() -> None:
     assert 'realpath -m -- "$src"' in script
     assert 'mv -f -- "$src_real" "$dst"' in script
     assert "ESCAPED=" in script
+
+
+def test_rename_rejects_a_symlink_escape_found_inside_the_sandbox() -> None:
+    sandbox = _OutputSandbox(
+        "", exit_code=9, stderr="ESCAPED=/outside/target"
+    )
+    with pytest.raises(SandboxPathError):
+        _fs_with(sandbox).rename("/ws/stage/chunks", "/ws/items/chunks")
+
+
+def test_rename_other_failures_are_fs_errors() -> None:
+    sandbox = _OutputSandbox("", exit_code=11, stderr="mv: denied")
+    with pytest.raises(SandboxFsError):
+        _fs_with(sandbox).rename("/ws/stage/chunks", "/ws/items/chunks")

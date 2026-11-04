@@ -33,7 +33,7 @@
       <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
     </button>
     <button class="activity-item" :class="viewClasses.library" data-action="view" data-view="library" @click="onAction"
-            x-show="capabilities.library_enabled"
+            x-show="libraryEnabled"
             :aria-pressed="viewFlags.library"
             :title="i18n.nav.library" :aria-label="i18n.nav.library">
       <svg class="icon" aria-hidden="true"><use href="#i-library"></use></svg>

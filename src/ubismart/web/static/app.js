@@ -10407,6 +10407,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.viewClasses = next;
       this.viewFlags = flags;
     },
+    get libraryEnabled() {
+      return !!this.capabilities?.library_enabled;
+    },
     setView(name, load = true, reveal = true) {
       if (name === "library" && !this.capabilities.library_enabled) return;
       this.view = name;

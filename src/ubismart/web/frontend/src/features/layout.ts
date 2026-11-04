@@ -156,6 +156,10 @@ export const layoutMixin = {
     this.viewFlags = flags;
   },
 
+  get libraryEnabled() {
+    return !!this.capabilities?.library_enabled;
+  },
+
   setView(name: string, load = true, reveal = true) {
     if (name === 'library' && !this.capabilities.library_enabled) return;
     this.view = name;
