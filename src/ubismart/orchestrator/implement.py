@@ -902,27 +902,24 @@ class _ImplementRun:
     async def _create_worktree(self) -> bool:
         # 清理守卫从**创建之前**就生效：取消可能正好落在下面某个 await
         # 上，此时 worktree 目录可能已经部分创建。
-        try:
-            await self._shell(
-                f"mkdir -p {shlex.quote(self.worktree_parent)}",
-                kind="worktree_prepare",
-            )
-            await self._shell(
-                f"git worktree remove --force {shlex.quote(self.worktree)}",
-                kind="git_worktree",
-            )
-            await self._shell(
-                f"rm -rf {shlex.quote(self.worktree)}",
-                kind="worktree_cleanup",
-            )
-            created = await self._shell(
-                f"git worktree add --detach "
-                f"{shlex.quote(self.worktree)} HEAD",
-                kind="git_worktree",
-            )
-        except asyncio.CancelledError:
-            # 交给 run() 的 finally：那里会先等在飞线程退出再清理。
-            raise
+        # 取消时交给 run() 的 finally：那里会先等在飞线程退出再清理。
+        await self._shell(
+            f"mkdir -p {shlex.quote(self.worktree_parent)}",
+            kind="worktree_prepare",
+        )
+        await self._shell(
+            f"git worktree remove --force {shlex.quote(self.worktree)}",
+            kind="git_worktree",
+        )
+        await self._shell(
+            f"rm -rf {shlex.quote(self.worktree)}",
+            kind="worktree_cleanup",
+        )
+        created = await self._shell(
+            f"git worktree add --detach "
+            f"{shlex.quote(self.worktree)} HEAD",
+            kind="git_worktree",
+        )
         self.created = created
         if created.ok:
             return True
@@ -947,11 +944,8 @@ class _ImplementRun:
         if current is not None and current.cancelling():
             self._remove_worktree()
             return
-        try:
-            await asyncio.shield(self._call_thread(self._remove_worktree))
-        except asyncio.CancelledError:
-            # 清理本身也被取消：目录留在原地，交给 orphan prune。
-            raise
+        # 清理本身也被取消时，目录留在原地，交给 orphan prune。
+        await asyncio.shield(self._call_thread(self._remove_worktree))
 
     async def _cleanup_after_threads(
         self, futures: set[asyncio.Future[Any]]

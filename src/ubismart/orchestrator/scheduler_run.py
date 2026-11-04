@@ -1000,7 +1000,7 @@ class SchedulerRun:
         self,
         factory: Callable[[], Awaitable[Any]],
         *,
-        timeout: float,
+        wait_budget_s: float,
         poll: float = 0.2,
     ) -> tuple[str, Any]:
         """等待一个可取消的工作项，并在等待期间轮询用户取消与 deadline。
@@ -1026,7 +1026,9 @@ class SchedulerRun:
                 pass
 
         task.add_done_callback(_consume)
-        deadline = time.monotonic() + timeout if timeout > 0 else 0.0
+        deadline = (
+            time.monotonic() + wait_budget_s if wait_budget_s > 0 else 0.0
+        )
         try:
             while True:
                 wait_for = poll
@@ -1272,7 +1274,7 @@ class SchedulerRun:
                     queue_wait_ms=queue_wait_ms,
                     hard_tokens=hard_tokens,
                     reserve_tokens=reserve_tokens,
-                    timeout=timeout,
+                    hard_timeout_s=timeout,
                 )
             else:
                 try:
@@ -1339,7 +1341,7 @@ class SchedulerRun:
         queue_wait_ms: int,
         hard_tokens: int,
         reserve_tokens: int,
-        timeout: float,
+        hard_timeout_s: float,
     ) -> WorkerResult:
         task_id = str(task["id"])
         goal = str(task.get("goal", ""))
@@ -1392,7 +1394,9 @@ class SchedulerRun:
                 queue_wait_ms=queue_wait_ms,
                 depth=self.depth + 1,
             )
-        wall_ms = int(timeout * 1000) if timeout > 0 else 0
+        wall_ms = (
+            int(hard_timeout_s * 1000) if hard_timeout_s > 0 else 0
+        )
         remaining_wall = self.budget_guard.remaining_wall_ms()
         if remaining_wall is not None:
             wall_ms = min(wall_ms or remaining_wall, remaining_wall)
@@ -1410,7 +1414,7 @@ class SchedulerRun:
                     ),
                     depth=self.depth + 1,
                 ),
-                timeout=timeout if timeout > 0 else None,
+                timeout=hard_timeout_s if hard_timeout_s > 0 else None,
             )
         except TimeoutError:
             return WorkerResult(
@@ -1419,8 +1423,11 @@ class SchedulerRun:
                 worker_id=worker_id,
                 goal=goal,
                 status="failed",
-                summary=f"子编排器外层超时（>{timeout:g}s）",
-                error=f"sub orchestrator timeout after {timeout:g}s",
+                summary=f"子编排器外层超时（>{hard_timeout_s:g}s）",
+                error=(
+                    "sub orchestrator timeout after "
+                    f"{hard_timeout_s:g}s"
+                ),
                 attempt=attempt,
                 queue_wait_ms=queue_wait_ms,
                 depth=self.depth + 1,
@@ -1672,7 +1679,7 @@ class SchedulerRun:
         ) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
             outcome, patch_text = await self._await_with_cancel(
                 lambda: self._read_patch_text(record),
-                timeout=read_timeout,
+                wait_budget_s=read_timeout,
             )
             if outcome in {"cancelled", "deadline"}:
                 return record, aborted, ""
@@ -1683,7 +1690,7 @@ class SchedulerRun:
                     lambda: self.patch_reviewer(
                         record, patch_text, self.config
                     ),
-                    timeout=review_timeout,
+                    wait_budget_s=review_timeout,
                 )
             if outcome in {"cancelled", "deadline"}:
                 return record, aborted, patch_text
@@ -2201,7 +2208,7 @@ class SchedulerRun:
                         timeout=verify_timeout or None,
                     )
                 ),
-                timeout=self.gate_timeout(),
+                wait_budget_s=self.gate_timeout(),
             )
             if outcome in {"cancelled", "deadline"}:
                 reason = (
