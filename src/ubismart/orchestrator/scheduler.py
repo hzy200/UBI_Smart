@@ -46,6 +46,7 @@ def make_scheduler_node(
     patch_reviewer: (
         Callable[[dict[str, Any], str, RunnableConfig | None], Any] | None
     ) = None,
+    sub_runner: Any = None,
 ) -> Callable[[dict[str, Any], RunnableConfig], Any]:
     async def scheduler(
         state: dict[str, Any], config: RunnableConfig
@@ -62,6 +63,7 @@ def make_scheduler_node(
             steering=steering,
             governor=governor,
             patch_reviewer=patch_reviewer,
+            sub_runner=sub_runner,
         )
         return await run.run()
 

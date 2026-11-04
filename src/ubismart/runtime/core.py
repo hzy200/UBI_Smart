@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,7 @@ from ubismart.protocol.messages import (
 from ubismart.runtime.audit_bridge import AuditMixin
 from ubismart.runtime.common import _swallow_audit
 from ubismart.runtime.event_map import EventMapMixin
+from ubismart.runtime.library import LibraryMixin
 from ubismart.runtime.memory import MemoryMixin
 from ubismart.runtime.sessions import SessionsMixin
 from ubismart.runtime.stream import StreamMixin
@@ -156,6 +158,7 @@ class AgentRuntime(
     AuditMixin,
     SessionsMixin,
     MemoryMixin,
+    LibraryMixin,
 ):
     """四层架构的编排中枢。
 
@@ -283,6 +286,8 @@ class AgentRuntime(
             syslog_address=self.settings.audit_syslog_address,
             webhook_url=self.settings.audit_webhook_url,
             webhook_token=self.settings.audit_webhook_token,
+            async_write=self.settings.audit_async_write,
+            queue_size=self.settings.audit_queue_size,
         )
 
     @property
@@ -513,13 +518,18 @@ class AgentRuntime(
         if self._stream_active:
             yield RunFailed(message=_STREAM_BUSY_MESSAGE)
             return
-        if not self._acquire_workspace_lock():
-            yield RunFailed(message=self._workspace_lock_busy)
-            return
-        # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
-        self.prune_snapshots()
+        # 先占住进程内闸门，再进入可能 yield 的初始化；workspace_lock
+        # 关闭时这是唯一的并发保护。
         self._stream_active = True
         try:
+            # 锁获取保持同步：它是短小的 OS 锁操作；若放进线程后恰被取消，
+            # 线程仍可能拿到锁而 finally 看不到，造成锁泄漏。
+            if not self._acquire_workspace_lock():
+                yield RunFailed(message=self._workspace_lock_busy)
+                return
+            # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
+            # 清理是文件 I/O，不能占着 Web 共享事件循环。
+            await asyncio.to_thread(self.prune_snapshots)
             async for event in self._run_unlocked(
                 prompt, thread_id=thread_id, plan_only=plan_only
             ):
@@ -617,6 +627,29 @@ class AgentRuntime(
         )
         return policy, execution_mode, inline_delegation
 
+    def _prepare_run_sync(
+        self,
+        prompt: str,
+        thread_id: str,
+        run_id: str,
+        want_profile: bool,
+    ) -> tuple[list[Any], str, RepoProfile, str]:
+        """run 启动阶段的同步 I/O 集中到这里，由调用方下放到线程。
+
+        `begin_run` 必须排在最前面（清理旧指令），随后才是可能数秒的
+        记忆/指令/画像/附件读取。
+        """
+        stale = self.steering.begin_run(thread_id, run_id)
+        if stale:
+            self._audit_discarded_steering(
+                thread_id, stale, "新 run 开始"
+            )
+        memories = self._load_memories_for_run(prompt, thread_id)
+        instructions = self._load_project_instructions()
+        profile = self._repo_profile() if want_profile else RepoProfile()
+        attachments = self._attachment_inventory(thread_id)
+        return memories, instructions, profile, attachments
+
     async def _run_unlocked(
         self, prompt: str, *, thread_id: str, plan_only: bool = False
     ) -> AsyncIterator[Event]:
@@ -627,20 +660,15 @@ class AgentRuntime(
         #
         # run_id 让“新旧”有明确边界：旧 run 的 add/replan 会被清掉，本 run
         # 开始后提交的指令则会自动绑定这个 id；清理结果落审计。
-        stale = self.steering.begin_run(thread_id, uuid4().hex[:12])
-        if stale:
-            self._audit_discarded_steering(
-                thread_id, stale, "新 run 开始"
-            )
-
-        memories = self._load_memories_for_run(prompt, thread_id)
-        instructions = self._load_project_instructions()
-
-        # 成本策略 / 编排策略都需要仓库画像；只开启其中任一功能时才探一次。
-        profile = (
-            self._repo_profile()
-            if self.settings.explore_enabled or self.settings.orchestrator_enabled
-            else RepoProfile()
+        want_profile = bool(
+            self.settings.explore_enabled or self.settings.orchestrator_enabled
+        )
+        memories, instructions, profile, attachments = await asyncio.to_thread(
+            self._prepare_run_sync,
+            prompt,
+            thread_id,
+            uuid4().hex[:12],
+            want_profile,
         )
         policy, execution_mode, inline_delegation = self._delegation_plan(
             prompt, profile, plan_only=plan_only
@@ -660,9 +688,10 @@ class AgentRuntime(
             else ""
         )
         recovery_notice = self._recovery_notice(prior)
-        self._audit_recovery_notice(thread_id, recovery_notice)
+        await asyncio.to_thread(
+            self._audit_recovery_notice, thread_id, recovery_notice
+        )
 
-        attachments = self._attachment_inventory(thread_id)
         if attachments:
             prompt = f"{prompt}\n\n{attachments}"
 
@@ -778,13 +807,13 @@ class AgentRuntime(
         if self._stream_active:
             yield RunFailed(message=_STREAM_BUSY_MESSAGE)
             return
-        if not self._acquire_workspace_lock():
-            yield RunFailed(message=self._workspace_lock_busy)
-            return
-        # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
-        self.prune_snapshots()
         self._stream_active = True
         try:
+            if not self._acquire_workspace_lock():
+                yield RunFailed(message=self._workspace_lock_busy)
+                return
+            # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
+            await asyncio.to_thread(self.prune_snapshots)
             async for event in self._resume_unlocked(thread_id, decisions):
                 yield event
         finally:
@@ -840,7 +869,7 @@ class AgentRuntime(
             )
         )
         self.steering.submit(thread_id, command)
-        if action == "cancel":
+        if action in {"cancel", "abort", "rollback"}:
             # 同步工具（wsl.exe / 本机 bash）不会检查 steering 标志；
             # 直接杀掉在飞进程，让工具线程尽快返回。
             cancel_active = getattr(self._sandbox, "cancel_active", None)
@@ -878,13 +907,13 @@ class AgentRuntime(
         if self._stream_active:
             yield RunFailed(message=_STREAM_BUSY_MESSAGE)
             return
-        if not self._acquire_workspace_lock():
-            yield RunFailed(message=self._workspace_lock_busy)
-            return
-        # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
-        self.prune_snapshots()
         self._stream_active = True
         try:
+            if not self._acquire_workspace_lock():
+                yield RunFailed(message=self._workspace_lock_busy)
+                return
+            # 持有单写者锁时清理旧快照，避免多个 runtime 并发删除。
+            await asyncio.to_thread(self.prune_snapshots)
             async for event in self._resume_steering_unlocked(thread_id):
                 yield event
         finally:

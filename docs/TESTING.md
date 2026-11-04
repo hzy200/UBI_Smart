@@ -4,7 +4,7 @@ doc_id: testing
 title: 测试分层与运行口径
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-02
 review_cadence: 测试分层、标记或 CI 口径变动时
 ---
 
@@ -36,13 +36,13 @@ review_cadence: 测试分层、标记或 CI 口径变动时
 cd src/ubismart/web/frontend
 node node_modules/typescript/bin/tsc --noEmit
 node esbuild.mjs
-node test.mjs        # 74 个纯函数用例
-node test-dom.mjs    # 39 个 jsdom 交互用例（加载真实 static 产物 + Alpine CSP）
+node test.mjs        # 纯函数用例（含资料库格式化/检索结果）
+node test-dom.mjs    # jsdom 交互用例（加载真实 static 产物 + Alpine CSP）
 python ../../../../scripts/probe_frontend_csp.py   # pywebview 手工/本机探针
 ```
 
 - `test.mjs` 覆盖 diff、搜索、虚拟列表、Git 映射、Problems 聚合、Markdown 增量、
-  会话摘要、主题与输出分页；
+  会话摘要、资料库格式化/检索结果、主题与输出分页；
 - `test-dom.mjs` 覆盖会话未读/批量、视图隔离、后台 SSE、实时分屏、文件树键盘、
   Problems、图片预览、审批、焦点陷阱、拖拽、主题等；Alpine CSP 表达式错误会被判失败；
 - `tests/unit/test_frontend_workspace_ui.py` 是构建产物与 CSP 模板守卫；
@@ -119,11 +119,21 @@ make agent-e2e
 
 该标记**同时带 `llm`**：默认 `pytest -m "not llm"` 与 CI 都会跳过，避免误烧额度。
 
+### 资料库检索评测
+
+`tests/eval/library_queries.json` 提供 6 篇小文档与 8 条 query；
+`tests/unit/test_library_retrieval_quality.py` 断言 BM25、RRF、rerank、MMR 行为，
+并要求 lexical recall@3 ≥ 0.75。`tests/unit/test_library_security.py` 覆盖
+控制序列清洗与“资料是指令还是数据”的标注；`test_library_store.py` 还覆盖
+PPTX/HTML/EPUB、语义切块与 catalog v1→v2；`test_library_ann.py` 覆盖 ANN
+后端降级。这些都不调用模型、不依赖 WSL。
+
 ### 多文档论文评测（真实 PDF）
 
 `tests/eval/papers.py` 自动扫描 `pdf/`（或 `--pdf-dir`），数量不写死；用例
-`cross_method` / `cross_numbers` / `cross_limits` / `report` 分别覆盖方法对比、
-跨文档数值检索、边界与组合风险、完整报告链路。
+`cross_method` / `cross_numbers` / `cross_limits` / `report` / `innovation`
+分别覆盖方法对比、跨文档数值检索、边界与组合风险、完整报告链路、创新点提炼
+与 novelty critic。
 
 ```bash
 # 只读、无模型：样本结构、矩阵、归属、报告判定
@@ -136,6 +146,7 @@ pytest -m llm tests/integration/test_paper_documents.py -q
 python tests/eval/papers.py --list
 python tests/eval/papers.py --case papers/cross_method --json
 python tests/eval/papers.py --case papers/report --json
+python tests/eval/papers.py --case papers/innovation --json
 ```
 
 判定不止“答案看起来对”：覆盖全部文档、每篇至少一条证据、答案引用每篇、

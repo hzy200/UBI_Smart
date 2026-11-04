@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import heapq
+import json
 import posixpath
 import time
 from collections.abc import Awaitable, Callable
@@ -20,7 +22,14 @@ from langgraph.config import get_stream_writer
 from ubismart.config import Settings
 from ubismart.knowledge.store import knowledge_context
 from ubismart.llm.ratelimit import GLOBAL_LIMITER
+from ubismart.orchestrator.budget import BudgetGuard
 from ubismart.orchestrator.contracts import WorkerResult
+from ubismart.orchestrator.control_checkpoint import ControlCheckpointStore
+from ubismart.orchestrator.estimator import (
+    EstimationStore,
+    role_models_from_settings,
+    sample_from_result,
+)
 from ubismart.orchestrator.graph import mark_blocked, validate_proposals
 from ubismart.orchestrator.merge import preflight_patch_paths
 from ubismart.orchestrator.merge_journal import MergeJournal
@@ -48,6 +57,7 @@ from ubismart.platform.concurrency import (
     ConcurrencyGovernor,
     ResourceTimeout,
 )
+from ubismart.platform.observability import inc
 from ubismart.sandbox.wsl_exec import WslSandbox
 from ubismart.session.steering import SteeringController
 from ubismart.session.worker_journal import (
@@ -58,6 +68,10 @@ from ubismart.session.worker_journal import (
     workspace_fingerprint,
 )
 from ubismart.tools.testrun import run_verification
+
+# 低于该额度不再启动新任务：把任务"缩"到几百 token 只会让它注定失败，
+# 还会让预算耗尽判定失效。
+_MIN_TASK_TOKENS = 1_000
 
 
 class SchedulerRun:
@@ -79,6 +93,7 @@ class SchedulerRun:
             ]
             | None
         ) = None,
+        sub_runner: Any = None,
     ) -> None:
         self.state = state
         self.config = config
@@ -96,6 +111,9 @@ class SchedulerRun:
             )
         )
         self.request = str(state.get("request") or "")
+        self.depth = int(state.get("sub_depth", 0) or 0)
+        self.suppress_events = bool(state.get("suppress_events"))
+        self.sub_runner = sub_runner
         self.session_brief = str(state.get("session_brief") or "")
         recovery_notice = str(
             state.get("recovery_notice") or ""
@@ -224,6 +242,9 @@ class SchedulerRun:
                     1,
                     int(settings.orchestrator_max_concurrent_workers),
                 ),
+                max_waiters=int(
+                    getattr(settings, "concurrency_max_waiters", 128) or 0
+                ),
             )
         )
         self.max_limit = max(1, int(self.worker_pool.limit))
@@ -238,14 +259,79 @@ class SchedulerRun:
             backoff_base=settings.orchestrator_rate_limit_backoff_s,
         )
         self.rate_limit.restore(state.get("scheduler_rate_limit"))
-        self.budget = TokenBudget(
-            settings.orchestrator_total_tokens, self.results
+        budget_limit = int(
+            state.get("token_budget_limit")
+            or settings.orchestrator_total_tokens
         )
+        self.budget = TokenBudget(budget_limit, self.results)
+        self.budget_guard = BudgetGuard.from_settings(
+            settings,
+            results=self.results,
+            scheduler_deadline=self.scheduler_deadline,
+            token_spent=self.budget.spent,
+            token_reserved=self.budget.reserved,
+            token_limit=self.budget.limit,
+            wall_limit_ms=(
+                int(state.get("wall_limit_ms") or 0) or None
+            ),
+        )
+        self.budget_warning_emitted: set[str] = set()
+        self.budget_abort: dict[str, Any] = dict(
+            state.get("budget_abort") or {}
+        )
+        self.estimation_card = dict(state.get("estimation_card") or {})
+        self.gate = dict(self.estimation_card.get("gate") or {})
+        self.control_store = ControlCheckpointStore(
+            Path(settings.resolved_audit_dir) / "control_checkpoints",
+            enabled=bool(
+                getattr(
+                    settings,
+                    "orchestration_control_checkpoints",
+                    True,
+                )
+            ),
+        )
+        self.control_checkpoints = [
+            dict(item)
+            for item in (state.get("control_checkpoints") or [])
+            if isinstance(item, dict)
+        ][-20:]
+        self.phase_gate_done: set[int] = set()
+        self.phase_gates = False
+        self.stage_token_limit = 0
+        self.action_counts: dict[str, int] = {}
+        self.loop_abort: dict[str, Any] = dict(
+            state.get("loop_abort") or {}
+        )
+        self.estimation_store = EstimationStore(
+            Path(settings.resolved_audit_dir) / "estimates.jsonl",
+            enabled=bool(
+                getattr(settings, "orchestrator_estimation_enabled", True)
+            ),
+        )
+        self.estimation_task_type = str(
+            state.get("workflow") or "direct"
+        )
+        self.estimation_model = str(
+            getattr(settings, "orchestrator_worker_model", "")
+            or getattr(settings, "deepseek_model", "")
+        )
+        self.role_models = role_models_from_settings(settings)
+        stages = self._stages()
+        self.phase_gates = bool(
+            self.gate.get("phase_gates")
+        ) and len(stages) > 1
+        if self.phase_gates and self.budget.limit > 0 and stages:
+            self.stage_token_limit = max(
+                1, self.budget.limit // len(stages)
+            )
         self.merge_journal = MergeJournal(sandbox, root)
         self.merge_queue = MergeQueue(self.merge_journal)
         # 已完成 implement 的补丁真实路径；增量合并的判定依据。
         self.merge_paths: dict[str, list[str]] = {}
         self.token_budget_exhausted = False
+        # 每个任务的硬 token 切片（来自全局预算预留）；worker 到顶即停。
+        self.task_budget: dict[str, int] = {}
         self.ready: list[tuple[int, int, str]] = []
         self.ready_at: dict[str, float] = {}
         self.queued: set[str] = set()
@@ -260,6 +346,10 @@ class SchedulerRun:
         self.checkpoint_every = max(
             1, int(settings.orchestrator_checkpoint_every or 1)
         )
+        if self.gate.get("checkpoint_granularity") == "fine":
+            self.checkpoint_every = 1
+        elif self.gate.get("checkpoint_granularity") == "normal":
+            self.checkpoint_every = min(self.checkpoint_every, 2)
         self.max_pending_merges = max(
             1, int(settings.orchestrator_max_pending_merges or 1)
         )
@@ -278,6 +368,9 @@ class SchedulerRun:
         )
 
     def emit(self, payload: dict[str, Any]) -> None:
+        # 子编排器只向父控制面交 SubResult；绝不能把子事件/卡片推到 Root 流。
+        if self.suppress_events:
+            return
         try:
             writer = get_stream_writer()
         except Exception:  # noqa: BLE001 - 单测直接调用节点时没有 writer
@@ -302,6 +395,60 @@ class SchedulerRun:
                 "reason": reason,
             }
         )
+
+    def detect_repeat_actions(self, record: dict[str, Any]) -> None:
+        """同一 (tool, args) 重复到上限即熔断，防止分形版重试黑洞。"""
+        limit = int(
+            getattr(
+                self.settings,
+                "orchestrator_repeat_action_limit",
+                3,
+            )
+            or 0
+        )
+        if limit <= 0 or self.loop_abort:
+            return
+        for call in record.get("tool_calls") or []:
+            if not isinstance(call, dict):
+                continue
+            name = str(call.get("name") or call.get("tool") or "")
+            if not name:
+                continue
+            args = call.get("args") or {}
+            try:
+                material = json.dumps(
+                    [name, args],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
+            except (TypeError, ValueError):
+                material = f"{name}:{args!r}"
+            digest = hashlib.sha1(
+                material.encode("utf-8")
+            ).hexdigest()[:16]
+            count = self.action_counts.get(digest, 0) + 1
+            self.action_counts[digest] = count
+            if count < limit:
+                continue
+            self.loop_abort = {
+                "reason": f"重复动作 {name} 达到 {count} 次",
+                "task_id": str(record.get("task_id", "")),
+                "tool": name,
+                "count": count,
+            }
+            self.stop = True
+            self._block_pending("重复动作熔断，未派发")
+            self.emit(
+                {
+                    "type": "loop_detected",
+                    "task_id": str(record.get("task_id", "")),
+                    "tool": name,
+                    "count": count,
+                    "reason": self.loop_abort["reason"],
+                }
+            )
+            return
 
     def consume_proposals(self, result: dict[str, Any]) -> None:
         if result.get("status") not in {"success", "partial"}:
@@ -333,6 +480,262 @@ class SchedulerRun:
     # ------------------------------------------------------------------
     # ready / 预算
     # ------------------------------------------------------------------
+    def budget_status(self):
+        """按已结算的 tokens 刷新四维快照并返回状态。"""
+        self.budget_guard.refresh_tokens(
+            spent=self.budget.spent, reserved=self.budget.reserved
+        )
+        return self.budget_guard.check()
+
+    def _emit_budget_alerts(self, status) -> None:
+        snapshot = status.snapshot
+        ratios = snapshot.ratios()
+        used_by_dimension = {
+            "steps": snapshot.steps,
+            "tool_calls": snapshot.tool_calls,
+            "tokens": snapshot.tokens,
+            "wall_ms": snapshot.wall_ms,
+        }
+        limit_by_dimension = {
+            "steps": snapshot.step_limit,
+            "tool_calls": snapshot.tool_call_limit,
+            "tokens": snapshot.token_limit,
+            "wall_ms": snapshot.wall_limit_ms,
+        }
+        for level, dimensions, counter in (
+            ("warning", status.warning, "agent_budget_warnings_total"),
+            ("exhausted", status.exhausted, "agent_budget_exhausted_total"),
+        ):
+            for dimension in dimensions:
+                key = f"{level}:{dimension}"
+                if key in self.budget_warning_emitted:
+                    continue
+                self.budget_warning_emitted.add(key)
+                inc(counter, {"dimension": dimension})
+                ratio = ratios.get(dimension, 0.0)
+                self.emit(
+                    {
+                        "type": "budget_warning",
+                        "level": level,
+                        "dimension": dimension,
+                        "used": int(used_by_dimension.get(dimension, 0)),
+                        "limit": int(limit_by_dimension.get(dimension, 0)),
+                        "ratio": round(ratio, 4),
+                        "message": (
+                            f"{dimension} 预算已耗尽，停止派发"
+                            if level == "exhausted"
+                            else f"{dimension} 预算已用 {ratio:.0%}"
+                        ),
+                    }
+                )
+
+    def _record_budget_abort(self, reason: str) -> None:
+        completed = [
+            str(task["id"])
+            for task in self.tasks
+            if self.status.get(str(task["id"])) in {"success", "partial"}
+        ]
+        blocked = [
+            str(task["id"])
+            for task in self.tasks
+            if self.status.get(str(task["id"])) in {"blocked", "pending"}
+        ]
+        self.budget_abort = self.budget_guard.abort_report(
+            completed_tasks=completed,
+            blocked_tasks=blocked,
+        )
+        self.budget_abort["reason"] = reason
+
+    def _stop_for_budget(self, status) -> None:
+        self.stop = True
+        self.token_budget_exhausted = (
+            self.token_budget_exhausted or "tokens" in status.exhausted
+        )
+        if "tokens" in status.exhausted:
+            self._cancel_readonly_inflight()
+        self._block_pending("四维预算耗尽，未派发")
+        self._record_budget_abort(
+            "预算耗尽：" + "、".join(status.exhausted or ["unknown"])
+        )
+
+    def check_budget(self) -> Any:
+        status = self.budget_status()
+        self._emit_budget_alerts(status)
+        if status.exhausted and not self.stop:
+            self._stop_for_budget(status)
+        return status
+
+    def _stages(self) -> list[int]:
+        stages: set[int] = set()
+        for task in self.tasks:
+            try:
+                stages.add(max(0, int(task.get("stage", 0) or 0)))
+            except (TypeError, ValueError):
+                stages.add(0)
+        return sorted(stages)
+
+    def _stage_tasks(self, stage: int) -> list[dict[str, Any]]:
+        tasks: list[dict[str, Any]] = []
+        for task in self.tasks:
+            try:
+                value = max(0, int(task.get("stage", 0) or 0))
+            except (TypeError, ValueError):
+                value = 0
+            if value == stage:
+                tasks.append(task)
+        return tasks
+
+    def _stage_spent(self, stage: int) -> int:
+        spent = 0
+        for result in self.results:
+            task = self.by_id.get(str(result.get("task_id", ""))) or {}
+            try:
+                value = max(0, int(task.get("stage", 0) or 0))
+            except (TypeError, ValueError):
+                value = 0
+            if value != stage:
+                continue
+            spent += int(result.get("input_tokens") or 0) + int(
+                result.get("output_tokens") or 0
+            )
+        return spent
+
+    def _artifact_refs(self) -> list[dict[str, Any]]:
+        refs: list[dict[str, Any]] = []
+        for result in self.results:
+            artifact_id = str(result.get("artifact_id") or "")
+            if not artifact_id:
+                continue
+            refs.append(
+                {
+                    "task_id": str(result.get("task_id", "")),
+                    "attempt": int(result.get("attempt", 1) or 1),
+                    "artifact_id": artifact_id,
+                }
+            )
+        return refs
+
+    async def _save_control_checkpoint(
+        self,
+        *,
+        stage: int,
+        status: str,
+        reason: str,
+        completed: int,
+        failed: int,
+    ) -> str:
+        plan_version = int(self.state.get("plan_version", 0) or 0)
+        checkpoint_id = (
+            f"stage-{stage}-v{plan_version}-{len(self.results)}"
+        )
+        payload = {
+            "checkpoint_id": checkpoint_id,
+            "thread_id": self.thread_id,
+            "stage": stage,
+            "status": status,
+            "reason": reason,
+            "plan_version": plan_version,
+            "contract": dict(self.state.get("contract") or {}),
+            "tasks": self.tasks,
+            "task_status": self.status,
+            "artifact_refs": self._artifact_refs(),
+            "budget": self.budget_guard.snapshot().as_dict(),
+            "early_stop": {
+                "token_budget_exhausted": self.token_budget_exhausted,
+                "budget_abort": self.budget_abort,
+                "same_failure_count": int(
+                    self.state.get("same_failure_count", 0) or 0
+                ),
+            },
+            "wave_gates": self.wave_gates,
+            "completed": completed,
+            "failed": failed,
+        }
+        saved = await asyncio.to_thread(self.control_store.save, payload)
+        if saved:
+            self.control_checkpoints = (
+                self.control_checkpoints
+                + [
+                    {
+                        "checkpoint_id": saved,
+                        "stage": stage,
+                        "status": status,
+                        "plan_version": plan_version,
+                    }
+                ]
+            )[-20:]
+        return saved
+
+    async def _check_phase_gates(self) -> bool:
+        """阶段门：阶段完成→控制检查点/中间交付；失败→只回退本阶段之后。"""
+        if not self.phase_gates or self.interface_first:
+            return True
+        for stage in self._stages():
+            if stage in self.phase_gate_done:
+                continue
+            tasks = self._stage_tasks(stage)
+            if not tasks:
+                continue
+            statuses = [
+                str(self.status.get(str(task["id"]), "pending"))
+                for task in tasks
+            ]
+            if any(
+                value in {"pending", "merging"} for value in statuses
+            ) or any(str(task["id"]) in self.in_flight for task in tasks):
+                continue
+            completed = sum(
+                1 for value in statuses if value in {"success", "partial"}
+            )
+            failed = sum(
+                1
+                for value in statuses
+                if value in {"failed", "blocked", "cancelled"}
+            )
+            reason = ""
+            if self.stage_token_limit > 0 and self._stage_spent(
+                stage
+            ) >= self.stage_token_limit:
+                reason = (
+                    f"阶段 {stage} 预算耗尽"
+                    f"（>{self.stage_token_limit} tokens）"
+                )
+            elif failed:
+                reason = f"阶段 {stage} 有 {failed} 个任务未成功"
+            status = "failed" if reason else "passed"
+            self.phase_gate_done.add(stage)
+            if reason:
+                self._record_gate(stage, "failed", reason)
+                self._block_after_stage(
+                    stage, f"{reason}，已停止后续阶段"
+                )
+            else:
+                self._record_gate(stage, "passed", "")
+            checkpoint_id = await self._save_control_checkpoint(
+                stage=stage,
+                status=status,
+                reason=reason,
+                completed=completed,
+                failed=failed,
+            )
+            self.emit(
+                {
+                    "type": "stage_done",
+                    "stage": stage,
+                    "status": status,
+                    "reason": reason,
+                    "completed": completed,
+                    "failed": failed,
+                    "checkpoint_id": checkpoint_id,
+                    "plan_version": int(
+                        self.state.get("plan_version", 0) or 0
+                    ),
+                }
+            )
+            if reason:
+                return False
+        return True
+
     def stage_ready(self, task: dict[str, Any]) -> bool:
         """高 stage 的 join 任务必须等所有更低 stage 任务收敛。"""
         try:
@@ -441,6 +844,13 @@ class SchedulerRun:
             except (TypeError, ValueError):
                 value = 0
             if value > 0:
+                # 模型给的上限不能大于父预算剩余额度；否则一个夸张的
+                # max_tokens 会让任务在准入阶段看起来永远放不进去。
+                # 剩余额度低于最小可执行切片时不要"硬缩"到 1 token 挤进去，
+                # 否则预算耗尽判定永远不会触发。
+                remaining = self.budget_guard.remaining_tokens()
+                if remaining is not None and remaining >= _MIN_TASK_TOKENS:
+                    return max(_MIN_TASK_TOKENS, min(value, remaining))
                 return value
         observed = ewma_usage(self.results, str(task.get("role", "")))
         if observed > 0:
@@ -555,7 +965,97 @@ class SchedulerRun:
                 600.0,
                 float(self.settings.orchestrator_worker_timeout or 0),
             )
-        return max(base, 1.0) + 30.0
+        timeout = max(base, 1.0) + 30.0
+        watchdog_ms = int(self.gate.get("watchdog_ms") or 0)
+        if watchdog_ms > 0:
+            # 预估卡的 watchdog 是 P90 单步墙钟；外层兜底不能比它更宽松。
+            timeout = min(timeout, max(1.0, watchdog_ms / 1000.0))
+        return timeout
+
+    def gate_timeout(self) -> float:
+        """波次 gate 验证的墙钟上限；0 表示按 verify_timeout 推导。"""
+        configured = float(
+            getattr(self.settings, "orchestrator_gate_timeout_s", 0.0) or 0.0
+        )
+        if configured > 0:
+            return configured
+        verify = float(getattr(self.settings, "verify_timeout", 0) or 0)
+        return max(1.0, verify * 2 + 30.0)
+
+    def review_timeout(self) -> float:
+        """单次补丁审查的墙钟上限；0 表示沿用 review 角色的 hard timeout。"""
+        configured = float(
+            getattr(
+                self.settings,
+                "orchestrator_patch_review_timeout_s",
+                0.0,
+            )
+            or 0.0
+        )
+        if configured > 0:
+            return configured
+        return self.hard_timeout("review")
+
+    async def _await_with_cancel(
+        self,
+        factory: Callable[[], Awaitable[Any]],
+        *,
+        timeout: float,
+        poll: float = 0.2,
+    ) -> tuple[str, Any]:
+        """等待一个可取消的工作项，并在等待期间轮询用户取消与 deadline。
+
+        返回 `(outcome, payload)`，outcome 为 ok / error / timeout /
+        cancelled / deadline。`asyncio.wait_for` 只取消协程；对内部还包着
+        `to_thread` 的验证命令，超时后线程可能继续跑，但调度器不再被它
+        拖住，也不会把它当成成功。
+        """
+        if self.cancelled():
+            return "cancelled", None
+        try:
+            task = asyncio.ensure_future(factory())
+        except Exception as exc:  # noqa: BLE001 - 同步抛错也按工作项失败处理
+            return "error", exc
+
+        def _consume(done: asyncio.Future[Any]) -> None:
+            if done.cancelled():
+                return
+            try:
+                done.exception()
+            except Exception:  # noqa: BLE001 - 仅消费异常，避免未取回告警
+                pass
+
+        task.add_done_callback(_consume)
+        deadline = time.monotonic() + timeout if timeout > 0 else 0.0
+        try:
+            while True:
+                wait_for = poll
+                if deadline:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        task.cancel()
+                        return "timeout", None
+                    wait_for = min(poll, remaining)
+                done, _ = await asyncio.wait({task}, timeout=wait_for)
+                if done:
+                    if task.cancelled():
+                        return "cancelled", None
+                    exc = task.exception()
+                    if exc is not None:
+                        return "error", exc
+                    return "ok", task.result()
+                if self.cancelled():
+                    task.cancel()
+                    return "cancelled", None
+                if (
+                    self.scheduler_deadline
+                    and time.monotonic() >= self.scheduler_deadline
+                ):
+                    task.cancel()
+                    return "deadline", None
+        except BaseException:
+            task.cancel()
+            raise
 
     def _cancel_readonly_inflight(self) -> None:
         """预算耗尽时只取消只读在飞任务；implement 的补丁仍会合并。"""
@@ -703,7 +1203,57 @@ class SchedulerRun:
             )
             self.started_keys.add(f"{worker_id}:{attempt}")
             # 重试时升级到主模型；首次用角色默认（explore/review 是便宜模型）。
-            worker_task = {**task, "escalate": attempt > 1}
+            # attempt 必须下传：implement 的 worktree/patch 路径按 attempt 隔离，
+            # 避免超时后旧线程仍在写、重试却复用了同一个目录。
+            worker_task = {
+                **task,
+                "escalate": attempt > 1,
+                "attempt": attempt,
+            }
+            try:
+                reserve_tokens = int(self.task_budget.get(task_id, 0) or 0)
+                explicit_tokens = int(task.get("max_tokens") or 0)
+            except (TypeError, ValueError):
+                reserve_tokens = explicit_tokens = 0
+            self.budget_guard.refresh_tokens(
+                spent=self.budget.spent, reserved=self.budget.reserved
+            )
+            # 模型给的预算字段一律夹到父预算：既不能超过本次派发切片，
+            # 也不能超过父的剩余额度。切片是父分配的，模型无权放大。
+            remaining_tokens = self.budget_guard.remaining_tokens()
+            if explicit_tokens > 0:
+                if reserve_tokens > 0:
+                    explicit_tokens = min(explicit_tokens, reserve_tokens)
+                if remaining_tokens is not None:
+                    explicit_tokens = min(
+                        explicit_tokens, remaining_tokens + reserve_tokens
+                    )
+            role_cap = self.role_token_limit(str(task.get("role", "")))
+            # 硬切片优先级：任务显式预算 > 角色总预算（document/vision/author）
+            # > 派发预留。document 的 6k 只是准入估计，不能当硬上限。
+            if explicit_tokens > 0:
+                hard_tokens = explicit_tokens
+            elif role_cap > 0:
+                hard_tokens = role_cap
+            else:
+                hard_tokens = reserve_tokens
+            if hard_tokens > 0:
+                if remaining_tokens is not None:
+                    hard_tokens = max(
+                        0, min(hard_tokens, remaining_tokens + reserve_tokens)
+                    )
+                if hard_tokens > 0:
+                    worker_task["max_tokens"] = hard_tokens
+            requested_timeout = task.get("timeout")
+            if requested_timeout:
+                try:
+                    clamped_timeout = self.budget_guard.clamp_timeout(
+                        float(requested_timeout)
+                    )
+                except (TypeError, ValueError):
+                    clamped_timeout = 0.0
+                if clamped_timeout > 0:
+                    worker_task["timeout"] = clamped_timeout
             needs_baseline = int(task.get("stage", 0) or 0) > 0 or bool(
                 self.state.get("orchestrator_fix_mode")
             )
@@ -714,11 +1264,35 @@ class SchedulerRun:
                     "baseline_paths": sorted(self.merged_paths),
                 }
             timeout = self.hard_timeout(role)
-            try:
-                if timeout > 0:
-                    with knowledge_context(self.knowledge_run_id):
-                        result = await asyncio.wait_for(
-                            self.worker_runner(
+            if role == "sub_orchestrator":
+                result = await self._run_sub_orchestrator(
+                    task,
+                    worker_id=worker_id,
+                    attempt=attempt,
+                    queue_wait_ms=queue_wait_ms,
+                    hard_tokens=hard_tokens,
+                    reserve_tokens=reserve_tokens,
+                    timeout=timeout,
+                )
+            else:
+                try:
+                    if timeout > 0:
+                        with knowledge_context(self.knowledge_run_id):
+                            result = await asyncio.wait_for(
+                                self.worker_runner(
+                                    worker_task,
+                                    parent_request=self.request,
+                                    session_brief=self.session_brief,
+                                    cwd=self.cwd,
+                                    config=self.config,
+                                    cancel=self.cancelled,
+                                    dependency_context=self.dependency_context(task),
+                                ),
+                                timeout=timeout,
+                            )
+                    else:
+                        with knowledge_context(self.knowledge_run_id):
+                            result = await self.worker_runner(
                                 worker_task,
                                 parent_request=self.request,
                                 session_brief=self.session_brief,
@@ -726,48 +1300,189 @@ class SchedulerRun:
                                 config=self.config,
                                 cancel=self.cancelled,
                                 dependency_context=self.dependency_context(task),
-                            ),
-                            timeout=timeout,
-                        )
-                else:
-                    with knowledge_context(self.knowledge_run_id):
-                        result = await self.worker_runner(
-                            worker_task,
-                            parent_request=self.request,
-                            session_brief=self.session_brief,
-                            cwd=self.cwd,
-                            config=self.config,
-                            cancel=self.cancelled,
-                            dependency_context=self.dependency_context(task),
-                        )
-            except TimeoutError:
-                result = WorkerResult(
-                    task_id=task_id,
-                    role=role,
-                    worker_id=worker_id,
-                    goal=str(task.get("goal", "")),
-                    status="failed",
-                    summary=f"worker 外层超时（>{timeout:g}s）",
-                    error=f"worker hard timeout after {timeout:g}s",
-                    timed_out=True,
-                )
-            except Exception as exc:  # noqa: BLE001
-                result = WorkerResult(
-                    task_id=task_id,
-                    role=role,
-                    worker_id=worker_id,
-                    goal=str(task.get("goal", "")),
-                    status="failed",
-                    summary=(
-                        f"worker 异常：{type(exc).__name__}: {exc}"
-                    ),
-                    error=str(exc),
-                )
+                            )
+                except TimeoutError:
+                    result = WorkerResult(
+                        task_id=task_id,
+                        role=role,
+                        worker_id=worker_id,
+                        goal=str(task.get("goal", "")),
+                        status="failed",
+                        summary=f"worker 外层超时（>{timeout:g}s）",
+                        error=f"worker hard timeout after {timeout:g}s",
+                        timed_out=True,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    result = WorkerResult(
+                        task_id=task_id,
+                        role=role,
+                        worker_id=worker_id,
+                        goal=str(task.get("goal", "")),
+                        status="failed",
+                        summary=(
+                            f"worker 异常：{type(exc).__name__}: {exc}"
+                        ),
+                        error=str(exc),
+                    )
             result.attempt = attempt
             result.queue_wait_ms = queue_wait_ms
             result.priority = task_priority(task)
             result.depth = int(task.get("depth", 0))
             return result
+
+    async def _run_sub_orchestrator(
+        self,
+        task: dict[str, Any],
+        *,
+        worker_id: str,
+        attempt: int,
+        queue_wait_ms: int,
+        hard_tokens: int,
+        reserve_tokens: int,
+        timeout: float,
+    ) -> WorkerResult:
+        task_id = str(task["id"])
+        goal = str(task.get("goal", ""))
+        max_depth = int(
+            getattr(self.settings, "orchestrator_max_depth", 1) or 1
+        )
+        if self.sub_runner is None:
+            return WorkerResult(
+                task_id=task_id,
+                role="sub_orchestrator",
+                worker_id=worker_id,
+                goal=goal,
+                status="failed",
+                summary="嵌套编排未启用或缺少规划模型",
+                error="sub_orchestrator unavailable",
+                attempt=attempt,
+                queue_wait_ms=queue_wait_ms,
+                depth=self.depth + 1,
+            )
+        if self.depth >= max_depth:
+            return WorkerResult(
+                task_id=task_id,
+                role="sub_orchestrator",
+                worker_id=worker_id,
+                goal=goal,
+                status="failed",
+                summary=f"嵌套深度已达上限 {max_depth}",
+                error="max depth reached",
+                attempt=attempt,
+                queue_wait_ms=queue_wait_ms,
+                depth=self.depth + 1,
+            )
+        budget = int(hard_tokens or 0)
+        if budget <= 0 and self.budget.enabled:
+            budget = max(
+                0,
+                int(self.budget_guard.remaining_tokens() or 0)
+                + int(reserve_tokens or 0),
+            )
+        if self.budget.enabled and budget <= 0:
+            return WorkerResult(
+                task_id=task_id,
+                role="sub_orchestrator",
+                worker_id=worker_id,
+                goal=goal,
+                status="failed",
+                summary="父预算已无可用切片，拒绝派生子编排器",
+                error="sub orchestrator budget exhausted",
+                attempt=attempt,
+                queue_wait_ms=queue_wait_ms,
+                depth=self.depth + 1,
+            )
+        wall_ms = int(timeout * 1000) if timeout > 0 else 0
+        remaining_wall = self.budget_guard.remaining_wall_ms()
+        if remaining_wall is not None:
+            wall_ms = min(wall_ms or remaining_wall, remaining_wall)
+        try:
+            sub = await asyncio.wait_for(
+                self.sub_runner.run(
+                    task,
+                    parent_thread_id=self.thread_id,
+                    cwd=self.cwd,
+                    repo_summary=dict(self.state.get("repo_summary") or {}),
+                    budget_tokens=budget,
+                    wall_ms=wall_ms,
+                    plan_version=int(
+                        self.state.get("plan_version", 0) or 0
+                    ),
+                    depth=self.depth + 1,
+                ),
+                timeout=timeout if timeout > 0 else None,
+            )
+        except TimeoutError:
+            return WorkerResult(
+                task_id=task_id,
+                role="sub_orchestrator",
+                worker_id=worker_id,
+                goal=goal,
+                status="failed",
+                summary=f"子编排器外层超时（>{timeout:g}s）",
+                error=f"sub orchestrator timeout after {timeout:g}s",
+                attempt=attempt,
+                queue_wait_ms=queue_wait_ms,
+                depth=self.depth + 1,
+                timed_out=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - 子失败局部化
+            return WorkerResult(
+                task_id=task_id,
+                role="sub_orchestrator",
+                worker_id=worker_id,
+                goal=goal,
+                status="failed",
+                summary=f"子编排器异常：{type(exc).__name__}: {exc}",
+                error=str(exc),
+                attempt=attempt,
+                queue_wait_ms=queue_wait_ms,
+                depth=self.depth + 1,
+            )
+        artifact = dict(sub.artifact or {})
+        handoff = dict(artifact.get("handoff") or {})
+        files = [
+            str(path)
+            for task_entry in (handoff.get("tasks") or [])
+            if isinstance(task_entry, dict)
+            for path in (task_entry.get("files") or [])
+            if str(path).strip()
+        ]
+        cost = dict(sub.actual_cost or {})
+        return WorkerResult(
+            task_id=task_id,
+            role="sub_orchestrator",
+            worker_id=worker_id,
+            goal=goal,
+            status=sub.status,
+            summary=str(
+                artifact.get("summary")
+                or sub.fault_reason
+                or sub.status
+            ),
+            files=files[:20],
+            findings=(
+                [str(sub.fault_reason)] if sub.fault_reason else []
+            ),
+            input_tokens=int(cost.get("input_tokens") or 0),
+            output_tokens=int(cost.get("output_tokens") or 0),
+            duration_ms=int(cost.get("wall_ms") or 0),
+            attempt=attempt,
+            queue_wait_ms=queue_wait_ms,
+            depth=self.depth + 1,
+            artifact_id=sub.local_ckpt_digest,
+            error=sub.fault_reason,
+            sub_result=sub.model_dump(),
+            sub_signals=[
+                dict(item)
+                for item in (artifact.get("signals") or [])
+                if isinstance(item, dict)
+            ],
+            parent_sub_id=task_id,
+            fanout_index=int(task.get("fanout_index", 0) or 0),
+            sub_spawn_mode=str(task.get("sub_spawn_mode") or "static"),
+            sub_budget_used=int(cost.get("tokens") or 0),
+        )
 
     async def abandon_inflight(
         self, *, reason: str, timed_out: bool
@@ -780,6 +1495,7 @@ class SchedulerRun:
             )
         for task_id in list(self.in_flight):
             self.budget.release(task_id)
+            self.task_budget.pop(task_id, None)
             task = self.by_id.get(task_id, {})
             result = WorkerResult(
                 task_id=task_id,
@@ -923,8 +1639,12 @@ class SchedulerRun:
 
     async def _review_patches(
         self, records: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """合并前审查；返回允许合并的记录，拒绝项已 finalize。"""
+    ) -> list[dict[str, Any]] | None:
+        """合并前审查；返回允许合并的记录，拒绝项已 finalize。
+
+        返回 `None` 表示等待审查期间被取消或 deadline 到期：调用方必须
+        保留待合并队列，不能把整批记录当成“审查拒绝”丢弃。
+        """
         if (
             self.patch_reviewer is None
             or self.sandbox is None
@@ -943,27 +1663,43 @@ class SchedulerRun:
             ),
         )
         semaphore = asyncio.Semaphore(limit)
+        review_timeout = self.review_timeout()
+        read_timeout = min(30.0, review_timeout)
+        aborted = {"_abort": True}
 
         async def decide(
             record: dict[str, Any],
         ) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
-            patch_text = await self._read_patch_text(record)
-            if not patch_text:
+            outcome, patch_text = await self._await_with_cancel(
+                lambda: self._read_patch_text(record),
+                timeout=read_timeout,
+            )
+            if outcome in {"cancelled", "deadline"}:
+                return record, aborted, ""
+            if outcome != "ok" or not patch_text:
                 return record, None, ""
             async with semaphore:
-                try:
-                    verdict = await self.patch_reviewer(
+                outcome, verdict = await self._await_with_cancel(
+                    lambda: self.patch_reviewer(
                         record, patch_text, self.config
-                    )
-                except Exception:  # noqa: BLE001 - 审查失败不阻塞合并
-                    return record, None, patch_text
-            if not isinstance(verdict, dict):
+                    ),
+                    timeout=review_timeout,
+                )
+            if outcome in {"cancelled", "deadline"}:
+                return record, aborted, patch_text
+            # 超时/异常与现有语义一致：审查没给出结论时不阻塞合并。
+            if outcome != "ok" or not isinstance(verdict, dict):
                 return record, None, patch_text
             return record, verdict, patch_text
 
         # 审查是 LLM 调用；并发执行避免把合并尾部拉长。finalize 仍在
         # 主协程里顺序执行，避免并发改写共享的 status / 事件。
         outcomes = await asyncio.gather(*(decide(record) for record in records))
+        if any(
+            isinstance(verdict, dict) and verdict.get("_abort")
+            for _, verdict, _ in outcomes
+        ):
+            return None
         approved: list[dict[str, Any]] = []
         for record, verdict, patch_text in outcomes:
             if verdict is None:
@@ -1014,6 +1750,9 @@ class SchedulerRun:
         self, records: list[dict[str, Any]]
     ) -> bool:
         approved = await self._review_patches(records)
+        if approved is None:
+            # 取消/deadline：记录仍在 merge_queue，交给取消收尾路径处理。
+            return False
         rejected = [
             record
             for record in records
@@ -1148,6 +1887,9 @@ class SchedulerRun:
         bool,
         bool,
     ]:
+        self.budget_guard.refresh_tokens(
+            spent=self.budget.spent, reserved=self.budget.reserved
+        )
         chosen: (
             tuple[tuple[int, int, str], dict[str, Any], int] | None
         ) = None
@@ -1214,6 +1956,7 @@ class SchedulerRun:
             self.stop = True
             self._cancel_readonly_inflight()
             self._block_pending("token 预算耗尽，未派发")
+            self._record_budget_abort("token 预算不足以启动剩余任务")
             return
         if (
             self.in_flight
@@ -1224,6 +1967,8 @@ class SchedulerRun:
         if self.budget.enabled:
             self.token_budget_exhausted = True
         self._block_pending("token 预算不足以启动任何剩余任务")
+        if self.budget.enabled:
+            self._record_budget_abort("token 预算不足以启动任何剩余任务")
 
     def _launch_candidate(
         self,
@@ -1235,6 +1980,8 @@ class SchedulerRun:
             heapq.heappush(self.ready, entry)
             self.queued.add(task_id)
             return
+        # 预留是硬切片的兜底值；run_one 会优先用任务显式预算或角色总预算。
+        self.task_budget[task_id] = reserve if self.budget.enabled else 0
         self.attempts[task_id] = self.attempts.get(task_id, 0) + 1
         self.queued_at[task_id] = time.monotonic()
         future = asyncio.create_task(self.run_one(task))
@@ -1292,6 +2039,21 @@ class SchedulerRun:
             # 仅实现任务需要算"完成 → 合并"的等待；finalize 负责消费并移除。
             record["finished_at"] = time.monotonic()
             self.budget.settle(task_id, record)
+            self.budget_guard.consume(record)
+            self.detect_repeat_actions(record)
+            self.task_budget.pop(task_id, None)
+            if record.get("status") in {"success", "partial"}:
+                await asyncio.to_thread(
+                    self.estimation_store.record,
+                    sample_from_result(
+                        record,
+                        task_type=self.estimation_task_type,
+                        model=self.role_models.get(
+                            str(record.get("role", "")),
+                            self.estimation_model,
+                        ),
+                    ),
+                )
             if self.cancelled() and record.get("role") == "implement":
                 if record.get("status") in {"success", "partial"}:
                     record["status"] = "cancelled"
@@ -1425,18 +2187,48 @@ class SchedulerRun:
             if self.sandbox is None or not self.root:
                 self._record_gate(stage, "skipped", "无沙箱，跳过 gate")
                 continue
-            try:
-                result = await asyncio.to_thread(
-                    run_verification,
-                    self.sandbox,
-                    self.root,
-                    allow_manifest=False,
-                    only=tuple(tests),
+            verify_timeout = int(
+                getattr(self.settings, "verify_timeout", 0) or 0
+            )
+            outcome, payload = await self._await_with_cancel(
+                lambda tests=tuple(tests), verify_timeout=verify_timeout: (
+                    asyncio.to_thread(
+                        run_verification,
+                        self.sandbox,
+                        self.root,
+                        allow_manifest=False,
+                        only=tests,
+                        timeout=verify_timeout or None,
+                    )
+                ),
+                timeout=self.gate_timeout(),
+            )
+            if outcome in {"cancelled", "deadline"}:
+                reason = (
+                    "用户取消"
+                    if outcome == "cancelled"
+                    else "编排 deadline 到期"
                 )
-                gate_status = str(getattr(result, "status", ""))
-            except Exception as exc:  # noqa: BLE001 - gate 异常按失败处理
+                self._record_gate(
+                    stage, "cancelled", f"波次 gate 等待期间{reason}"
+                )
+                self._block_after_stage(
+                    stage, f"波次 {stage} gate 等待期间{reason}，已停止后续波次"
+                )
+                return False
+            if outcome == "timeout":
+                self._record_gate(stage, "failed", "波次 gate 验证超时")
+                self._block_after_stage(
+                    stage, f"波次 {stage} gate 验证超时，已停止后续波次"
+                )
+                return False
+            if outcome == "error":
+                exc = payload
                 gate_status = "error"
                 tests = [f"{type(exc).__name__}: {exc}"]
+            else:
+                result = payload
+                gate_status = str(getattr(result, "status", ""))
             if gate_status == "ok" or gate_status in {
                 "not_configured",
                 "skipped",
@@ -1513,18 +2305,10 @@ class SchedulerRun:
                 )
                 break
 
-            if (
-                self.scheduler_deadline
-                and time.monotonic() >= self.scheduler_deadline
-            ):
-                await self.abort_pending(
-                    pending_status="blocked",
-                    discard_reason="编排 deadline 到期，未合并",
-                    abandon_reason="编排 deadline 到期",
-                    timed_out=True,
-                )
-                break
-
+            # 预算耗尽只停止“新派发”；在飞任务仍按原有语义收尾：
+            # 只读被取消，implement 跑完并合并。真正的 wall deadline 由下面
+            # asyncio.wait 的超时分支统一 abort。
+            self.check_budget()
             self.refresh_ready()
             now = time.monotonic()
             self.rate_limit.note_global_wait(
@@ -1576,10 +2360,13 @@ class SchedulerRun:
                 continue
 
             await self.drain_completed(done)
+            self.check_budget()
 
             # 增量开启时这里会合并与在飞任务无交集的已完成补丁；
             # 关闭时内部仍退回"无在飞 implement 才 flush"。
             await self.flush_merges()
+            if not await self._check_phase_gates():
+                break
             if not await self._check_wave_gates():
                 break
             if self.stop and not self.in_flight:
@@ -1608,6 +2395,13 @@ class SchedulerRun:
                     self.emit_blocked(
                         task_id, str(task["blocked_reason"])
                     )
+
+        if self.stop and self.budget_abort:
+            # 在飞任务可能在停止派发之后才完成；收尾时刷新一次，保证
+            # “已完成部分”包含它们。
+            self._record_budget_abort(
+                str(self.budget_abort.get("reason") or "预算耗尽")
+            )
 
         pending_any = any(
             self.status.get(str(task["id"]), "pending") == "pending"
@@ -1643,8 +2437,12 @@ class SchedulerRun:
             "token_budget_spent": self.budget.spent,
             "token_budget_reserved": self.budget.reserved,
             "token_budget_exhausted": self.token_budget_exhausted,
+            "budget_snapshot": self.budget_status().snapshot.as_dict(),
+            "budget_abort": dict(self.budget_abort),
             "change_contract": self.change_contract,
             "wave_gates": self.wave_gates,
+            "control_checkpoints": self.control_checkpoints,
+            "loop_abort": dict(self.loop_abort),
             "scheduler_done": not scheduler_continue,
             "scheduler_continue": scheduler_continue,
         }

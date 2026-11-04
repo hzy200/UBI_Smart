@@ -92,6 +92,7 @@ src/ubismart/
   llm/              DeepSeek 客户端 · 提示词 · 上下文裁剪 · provider 路由
   memory/           checkpoint · 会话索引 · 长期记忆
   knowledge/        架构索引/简报/影响分析（RFC-0009，默认关闭）
+  library/          每用户跨工作区资料库：解析/切块/catalog/词法检索（RFC-0010）
   audit/            JSONL 审计 ★
   cli/ tui/ web/ desktop/  四种前端
 ```
@@ -210,6 +211,8 @@ A3 已不再依赖 `web/` 或 `control.agent_client`：`servers/agent_server.py`
 | 改前端 / 桌面 GUI | `docs/FRONTEND.md` |
 | 改 A2L / host 工作区 | `docs/HOST_BROKER.md` + `docs/THREAT_MODEL.md` |
 | 改长文档/多文档阅读 | `docs/archive/plans/DOCUMENT_PIPELINE_PLAN.md` §12 + `docs/adr/0038-structured-document-matrix-and-attribution.md` |
+| 提炼创新点 / novelty critic | `src/ubismart/knowledge/innovation.py` + `docs/adr/0040-innovation-extraction-and-novelty-critic.md` |
+| 改资料库 / 向量检索 | `docs/LIBRARY.md` + `docs/rfc/0010-per-user-library.md` |
 | 跑论文评测 | `tests/eval/README.md` 的“论文联合阅读标尺” |
 | 出问题了 | `docs/runbook.yaml` |
 | 验收某条需求 | `docs/acceptance/acceptance-criteria.yaml` |

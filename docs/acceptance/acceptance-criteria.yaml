@@ -8,7 +8,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-04
 review_cadence: 需求或测试变动时
 convention:
   id_prefix: REQ
@@ -2457,3 +2457,151 @@ criteria:
     status: implemented
     tests: [tests/unit/test_document_workers.py::test_document_runner_does_not_truncate_many_inputs, tests/unit/test_papers_eval.py::test_evaluate_result_passes_for_different_document_counts]
     see: docs/adr/0038-structured-document-matrix-and-attribution.md
+
+  - id: REQ-257
+    title: 每用户跨工作区资料库
+    given: 用户 A 上传 PDF/XLSX，用户 B 在同一服务器有自己的资料库
+    when: A 从任意工作区调用 library_search，B 调用 library_search
+    then: |
+      A 得到带 page=/sheet= anchor 的片段；B 检索不到 A 的条目；
+      删除后 A 的条目不再出现；资料正文与索引只存在于 A4 资料库根目录。
+    status: partial
+    tests: [tests/unit/test_library_store.py::test_xlsx_ingest_keeps_sheet_anchor, tests/unit/test_library_store.py::test_pdf_ingest_keeps_page_anchor, tests/unit/test_library_store.py::test_user_roots_are_isolated, tests/unit/test_library_store.py::test_vector_and_hybrid_search_use_sidecar, tests/unit/test_library_search.py::test_library_root_is_stable_across_workspaces, tests/unit/test_library_jobs.py::test_ingest_job_moves_from_queued_to_ready, tests/unit/test_library_jobs.py::test_cancel_queued_job_marks_item_cancelled, tests/unit/test_library_jobs.py::test_reindex_all_processes_every_item, tests/unit/test_library_store.py::test_html_pptx_and_epub_ingest, tests/unit/test_library_store.py::test_semantic_chunking_splits_on_sentences, tests/unit/test_library_store.py::test_catalog_v1_migrates_to_v2_on_write, tests/unit/test_library_ann.py::test_unknown_ann_backend_falls_back_to_linear, tests/unit/test_library_retrieval_quality.py::test_bm25_prefers_matching_terms_and_term_frequency, tests/unit/test_library_retrieval_quality.py::test_rrf_fuses_rankings_without_score_normalization, tests/unit/test_library_retrieval_quality.py::test_mmr_diversifies_near_duplicate_hits, tests/unit/test_library_retrieval_quality.py::test_rerank_prefers_exact_phrase_in_name, tests/unit/test_library_retrieval_quality.py::test_library_query_eval_set_recall, tests/unit/test_library_retrieval_quality.py::test_tags_pagination_and_detail, tests/unit/test_library_security.py::test_sanitize_excerpt_strips_terminal_sequences, tests/unit/test_library_security.py::test_render_hits_labels_content_as_reference_not_instruction, tests/unit/test_library_tools.py::test_library_search_is_read_only_tool, tests/unit/test_library_tools.py::test_library_tool_returns_citation_and_redacts, tests/unit/test_library_audit.py::test_library_audit_records_kind_action_and_item, tests/unit/test_library_audit.py::test_audit_args_redact_library_query_secrets, tests/unit/test_tenancy.py::test_per_user_paths_are_isolated]
+    see: docs/rfc/0010-per-user-library.md
+
+  # ---------------------------------------------------------------- 创新点提炼
+  - id: REQ-259
+    title: 创新候选结构与证据归属
+    given: 已有多篇文档矩阵与已验证 sources
+    when: 运行 knowledge/innovation.py::extract_innovations
+    then: |
+      每个候选包含 gap/insight/hypothesis/novelty_claim/prior_art_contrast/
+      falsifiable_experiment/risks/confidence；至少一条证据可归属到输入文档；
+      证据路径支持 path/basename/标题别名归一；无证据候选被丢弃。
+    status: implemented
+    tests: [tests/unit/test_innovation.py::test_extract_innovations_keeps_only_evidence_backed_candidates, tests/unit/test_innovation.py::test_extract_innovations_resolves_basename_evidence_path]
+    see: docs/adr/0040-innovation-extraction-and-novelty-critic.md
+
+  - id: REQ-260
+    title: novelty critic 与跨文档补充
+    given: 候选已生成，但可能只覆盖一篇文档
+    when: 运行 critic 与补充生成
+    then: |
+      critic 只依据给定材料输出 supported/score/issues；首轮只覆盖一篇时对
+      未覆盖文档做一次有界补充；评测要求至少 2 篇文档参与证据，
+      且 3 篇实例至少 3 个候选、1 个通过 critic。
+    status: implemented
+    tests: [tests/unit/test_innovation.py::test_extract_innovations_requires_matrix_and_sources, tests/unit/test_papers_eval.py::test_innovation_case_and_evaluation]
+    see: docs/adr/0040-innovation-extraction-and-novelty-critic.md
+
+  # ---------------------------------------------------------------- 编排控制面（P0–P3）
+  - id: REQ-261
+    title: 契约未知项阻断执行
+    given: 计划模型产出 non-empty contract.unknown
+    when: plan_tasks 完成契约归一化
+    then: |
+      不进入 scheduler；contract_unknowns 写入状态并路由到收尾，
+      respond 明确列出待澄清项，不声称已执行。
+    status: implemented
+    tests: [tests/unit/test_orchestrator.py::test_plan_tasks_blocks_when_contract_has_unknowns, tests/unit/test_steering.py::test_contract_gate_stops_scheduler_and_routes_to_clarification]
+    see: docs/ARCHITECTURE.md
+
+  - id: REQ-262
+    title: 计划评审拒绝不可验证与重复步骤
+    given: 任务图含 verifiable=false、unbounded 或重复步骤
+    when: 独立 review_plan 运行
+    then: 返回 fail + 原因，不进入 scheduler；正常计划返回 pass。
+    status: implemented
+    tests: [tests/unit/test_plan_review.py::test_review_rejects_unverifiable_and_unbounded_steps, tests/unit/test_plan_review.py::test_review_rejects_unmapped_and_duplicate_tasks, tests/unit/test_plan_review.py::test_review_accepts_a_well_formed_plan, tests/unit/test_orchestrator.py::test_plan_tasks_marks_review_failure_for_unverifiable_steps]
+    see: docs/ARCHITECTURE.md
+
+  - id: REQ-263
+    title: 四维预算预警、熔断与模型预算 clamp
+    given: 编排消耗达到 steps/tool_calls/tokens/wall_ms 的 70% 或 100%
+    when: scheduler 检查预算
+    then: |
+      70% 发 BudgetWarning；100% 停止派发并生成 budget_abort；
+      模型给的 max_tokens 被夹到父剩余预算，不能放大切片。
+    status: implemented
+    tests: [tests/unit/test_budget_guard.py::test_guard_warns_at_70_percent_and_exhausts_at_100, tests/unit/test_budget_guard.py::test_model_budget_is_clamped_to_parent_remaining, tests/unit/test_scheduler.py::test_step_budget_stops_new_dispatch_and_reports_partial_result, tests/unit/test_scheduler.py::test_model_max_tokens_is_clamped_to_remaining_parent_budget]
+    see: docs/ARCHITECTURE.md
+
+  - id: REQ-264
+    title: 预估卡与 gate
+    given: 任务图已通过评审
+    when: Estimator 按规则先验与历史分桶生成 Estimation Card
+    then: |
+      卡片含 P50/P90 token/墙钟、置信度、recommended 与 gate；
+      长任务 gate 打开 fine 检查点、阶段门与 watchdog；无历史时标记 low/probe。
+    status: implemented
+    tests: [tests/unit/test_estimator.py::test_estimate_uses_history_percentiles_when_enough_samples, tests/unit/test_estimator.py::test_estimate_falls_back_to_priors_without_history, tests/unit/test_estimator.py::test_long_task_gate_enables_fine_checkpoint_and_watchdog]
+    see: docs/ARCHITECTURE.md
+
+  - id: REQ-265
+    title: 结构化干预与 plan_version
+    given: 运行中收到 abort / rollback(n) / patch
+    when: steering 节点在边界消费
+    then: |
+      abort 停止并保留已完成部分；rollback 记录步数并在流结束后 rewind；
+      patch 只改 contract 字段、递增 plan_version 并触发重规划；
+      非法 patch/rollback 直接拒绝。
+    status: implemented
+    tests: [tests/unit/test_steering.py::test_abort_stops_and_marks_aborted, tests/unit/test_steering.py::test_rollback_stops_and_records_steps, tests/unit/test_steering.py::test_patch_updates_contract_and_plan_version, tests/unit/test_steering.py::test_patch_rejects_unknown_fields, tests/unit/test_runtime_stream.py::test_rollback_rewinds_after_the_stream_stops]
+    see: docs/WORKFLOW.md
+
+  - id: REQ-266
+    title: 通知卡片与 heartbeat
+    given: 运行期间产生预估、进度、审批、故障或长静默
+    when: CardProjector/Card Policy 投影事件
+    then: |
+      首卡 T+0；进度卡节流；故障卡不节流；审批卡带 ack_timeout/default_action；
+      长静默发 heartbeat；卡片按 card_id 幂等并携带 plan_version。
+    status: implemented
+    tests: [tests/unit/test_cards.py::test_first_card_is_immediate_and_estimate_upserts_same_id, tests/unit/test_cards.py::test_approval_card_carries_ack_timeout_and_default_action, tests/unit/test_cards.py::test_progress_cards_are_throttled_but_faults_are_not, tests/unit/test_cards.py::test_heartbeat_only_after_max_silence, tests/unit/test_runtime_stream.py::test_cards_are_emitted_alongside_domain_events]
+    see: docs/FRONTEND.md
+
+  - id: REQ-267
+    title: 阶段门与控制检查点
+    given: 长任务有多个 stage 或 estimation gate 开启 phase_gates
+    when: 一个阶段完成或阶段预算耗尽
+    then: |
+      阶段完成写控制检查点并发出 stage_done；阶段预算/失败只阻塞后续阶段；
+      检查点只含契约/任务/产物引用/预算/早停，不含全量消息。
+    status: implemented
+    tests: [tests/unit/test_scheduler.py::test_phase_gates_write_control_checkpoints, tests/unit/test_scheduler.py::test_phase_budget_failure_blocks_later_stages, tests/unit/test_control_checkpoint.py::test_control_checkpoint_round_trips]
+    see: docs/ARCHITECTURE.md
+
+  - id: REQ-268
+    title: 进程兜底与重复动作熔断
+    given: 文档解析等不可取消 CPU 步骤或同一 (tool,args) 反复出现
+    when: 运行器执行或 scheduler 检测结果
+    then: |
+      进程任务超时被 terminate/kill 并显式报错；重复动作达到上限时
+      设置 loop_abort、停止派发并发出 LoopDetected 事件。
+    status: implemented
+    tests: [tests/unit/test_process_runner.py::test_run_in_process_returns_child_result, tests/unit/test_process_runner.py::test_run_in_process_kills_a_hung_child, tests/unit/test_scheduler.py::test_repeated_tool_action_trips_the_loop_breaker]
+    see: docs/ARCHITECTURE.md
+
+  - id: REQ-269
+    title: 嵌套子编排器边界
+    given: planner 生成 sub_orchestrator 任务
+    when: 校验深度/扇出并运行子编排器
+    then: |
+      未启用/超过 MAX_DEPTH/超过 max_fanout 时拒绝；子图 suppress_events、
+      只读、预算由父切片；子结果 actual_cost 回填父预算；
+      子不推卡片、不产生子层审批。
+    status: implemented
+    tests: [tests/unit/test_nested.py::test_nested_plan_enforces_depth_and_fanout, tests/unit/test_nested.py::test_sub_orchestrator_runner_returns_structured_result, tests/unit/test_nested.py::test_scheduler_backfills_sub_result_cost_to_parent]
+    see: docs/ARCHITECTURE.md
+
+  - id: REQ-270
+    title: 结构化编排审计与跑偏回归集
+    given: 一次编排运行完成或异常中断
+    when: fan-in 写 orchestration 审计与运行时收尾
+    then: |
+      审计含 est_*/actual_*、invalid_step_ratio、state_from/to、
+      checkpoint_id、rollback_level、concurrency_unit、isolation_level、
+      approval_ack_ms；异常运行写 regression.jsonl，只记摘要与指标。
+    status: implemented
+    tests: [tests/unit/test_regression.py::test_trajectory_round_trip_and_summary, tests/unit/test_audit_async.py::test_async_writer_surfaces_background_failure, tests/unit/test_control_plane_blocking.py::test_control_plane_has_no_known_blocking_calls]
+    see: docs/OBSERVABILITY.md

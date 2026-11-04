@@ -83,6 +83,10 @@ tools:
     level: 0
     label: "L0 只读"
     behaviour: "自动执行"
+  - tool: library_search
+    level: 0
+    label: "L0 只读"
+    behaviour: "自动执行"
   - tool: memory_search
     level: 0
     label: "L0 只读"

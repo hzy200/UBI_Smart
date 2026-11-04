@@ -153,6 +153,8 @@ async def _run_readonly(
             "session_brief": session_brief,
             "memories": memories,
             "instructions": instructions(),
+            # 调度器下发的硬切片；explore runner 会在用量到顶时停止。
+            "max_tokens": task.get("max_tokens") or None,
             "reason": f"编排器派发的只读 {role} 任务",
         },
         call_id=task_id,

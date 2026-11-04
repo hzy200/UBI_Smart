@@ -53,6 +53,7 @@ def make_write_gate_node(
                 "reason": str(task.get("goal", "")),
                 "level": "L1 低风险写",
                 "level_int": 1,
+                "plan_version": int(state.get("plan_version", 0) or 0),
             }
             for task in implement
         ]

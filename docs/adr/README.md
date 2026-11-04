@@ -4,7 +4,7 @@ doc_id: adr-index
 title: 架构决策记录索引
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-02
 review_cadence: 每次新增决策时
 ---
 
@@ -65,6 +65,8 @@ review_cadence: 每次新增决策时
 | [0036](0036-callgraph-and-shared-cache.md) | 跨语言调用图与跨机器索引缓存 | accepted | 架构 · 索引 · 影响分析 |
 | [0037](0037-judge-threshold-calibration.md) | 文档 judge 阈值校准 | accepted | 评测 · 文档 · 校准 |
 | [0038](0038-structured-document-matrix-and-attribution.md) | 结构化文档矩阵、分层归并与跨文档归属校验 | accepted | 文档 · 长上下文 · 评测 |
+| [0039](0039-per-user-library.md) | 资料库放服务器执行面，按用户跨工作区隔离 | accepted | 架构 · 存储 · 安全 · 检索 |
+| [0040](0040-innovation-extraction-and-novelty-critic.md) | 创新点提炼与 novelty critic | accepted | 文档 · 创新 · 评测 |
 
 ## 待补录候选
 

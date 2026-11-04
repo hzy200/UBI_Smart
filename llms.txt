@@ -67,6 +67,7 @@
 - [docs/HARNESS.md](docs/HARNESS.md)：orchestrator、调度、worker 与 fan-in
 - [docs/HOST_BROKER.md](docs/HOST_BROKER.md)：A2L 宿主能力代理、host 工作区与本地授权
 - [docs/FRONTEND.md](docs/FRONTEND.md)：前端功能、桌面壳、会话视图与 UI 约束（含原 GUI）
+- [docs/LIBRARY.md](docs/LIBRARY.md)：每用户跨工作区资料库、摄取、向量检索与运维
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)：环境配置与版本快照
 - [docs/acceptance/acceptance-criteria.yaml](docs/acceptance/acceptance-criteria.yaml)：验收标准（Given-When-Then + 可执行测试 ID）
 - [docs/runbook.yaml](docs/runbook.yaml)：故障场景 → 处置步骤

@@ -36,6 +36,7 @@ export const eventsMixin = {
         this.planRows = this.buildPlanRows(this.plan, this.kinds, 0);
         this.planDegraded = !!event.degraded;
         this.stepIdx = 0;
+        this.dropStaleApprovals(event.plan_version || 0);
         this.setTab('plan', false);
         this.announce(`计划已生成：${this.plan.length} 步`);
         this.pushTimeline('plan', '生成计划', `${this.plan.length} 步`);
@@ -45,6 +46,7 @@ export const eventsMixin = {
         this.kinds = event.kinds || [];
         this.stepIdx = event.step_idx || 0;
         this.planRows = this.buildPlanRows(this.plan, this.kinds, this.stepIdx);
+        this.dropStaleApprovals(event.plan_version || 0);
         this.pushMessage('system', '计划已修订');
         break;
       case 'step_started':
@@ -170,6 +172,7 @@ export const eventsMixin = {
       case 'task_graph_created':
         this.tasks = (event.tasks || []).map((task) => this.decorateTask(task));
         this.tasksDirty = true;
+        this.dropStaleApprovals(event.plan_version || 0);
         break;
       case 'task_graph_extended':
         this.tasks = this.tasks.concat((event.added || []).map((task) => this.decorateTask(task)));
@@ -212,6 +215,28 @@ export const eventsMixin = {
           );
         }
         break;
+      case 'card': {
+        // 通知面卡片：审批卡仍走原有 ApprovalRequested 流程，避免重复。
+        if (event.kind === 'approval') break;
+        if (event.kind === 'fault') {
+          this.pushTimeline('error', event.title || '故障', event.body || '');
+          if (event.body) this.toastMessage(event.body);
+          break;
+        }
+        if (event.kind === 'estimate') {
+          this.pushTimeline('info', event.title || '执行预估', event.body || '');
+          break;
+        }
+        if (event.kind === 'stage_done' || event.kind === 'done') {
+          this.pushTimeline('info', event.title || '完成', event.body || '');
+          break;
+        }
+        if (event.kind === 'heartbeat') {
+          this.stateText = event.body || this.stateText;
+          break;
+        }
+        break;
+      }
       case 'cost_report':
         this.costText = this.formatCost(event);
         this.usage = {
@@ -232,10 +257,13 @@ export const eventsMixin = {
         this.stateText = this.t('status.waitingApproval');
         this._suspended = true;
         this._terminal = false;
+        const ackHint = event.ack_timeout_ms
+          ? `（${Math.round(event.ack_timeout_ms / 1000)}s 后默认 ${event.default_action || 'pause'}）`
+          : '';
         this.pushTimeline(
           'warning',
           '等待审批',
-          event.command || event.tool || '',
+          `${event.command || event.tool || ''}${ackHint}`,
         );
         this.noteSessionActivity();
         this.notify(
@@ -673,6 +701,15 @@ export const eventsMixin = {
     if (this.problems.length > 200) {
       this.problems.splice(0, this.problems.length - 200);
     }
+  },
+
+  dropStaleApprovals(version) {
+    if (!version) return;
+    const before = this.approvals.length;
+    this.approvals = this.approvals.filter(
+      (approval) => Number(approval.plan_version || 0) >= version,
+    );
+    if (this.approvals.length !== before) this.showNextApproval();
   },
 
   pushTimeline(kind, title, detail = '') {

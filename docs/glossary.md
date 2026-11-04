@@ -4,7 +4,7 @@ doc_id: glossary
 title: 统一语言词汇表
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-04
 review_cadence: 引入新术语或发现新歧义时
 criticality: 高
 note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系统并存，动手前先查这里。
@@ -130,7 +130,19 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 | `fan_in` | worker 结果汇总，产出 `worker_context`（给 planner）与 `orchestration_handoff`（结构化） |
 | `worktree` | implement worker 的独立 git 工作树，改完导出 patch 回主工作区顺序合并 |
 | `checkpoint_every` | 每完成多少个任务形成一次 checkpoint/干预边界；**不再限制每边界能启动几个** |
-| `steering` | 运行中干预（pause/cancel/add/replan），只在节点边界消费 |
+| `steering` | 运行中干预（pause/cancel/abort/rollback/add/replan/patch），只在节点边界消费 |
+| **`TaskContract`** | 执行前验收契约：goal/constraints/acceptance/known/unknown/side_effects；`unknown` 非空不进入 scheduler |
+| **计划评审（Reviewer）** | 独立检查验收映射、不可验证/无界步骤、重复步骤；只给 pass/fail，不参与生成 |
+| **Estimation Card** | S5 预估卡：P50/P90 步数、工具数、token、墙钟、置信度、是否需探针 |
+| **gate** | 由预估卡决定检查点粒度、watchdog、阶段门与隔离档位；不是模型自己报数 |
+| **BudgetGuard** | 四维预算（steps/tool_calls/tokens/wall_ms）的 70% 预警与 100% 熔断 |
+| **`CardEvent` / `card_id`** | 通知面出站卡片；按 `card_id` 幂等 upsert，按 `plan_version` 失效旧审批 |
+| **控制检查点** | 只存 contract/plan/artifact 引用/预算/早停的轻量检查点，用于阶段门与 L2 回退 |
+| **阶段门（phase gate）** | 阶段完成才放行下一阶段；阶段失败/预算耗尽只停后续阶段，前序产物保留 |
+| **`SubTask` / `SubResult` / `SubSignal`** | 父子编排器内部消息；不出站，子不写父状态 |
+| **MAX_DEPTH / max_fanout** | 嵌套深度与单层扇出上限；起步 `MAX_DEPTH=1` |
+| **`loop_abort`** | 同一 (tool,args) 重复达到上限后的熔断信息 |
+| **进程兜底（process runner）** | 不可取消/CPU 密集步骤放入 spawn 子进程，超时直接 terminate/kill |
 | **知识产物（knowledge artifact）** | run 级、可查询的结构化理解产物，落 `.agent/artifacts/knowledge/`；不是聊天摘要。见 [RFC-0009](rfc/0009-deep-workflows-and-knowledge-artifacts.md) |
 | **`DocIndex`** | 文档结构索引：document → section → chunk → anchor；含覆盖状态与未读区间 |
 | **`ClaimStore`** | 结论-证据库：每条 claim 绑定 `path#anchor` 与原文 quote，供写作检索 |
@@ -139,6 +151,9 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 | **引用跨度（quote span）** | quote 在归一化文档文本中的 `{start,end,page}`；`quote_verified=false` 的证据不进入下游 |
 | **归属校验（attribution）** | 按句子检查“提到的文档”与引用路径是否一致；错配写 `attribution_issues`，不是语义判断 |
 | **已解析文档头** | 多文档答案开头的确定性清单，列出全部路径/标题，防止树状归并把已覆盖文档说成缺失 |
+| **创新候选（`InnovationCandidate`）** | 带 gap/insight/hypothesis/novelty_claim/prior_art_contrast/可证伪实验/风险/证据的结构化 idea；不是“已证明的新颖性” |
+| **novelty critic** | 只依据给定材料复核候选（证据支持、是否复述已有贡献、实验可证伪），输出 supported/score/issues |
+| **补充生成** | 首轮候选只覆盖部分文档时，对未覆盖文档再做一次有界候选生成 |
 | **`ArchIndex`** | 代码架构索引：模块/文件/符号 + import 边 + 测试拓扑 + 入口/热点 |
 | **`ArchBrief`** | 从 `ArchIndex` 生成的架构简报：子系统、边界、风险、未决问题 |
 | **`ChangeContract`** | 跨模块变更契约：受影响文件/模块、接口、验收、受影响测试、波次 |
@@ -146,6 +161,7 @@ note: 术语歧义是 AI 出错的头号来源，本项目三套数字编号系�
 | **覆盖契约** | 长文档必须报告 `complete` 或 `partial + 未读区间`，禁止“读了前 15 页却像读了全文” |
 | **文档 map-reduce** | 分批抽取 claim/实体，再按 section/document 合并；不把整篇塞进一次调用 |
 | **动态图构建器** | 按复杂度信号从节点库组合阶段，输出仍是 `TaskSpec[]`，复用现有 scheduler |
+| **资料库（library）** | 每用户跨工作区、服务器侧的参考资料集合；正文/索引在 A4，模型只通过 `library_search` 检索。**不是**会话附件，也**不是** run 级知识产物。见 [RFC-0010](rfc/0010-per-user-library.md) |
 
 ## 九、GUI / 会话权限术语
 

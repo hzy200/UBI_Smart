@@ -4,7 +4,7 @@ doc_id: rfc-index
 title: RFC 索引与流程
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-02
 review_cadence: 新增或状态变更时
 ---
 
@@ -63,6 +63,7 @@ draft ──批准──▶ accepted ──实现完成──▶ implemented
 | [0007](0007-sequential-write-waves.md) | implement 顺序写波次与 worktree 基线注入 | accepted | 项目作者 | 0027 |
 | [0008](0008-orchestrated-fix-rounds.md) | verify 失败后的有界编排修复轮 | accepted | 项目作者 | 0028 |
 | [0009](0009-deep-workflows-and-knowledge-artifacts.md) | 复杂长文档与代码架构的深层工作流 | accepted | 项目作者 | 0029、0030、0031 |
+| [0010](0010-per-user-library.md) | 每用户跨工作区资料库 | implemented | 项目作者 | 0039 |
 
 ## 模板
 

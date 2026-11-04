@@ -33,6 +33,7 @@ from ubismart.graph.routing import (
 )
 from ubismart.graph.routing import WRITE_GATE as WRITE_GATE_NODE
 from ubismart.orchestrator.fanin import make_fan_in_node
+from ubismart.orchestrator.nested import SubOrchestratorRunner
 from ubismart.orchestrator.plan import make_plan_tasks_node
 from ubismart.orchestrator.routing import route_after_select
 from ubismart.orchestrator.scheduler import SCHEDULER, make_scheduler_node
@@ -81,6 +82,18 @@ def build_orchestrator_subgraph(
     """组装并编译独立子图。checkpointer 由父图持有。"""
     graph = StateGraph(OrchestratorState)
     planner_llm = planning_llm or llm
+    sub_runner = None
+    if bool(settings.orchestrator_nested_enabled):
+        sub_runner = SubOrchestratorRunner(
+            llm=llm,
+            planning_llm=planner_llm,
+            settings=settings,
+            sandbox=sandbox,
+            root=root,
+            worker_runner=worker_runner,
+            governor=governor,
+            graph_factory=build_orchestrator_subgraph,
+        )
     repo_map_builder = None
     if bool(getattr(settings, "orchestrator_repo_map_lazy", False)):
         repo_map_builder = lambda: build_repo_map_summary(  # noqa: E731
@@ -122,6 +135,7 @@ def build_orchestrator_subgraph(
             steering=steering,
             governor=governor,
             patch_reviewer=patch_reviewer,
+            sub_runner=sub_runner,
         ),
     )
     graph.add_node(
@@ -149,7 +163,11 @@ def build_orchestrator_subgraph(
     graph.add_conditional_edges(
         STEERING_PLAN,
         route_after_steering_plan,
-        {WRITE_GATE_NODE: WRITE_GATE, SYNTHESIZE: SYNTHESIZE},
+        {
+            WRITE_GATE_NODE: WRITE_GATE,
+            PLAN_TASKS: PLAN_TASKS,
+            SYNTHESIZE: SYNTHESIZE,
+        },
     )
     graph.add_edge(WRITE_GATE, SCHEDULER)
     graph.add_edge(SCHEDULER, STEERING_DISPATCH)

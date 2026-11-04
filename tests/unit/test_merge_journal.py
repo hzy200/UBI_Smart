@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -127,8 +128,6 @@ def test_flush_registers_before_and_clears_after(
         finalized: list[dict] = []
         queue.add({"task_id": "t1", "files": ["a.py"]})
 
-        import asyncio
-
         merged = asyncio.run(
             queue.flush(
                 sandbox=object(),
@@ -143,6 +142,91 @@ def test_flush_registers_before_and_clears_after(
     assert merged is True
     assert events == ["open:1", "merge", "close"]
     assert _journal().load() == []
+
+
+def test_merge_exception_keeps_registration(
+    fake_fs: dict[str, str], monkeypatch
+) -> None:
+    async def _broken_merge(*_a, **_k):  # noqa: ANN002, ANN003
+        raise RuntimeError("apply 中途失败")
+
+    import ubismart.orchestrator.merge_queue as queue_module
+
+    monkeypatch.setattr(
+        queue_module, "merge_implement_patches_atomic", _broken_merge
+    )
+    queue = MergeQueue(_journal())
+    queue.add({"task_id": "t1", "files": ["a.py"]})
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            queue.flush(
+                sandbox=object(),
+                root="/ws",
+                allow_overlap=False,
+                finalize=lambda _record: None,
+            )
+        )
+    # 未完整收尾：登记必须留着给下次启动对账。
+    assert [item["task_id"] for item in _journal().load()] == ["t1"]
+
+
+def test_cancelled_merge_keeps_registration(
+    fake_fs: dict[str, str], monkeypatch
+) -> None:
+    async def _cancelled_merge(*_a, **_k):  # noqa: ANN002, ANN003
+        raise asyncio.CancelledError
+
+    import ubismart.orchestrator.merge_queue as queue_module
+
+    monkeypatch.setattr(
+        queue_module, "merge_implement_patches_atomic", _cancelled_merge
+    )
+    queue = MergeQueue(_journal())
+    queue.add({"task_id": "t1", "files": ["a.py"]})
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            queue.flush(
+                sandbox=object(),
+                root="/ws",
+                allow_overlap=False,
+                finalize=lambda _record: None,
+            )
+        )
+    assert [item["task_id"] for item in _journal().load()] == ["t1"]
+
+
+def test_finalize_failure_keeps_registration(
+    fake_fs: dict[str, str], monkeypatch
+) -> None:
+    async def _fake_merge(sandbox, root, records, **_kwargs):  # noqa: ANN001
+        return {
+            str(record["task_id"]): (True, "", ["snap"])
+            for record in records
+        }
+
+    import ubismart.orchestrator.merge_queue as queue_module
+
+    monkeypatch.setattr(
+        queue_module, "merge_implement_patches_atomic", _fake_merge
+    )
+    queue = MergeQueue(_journal())
+    queue.add({"task_id": "t1", "files": ["a.py"]})
+
+    def _broken_finalize(_record: dict) -> None:
+        raise RuntimeError("finalize 失败")
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            queue.flush(
+                sandbox=object(),
+                root="/ws",
+                allow_overlap=False,
+                finalize=_broken_finalize,
+            )
+        )
+    assert [item["task_id"] for item in _journal().load()] == ["t1"]
 
 
 def test_discard_keeps_registration_and_issues_no_io(

@@ -19,6 +19,7 @@ import re
 import secrets as _secrets
 import socket
 import threading
+import time
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
@@ -247,6 +248,8 @@ class AuditLogger:
         syslog_address: str = "",
         webhook_url: str = "",
         webhook_token: str = "",
+        async_write: bool = False,
+        queue_size: int = 10_000,
     ) -> None:
         self.directory = Path(directory)
         self.enabled = enabled
@@ -256,6 +259,22 @@ class AuditLogger:
         self.webhook_token = str(webhook_token or "")
         self._webhook_queue: queue.Queue[str] | None = None
         self._webhook_thread: threading.Thread | None = None
+        # 控制面不阻塞：有界队列 + 专用写线程。失败不静默 —— `write`
+        # 在队列满或已记录异步错误时立即抛 AuditError，`flush` 负责收尾。
+        self.async_write = bool(async_write)
+        self._write_queue: queue.Queue[AuditRecord] | None = None
+        self._writer_thread: threading.Thread | None = None
+        self._write_error: BaseException | None = None
+        self._pending = 0
+        self._pending_cond = threading.Condition()
+        if self.async_write and self.enabled:
+            self._write_queue = queue.Queue(maxsize=max(1, int(queue_size)))
+            self._writer_thread = threading.Thread(
+                target=self._writer_loop,
+                name="audit-writer",
+                daemon=True,
+            )
+            self._writer_thread.start()
         # 「当天该写哪一片」的缓存。只在跨天或需要换片时才重新扫目录 ——
         # 一个任务上百条记录，每条都 glob 一次纯属浪费（见 C5）。
         self._active: tuple[str, Path] | None = None
@@ -354,9 +373,64 @@ class AuditLogger:
                 {"site": "audit_webhook"},
             )
 
+    def _writer_loop(self) -> None:
+        assert self._write_queue is not None
+        while True:
+            record = self._write_queue.get()
+            try:
+                self._write_sync(record)
+            except BaseException as exc:  # noqa: BLE001 - 记录错误，由 flush/write 抛出
+                if self._write_error is None:
+                    self._write_error = exc
+                inc("agent_audit_write_failures_total")
+            finally:
+                with self._pending_cond:
+                    self._pending = max(0, self._pending - 1)
+                    self._pending_cond.notify_all()
+                self._write_queue.task_done()
+
+    def _raise_pending_error(self) -> None:
+        error = self._write_error
+        if error is not None:
+            if isinstance(error, AuditError):
+                raise error
+            raise AuditError(f"审计异步写入失败：{error}") from error
+
+    def flush(self, timeout: float = 5.0) -> None:
+        """等待队列排空；异步写失败在这里显式抛出。"""
+        if not self.async_write or self._write_queue is None:
+            return
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        with self._pending_cond:
+            while self._pending > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise AuditError("审计队列在超时内未排空")
+                self._pending_cond.wait(timeout=min(remaining, 0.1))
+        self._raise_pending_error()
+
     def write(self, record: AuditRecord) -> None:
         if not self.enabled:
             return
+        if not self.async_write:
+            self._write_sync(record)
+            return
+        # 已经失败过就不再假装还能记：显式报出，避免运行继续但审计断链。
+        self._raise_pending_error()
+        assert self._write_queue is not None
+        with self._pending_cond:
+            self._pending += 1
+        try:
+            self._write_queue.put_nowait(record.model_copy())
+        except queue.Full:
+            with self._pending_cond:
+                self._pending = max(0, self._pending - 1)
+            inc("agent_audit_write_failures_total")
+            raise AuditError(
+                f"审计队列已满（容量 {self._write_queue.maxsize}），拒绝静默丢记录"
+            ) from None
+
+    def _write_sync(self, record: AuditRecord) -> None:
         target: Path | None = None
         day = self._day()
         try:

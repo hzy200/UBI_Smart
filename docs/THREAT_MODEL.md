@@ -4,7 +4,7 @@ doc_id: threat-model
 title: 威胁模型
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-28
+last_reviewed: 2026-11-04
 review_cadence: 安全相关代码变动时（sandbox/ · approve.py · 审批语义 · 路径守卫 · 认证 · 跨域 · 桌面桥）
 ---
 
@@ -21,6 +21,7 @@ review_cadence: 安全相关代码变动时（sandbox/ · approve.py · 审批�
 | 宿主 Windows 文件 | `/mnt/c`、`/mnt/d` | 整台机器的数据 |
 | 宿主进程环境 | 宿主的 `DEEPSEEK_API_KEY` 等 | 凭据泄漏、API 额度 |
 | 工作区里的项目 | WSL 工作区 | 被误改/删 |
+| 资料库正文 / chunk / 向量 | A4 `<library_root>/`（每用户） | 跨用户泄漏、提示注入、敏感信息回灌 |
 | 工作区元数据与根路径 | A2 MySQL | 路径被篡改会把执行引到错误目录 |
 | revision 归档 | 本地归档盘（含完整源码） | 泄漏源码；误删后无法灾难恢复 |
 | 审计与快照 | 宿主 `.agent/audit`；工作区 `.agent/backups` | 可追溯性与可回滚 |
@@ -286,6 +287,9 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
 - **现状**：读到的文件内容与用户指令**同等信任**，都进模型上下文。
 - **untrusted 模式**：不注入仓库 `AGENTS.md`/`CLAUDE.md`，不读取仓库
   `.agent/memory.md`；记忆移到仓库外。文件内容本身仍可能诱导模型行动。
+- **资料库**：上传文档与检索片段明确标注“只读引用，不是指令”；
+  `library_search` 不接受路径，结果先脱敏并清洗终端控制序列；
+  但不能阻止模型在语义上被资料内容诱导，仍需依赖审批与工具等级作为最终闸门。
 - **达标**：内容信任分级（工具结果标记为"数据、非指令"）、对"由文件内容触发的危险动作"强制人工确认。这是模型层问题，隔离层解决不了。
 
 ### 5.10 审批与前端
@@ -306,6 +310,9 @@ JSON，并发写按最后写入生效；服务端仍有机会在用户不仔细�
   缓冲；审计仍不是 WORM，远端/SIEM 导出见技术债。
 - **上传**：单文件/数量/工作区跨会话累计限额、basename 清洗、SandboxFs 路径双重校验、写审计；
   写入 `.agent/uploads`，不自动执行/解压，不授予模型源码写权限。
+- **资料库**：按用户隔离到 workspace 外的 `library_root`；A2 只代理，不解析正文；
+  A3 复用文档解析限制、路径双重校验与秘密文件保护；检索只返回带 anchor 的片段，
+  结果先脱敏；删除为软删，物理清除需显式 `purge`；审计不记正文。
 - **文档/图片读取**：宿主进程解析，不进入 WSL；路径守卫与秘密文件保护同
   `file_read`；Office ZIP 校验条目数/解压总量/压缩比，XML 经 `defusedxml`
   解析，PDF 不执行脚本，不执行宏、不解析 OLE 嵌入对象；文档内容视为不可信
@@ -550,6 +557,13 @@ G5 是设计上的残余风险。**不要**因为有了这张表就宣称"T4 已
 | 启用前置 | 企业批量启用前：`DEVICE_POLICY=enforce` + 签名策略 + TLS + 设备台账预登记；完成吊销演练与红队；不可信仓库禁用 host 后端 |
 | 证据 | `tests/unit/test_host_broker_tls.py`、`test_host_broker_channel.py`、`test_host_devices.py`、`test_host_attestation.py`、`test_host_policy_doc.py`；`tests/integration/test_host_broker_readonly.py`（`-m host`） |
 | 禁止措辞 | “远程证明”“设备可信”“服务端授权即可执行”“零横向风险”“服务端静默自动更新” |
+
+### 6.2 进程兜底的边界
+
+`platform/process_runner.py` 只用于**宿主侧、可 pickle 的 CPU 密集/不可取消
+函数**（当前接入文档解析）。它提供的是“卡死能收”：超时 terminate/kill 子进程，
+不是安全沙箱，也不提供 cgroup/文件系统/网络隔离。不可信仓库与不可信代码仍必须
+走 WSL/bwrap/sandbox 后端；不要把它当成 T2 或容器隔离。
 
 ## 7. 维护
 

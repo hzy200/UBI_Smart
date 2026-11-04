@@ -67,6 +67,45 @@ def test_event_driven_scheduler_boundaries_are_counted() -> None:
     assert event == base + (2 + 1) * (6 + 6 * 2) + 2
 
 
+def test_retries_and_document_boundaries_are_counted() -> None:
+    base = estimate_recursion_limit(
+        5,
+        12,
+        3,
+        2,
+        orchestrator_enabled=True,
+        orchestrator_max_tasks=6,
+        orchestrator_checkpoint_every=4,
+    )
+    retried = estimate_recursion_limit(
+        5,
+        12,
+        3,
+        2,
+        orchestrator_enabled=True,
+        orchestrator_max_tasks=6,
+        orchestrator_checkpoint_every=4,
+        orchestrator_task_retries=2,
+    )
+    documented = estimate_recursion_limit(
+        5,
+        12,
+        3,
+        2,
+        orchestrator_enabled=True,
+        orchestrator_max_tasks=6,
+        orchestrator_checkpoint_every=4,
+        orchestrator_task_retries=2,
+        orchestrator_document_checkpoint=True,
+    )
+
+    assert retried > base
+    # 重试 2 次 -> 18 次完成 / 每边界 4 个 -> 5 个边界；文档边界则每个
+    # 完成点都返回一次（18 个），不能被 checkpoint_every 合并掉。
+    assert retried == base + (2 + 1) * ((6 + 5 * 2) - (6 + 2 * 2))
+    assert documented == base + (2 + 1) * ((6 + 18 * 2) - (6 + 2 * 2))
+
+
 def test_orchestrator_fix_rounds_are_counted() -> None:
     rounds, steps, repairs, replans = 12, 5, 3, 2
     per_cycle = 5 * rounds + 4

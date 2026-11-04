@@ -4,7 +4,7 @@ doc_id: workflow
 title: 工作流设计
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-04
 review_cadence: 拓扑或状态生命周期变动时
 ---
 
@@ -32,7 +32,9 @@ START → route_entry
   ├─ direct ─→ planner → act ⇄ approval_gate → tools
   │                     → verify → review → advance → steering_step → replan → act/respond
   └─ orchestrated ─→ orchestrator 子图：
-                       survey → select_and_plan
+                       survey → select_workflow → plan_tasks
+                       （contract → review → estimate）
+                       → steering_plan → write_gate
                        → scheduler ⇄ steering_dispatch → fan_in
                        → planner → ...
 ```
@@ -80,6 +82,14 @@ direct 路径的失败分支：verify/review 没过且还有预算 → repair �
 | `recovery_notice` | 上一轮中断时给模型的恢复提示 | runtime 每轮根据 prior checkpoint 生成 |
 | `budget_exhausted` | 本步是否撞上工具轮次上限 | planner / advance / repair 复位 |
 | `approvals` | **逐次调用**，用后即清 | approval_gate 写入、tools 清空 |
+| `contract` / `contract_unknowns` / `contract_review` / `plan_review_failed` | 本轮验收契约、未知项与评审结论 | plan_tasks 写入；patch 更新 contract；新计划重置 |
+| `estimation_card` | S5 预估卡与 gate 决策 | plan_tasks 每次生成 |
+| `plan_version` | 契约/计划版本；patch、重规划、新计划递增 | planner / plan_tasks / replan / steering patch |
+| `steering_aborted` / `steering_rollback_steps` | 中止与回退请求 | steering 节点写入；plan_tasks 重置 |
+| `budget_snapshot` / `budget_abort` | 四维预算快照与熔断报告 | scheduler 收尾写入；新计划重置 |
+| `control_checkpoints` | 阶段控制检查点索引（不含全量消息） | scheduler 阶段门写入；fan-in 交接 |
+| `loop_abort` | 重复动作熔断信息 | scheduler 写入；新计划重置 |
+| `sub_depth` / `suppress_events` | 嵌套深度与子图事件抑制 | SubOrchestratorRunner 注入；子 scheduler 只读 |
 
 **为什么重要**：把"每步"与"每轮"两类生命周期分开，是图能收敛的前提；
 `approvals` 的"用后即清"是**安全属性**而非清理——不清空会导致下一轮复用上一轮的批准。
@@ -124,6 +134,12 @@ direct 路径的失败分支：verify/review 没过且还有预算 → repair �
 - provider 暴露 reasoning 时额外发 `ReasoningToken`（best-effort，不伪造，不写审计）。
 - **挂起时以 `ApprovalRequested` 收尾，不发 `RunFinished`** → 前端据此判断该 resume 还是收工。
 - 前端四种实现（CLI/TUI/Web/Desktop GUI）共用同一套 `Event`；前端不得导入 `tools`/`sandbox`（AST 测试守着）。
+- 通知面在同一事件流上叠加 `CardEvent`（`kind=estimate/progress/approval/fault/stage_done/done/heartbeat`）；
+  卡片先于终端事件发出，`card_id` 幂等、`plan_version` 让旧审批失效。
+- 新增领域事件：`EstimationReady`、`StageDone`、`LoopDetected`、`CardEvent`。
+- 审计 `orchestration` 记录带 `est_* / actual_*`、`invalid_step_ratio`、
+  `state_from/to`、`checkpoint_id`、`rollback_level`、`concurrency_unit`、
+  `isolation_level`、`approval_ack_ms`。
 
 ### 2.6 防失控的闸
 
@@ -212,7 +228,7 @@ direct 路径的失败分支：verify/review 没过且还有预算 → repair �
 | W1 | `plan/step_idx/last_verification` 曾是 `_stream` 局部 | 恢复后 `StepStarted` 空文案 | **已修**（提升为 `_progress`） |
 | W2 | `dirty` 曾只认工具名 | shell `sed -i` 不触发 verify | **已修**（按命令等级判定） |
 | W3 | `budget_exhausted` 曾不参与路由 | 空转步骤被静默跳过 | **已修** |
-| W4 | 预算按轮次/字符，非 token | 长会话成本不精确 | 设计取舍 |
+| W4 | 预算按轮次/字符，非 token | 长会话成本不精确 | **已缓解**：四维 BudgetGuard + worker token 硬切片；估算仍是区间 |
 | W5 | 单线程假设 | 同一 runtime 跨 thread 复用靠分桶状态 | 被前端单会话使用遮掩 |
 | W6 | `run()` 读记忆是 WSL 硬依赖 | 无沙箱环境不可用 | **已缓解**（失败转事件 + 单测注入） |
 | W7 | `recursion_limit` 系数靠注释解释 | 改拓扑易再次算歪 | **已修**（`estimate_recursion_limit()`，含单测） |
@@ -271,13 +287,14 @@ act ──delegate_explore──▶ approval_gate（L0，自动放行）──�
 START → route_entry
   ├─ direct ───────────→ planner → act → ...          （小任务快速路径）
   └─ orchestrated ─────→ orchestrator 子图
-                          survey → select_and_plan
+                          survey → select_workflow → plan_tasks
                           → scheduler ⇄ steering_dispatch
                           → fan_in → planner → ...
 ```
 
 - 开关：`AGENT_ORCHESTRATOR_ENABLED`（默认 `true`）；
-- 模板：`direct` / `parallel_readonly` / `orchestrated_implement`；
+- 模板：`direct` / `parallel_readonly` / `orchestrated_implement` /
+  `document_pipeline` / `architecture_change`；
 - **事件驱动调度**：scheduler 用 ready 堆 + `asyncio.wait(FIRST_COMPLETED)`，
   任务完成立即解锁依赖；失败立即短路，不等整批；
 - 只读 worker：explore/test/review 并发；任务级失败重试带上次失败上下文
@@ -285,9 +302,16 @@ START → route_entry
   可消费 partial 产出；
 - **动态任务图**：explore/review 可提议最多 2 个只读任务，scheduler 在完成点
   做 host 校验（角色/去重/依赖/总量/无环）后立即入队；
+- **token 硬切片**：硬上限按“任务显式预算 > 角色总预算（document/vision/
+  author）> 派发预留”选取，随 `max_tokens` 下传；explore/implement/document
+  达到切片即停止，不会只靠“下次派发前检查”；
+- **recursion_limit**：边界估算按总完成数（含重试）计算，document 的每个完成点
+  都会形成边界，不再只按 `max_tasks / checkpoint_every` 低估；
 - 写 worker：需要 `AGENT_ORCHESTRATOR_WRITE_ENABLED=true`、`--write`、
   git 仓库根 + 干净工作区；每个 implement 在独立 worktree 中修改，
   `write_scope` 在 I/O 前强制校验，完成后由宿主串行合并 patch 并留快照；
+  **超时/取消后的重试按 attempt 换 worktree**，旧 `wsl.exe` 线程退出后才清理，
+  等不到则留给下次启动的 orphan prune；
 - **会话约束摘要**：子图不复制 `messages`，但 runtime 会从 checkpoint 抽最近
   若干轮的对话，压成 `session_brief` 注入 select/plan 与每个 worker；
 - fan-in：按失败/阻塞优先、任务级预算输出 `worker_brief`，同时产出结构化
@@ -300,6 +324,23 @@ START → route_entry
 
 编排结束后主 agent 仍负责最终验证与答复；写路径的审批、快照与审计仍是唯一
 安全边界。烟雾结果见 [HARNESS.md §14](HARNESS.md)。
+
+### 2.12 编排控制面扩展（P0–P3）
+
+| 层 | 机制 | 失败时 |
+|---|---|---|
+| S2 契约 | `TaskContract`：goal/constraints/acceptance/known/unknown/side_effects | `unknown` 非空 → 不进入 scheduler，向用户澄清 |
+| S4 计划评审 | `review_plan`：验收映射、不可验证/无界步骤、重复步骤 | 评审失败 → 不执行，回 fan-in 收尾 |
+| S5 预估 | `Estimator`：规则先验 + `task_type × role × model` 历史分桶 | 产出 Estimation Card；`fine` 检查点/watchdog/阶段门按 gate 开启 |
+| 预算 | `BudgetGuard`：steps/tool_calls/tokens/wall_ms | 70% `BudgetWarning`；100% 停止派发，输出 `budget_abort` |
+| 阶段门 | 每阶段写控制检查点；均分阶段预算 | 阶段失败/预算耗尽只停后续阶段，前序产物保留 |
+| 干预 | `abort` / `rollback(n)` / `patch` / `plan_version` | rollback 在流结束后 `rewind`；patch 触发增量重规划 |
+| 通知 | Card Projector / Card Policy / heartbeat | 首卡 T+0、进度节流、故障不节流、审批超时字段 |
+| 隔离 | 文档解析等走 spawn 进程兜底 | 超时 terminate/kill；普通工具仍 `to_thread` |
+| 嵌套 | `SubOrchestratorRunner`，默认关闭，`MAX_DEPTH=1` | 子只读、预算切片、子不推卡片；父收 `SubResult` |
+
+关键边界：**子编排器不是自治 while 循环**，而是同一套控制面子图的递归实例；
+子层局部 L0/L1 回退内部消化，只有 L2/L3 以 `SubResult` 上浮。
 
 ---
 
@@ -340,12 +381,15 @@ CI（ubuntu，无 WSL）: pip install -e ".[dev,ui,web]" → ruff → pytest -m 
 | `/pause` | `steering_plan` / `steering_dispatch` / `steering_step` / `steering_final` | `interrupt()` 挂起；当前节点结束后不再派发新 worker |
 | `/resume` | 挂起状态 | `Command(resume=...)` 从 checkpoint 继续 |
 | `/cancel` | 同上 | 协作式停止 worker；未合并 patch 丢弃，已合并改动保留 |
+| `/abort` | 停止类边界 | 停止并保留已完成部分，收尾说明已完成/未执行/建议 |
+| `/rollback n` | 停止类边界 | 停止当前运行；流结束后 `rewind` n 个 checkpoint，保留已验证产物，可 resume |
 | `/add [角色] <目标>` | orchestrated：任务图；direct：计划 | 只接受 explore/test/review |
 | `/replan` | orchestrated：`plan_tasks`；direct：`replan` | 只重建剩余工作，已完成任务不重跑 |
+| `/patch {json}` | 同上 | 只改 contract 的 goal/constraints/known/unknown，递增 `plan_version` 并触发重规划 |
 
 暂停期间普通 prompt 会被拒绝，必须先 `/resume` 或 `/cancel`。事件侧新增
 `SteeringApplied` 与 `WorkflowRevised`；审计写 `kind=steering`（含来源与动作）。
-CLI 用 `agent steer --thread-id <id> pause|cancel|add|replan` 注入指令；
+CLI 用 `agent steer --thread-id <id> pause|cancel|abort|rollback|add|replan|patch` 注入指令；
 Web 端点提供 `/api/steer`、`/api/resume`、`/api/resume_steering`，
 页面也带审批与暂停/恢复按钮。所有 `/api/*` 需要 Bearer Token（loopback 匿名
 仅限未配置 token 的本地模式）；公网启动必须显式 `--allow-remote` 并配置 TLS。
@@ -371,6 +415,12 @@ Web 端点提供 `/api/steer`、`/api/resume`、`/api/resume_steering`，
 | — | Web/CLI 实时控制入口 | **已实现**：Web SSE 审批/steering/resume + `agent steer` |
 | — | 共享文件的多 worker 合并 | **已实现**：`AGENT_ORCHESTRATOR_ALLOW_OVERLAP` + 临时 index 3-way 预演 |
 | — | steering 队列持久化 | **已实现**：`.agent/steering/` 原子落盘，`resume` 跨进程恢复 |
+| — | 契约 / 计划评审 / 预估 gate | **已实现**：`TaskContract`、`review_plan`、Estimation Card + gate |
+| — | 四维预算与熔断报告 | **已实现**：`BudgetGuard` 70%/100%、`budget_abort`、重复动作熔断 |
+| — | 结构化 patch 与 plan_version | **已实现**：`abort/rollback/patch`；旧审批按版本失效 |
+| — | 通知卡片与 heartbeat | **已实现**：`CardEvent`、首卡 T+0、MAX_SILENCE、审批超时字段 |
+| — | 阶段门 / 控制检查点 | **已实现**：阶段预算、局部检查点、stage_done 中间交付 |
+| — | 嵌套子编排器 | **已实现但默认关闭**：`AGENT_ORCHESTRATOR_NESTED_ENABLED`，`MAX_DEPTH=1` |
 
 **已完成**：`recursion_limit` 拓扑推导（W7）、shell 变更"未留底"提示、每 thread 恢复次数上限
 （`AGENT_MAX_RESUMES`）、token 用量累计（`usage_metadata` → `run_end` 审计，未引入 tokenizer）、
@@ -393,7 +443,9 @@ Web 端点提供 `/api/steer`、`/api/resume`、`/api/resume_steering`，
    在 run 作用域内检索 doc chunk / claim / arch。
 5. **ChangeContract + 接口优先波次**：按反向 import 分层生成波次，plan 确定性
    分配 stage；`AGENT_INTERFACE_FIRST_WRITES` 开启后在波次边界跑受影响测试 gate，
-   失败只阻塞后续波次。
+   失败只阻塞后续波次。gate 与合并前补丁审查都有墙钟上限，等待期间轮询
+   `cancel`/deadline；gate 超时按失败处理，审查超时按“未给出结论”放行合并且
+   取消/deadline 不丢弃待合并记录。
 6. **动态图构建器**：契约有 ≥2 波且可写时直接产出 `architecture_change` 任务图；
    信号不足回退四模板。
 7. **检索与评测**：知识检索支持 lexical/vector/hybrid（remote 走 memory 门禁）；
@@ -413,9 +465,14 @@ Web 端点提供 `/api/steer`、`/api/resume`、`/api/resume_steering`，
     错配计入 `attribution_issues`；`papers/report` 真实跑
     `document → author → report_check`（ADR-0038）。10 篇/230 页实测
     覆盖 10/10、矩阵槽位 87–94%、归属 0，单次 19–24 分钟。
+11. **创新点提炼 + novelty critic**：`knowledge/innovation.py` 输出
+    gap/insight/hypothesis/novelty_claim/prior_art_contrast/
+    falsifiable_experiment/risks/confidence，critic 只依据给定材料评分；
+    证据路径按 path/basename/标题归一，缺失文档做一次有界补充（ADR-0040）。
+    3 篇实测 8 候选、6 支持、3/3 文档证据、归属 0。
 
 后续（非目标）：编译器级宏展开、LSP 调用层级/类型推断、强一致分布式锁、
-真实超大规模人工标注；claim 级语义归属与语义 judge 校准。
+真实超大规模人工标注；claim 级语义归属、语义 judge 校准与 paper-to-code。
 所有深层能力由 `AGENT_DEEP_WORKFLOWS_ENABLED` 控制，默认关闭；文档矩阵另由
 `AGENT_DOCUMENT_MATRIX_ENABLED`（默认关闭）控制；关闭时行为与当前一致。
 

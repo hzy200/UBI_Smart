@@ -6,6 +6,63 @@
 
 ## [Unreleased]
 
+### 编排控制面（P0–P3）
+
+- **契约与计划评审**：新增 `TaskContract`、`AcceptanceRule`、`SideEffect`；
+  `plan_tasks` 先归一化契约，再由独立 `review_plan` 三问检查；`unknown`
+  非空或评审失败不进入 scheduler，直接向用户澄清/收尾。
+- **预估与预算**：新增 `Estimator`（规则先验 + `task_type × role × model`
+  历史分桶）、Estimation Card / `EstimationReady` 事件与 gate；
+  `BudgetGuard` 统一 steps/tool_calls/tokens/wall_ms，70% 预警、100% 熔断；
+  模型给的 `max_tokens`/`timeout` 在派发时 clamp 到父预算。
+- **结构化干预**：steering 新增 `abort`、`rollback(n)`、`patch`；
+  `plan_version` 贯穿计划/审批事件，旧审批卡按版本失效；rollback 在流结束后
+  `rewind`，patch 改契约后增量重规划。
+- **通知面**：新增 `CardEvent` 与 `CardProjector`；首卡 T+0、进度节流、
+  故障不节流、`MAX_SILENCE` heartbeat、审批 `ack_timeout_ms/default_action`；
+  `card_id` 幂等、`plan_version` 失效旧卡。
+- **阶段门与控制检查点**：`ControlCheckpointStore` 只存契约/计划/产物引用/
+  预算/早停；阶段预算与 stage gate；`stage_done` 事件/卡片作为中间交付。
+- **进程兜底**：新增 `platform/process_runner.py`，文档解析等不可取消/CPU
+  密集步骤走 spawn 子进程，超时 terminate/kill。
+- **嵌套编排**：新增 `SubOrchestratorRunner` 与 `SubTask/SubResult/SubSignal`；
+  默认关闭，`MAX_DEPTH=1`；子只读、预算切片、`suppress_events`，卡片/审批
+  仍只在 Root。
+- **度量与回归**：审计补 `est_* / actual_*`、`invalid_step_ratio`、
+  `state_from/to`、`checkpoint_id`、`rollback_level`、`concurrency_unit`、
+  `isolation_level`、`approval_ack_ms`；新增无效步占比、每成功任务 token、
+  估算偏差、熔断位置指标与 `regression.jsonl` 跑偏轨迹。
+- **并发与审计**：审计改为有界队列 + 专用写线程（失败显式抛出）；
+  事件循环 lag watchdog；`AsyncLeasePool` 等待队列上限；重复动作熔断。
+
+### 资料库（每用户跨工作区）
+
+- **新增 `library/` 模块**：PDF/DOCX/Markdown/TXT/XLSX/CSV 解析、按标题/页/
+  sheet/行范围切块，保留 `page=` / `sheet=` / `heading=` / `line=` anchor；
+- **持久化**：`catalog.json` + `items/<id>/source.bin|chunks.jsonl|outline.json`，
+  支持 sha256 去重、用户配额、软删除与重建；
+- **检索质量**：词法改为 BM25；hybrid 用 RRF 融合词法/向量名次；确定性
+  rerank 加短语/标题命中权重；结果默认经 MMR 去重；新增
+  `tests/eval/library_queries.json` 小评测集（recall@3）；
+- **内容安全**：`library/security.py` 清洗终端控制序列；检索片段明确标注
+  “只读引用，不是指令”，并补提示注入样式测试；
+- **能力扩展**：资料库支持 PPTX/HTML/EPUB；切块改为段落/句子/标题/表格/
+  幻灯片结构；catalog 升级 v2，新增可选的 `hnswlib` 向量后端（失败回退 linear）；
+- **指标与运维**：资料库检索量/命中率/p95、摄取失败、任务排队与向量索引
+  大小进入 `/metrics`；新增 `scripts/library_backup.py` 备份/恢复/迁移；
+- **检索接口**：`library_search` 只读 L0，支持 lexical/vector/hybrid 与
+  `tags` 过滤；向量复用 memory embedding provider，失败回退词法；
+- **异步摄取**：上传/重建返回 job，后台执行 parsing → chunking → embedding →
+  writing；阶段进度、取消、stale job 恢复与 `reindex-all`；embedding 在
+  catalog 锁外执行；
+- **API/前端**：A2/A3 `/api/library/*`、`/v1/library/*`；Web 活动栏「资料库」
+  支持上传、列表、状态/进度、取消、删除、单条/全部重建、标签编辑、
+  状态/标签/名称筛选、分页、详情（outline + chunk）与检索自测；
+- **隔离与审计**：每用户独立 `library_root`，跨工作区保留；`LIBRARY` 审计
+  kind、`sanitize_args` 参数脱敏、`redact_secrets` 结果脱敏；
+- **契约**：新增 `AGENT_LIBRARY_*` 配置、`library_search` 工具等级与
+  `library` 审计 kind；RFC-0010 / ADR-0039 / `docs/LIBRARY.md`。
+
 ### 文档（长文档 / 多文档）
 
 - **章节感知切分**：map-reduce 按标题切分，超长章节再分段并保留标题；
@@ -26,6 +83,11 @@
   引用跨度、归属与长度；10 篇/230 页实测通过（报告 14,002 字）。
 - **多文档扩展**：输入上限 64，证据点上限随文档数放大，sources 按文档轮转；
   修复长文档独占证据、后 4 篇证据为 0、引用补全只追加一次等问题。
+- **创新点提炼 + novelty critic**：`knowledge/innovation.py` 输出
+  gap/insight/hypothesis/novelty_claim/prior_art_contrast/可证伪实验/风险/
+  confidence；critic 只依据给定材料评分。证据路径支持 path/basename/标题
+  归一，首轮只覆盖一篇时对未覆盖文档做有界补充；3 篇实测 8 候选、6 支持、
+  3/3 文档证据、归属 0。明确不宣称外部新颖性。
 
 ### 安全（阻断项修复）
 

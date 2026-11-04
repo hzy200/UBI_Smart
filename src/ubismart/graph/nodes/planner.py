@@ -130,6 +130,7 @@ def make_planner_node(
             "plan": steps,
             "plan_kinds": align_kinds(steps, kinds),
             "plan_degraded": degraded,
+            "plan_version": int(state.get("plan_version", 0) or 0) + 1,
             "transient_retries": len(retry_events),
             "step_idx": 0,
             # 两个重规划额度都是整个任务的，开局归零

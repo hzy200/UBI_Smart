@@ -14,9 +14,17 @@
 
 字段分组的事实源是 `docs/contracts/audit.yaml`（由 `scripts/gen_contracts.py` 生成）。
 
+`orchestration` 记录带结构化编排字段：`est_* / actual_*`、`invalid_steps`、
+`invalid_step_ratio`、`state_from/to`、`checkpoint_id`、`rollback_level`、
+`concurrency_unit`、`isolation_level`、`approval_ack_ms`。改这些字段后要重跑
+`gen_contracts.py`，否则指标/回归脚本会对不上。
+
 ## 禁区
 
 - **写失败必须抛 `AuditError`**，由 runtime 转成 `RunFailed` 事件；禁止静默丢弃或降级为日志。
+- `async_write=True`（runtime 默认）走**有界队列 + 专用写线程**：`write` 在
+  队列满或已有后台错误时立即抛 `AuditError`；`flush` 在运行收尾显式排空并
+  抛出后台错误。异步化只移走阻塞，不允许把“审计失败”变成静默计数。
 - 不要改 `_canonical_record` / `record_hash` 的字段顺序或算法——
   会破坏 `agent audit --verify` 与历史链。
 - 参数先 `sanitize_args`（脱敏 + 截断）再落盘；

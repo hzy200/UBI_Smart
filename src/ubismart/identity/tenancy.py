@@ -40,6 +40,8 @@ class WebTenant:
     settings: Settings
     data_dir: Path | None = None
     memory_dir: str = ""
+    # 每用户跨工作区资料库根目录（WSL 内）；与 workspace 无关。
+    library_dir: str = ""
     # 企业账号所属组织；仅用于集中密钥/报表作用域，不参与工作区路径。
     org: str = ""
 
@@ -120,6 +122,12 @@ class TenantManager:
             return normalize_root(configured)
         return f"{self.home}/agent-memory"
 
+    def _library_root(self) -> str:
+        configured = str(self.settings.web_library_root or "").strip()
+        if configured:
+            return normalize_root(configured)
+        return f"{self.home}/agent-library"
+
     @staticmethod
     def _safe_user(user: str) -> str:
         text = str(user or "").strip()
@@ -181,17 +189,23 @@ class TenantManager:
                 workspace=workspace,
                 settings=self.settings,
                 memory_dir=str(self.settings.memory_root or ""),
+                library_dir=str(self.settings.library_root or ""),
                 org=str(org or ""),
             )
         else:
             workspaces_root = self._workspaces_root()
             memory_root = self._memory_root()
+            library_root = self._library_root()
             workspace = ensure_inside(
                 f"{workspaces_root}/{safe}", workspaces_root
             )
             memory_dir = ensure_inside(f"{memory_root}/{safe}", memory_root)
+            library_dir = ensure_inside(
+                f"{library_root}/{safe}", library_root
+            )
             self._ensure_dir(workspace, workspaces_root)
             self._ensure_dir(memory_dir, memory_root)
+            self._ensure_dir(library_dir, library_root)
 
             data_dir = self.data_root / safe
             data_dir.mkdir(parents=True, exist_ok=True)
@@ -204,6 +218,8 @@ class TenantManager:
                     "memory_root": memory_dir,
                     # 全局记忆也限制在租户目录内，不能跨用户共享。
                     "memory_global_root": f"{memory_dir}/global",
+                    # 资料库按用户隔离，跨工作区保留。
+                    "library_root": library_dir,
                 }
             )
             tenant = WebTenant(
@@ -213,6 +229,7 @@ class TenantManager:
                 settings=tenant_settings,
                 data_dir=data_dir,
                 memory_dir=memory_dir,
+                library_dir=library_dir,
                 org=str(org or ""),
             )
 

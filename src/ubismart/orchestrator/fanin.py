@@ -95,6 +95,12 @@ def _handoff_entry(
         "scope_violations": [
             str(item) for item in (result.get("scope_violations") or [])[:20]
         ],
+        "sub_result": dict(result.get("sub_result") or {}),
+        "sub_signals": [
+            dict(item)
+            for item in (result.get("sub_signals") or [])[:20]
+            if isinstance(item, dict)
+        ],
     }
 
 
@@ -262,12 +268,15 @@ def _build_head(
     overlaps: dict[str, list[str]],
     unfinished: list[str],
     artifact_items: list[dict[str, Any]],
+    contract_note: str = "",
 ) -> list[str]:
     head = [
         "[编排器汇总]\n"
         "注意：以下为 worker 已确认的只读事实；"
         "直接据此规划与实现，不要重复探索。"
     ]
+    if contract_note:
+        head.insert(0, contract_note)
     if merged_count:
         head[0] += (
             "\n以下实现任务已由 worker 完成并合并到主工作区；"
@@ -353,6 +362,16 @@ def _build_handoff(
             )
             for result in ordered
         ],
+        "contract": dict(state.get("contract") or {}),
+        "contract_review": dict(state.get("contract_review") or {}),
+        "contract_unknowns": list(state.get("contract_unknowns") or []),
+        "plan_review_failed": bool(state.get("plan_review_failed")),
+        "estimation_card": dict(state.get("estimation_card") or {}),
+        "control_checkpoints": list(
+            state.get("control_checkpoints") or []
+        ),
+        "budget_snapshot": dict(state.get("budget_snapshot") or {}),
+        "budget_abort": dict(state.get("budget_abort") or {}),
         "unfinished": unfinished,
         "overlaps": {
             path: sorted(set(task_ids))
@@ -403,12 +422,50 @@ def make_synthesize_node(
             _render_block(result, artifact_by_key, per_task)
             for result in ordered
         ]
+        contract_note = ""
+        unknowns = state.get("contract_unknowns") or []
+        review = state.get("contract_review") or {}
+        if unknowns:
+            contract_note = (
+                "[契约待澄清]\n本轮未执行任何任务；请先向用户确认：\n"
+                + "\n".join(f"- {item}" for item in unknowns[:10])
+            )
+        elif state.get("plan_review_failed"):
+            reasons = review.get("reasons") or []
+            contract_note = (
+                "[计划评审未通过]\n本轮未执行任何任务。原因：\n"
+                + "\n".join(f"- {item}" for item in reasons[:10])
+            )
         head = _build_head(
             merged_count=merged_count,
             overlaps=overlaps,
             unfinished=unfinished,
             artifact_items=artifact_items,
+            contract_note=contract_note,
         )
+        estimation = state.get("estimation_card") or {}
+        if estimation:
+            head.append(
+                "[预估] P50 "
+                f"{int(estimation.get('p50_wall_ms') or 0) / 1000:.0f}s / "
+                f"{int(estimation.get('p50_tokens') or 0):,} tokens；P90 "
+                f"{int(estimation.get('p90_wall_ms') or 0) / 1000:.0f}s / "
+                f"{int(estimation.get('p90_tokens') or 0):,} tokens；"
+                f"置信度 {estimation.get('confidence', '')}；"
+                f"建议 {estimation.get('recommended', '')}"
+            )
+        budget_abort = state.get("budget_abort") or {}
+        if budget_abort:
+            head.append(
+                "[预算熔断] "
+                + str(budget_abort.get("reason", "预算耗尽"))
+                + "；已完成："
+                + "、".join(budget_abort.get("completed_tasks") or [])
+                + "；未执行："
+                + "、".join(budget_abort.get("blocked_tasks") or [])
+                + "；建议："
+                + str(budget_abort.get("suggestion", ""))
+            )
 
         context = "\n".join([*head, *blocks])
         if len(context) > limit:
@@ -445,6 +502,21 @@ def make_synthesize_node(
                 f"（其中取消 {cancelled_count}），"
                 f"已合并 {merged_count}，重叠文件 {len(overlaps)}"
                 f"{budget_note}"
+                + (
+                    "；契约待澄清：" + "、".join(unknowns[:5])
+                    if unknowns
+                    else ""
+                )
+                + (
+                    "；计划评审未通过"
+                    if state.get("plan_review_failed")
+                    else ""
+                )
+                + (
+                    "；" + str(budget_abort.get("reason"))
+                    if budget_abort
+                    else ""
+                )
             ),
             "orchestrator_completed": completed,
             "orchestrator_failed": failed,

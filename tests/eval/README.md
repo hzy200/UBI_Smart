@@ -869,6 +869,7 @@ python tests/eval/runner.py --verify-seeds    # 在真实沙箱里再确认一�
 ```bash
 python tests/eval/papers.py --list
 python tests/eval/papers.py --case papers/cross_method --json
+python tests/eval/papers.py --case papers/innovation --json
 python tests/eval/papers.py --all --judge-llm
 python tests/eval/papers.py --pdf-dir /path/to/pdfs --all --json
 
@@ -883,7 +884,8 @@ pytest -m llm tests/integration/test_paper_documents.py -q
 - 用例：`cross_method`（方法对比）、`cross_numbers`（跨文档数值检索，
   仅在目录中至少有已知论文时生成）、`cross_limits`（边界与组合风险）、
   `report`（document → author → report_check，校验摘要/方法/实验/局限/创新
-  五个章节、全文档引用与报告长度）；
+  五个章节、全文档引用与报告长度）、`innovation`（gap/insight/hypothesis/
+  可证伪实验 + novelty critic，要求至少 2 篇文档参与证据）；
 - 判定是确定性的：覆盖全部文档、每篇 sources ≥ 1、答案引用每篇、已知概念
   命中、答案长度上限、`quote_verified_ratio` 阈值、确定性 judge supported；
 - 引用跨度校验：每条证据的 quote 会在归一化文档文本中定位，记录

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sys
@@ -56,6 +57,72 @@ _METRIC_SPEC: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
         "审计写入失败次数（审计是承重不变量，非 0 必须告警）",
         "",
         (),
+    ),
+    "agent_budget_warnings_total": (
+        "counter",
+        "四维预算 70% 预告警次数",
+        "",
+        ("dimension",),
+    ),
+    "agent_budget_exhausted_total": (
+        "counter",
+        "四维预算耗尽并停止派发的次数",
+        "",
+        ("dimension",),
+    ),
+    "agent_lease_waiters_rejected_total": (
+        "counter",
+        "并发池等待队列已满而快速失败的次数",
+        "",
+        ("pool",),
+    ),
+    "agent_process_runs_total": (
+        "counter",
+        "进程隔离任务完成次数",
+        "",
+        ("outcome",),
+    ),
+    "agent_process_active": (
+        "gauge",
+        "当前在飞的进程隔离任务数",
+        "",
+        (),
+    ),
+    "agent_event_loop_lag_seconds": (
+        "gauge",
+        "最近一次事件循环 lag（秒）",
+        "s",
+        (),
+    ),
+    "agent_event_loop_lag_events_total": (
+        "counter",
+        "事件循环 lag 超过阈值的次数",
+        "",
+        (),
+    ),
+    "agent_invalid_step_ratio": (
+        "gauge",
+        "无效步占比（回退/失败/取消的步骤数 / 总步骤数）",
+        "",
+        (),
+    ),
+    "agent_tokens_per_success": (
+        "gauge",
+        "每成功任务的 token 数",
+        "",
+        (),
+    ),
+    "agent_estimation_deviation_ratio": (
+        "gauge",
+        "实际 token 相对 P50 的偏差 (actual-P50)/P50",
+        "",
+        (),
+    ),
+    "agent_aborts_total": (
+        "counter",
+        "熔断次数，按发生在执行前/执行中/验证阶段分组",
+        "",
+        ("phase",),
     ),
     "agent_silent_failures_total": (
         "counter",
@@ -110,6 +177,60 @@ _METRIC_SPEC: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
         "待管理员决定的四眼审批数",
         "",
         ("tenant",),
+    ),
+    "agent_library_ingest_total": (
+        "counter",
+        "资料库摄取/重建任务完成次数",
+        "",
+        ("action", "outcome"),
+    ),
+    "agent_library_search_total": (
+        "counter",
+        "资料库检索次数",
+        "",
+        ("mode", "outcome"),
+    ),
+    "agent_library_search_hits_total": (
+        "counter",
+        "资料库检索命中/空结果次数",
+        "",
+        ("mode", "hit"),
+    ),
+    "agent_library_search_p95_ms": (
+        "gauge",
+        "资料库检索延迟 p95（进程内最近 512 次）",
+        "ms",
+        ("mode",),
+    ),
+    "agent_library_ingest_p95_ms": (
+        "gauge",
+        "资料库摄取/重建耗时 p95（进程内最近 512 次）",
+        "ms",
+        ("action",),
+    ),
+    "agent_library_jobs_active": (
+        "gauge",
+        "当前在飞的资料库任务数",
+        "",
+        (),
+    ),
+    "agent_library_jobs_pending": (
+        "gauge",
+        "queued/processing 的资料库任务数",
+        "",
+        (),
+    ),
+    "agent_library_failures_total": (
+        "counter",
+        "资料库失败次数",
+        "",
+        ("stage",),
+    ),
+    "agent_library_vector_index_size": (
+        "gauge",
+        "当前进程内向量索引条目数",
+        "",
+        ("backend",),
     ),
 }
 
@@ -168,6 +289,52 @@ def inc_gauge(
 def note_silent_failure(site: str) -> None:
     """best-effort 分支吞掉异常时调用：静默失败必须**可被计数**。"""
     inc("agent_silent_failures_total", {"site": site})
+
+
+_LOOP_WATCHDOGS: dict[int, asyncio.Task] = {}
+
+
+async def _watch_event_loop_lag(
+    loop: asyncio.AbstractEventLoop,
+    *,
+    interval_s: float,
+    threshold_ms: float,
+) -> None:
+    interval = max(0.1, float(interval_s))
+    while True:
+        started = loop.time()
+        await asyncio.sleep(interval)
+        lag_s = max(0.0, loop.time() - started - interval)
+        set_gauge("agent_event_loop_lag_seconds", lag_s)
+        if lag_s * 1000.0 >= threshold_ms:
+            inc("agent_event_loop_lag_events_total")
+
+
+def ensure_event_loop_lag_watchdog(
+    *, interval_s: float = 1.0, threshold_ms: float = 500.0
+) -> asyncio.Task | None:
+    """每个事件循环只启动一个 lag watchdog。
+
+    这不是独立的监控线程：它在循环里 sleep，恢复后比较实际经过时间与
+    预期时间。循环被同步调用卡住时，恢复的第一时间就能记一条指标。
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+    key = id(loop)
+    existing = _LOOP_WATCHDOGS.get(key)
+    if existing is not None and not existing.done():
+        return existing
+    task = loop.create_task(
+        _watch_event_loop_lag(
+            loop,
+            interval_s=interval_s,
+            threshold_ms=threshold_ms,
+        )
+    )
+    _LOOP_WATCHDOGS[key] = task
+    return task
 
 
 _TRACER: Any = None

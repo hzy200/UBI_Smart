@@ -4,7 +4,7 @@ doc_id: acceptance
 title: 需求对照与自检
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-04
 review_cadence: 每次发版前
 note: |
   第 1 节是需求 → 落点 → 验证的对照表。
@@ -19,7 +19,7 @@ note: |
 ## 0. 机读台账与它的两道门禁
 
 `docs/acceptance/acceptance-criteria.yaml` 是"这个需求做完了没有"的唯一机读来源
-（当前 213 条）。它由两道 CI 检查守着，各管一半：
+（当前 257 条）。它由两道 CI 检查守着，各管一半：
 
 | 门禁 | 脚本 | 查什么 |
 |---|---|---|
@@ -32,10 +32,10 @@ note: |
 当前口径（`python scripts/check_acceptance.py`）：
 
 ```
-验收条目 213 条：自动 207 / 已声明非自动 4 / planned 2 / 未声明 0
+验收条目 257 条：自动 251 / 已声明非自动 4 / planned 2 / 未声明 0
 ```
 
-- **自动 207**：`tests:` 指向真实用例；
+- **自动 251**：`tests:` 指向真实用例；
 - **已声明非自动 4**：靠脚本（`phase0_wsl_smoke.py`）、真机（WSL 发行版构建）、
   文档（ADR）承担，逐条写在 `note` 里；
 - **planned 2**：还没实现（A2L 断线降级、安全档不得虚报）。
@@ -80,16 +80,26 @@ note: |
 | 上下文治理 | 字符 + 估算 token 双预算、400 降档重试、确定性摘要、`ContextTrimmed` 指标 | `tests/eval/context_memory_bench.py` |
 | 长期记忆治理 | BM25 + 时间/置顶/优先级、可选本地/远程向量 RRF（失败回退 BM25；远程仅 local profile 双重 opt-in）、项目/全局作用域、planner/respond 注入、`memory_search`/`memory_save`、冲突分级、过期、来源/原因、写入锁、读写密钥扫描、`kind=memory` 审计、备份与恢复 | `test_memory.py` + `test_semantic_memory.py` + `test_embeddings.py` + `test_nodes_llm.py` + `context_memory_bench.py` |
 | 分层项目指令 | 发现并合并 `AGENTS.md` / `CLAUDE.md`（根目录到 4 层子目录） | `agent run` 系统提示；`test_instructions.py` |
-| 运行中实时干预 | `steering.py` + `graph/nodes/steering.py` + TUI 斜杠命令 | TUI `/pause` `/resume` `/cancel` `/add` `/replan`；`test_steering.py` |
+| 运行中实时干预 | `steering.py` + `graph/nodes/steering.py` + TUI 斜杠命令 | TUI `/pause` `/resume` `/cancel` `/abort` `/rollback n` `/add` `/replan` `/patch`；`test_steering.py` |
 | 动态任务图 + 并发 worker | `orchestrator/`（survey/plan/scheduler/fan-in） | `test_orchestrator.py`；[tests/eval/README](../tests/eval/README.md) |
 | 流式输出 | 事件流 → CLI/TUI 逐字渲染 / Web+GUI SSE | `agent chat`；`/api/run` |
 | 事件重放 | 后台 run task + 递增 `id` + `GET /api/stream/{thread}?after=` | `tests/unit/test_web_stream_buffer.py` |
 | 桌面 GUI | `desktop/` + pywebview + 本地 FastAPI；默认只读、会话级工作区/权限/模型 | `agent gui`；`docs/FRONTEND.md` |
 | 文件上传 | 写入 `.agent/uploads`；单文件/数量/工作区累计上限；不授予模型写权限 | `test_web_gui_api.py` |
+| 资料库 | 每用户跨工作区；PDF/DOCX/PPTX/HTML/EPUB/MD/TXT/XLSX/CSV；BM25/RRF/rerank/MMR；语义切块；可选 ANN；`library_search` L0；异步摄取/进度/取消/批量重建；标签/分页/详情；内容清洗；指标；v2 catalog；备份脚本 | `test_library_store.py` + `test_library_ann.py` + `test_library_search.py` + `test_library_retrieval_quality.py` + `test_library_security.py` + `test_library_jobs.py` + `test_library_tools.py` + `test_library_audit.py` + `test_library_api.py`；`docs/LIBRARY.md` |
 | GUI 密钥 | 单机用 OS 密钥环；企业模式只存 AES-GCM 密文+后四位；均不进 `.env`/日志 | `test_web_gui_api.py`、`test_phase_f_security.py` |
 | Web/UI 验证 | `web/`（SSE 对话 + 多会话 + 联通测试）；`desktop/` 复用同一后端 | `agent web` / `agent gui` |
 | LangSmith 追踪 | `runtime._trace_metadata` + `config.apply_tracing_env` | `agent doctor` + LangSmith 项目 |
 | 冒烟测试 / 场景演示 | `scripts/demo.py` 四场景 | `python scripts/demo.py` |
+| 契约与计划评审 | `TaskContract` + `plan_review.py`；unknown/评审失败不进 scheduler | `test_plan_review.py`、`test_orchestrator.py` |
+| 预估与 gate | `estimator.py`：规则先验 + 历史分桶；P50/P90 + gate | `test_estimator.py` |
+| 四维预算与早停 | `budget.py`：70%/100%、`budget_abort`、重复动作熔断 | `test_budget_guard.py`、`test_scheduler.py` |
+| 结构化干预 | `abort/rollback(n)/patch` + `plan_version` | `test_steering.py`、`test_runtime_stream.py` |
+| 通知卡片 | `CardEvent` + `CardProjector`；首卡/heartbeat/审批超时字段 | `test_cards.py`、`test_runtime_stream.py` |
+| 阶段门与控制检查点 | `control_checkpoint.py` + 阶段预算/stage_done | `test_control_checkpoint.py`、`test_scheduler.py` |
+| 进程兜底 | `process_runner.py`：spawn + timeout kill；文档解析接入 | `test_process_runner.py` |
+| 嵌套子编排器 | `nested.py`：默认关闭、`MAX_DEPTH=1`、预算切片、根出站 | `test_nested.py` |
+| 编排度量与回归 | 结构化审计字段 + 四个核心指标 + `regression.jsonl` | `test_regression.py`、`test_scheduler.py` |
 
 ### 一处刻意的偏离
 

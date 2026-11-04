@@ -28,6 +28,8 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+from ubismart.platform.observability import inc
+
 
 class ResourceTimeout(RuntimeError):
     """在给定时间内没有拿到资源槽位。"""
@@ -38,6 +40,14 @@ class ResourceTimeout(RuntimeError):
         )
         self.pool = pool
         self.wait_ms = wait_ms
+
+
+class ResourceExhausted(ResourceTimeout):
+    """等待队列已满：快速失败，不把等待者继续堆进内存。"""
+
+    def __init__(self, pool: str) -> None:
+        super().__init__(pool, 0)
+        self.args = (f"{pool} 等待队列已满，拒绝继续排队",)
 
 
 @dataclass(slots=True)
@@ -108,9 +118,13 @@ class _Waiter:
 class AsyncLeasePool:
     """事件循环内的优先级资源池；`limit<=0` 表示不限。"""
 
-    def __init__(self, name: str, limit: int) -> None:
+    def __init__(
+        self, name: str, limit: int, *, max_waiters: int = 0
+    ) -> None:
         self.name = name
         self.limit = max(0, int(limit or 0))
+        # 0 = 不限制（兼容旧调用）；生产 ConcurrencyGovernor 会传有界值。
+        self.max_waiters = max(0, int(max_waiters or 0))
         self.in_flight = 0
         self._waiters: list[_Waiter] = []
         self._seq = 0
@@ -144,6 +158,10 @@ class AsyncLeasePool:
             wait_ms = int((time.monotonic() - started) * 1000)
             self._note_wait(wait_ms)
             return Lease(self, wait_ms)
+
+        if self.max_waiters and len(self._waiters) >= self.max_waiters:
+            inc("agent_lease_waiters_rejected_total", {"pool": self.name})
+            raise ResourceExhausted(self.name)
 
         self._seq += 1
         waiter = _Waiter(
@@ -328,8 +346,15 @@ class ConcurrencyGovernor:
         llm_global = int(
             getattr(settings, "concurrency_llm_global", 6) or 6
         )
-        self.worker = AsyncLeasePool("worker", workers)
-        self.tool = AsyncLeasePool("tool", tools)
+        max_waiters = int(
+            getattr(settings, "concurrency_max_waiters", 128) or 0
+        )
+        self.worker = AsyncLeasePool(
+            "worker", workers, max_waiters=max_waiters
+        )
+        self.tool = AsyncLeasePool(
+            "tool", tools, max_waiters=max_waiters
+        )
         self.wsl = SyncLeasePool(
             "wsl",
             wsl,
@@ -338,7 +363,9 @@ class ConcurrencyGovernor:
             ),
         )
         self.llm_global = AsyncLeasePool(
-            "llm:global", max(llm_global, llm_provider)
+            "llm:global",
+            max(llm_global, llm_provider),
+            max_waiters=max_waiters,
         )
         self._llm_provider_limit = max(1, llm_provider)
         self._llm_pools: dict[str, AsyncLeasePool] = {}
@@ -347,7 +374,12 @@ class ConcurrencyGovernor:
         pool = self._llm_pools.get(provider)
         if pool is None:
             pool = AsyncLeasePool(
-                f"llm:{provider}", self._llm_provider_limit
+                f"llm:{provider}",
+                self._llm_provider_limit,
+                max_waiters=int(
+                    getattr(self.settings, "concurrency_max_waiters", 128)
+                    or 0
+                ),
             )
             self._llm_pools[provider] = pool
         return pool

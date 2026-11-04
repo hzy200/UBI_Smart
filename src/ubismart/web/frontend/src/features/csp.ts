@@ -4,6 +4,7 @@
  * 模板统一通过 data-action 触发的 onAction 和 getter 访问状态。
  */
 
+import { libraryPageLabel } from '../ui/library';
 import { groupProblems } from '../ui/problems';
 import { settingsVisibility } from '../ui/settings';
 
@@ -54,6 +55,17 @@ export const cspMixin = {
       case 'tree': this.onTreeEntryAction(data.path, data.dir === 'true'); break;
       case 'message': this.onMessageAction(data.op, data.id); break;
       case 'memory-forget': this.forget(Number(data.index)); break;
+      case 'library-delete': this.deleteLibraryItem(data.id); break;
+      case 'library-reindex': this.reindexLibraryItem(data.id); break;
+      case 'library-cancel': this.cancelLibraryJob(data.id); break;
+      case 'library-detail': this.openLibraryDetail(data.id); break;
+      case 'library-tags': {
+        const item = this.libraryItems.find(
+          (row) => row.item_id === data.id,
+        );
+        if (item) this.editLibraryTags(item);
+        break;
+      }
       case 'command': this.onCommandAction(Number(data.index)); break;
       case 'command-hover': this.hoverCommand(Number(data.index)); break;
       case 'copy-tool': this.copyToolDetail(data.key); break;
@@ -427,6 +439,36 @@ export const cspMixin = {
   },
   get noTasks() { return this.tasks.length === 0; },
   get noMemory() { return this.memory.length === 0; },
+  get libraryEmpty() { return this.libraryItems.length === 0; },
+  get libraryResultsEmpty() {
+    return this.librarySearched && this.libraryResults.length === 0;
+  },
+  get libraryHasPrev() { return this.libraryOffset > 0; },
+  get libraryHasNext() {
+    return this.libraryOffset + this.libraryLimit < this.libraryTotal;
+  },
+  get libraryPrevDisabled() { return !this.libraryHasPrev; },
+  get libraryNextDisabled() { return !this.libraryHasNext; },
+  get libraryPageText() {
+    return libraryPageLabel(
+      this.libraryOffset,
+      this.libraryLimit,
+      this.libraryTotal,
+    );
+  },
+  get libraryDetailTags() {
+    const item = this.libraryDetail && this.libraryDetail.item;
+    return (item && item.tags) || [];
+  },
+  get libraryDetailTitle() {
+    const item = this.libraryDetail && this.libraryDetail.item;
+    return (item && (item.title || item.name)) || '';
+  },
+  get libraryDetailChunkText() {
+    return this.t('library.chunkTotal', {
+      count: this.libraryDetailChunks.length,
+    });
+  },
   get noAudit() { return this.audit.length === 0; },
   get noProblems() { return this.problems.length === 0; },
   get hasProblems() { return this.problems.length > 0; },

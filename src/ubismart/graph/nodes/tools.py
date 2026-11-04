@@ -590,7 +590,13 @@ async def _invoke(
     """执行一次工具调用；有副作用的调用先查日志，避免崩溃恢复时重复执行。"""
     journal = ctx.journal
     use_journal = journal is not None and _needs_journal(name, args)
-    record = journal.lookup(thread_id, call_id) if use_journal else None
+    # journal 是宿主侧文件 IO；控制面只 await 线程池结果，不在事件循环
+    # 里做 stat/lock/append。
+    record = (
+        await asyncio.to_thread(journal.lookup, thread_id, call_id)
+        if use_journal
+        else None
+    )
     if record is not None and record.get("event") == "started":
         # 只看到 started：副作用可能已经发生，也可能没有。重放不安全，
         # 明确告诉模型“结果未知”，并强制本步进入验证。
@@ -614,7 +620,9 @@ async def _invoke(
         )
 
     if use_journal and journal is not None:
-        journal.begin(thread_id, call_id, name, args)
+        await asyncio.to_thread(
+            journal.begin, thread_id, call_id, name, args
+        )
     started_at = time.perf_counter()
     artifact: Any = None
     try:
@@ -631,7 +639,8 @@ async def _invoke(
     if isinstance(artifact, dict):
         artifact["duration_ms"] = duration_ms
     if use_journal and journal is not None:
-        journal.finish(
+        await asyncio.to_thread(
+            journal.finish,
             thread_id,
             call_id,
             name,

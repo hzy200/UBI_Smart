@@ -483,6 +483,7 @@ def test_review_block_at_the_cap_still_returns_a_changed_plan() -> None:
         "plan": ["读代码"],
         "plan_kinds": ["unknown"],
         "replan_count": MAX_REPLANS,
+        "plan_version": 1,
     }
     assert llm.calls == 0  # 到顶之后不再问模型
 

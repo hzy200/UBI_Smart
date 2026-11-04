@@ -32,6 +32,12 @@
             :title="i18n.nav.memory" :aria-label="i18n.nav.memory">
       <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
     </button>
+    <button class="activity-item" :class="viewClasses.library" data-action="view" data-view="library" @click="onAction"
+            x-show="capabilities.library_enabled"
+            :aria-pressed="viewFlags.library"
+            :title="i18n.nav.library" :aria-label="i18n.nav.library">
+      <svg class="icon" aria-hidden="true"><use href="#i-library"></use></svg>
+    </button>
     <button class="activity-item" :class="viewClasses.audit" data-action="view" data-view="audit" @click="onAction"
             :aria-pressed="viewFlags.audit"
             :title="i18n.nav.audit" :aria-label="i18n.nav.audit">
@@ -302,6 +308,139 @@
         </div>
       </template>
       <div class="empty" x-show="noMemory">没有项目记忆</div>
+    </div>
+
+    <div class="view" x-show="viewFlags.library">
+      <div class="panel-actions">
+        <label class="upload-label">
+          <span x-text="i18n.library.upload"></span>
+          <input type="file" multiple
+                 accept=".pdf,.docx,.md,.markdown,.txt,.text,.xlsx,.xlsm,.pptx,.html,.htm,.epub,.csv,.tsv"
+                 @change="uploadLibraryFiles" :disabled="libraryBusy">
+        </label>
+        <button @click="loadLibrary" x-text="i18n.library.refresh"></button>
+        <button @click="reindexAllLibrary" x-text="i18n.library.reindexAll"></button>
+        <span class="note" x-text="libraryUsage"></span>
+      </div>
+      <div class="upload-progress" x-show="libraryBusy" role="status" aria-live="polite">
+        <progress max="100" :value="libraryPercent" :aria-label="i18n.library.uploading"></progress>
+        <span x-text="libraryText"></span>
+      </div>
+      <div class="note note-bad" x-show="libraryError" x-text="libraryError"></div>
+      <div class="library-filters">
+        <select x-model="libraryStatusFilter" @change="applyLibraryFilters"
+                :aria-label="i18n.library.filters">
+          <option value="" x-text="i18n.library.statusAll"></option>
+          <option value="ready" x-text="i18n.library.statusReady"></option>
+          <option value="processing" x-text="i18n.library.statusProcessing"></option>
+          <option value="failed" x-text="i18n.library.statusFailed"></option>
+          <option value="needs_ocr" x-text="i18n.library.statusNeedsOcr"></option>
+        </select>
+        <input x-model="libraryTagFilter" @keydown.enter.prevent="applyLibraryFilters"
+               :placeholder="i18n.library.tagFilterPlaceholder"
+               :aria-label="i18n.library.tagFilterPlaceholder">
+        <input x-model="libraryQueryFilter" @keydown.enter.prevent="applyLibraryFilters"
+               :placeholder="i18n.library.queryFilterPlaceholder"
+               :aria-label="i18n.library.queryFilterPlaceholder">
+        <button @click="applyLibraryFilters" x-text="i18n.library.applyFilters"></button>
+      </div>
+      <div class="library-search">
+        <input x-model="libraryQuery" @keydown.enter.prevent="searchLibrary"
+               :placeholder="i18n.library.searchPlaceholder"
+               :aria-label="i18n.library.searchPlaceholder">
+        <select x-model="librarySearchMode" :aria-label="i18n.library.searchMode">
+          <option value="" x-text="i18n.library.modeDefault"></option>
+          <option value="lexical" x-text="i18n.library.modeLexical"></option>
+          <option value="vector" x-text="i18n.library.modeVector"></option>
+          <option value="hybrid" x-text="i18n.library.modeHybrid"></option>
+        </select>
+        <button @click="searchLibrary" :disabled="librarySearchBusy"
+                x-text="i18n.library.search"></button>
+      </div>
+      <div class="note note-bad" x-show="librarySearchError" x-text="librarySearchError"></div>
+      <div class="note" x-show="librarySearchBusy">…</div>
+      <template x-for="hit in libraryResults" :key="hit._key">
+        <div class="library-result">
+          <div class="library-result-head">
+            <span class="library-source" x-text="hit._source"></span>
+            <span class="note" x-text="hit._mode"></span>
+            <span class="note" x-text="hit._score"></span>
+          </div>
+          <div class="note" x-text="hit._title"></div>
+          <pre class="library-snippet" x-text="hit._snippet"></pre>
+        </div>
+      </template>
+      <div class="empty" x-show="libraryResultsEmpty" x-text="i18n.library.resultsEmpty"></div>
+      <div class="library-detail" x-show="libraryDetailId" x-cloak>
+        <div class="library-detail-head">
+          <span class="library-name" x-text="libraryDetailTitle"></span>
+          <button @click="closeLibraryDetail" x-text="i18n.library.closeDetail"></button>
+        </div>
+        <div class="note" x-show="libraryDetailLoading">…</div>
+        <div class="note note-bad" x-show="libraryDetailError" x-text="libraryDetailError"></div>
+        <div class="library-tags">
+          <template x-for="tag in libraryDetailTags" :key="tag">
+            <span class="library-tag" x-text="tag"></span>
+          </template>
+        </div>
+        <div class="library-detail-section">
+          <h4 x-text="i18n.library.outline"></h4>
+          <template x-for="entry in libraryDetailOutline" :key="entry._key">
+            <div class="library-outline-item" x-text="entry._label"></div>
+          </template>
+        </div>
+        <div class="library-detail-section">
+          <h4 x-text="libraryDetailChunkText"></h4>
+          <template x-for="chunk in libraryDetailChunks" :key="chunk._key">
+            <div class="library-chunk">
+              <div class="library-source" x-text="chunk._source"></div>
+              <pre class="library-snippet" x-text="chunk.text"></pre>
+            </div>
+          </template>
+        </div>
+      </div>
+      <template x-for="item in libraryItems" :key="item.item_id">
+        <div class="library-item">
+          <div class="library-item-head">
+            <span class="library-name" x-text="item.name"></span>
+            <span class="note" x-text="item._meta"></span>
+          </div>
+          <div class="library-item-status">
+            <span x-text="item._status"></span>
+            <span class="note note-bad" x-show="item._error" x-text="item._error"></span>
+          </div>
+          <div class="library-tags" x-show="item._tags.length">
+            <template x-for="tag in item._tags" :key="tag">
+              <span class="library-tag" x-text="tag"></span>
+            </template>
+          </div>
+          <div class="library-progress" x-show="item._active" role="status" aria-live="polite">
+            <progress max="100" :value="item._progress" :aria-label="item._stageLabel"></progress>
+            <span class="note" x-text="item._stageLabel"></span>
+          </div>
+          <div class="library-item-actions">
+            <button data-action="library-detail" :data-id="item.item_id"
+                    @click="onAction" x-text="i18n.library.detail"></button>
+            <button data-action="library-tags" :data-id="item.item_id"
+                    @click="onAction" x-text="i18n.library.editTags"></button>
+            <button x-show="item._canCancel" data-action="library-cancel" :data-id="item._jobId"
+                    @click="onAction" x-text="i18n.library.cancel"></button>
+            <button x-show="item._canReindex" data-action="library-reindex" :data-id="item.item_id"
+                    @click="onAction" x-text="i18n.library.reindex"></button>
+            <button class="danger" x-show="item._canDelete" data-action="library-delete" :data-id="item.item_id"
+                    @click="onAction" x-text="i18n.library.delete"></button>
+          </div>
+        </div>
+      </template>
+      <div class="empty" x-show="libraryEmpty" x-text="i18n.library.empty"></div>
+      <div class="library-pagination">
+        <button @click="libraryPrevPage" :disabled="libraryPrevDisabled"
+                x-text="i18n.library.prevPage"></button>
+        <span class="note" x-text="libraryPageText"></span>
+        <button @click="libraryNextPage" :disabled="libraryNextDisabled"
+                x-text="i18n.library.nextPage"></button>
+      </div>
+      <div class="note" x-text="i18n.library.hint"></div>
     </div>
 
     <div class="view" x-show="viewFlags.audit">

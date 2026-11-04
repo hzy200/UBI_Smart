@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -15,10 +16,20 @@ from ubismart.graph.state import AgentState
 from ubismart.knowledge.architecture import apply_change_contract
 from ubismart.llm.deepseek import with_json_output
 from ubismart.orchestrator.contracts import TaskGraph
+from ubismart.orchestrator.estimator import (
+    Estimator,
+    role_models_from_settings,
+)
 from ubismart.orchestrator.graph import validate_tasks
 from ubismart.orchestrator.parallelism import (
     dedupe_readonly_tasks,
     parallel_stats,
+)
+from ubismart.orchestrator.plan_review import (
+    PlanReview,
+    normalize_contract,
+    review_plan,
+    validate_nested_plan,
 )
 from ubismart.orchestrator.state import request_of
 from ubismart.orchestrator.survey import compact_repo_summary
@@ -55,22 +66,39 @@ def _default_write_task(
 
 
 PLAN_TASKS_PROMPT = """\
-你是编码智能体的编排器。把任务拆成 1–{max_tasks} 个子任务，交给并发 worker：
+你是编码智能体的编排器。先定验收契约，再把任务拆成 1–{max_tasks} 个子任务：
 
 {role_notes}
 
 {write_rules}
 
-硬性要求：
+契约（Contract）要求：
+- goal：一句话可判定的最终结果；
+- constraints：边界、禁止项、格式与范围；
+- acceptance：至少一条 auto=true 的规则（测试退出码、文件存在、schema 等）；
+- known / unknown：不确定且不许猜的项写入 unknown；unknown 非空时宿主会先向用户
+  澄清，这一轮不会执行任何任务；
+- side_effects：外部写清单；代码任务至少登记 write_scope 对应的文件写。
+
+任务要求：
 - 每个任务必须有一个清晰、可独立完成的目标；
+- 每个任务的 acceptance 不能为空；可填 acceptance_refs 指向契约 acceptance 的下标；
+- verifiable=false 的任务必须继续拆分；branching=unbounded 不允许，必须给出上界；
 - 只有确实需要前序结果时才写 depends_on；
 - `review` 通常应独立于 `test`（除非要专门审查测试结果），否则测试失败会把审查一起阻塞；
 - 不要把一条连贯的功能线拆成多个重复的 explore；
 - review/test 若只需要依赖任务的产出（即使它最终是 partial），把 depends_mode
   设为 "any"；其余任务保持 "full"（默认）。
-- 只输出 JSON：{{"tasks": [{{"id": "t1", "role": "explore", "goal": "...",
-  "inputs": [], "acceptance": [], "depends_on": [], "depends_mode": "full",
-  "write_scope": []}}]}}
+- 只输出 JSON：
+{{"contract": {{"goal": "...", "constraints": [], "acceptance":
+  [{{"rule": "...", "auto": true}}], "known": {{}}, "unknown": [],
+  "side_effects": []}},
+  "tasks": [{{"id": "t1", "role": "explore", "goal": "...", "inputs": [],
+  "acceptance": ["..."], "acceptance_refs": [0], "verifiable": true,
+  "branching": "none", "depends_on": [], "depends_mode": "full",
+  "write_scope": [], "sub_contract": null, "budget_slice": {{}}}}]}}
+  # sub_orchestrator 任务把 sub_contract 填成
+  # {{"goal": "...", "acceptance": [{{"rule": "...", "auto": true}}]}}
 """
 
 _READ_ONLY_ROLE_NOTES = """\
@@ -128,6 +156,11 @@ _DOCUMENT_RULES = """\
 - 先并行提取（stage 0），再用一个 document 汇总任务（stage 1），
   汇总 depends_on 所有提取任务且 depends_mode="any"。
 - 不要生成 implement 任务；不要修改源码。"""
+
+_SUB_ROLE_NOTE = """\
+- `sub_orchestrator`：仅当子任务确实需要**独立验收契约和检查点**时才用。
+  必须提供 `sub_contract`（goal/acceptance/constraints/unknown），并保持只读；
+  子编排器不能再派生子编排器。能用阶段门 + 不同 Worker 池完成的任务不要嵌套。"""
 
 _DOCUMENT_AUTHOR_RULES = """\
 - author 依赖汇总任务（depends_on=["summary"]，depends_mode="full"）。
@@ -432,6 +465,13 @@ def _build_plan_body(
     merged_any: bool,
 ) -> str:
     body = f"用户请求：{request}\n\n"
+    current_contract = state.get("contract") or {}
+    if isinstance(current_contract, dict) and current_contract:
+        body += (
+            "当前验收契约（用户 patch 后，以此为准）：\n"
+            + json.dumps(current_contract, ensure_ascii=False, default=str)[:2_000]
+            + "\n\n"
+        )
     if session_brief:
         body += (
             "之前轮次的会话约束（继续遵守）：\n"
@@ -507,7 +547,13 @@ async def _acquire_tasks(
     effective_sequential: bool,
     effective_max_stages: int,
     retry_events: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool, list[str]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    bool,
+    list[str],
+    dict[str, Any],
+]:
     def validate(raw: list[Any]) -> tuple[list[dict[str, Any]], bool, list[str]]:
         return _validate_plan_tasks(
             raw,
@@ -525,7 +571,13 @@ async def _acquire_tasks(
         # select_workflow 已经把任务图一并返回；不要再付一次 LLM 往返。
         tasks, degraded, errors = validate(prefetched)
         degraded = degraded or bool(state.get("prefetched_degraded"))
-        return prefetched, tasks, degraded, errors
+        return (
+            prefetched,
+            tasks,
+            degraded,
+            errors,
+            dict(state.get("prefetched_contract") or {}),
+        )
     try:
         graph = await _invoke_plan(
             structured,
@@ -539,10 +591,15 @@ async def _acquire_tasks(
         raw_tasks = [task.model_dump() for task in graph.tasks]
         tasks, degraded, errors = validate(raw_tasks)
         degraded = degraded or bool(graph.degraded)
-        return raw_tasks, tasks, degraded, errors
+        raw_contract = (
+            graph.contract.model_dump()
+            if getattr(graph, "contract", None) is not None
+            else {}
+        )
+        return raw_tasks, tasks, degraded, errors, raw_contract
     except Exception:  # noqa: BLE001 - 规划失败降级
         tasks, degraded, errors = validate([])
-        return [], tasks, degraded, errors
+        return [], tasks, degraded, errors, {}
 
 
 async def _repair_degraded_plan(
@@ -564,7 +621,7 @@ async def _repair_degraded_plan(
     contract: dict[str, Any],
     effective_sequential: bool,
     effective_max_stages: int,
-) -> tuple[list[dict[str, Any]], bool, list[str]]:
+) -> tuple[list[dict[str, Any]], bool, list[str], dict[str, Any]]:
     # 校验失败时先给模型一次带错误反馈的修复机会；仍然失败才走
     # 确定性降级（write/document 的单任务兜底）。所有修复结果仍需
     # 重新经过 host 校验，安全边界不变。
@@ -589,7 +646,7 @@ async def _repair_degraded_plan(
     except Exception:  # noqa: BLE001 - 修复失败按原降级处理
         repaired_graph = None
     if repaired_graph is None:
-        return tasks, degraded, errors
+        return tasks, degraded, errors, {}
     repaired_tasks, repaired_degraded, repaired_errors = _validate_plan_tasks(
         [task.model_dump() for task in repaired_graph.tasks],
         contract_waves=contract_waves,
@@ -602,16 +659,23 @@ async def _repair_degraded_plan(
         effective_sequential=effective_sequential,
     )
     repaired_degraded = repaired_degraded or bool(repaired_graph.degraded)
+    repaired_contract = (
+        repaired_graph.contract.model_dump()
+        if getattr(repaired_graph, "contract", None) is not None
+        else {}
+    )
     if not repaired_degraded:
         return (
             repaired_tasks,
             False,
             [f"初次校验失败（{len(errors)} 项），修复后通过"],
+            repaired_contract,
         )
     return (
         tasks,
         degraded,
         errors + [f"修复仍失败：{item}" for item in repaired_errors[:5]],
+        repaired_contract,
     )
 
 
@@ -877,6 +941,8 @@ def make_plan_tasks_node(
             author_mode=author_mode,
             write_mode=write_mode,
         )
+        if settings.orchestrator_nested_enabled:
+            role_notes += "\n" + _SUB_ROLE_NOTE
         body = _build_plan_body(
             request=request,
             session_brief=session_brief,
@@ -900,7 +966,13 @@ def make_plan_tasks_node(
         prefetched = [
             dict(task) for task in (state.get("prefetched_tasks") or [])
         ]
-        raw_tasks, tasks, degraded, errors = await _acquire_tasks(
+        (
+            raw_tasks,
+            tasks,
+            degraded,
+            errors,
+            raw_contract,
+        ) = await _acquire_tasks(
             prefetched=prefetched,
             replan_mode=replan_mode,
             state=state,
@@ -925,25 +997,29 @@ def make_plan_tasks_node(
             and not replan_mode
             and settings.orchestrator_plan_repair
         ):
-            tasks, degraded, errors = await _repair_degraded_plan(
-                structured=structured,
-                prompt=prompt,
-                body=body,
-                config=config,
-                settings=settings,
-                retry_events=retry_events,
-                tasks=tasks,
-                degraded=degraded,
-                errors=errors,
-                raw_tasks=raw_tasks,
-                request=request,
-                write_mode=write_mode,
-                author_mode=author_mode,
-                contract_waves=contract_waves,
-                contract=contract,
-                effective_sequential=effective_sequential,
-                effective_max_stages=effective_max_stages,
+            tasks, degraded, errors, repaired_contract = (
+                await _repair_degraded_plan(
+                    structured=structured,
+                    prompt=prompt,
+                    body=body,
+                    config=config,
+                    settings=settings,
+                    retry_events=retry_events,
+                    tasks=tasks,
+                    degraded=degraded,
+                    errors=errors,
+                    raw_tasks=raw_tasks,
+                    request=request,
+                    write_mode=write_mode,
+                    author_mode=author_mode,
+                    contract_waves=contract_waves,
+                    contract=contract,
+                    effective_sequential=effective_sequential,
+                    effective_max_stages=effective_max_stages,
+                )
             )
+            if repaired_contract:
+                raw_contract = repaired_contract
 
         if degraded and write_mode:
             tasks, degraded, errors = _fallback_write_plan(
@@ -992,20 +1068,99 @@ def make_plan_tasks_node(
             errors.append(
                 "已去重重复只读任务：" + "、".join(deduped_ids[:5])
             )
+
+        # S2/S4：先把契约补齐，再由独立 reviewer 只回答 pass/fail。
+        # 评审失败或 unknown 非空都不会进入 scheduler（见 route_after_steering_plan）。
+        task_contract = normalize_contract(
+            raw_contract, request=request, tasks=tasks
+        )
+        # 用户 patch 过的契约字段优先于模型重写，避免一次 replan 把改道丢掉。
+        existing_contract = state.get("contract") or {}
+        preserve_contract = bool(replan_mode) or int(
+            state.get("sub_depth", 0) or 0
+        ) > 0
+        if (
+            preserve_contract
+            and isinstance(existing_contract, dict)
+            and existing_contract
+        ):
+            for key in ("goal", "constraints", "known", "unknown"):
+                if key in existing_contract:
+                    task_contract[key] = existing_contract[key]
+        review = (
+            review_plan(task_contract, tasks, request=request)
+            if settings.orchestrator_plan_review
+            else PlanReview(ok=True, reasons=[])
+        )
+        nested_errors = validate_nested_plan(
+            tasks,
+            enabled=bool(settings.orchestrator_nested_enabled),
+            depth=int(state.get("sub_depth", 0) or 0),
+            max_depth=int(settings.orchestrator_max_depth or 1),
+            max_fanout=int(settings.orchestrator_max_fanout or 1),
+        )
+        if nested_errors:
+            review = PlanReview(
+                ok=False, reasons=list(review.reasons) + nested_errors
+            )
+        if not review.ok:
+            degraded = True
+            errors.extend(
+                f"计划评审未通过：{item}" for item in review.reasons
+            )
+        if task_contract["unknown"]:
+            errors.append(
+                "契约存在未知项，等待用户澄清："
+                + "；".join(task_contract["unknown"][:8])
+            )
+
+        # S5：规则先验 + 历史分桶。估算本身只读步骤图与历史，不碰执行上下文。
+        estimation_card: dict[str, Any] = {}
+        if tasks and settings.orchestrator_estimation_enabled:
+            estimator = Estimator.from_settings(settings)
+            history: list[dict[str, Any]] = []
+            if estimator.store is not None:
+                history = await asyncio.to_thread(estimator.store.load)
+            estimation_card = await asyncio.to_thread(
+                estimator.estimate,
+                tasks,
+                task_type=str(state.get("workflow") or "direct"),
+                model=str(
+                    settings.orchestrator_worker_model
+                    or settings.deepseek_model
+                ),
+                history=history,
+                role_models=role_models_from_settings(settings),
+            )
         _attach_task_context(tasks, summary, state)
         parallel = parallel_stats(tasks)
         status = _initial_status(tasks, completed_tasks, existing_status)
         attempts = dict(state.get("task_attempts") or {})
+        # 每次生成新任务图都递增；旧审批卡按 plan_version 失效。
+        plan_version = int(state.get("plan_version", 0) or 0) + 1
         return {
             "tasks": tasks,
             "task_status": status,
             "task_attempts": attempts,
             "prefetched_tasks": [],
+            "prefetched_contract": {},
             "prefetched_degraded": False,
             "orchestrator_degraded": degraded,
             "orchestrator_round": 0,
             "orchestrator_parallel_width": int(parallel["width"]),
             "orchestrator_parallel_gain": float(parallel["gain"]),
+            "contract": task_contract,
+            "contract_unknowns": list(task_contract["unknown"]),
+            "contract_review": review.as_dict(),
+            "plan_review_failed": not review.ok,
+            "estimation_card": estimation_card,
+            "plan_version": plan_version,
+            # 新计划开始时清掉上一轮的停止标记，避免旧故障串到新运行。
+            "steering_aborted": False,
+            "steering_rollback_steps": 0,
+            "budget_abort": {},
+            "budget_snapshot": {},
+            "control_checkpoints": [],
             "change_contract": (
                 contract if write_mode and contract_waves else {}
             ),

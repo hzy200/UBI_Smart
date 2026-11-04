@@ -161,18 +161,14 @@ class MergeQueue:
         # 有半个补丁，而没有登记就无从知道要回滚什么。
         if self._journal is not None:
             self._journal.open_batch(batch)
-        try:
-            outcomes = await merge_implement_patches_atomic(
-                sandbox,
-                root,
-                batch,
-                allow_overlap=allow_overlap,
-            )
-        finally:
-            # 走到这里说明合并已收尾（成功/失败都算），无论有没有崩。
-            # 崩溃发生在 apply 之间的话登记就留着，下次启动会报出来。
-            if self._journal is not None:
-                self._journal.close()
+        # 不放在 finally：合并抛异常/被取消、或 finalize 中途失败时，登记
+        # 必须留着给下次启动对账；只有整批 outcomes 都落进记录后才清空。
+        outcomes = await merge_implement_patches_atomic(
+            sandbox,
+            root,
+            batch,
+            allow_overlap=allow_overlap,
+        )
 
         merged_any = False
         for record in batch:
@@ -188,4 +184,6 @@ class MergeQueue:
             elif record.get("status") in {"success", "partial"}:
                 record["status"] = "failed"
             finalize(record)
+        if self._journal is not None:
+            self._journal.close()
         return merged_any

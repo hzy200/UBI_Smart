@@ -74,12 +74,20 @@ def route_after_replan(state: AgentState) -> str:
 # --------------------------------------------------------------------------
 
 def route_after_steering_plan(state: AgentState) -> str:
-    """任务图刚生成：取消直接去汇总，否则进入写审批/派发。
+    """任务图刚生成：取消/契约待澄清/评审失败都直接去汇总。
 
     取消必须在这里截断：scheduler 只轮询队列里的 cancel，而 cancel 已经被
     steering_plan 消费掉；若继续进入 scheduler，同批追加的任务仍会被派发。
+    契约未知项与计划评审失败同理：宁可这一轮不执行，也不要"先跑跑看"。
     """
-    return SYNTHESIZE if state.get("steering_cancelled") else WRITE_GATE
+    if state.get("steering_cancelled"):
+        return SYNTHESIZE
+    if state.get("contract_unknowns") or state.get("plan_review_failed"):
+        return SYNTHESIZE
+    # 计划刚生成就收到 patch/replan：契约已变，先把任务图重建一次再派发。
+    if state.get("steering_replan"):
+        return PLAN_TASKS
+    return WRITE_GATE
 
 
 def route_after_steering_step(state: AgentState) -> str:
@@ -108,10 +116,15 @@ def route_after_synthesize(state: AgentState) -> str:
     """编排结束后去哪。
 
     - 取消：直接收尾；
+    - 契约待澄清/计划评审失败：直接收尾并向用户提问，不进入 planner；
     - 修复轮：直接回到 verify，避免 planner 重新规划整个请求；
     - 正常编排：交给主 agent 规划/实现。
     """
     if state.get("steering_cancelled"):
+        return STEERING_FINAL
+    if state.get("contract_unknowns") or state.get("plan_review_failed"):
+        # 仍走 steering_final：收尾前消费取消/暂停，避免"要澄清但用户已取消"
+        # 这种竞态绕过最后一个干预点。
         return STEERING_FINAL
     if state.get("orchestrator_fix_mode"):
         return VERIFY

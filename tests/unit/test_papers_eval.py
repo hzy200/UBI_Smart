@@ -15,6 +15,7 @@ from papers import (  # noqa: E402
     build_cases,
     case_inputs,
     discover_papers,
+    evaluate_innovation_case,
     evaluate_report_case,
     evaluate_result,
 )
@@ -119,6 +120,9 @@ def test_cases_scale_with_paper_count() -> None:
             if case.get("kind") == "report":
                 assert case["required_sections"]
                 assert case["min_report_chars"] > 0
+            elif case.get("kind") == "innovation":
+                assert case["min_candidates"] > 0
+                assert case["min_supported"] > 0
             else:
                 assert case["max_answer_chars"] > 0
             for group in case.get("concepts") or []:
@@ -134,6 +138,7 @@ def test_cases_without_known_papers_skip_number_case() -> None:
     assert ids == {
         "papers/cross_method",
         "papers/cross_limits",
+        "papers/innovation",
         "papers/report",
     }
     method = next(case for case in cases if case["id"] == "papers/cross_method")
@@ -151,6 +156,8 @@ def test_evaluate_result_passes_for_different_document_counts() -> None:
         ],
     ):
         for case in build_cases(papers):
+            if case.get("kind") in {"report", "innovation"}:
+                continue
             report = evaluate_result(_fake_result(case), case)
             assert report["passed"], report["reasons"]
             assert report["coverage_complete"] is True
@@ -196,6 +203,54 @@ def _review_result(*, ok: bool = True) -> WorkerResult:
             else "reports/paper-report.md: 缺少必需章节：创新"
         ],
     )
+
+
+def test_innovation_case_and_evaluation() -> None:
+    papers = [_paper("unet", 1), _paper("vmamba", 2), _paper("dps", 3)]
+    case = next(
+        item for item in build_cases(papers)
+        if item["id"] == "papers/innovation"
+    )
+    inputs = case_inputs(case)
+    candidates = [
+        {
+            "title": f"候选 {index}",
+            "gap": "空白",
+            "insight": "洞见",
+            "hypothesis": "假设",
+            "novelty_claim": "新意",
+            "prior_art_contrast": "差异",
+            "falsifiable_experiment": "实验",
+            "risks": "风险",
+            "confidence": "medium",
+            "supported": index == 0,
+            "evidence_docs": [inputs[index % 2]],
+            "evidence": [
+                {
+                    "path": inputs[index % 2],
+                    "anchor": "page=1",
+                    "claim": "证据",
+                    "quote": "原文",
+                }
+            ],
+        }
+        for index in range(3)
+    ]
+    innovation = {
+        "candidates": candidates,
+        "issues": [],
+        "input_tokens": 10,
+        "output_tokens": 5,
+    }
+
+    report = evaluate_innovation_case(
+        case, _fake_result(case), innovation
+    )
+
+    assert report["passed"], report["reasons"]
+    assert report["candidates"] == 3
+    assert report["supported_candidates"] == 1
+    assert len(report["evidence_docs"]) >= case["min_evidence_docs"]
 
 
 def test_report_case_and_evaluation() -> None:

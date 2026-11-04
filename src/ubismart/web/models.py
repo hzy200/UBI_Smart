@@ -19,7 +19,9 @@ class RunRequest(BaseModel):
 
 
 class SteerRequest(BaseModel):
-    action: Literal["pause", "cancel", "add", "replan"]
+    action: Literal[
+        "pause", "cancel", "add", "replan", "abort", "rollback", "patch"
+    ]
     text: str = Field(default="", max_length=4_000)
     role: str = "explore"
 

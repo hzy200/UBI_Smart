@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from typing import Any
 
@@ -14,7 +15,7 @@ from ubismart.llm.ratelimit import GLOBAL_LIMITER
 from ubismart.orchestrator import scheduler_run as scheduler_runtime
 from ubismart.orchestrator.contracts import WorkerResult
 from ubismart.orchestrator.scheduler import make_scheduler_node
-from ubismart.session.steering import SteeringController
+from ubismart.session.steering import SteeringCommand, SteeringController
 from ubismart.session.worker_journal import (
     WorkerJournal,
     request_fingerprint,
@@ -123,6 +124,52 @@ def test_dependent_starts_as_soon_as_its_predecessor_finishes() -> None:
     # 旧实现会等 c 结束才启动 b；事件驱动下 b 应在 a 结束后立即启动。
     assert starts["b"] < ends["c"]
     assert out["task_status"] == {"a": "success", "b": "success", "c": "success"}
+
+
+def test_worker_receives_a_hard_token_slice() -> None:
+    seen: list[tuple[str, int | None]] = []
+
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        seen.append((str(task["id"]), task.get("max_tokens")))
+        return _result(task)
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(orchestrator_total_tokens=5_000),
+        steering=SteeringController(),
+    )
+    asyncio.run(
+        node(
+            _state([_task("a")]),
+            {"configurable": {"thread_id": "t"}},
+        )
+    )
+
+    # explore 的预留是 2000；全局预算 5000 足以放行，切片随 worker 下传。
+    assert seen == [("a", 2_000)]
+
+
+def test_document_worker_gets_role_budget_not_admission_reserve() -> None:
+    seen: list[tuple[str, int | None]] = []
+
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        seen.append((str(task["id"]), task.get("max_tokens")))
+        return _result(task)
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(orchestrator_total_tokens=500_000),
+        steering=SteeringController(),
+    )
+    asyncio.run(
+        node(
+            _state([_task("d", role="document")]),
+            {"configurable": {"thread_id": "t"}},
+        )
+    )
+
+    # document 的准入预留只有 6k，但硬上限应取角色总预算 120k。
+    assert seen == [("d", 120_000)]
 
 
 def test_failure_blocks_dependents_without_waiting_for_the_whole_batch() -> None:
@@ -1071,6 +1118,160 @@ def test_failed_wave_gate_blocks_later_stages(monkeypatch) -> None:
     assert "停止后续波次" in out["tasks"][1]["blocked_reason"]
 
 
+def test_gate_timeout_blocks_later_stages(monkeypatch) -> None:
+    async def fake_merge(sandbox, root, records, *, allow_overlap=False):  # noqa: ANN001
+        return {record["task_id"]: (True, "", ["snap"]) for record in records}
+
+    monkeypatch.setattr(
+        "ubismart.orchestrator.merge_queue.merge_implement_patches_atomic",
+        fake_merge,
+    )
+
+    def slow_verify(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        time.sleep(0.5)
+        class _Result:
+            status = "ok"
+        return _Result()
+
+    monkeypatch.setattr(
+        scheduler_runtime, "run_verification", slow_verify
+    )
+
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        return _result(task)
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(
+            deep_workflows_enabled=True,
+            interface_first_writes=True,
+            orchestrator_max_concurrent_workers=1,
+            orchestrator_incremental_merge=False,
+            orchestrator_task_retries=0,
+            orchestrator_gate_timeout_s=0.1,
+        ),
+        sandbox=object(),  # type: ignore[arg-type]
+        root="/ws",
+        steering=SteeringController(),
+    )
+    out = asyncio.run(
+        node(
+            {
+                **_state(_wave_tasks()),
+                "change_contract": _wave_contract(),
+            },
+            {"configurable": {"thread_id": "t"}},
+        )
+    )
+
+    assert out["wave_gates"][0]["status"] == "failed"
+    assert "超时" in out["wave_gates"][0]["reason"]
+    assert out["task_status"]["b"] == "blocked"
+
+
+def test_gate_wait_is_interrupted_by_user_cancel(monkeypatch) -> None:
+    async def fake_merge(sandbox, root, records, *, allow_overlap=False):  # noqa: ANN001
+        return {record["task_id"]: (True, "", ["snap"]) for record in records}
+
+    monkeypatch.setattr(
+        "ubismart.orchestrator.merge_queue.merge_implement_patches_atomic",
+        fake_merge,
+    )
+    started = threading.Event()
+
+    def slow_verify(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        started.set()
+        time.sleep(0.6)
+        class _Result:
+            status = "ok"
+        return _Result()
+
+    monkeypatch.setattr(
+        scheduler_runtime, "run_verification", slow_verify
+    )
+    steering = SteeringController()
+
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        return _result(task)
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(
+            deep_workflows_enabled=True,
+            interface_first_writes=True,
+            orchestrator_max_concurrent_workers=1,
+            orchestrator_incremental_merge=False,
+            orchestrator_task_retries=0,
+            orchestrator_gate_timeout_s=5,
+        ),
+        sandbox=object(),  # type: ignore[arg-type]
+        root="/ws",
+        steering=steering,
+    )
+
+    async def scenario() -> dict[str, Any]:
+        task = asyncio.create_task(
+            node(
+                {
+                    **_state(_wave_tasks()),
+                    "change_contract": _wave_contract(),
+                },
+                {"configurable": {"thread_id": "t"}},
+            )
+        )
+        await asyncio.to_thread(started.wait, 2)
+        steering.submit("t", SteeringCommand(action="cancel"))
+        return await task
+
+    out = asyncio.run(scenario())
+    assert out["wave_gates"][0]["status"] == "cancelled"
+    assert out["task_status"]["b"] == "blocked"
+
+
+def test_patch_review_timeout_does_not_block_merge(monkeypatch) -> None:
+    async def fake_merge(sandbox, root, records, *, allow_overlap=False):  # noqa: ANN001
+        return {record["task_id"]: (True, "", ["snap"]) for record in records}
+
+    monkeypatch.setattr(
+        "ubismart.orchestrator.merge_queue.merge_implement_patches_atomic",
+        fake_merge,
+    )
+
+    async def fake_read(self, record):  # noqa: ANN001
+        return "diff --git a/a.py b/a.py\n"
+
+    monkeypatch.setattr(
+        scheduler_runtime.SchedulerRun, "_read_patch_text", fake_read
+    )
+
+    async def slow_review(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        await asyncio.sleep(0.5)
+        return {"issues": []}
+
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        return _result(task, patch_path=f"/ws/{task['id']}.patch")
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(
+            orchestrator_patch_review=True,
+            orchestrator_patch_review_timeout_s=0.1,
+            orchestrator_incremental_merge=False,
+        ),
+        sandbox=object(),  # type: ignore[arg-type]
+        root="/ws",
+        steering=SteeringController(),
+        patch_reviewer=slow_review,
+    )
+    out = asyncio.run(
+        node(
+            _state([_task("i1", role="implement", write_scope=["a.py"])]),
+            {"configurable": {"thread_id": "t"}},
+        )
+    )
+    assert out["task_status"]["i1"] == "success"
+
+
 def test_gate_without_tests_is_skipped(monkeypatch) -> None:
     async def fake_merge(sandbox, root, records, *, allow_overlap=False):  # noqa: ANN001
         return {record["task_id"]: (True, "", ["snap"]) for record in records}
@@ -1426,3 +1627,142 @@ def test_orphan_worktrees_are_pruned_once_per_run(monkeypatch) -> None:
 
     assert len(calls) == 1
     assert second["worktrees_pruned"] is True
+
+
+def test_step_budget_stops_new_dispatch_and_reports_partial_result() -> None:
+    ran: list[str] = []
+
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        ran.append(str(task["id"]))
+        return _result(task)
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(
+            orchestrator_max_concurrent_workers=1,
+            orchestrator_total_steps=1,
+            orchestrator_total_tokens=0,
+        ),
+        steering=SteeringController(),
+    )
+    out = asyncio.run(
+        node(
+            _state([_task("a"), _task("b")]),
+            {"configurable": {"thread_id": "t"}},
+        )
+    )
+
+    assert ran == ["a"]
+    assert out["task_status"]["a"] == "success"
+    assert out["task_status"]["b"] == "blocked"
+    assert out["budget_abort"]["reason"].startswith("预算耗尽")
+    assert out["budget_abort"]["completed_tasks"] == ["a"]
+    assert out["budget_snapshot"]["steps"] == 1
+
+
+def test_model_max_tokens_is_clamped_to_remaining_parent_budget() -> None:
+    seen: list[int | None] = []
+
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        seen.append(task.get("max_tokens"))
+        return _result(task)
+
+    task = _task("a")
+    task["max_tokens"] = 100_000
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(orchestrator_total_tokens=3_000),
+        steering=SteeringController(),
+    )
+    asyncio.run(
+        node(_state([task]), {"configurable": {"thread_id": "t"}})
+    )
+
+    # 父预算只有 3000；模型写的 100000 必须被夹到父剩余额度，而不是原样下传。
+    assert seen == [3_000]
+
+
+def test_phase_gates_write_control_checkpoints(tmp_path) -> None:
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        result = _result(task)
+        result.input_tokens = 100
+        return result
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(
+            audit_dir=str(tmp_path),
+            orchestrator_total_tokens=100_000,
+        ),
+        steering=SteeringController(),
+    )
+    state = _state(
+        [
+            _task("a"),
+            {**_task("b", deps=["a"]), "stage": 1},
+        ]
+    )
+    state["estimation_card"] = {"gate": {"phase_gates": True}}
+
+    out = asyncio.run(node(state, {"configurable": {"thread_id": "t"}}))
+
+    assert [item["stage"] for item in out["control_checkpoints"]] == [0, 1]
+    assert all(
+        item["status"] == "passed" for item in out["control_checkpoints"]
+    )
+    checkpoint_dir = tmp_path / "control_checkpoints"
+    assert len(list(checkpoint_dir.rglob("*.json"))) == 2
+
+
+def test_phase_budget_failure_blocks_later_stages(tmp_path) -> None:
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        result = _result(task)
+        result.input_tokens = 60_000
+        return result
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(
+            audit_dir=str(tmp_path),
+            orchestrator_total_tokens=100_000,
+        ),
+        steering=SteeringController(),
+    )
+    state = _state(
+        [
+            _task("a"),
+            {**_task("b", deps=["a"]), "stage": 1},
+        ]
+    )
+    state["estimation_card"] = {"gate": {"phase_gates": True}}
+
+    out = asyncio.run(node(state, {"configurable": {"thread_id": "t"}}))
+
+    # 两阶段均分 100k → 每阶段 50k；stage 0 花了 60k，后一阶段必须停。
+    assert out["task_status"]["b"] == "blocked"
+    assert any(
+        item["stage"] == 0 and item["status"] == "failed"
+        for item in out["control_checkpoints"]
+    )
+
+
+def test_repeated_tool_action_trips_the_loop_breaker() -> None:
+    async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
+        result = _result(task)
+        result.tool_calls = [
+            {"name": "search_code", "args": {"query": "x"}},
+            {"name": "search_code", "args": {"query": "x"}},
+        ]
+        return result
+
+    node = make_scheduler_node(
+        worker_runner=runner,
+        settings=_settings(orchestrator_repeat_action_limit=2),
+        steering=SteeringController(),
+    )
+    out = asyncio.run(
+        node(_state([_task("a")]), {"configurable": {"thread_id": "t"}})
+    )
+
+    assert out["loop_abort"]["tool"] == "search_code"
+    assert out["loop_abort"]["count"] == 2

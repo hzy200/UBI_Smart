@@ -27,6 +27,7 @@ const VIEW_TITLES: Record<string, string> = {
   git: 'nav.git',
   tasks: 'nav.tasks',
   memory: 'nav.memory',
+  library: 'nav.library',
   audit: 'nav.audit',
   problems: 'nav.problems',
 };
@@ -156,6 +157,7 @@ export const layoutMixin = {
   },
 
   setView(name: string, load = true, reveal = true) {
+    if (name === 'library' && !this.capabilities.library_enabled) return;
     this.view = name;
     this.applyViewClasses();
     if (reveal && this.sidebarCollapsed) this.sidebarCollapsed = false;
@@ -166,6 +168,7 @@ export const layoutMixin = {
       if (name === 'tree') this.loadTree('');
       if (name === 'git') this.loadGit(false);
       if (name === 'memory') this.loadMemory();
+      if (name === 'library') this.loadLibrary();
       if (name === 'audit') this.loadAudit();
     }
     if (reveal) this.saveLayout();
@@ -359,6 +362,7 @@ export const layoutMixin = {
       { id: 'view-git', title: '视图：Git', hint: '导航', run: () => this.setView('git') },
       { id: 'view-tasks', title: '视图：任务', hint: '导航', run: () => this.setView('tasks') },
       { id: 'view-memory', title: '视图：记忆', hint: '导航', run: () => this.setView('memory') },
+      { id: 'view-library', title: '视图：资料库', hint: '导航', run: () => this.setView('library') },
       { id: 'view-audit', title: '视图：审计', hint: '导航', run: () => this.setView('audit') },
       { id: 'view-problems', title: '视图：问题', hint: '导航', run: () => this.setView('problems') },
       { id: 'tab-plan', title: '检查器：计划', hint: '导航', run: () => this.setTab('plan') },

@@ -2084,6 +2084,44 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .task-status { margin-left: auto; color: var(--muted); font-size: 11px; }
 .audit-row { display: grid; grid-template-columns: 1.4fr .8fr 2fr; gap: 6px; font-size: 11px; overflow-wrap: anywhere; }
 .memory-item span { flex: 1; }
+.library-filters { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.library-filters input { flex: 1 1 90px; min-width: 0; }
+.library-search { display: flex; gap: 6px; margin-bottom: 8px; }
+.library-search input { flex: 1; min-width: 0; }
+.library-tags { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; }
+.library-tag {
+  font-size: 11px; color: var(--accent); border: 1px solid var(--border);
+  border-radius: 999px; padding: 1px 7px; background: var(--accent-soft);
+}
+.library-detail {
+  border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 8px 10px; margin-bottom: 8px; background: var(--panel);
+}
+.library-detail-head { display: flex; align-items: baseline; gap: 8px; }
+.library-detail-head .library-name { flex: 1; }
+.library-detail-section { margin-top: 8px; }
+.library-detail-section h4 { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
+.library-outline-item { font-size: 12px; color: var(--muted); }
+.library-chunk { border-top: 1px solid var(--border-subtle); padding-top: 6px; margin-top: 6px; }
+.library-pagination { display: flex; align-items: center; gap: 8px; justify-content: center; margin: 8px 0; }
+.library-item, .library-result {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 8px 10px; margin-bottom: 6px; background: var(--panel-2);
+  font-size: 13px; overflow-wrap: anywhere;
+}
+.library-item-head, .library-result-head {
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+}
+.library-name { font-weight: 600; flex: 1; min-width: 0; }
+.library-item-status { display: flex; gap: 8px; margin: 4px 0; font-size: 11px; }
+.library-item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.library-progress { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.library-progress progress { flex: 1; height: 6px; }
+.library-source { color: var(--accent); font-family: var(--mono); font-size: 11px; }
+.library-snippet {
+  margin: 6px 0 0; white-space: pre-wrap; font-family: var(--mono);
+  font-size: 11px; color: var(--muted); max-height: 180px; overflow: auto;
+}
 
 .problem-group { margin-bottom: 10px; }
 .problem-group-head {

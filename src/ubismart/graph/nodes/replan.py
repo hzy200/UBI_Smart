@@ -39,6 +39,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -186,8 +187,17 @@ def _replan_request(
 
     request = last_human_text(state["messages"])
     head = _replan_head(failed, failure_source, user_requested)
+    contract = state.get("contract") or {}
+    contract_note = ""
+    if isinstance(contract, dict) and contract:
+        contract_note = (
+            "当前验收契约（用户 patch 后，以此为准）：\n"
+            + json.dumps(contract, ensure_ascii=False, default=str)[:2_000]
+            + "\n\n"
+        )
     body = (
-        f"用户请求：{request}\n\n"
+        contract_note
+        + f"用户请求：{request}\n\n"
         f"计划：\n{_plan_view(plan, kinds, step_idx, failed=failed)}\n\n"
         f"{head}：\n{context}"
     )
@@ -201,6 +211,7 @@ def _exhausted_update(
     counter: str,
     used: int,
     cleared: dict[str, Any],
+    plan_version: int,
 ) -> dict[str, Any]:
     # 从「修复用尽」进来时，额度用尽就等于没辙了 —— 砍掉剩余步骤，
     # 让任务如实收尾。**必须返回一个改过的 plan**：返回 {} 会被路由送回 act，
@@ -209,6 +220,7 @@ def _exhausted_update(
         "plan": plan[:step_idx],
         "plan_kinds": kinds[:step_idx],
         counter: used,
+        "plan_version": plan_version,
         **cleared,
     }
 
@@ -224,6 +236,7 @@ def _apply_decision(
     *,
     failed: bool,
     max_plan_steps: int,
+    plan_version: int,
 ) -> dict[str, Any]:
     if not decision.revise and not failed:
         # 步进入口说"不用改"就是真不改 —— 返回空更新，连事件都不该发。
@@ -243,6 +256,7 @@ def _apply_decision(
         "plan": new_plan,
         "plan_kinds": align_kinds(new_plan, new_kinds),
         counter: used + 1,
+        "plan_version": plan_version,
         **cleared,
     }
     if failed and revised:
@@ -284,6 +298,7 @@ async def _replan_impl(
     # 两个入口各用各的额度，互不挤占（见模块文档第 1 条）
     counter = "replan_count" if failed else "tweak_count"
     used = state.get(counter, 0)
+    next_plan_version = int(state.get("plan_version", 0) or 0) + 1
     remaining = plan[step_idx:]
 
     if not remaining:
@@ -291,7 +306,7 @@ async def _replan_impl(
 
     if failed and used >= deps.max_replans:
         return _exhausted_update(
-            plan, kinds, step_idx, counter, used, cleared
+            plan, kinds, step_idx, counter, used, cleared, next_plan_version
         )
 
     # 步进入口下额度用尽 → 直接放行，不多花一次模型调用
@@ -318,7 +333,13 @@ async def _replan_impl(
         # 步进入口沿用原计划；失败入口没有退路，只能收尾
         if failed:
             return _exhausted_update(
-                plan, kinds, step_idx, counter, used, cleared
+                plan,
+                kinds,
+                step_idx,
+                counter,
+                used,
+                cleared,
+                next_plan_version,
             )
         return cleared
 
@@ -332,6 +353,7 @@ async def _replan_impl(
         cleared,
         failed=failed,
         max_plan_steps=deps.max_plan_steps,
+        plan_version=next_plan_version,
     )
 
 

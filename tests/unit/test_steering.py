@@ -31,6 +31,7 @@ from ubismart.graph.routing import (
     VERIFY,
     route_after_steering_cancel,
     route_after_steering_plan,
+    route_after_synthesize,
 )
 from ubismart.graph.state import AgentState
 from ubismart.orchestrator.contracts import TaskGraph, TaskSpec, WorkerResult
@@ -41,6 +42,11 @@ from ubismart.session.steering import SteeringCommand, SteeringController
 
 def _settings(**overrides: Any) -> Settings:
     return Settings(_env_file=None, **overrides)
+
+
+def _invoke(node, state, config=None):
+    """节点已改为 async（文件 IO 下放到线程池），单测用 asyncio.run 驱动。"""
+    return asyncio.run(node(state, config))
 
 
 def _state(**overrides: Any) -> dict[str, Any]:
@@ -199,7 +205,7 @@ def test_dispatch_node_appends_a_read_only_task() -> None:
     controller.submit("", SteeringCommand("add", text="检查错误处理", role="review"))
     node = make_steering_dispatch_node(controller, _settings())
 
-    out = node(_state(), None)
+    out = _invoke(node, _state(), None)
 
     assert out["tasks"][-1]["id"] == "user-1"
     assert out["tasks"][-1]["role"] == "review"
@@ -213,7 +219,7 @@ def test_dispatch_node_cancel_marks_pending_tasks_cancelled() -> None:
     controller.submit("", SteeringCommand("cancel"))
     node = make_steering_dispatch_node(controller, _settings())
 
-    out = node(_state(), None)
+    out = _invoke(node, _state(), None)
 
     assert out["steering_cancelled"] is True
     assert out["task_status"]["t1"] == "cancelled"
@@ -225,7 +231,7 @@ def test_dispatch_node_replan_sets_the_flag_and_counter() -> None:
     controller.submit("", SteeringCommand("replan"))
     node = make_steering_dispatch_node(controller, _settings(max_replans=2))
 
-    out = node(_state(), None)
+    out = _invoke(node, _state(), None)
 
     assert out["steering_replan"] is True
     assert out["steering_replans"] == 1
@@ -236,7 +242,7 @@ def test_dispatch_node_replan_stops_at_the_limit() -> None:
     controller.submit("", SteeringCommand("replan"))
     node = make_steering_dispatch_node(controller, _settings(max_replans=2))
 
-    out = node(_state(steering_replans=2), None)
+    out = _invoke(node, _state(steering_replans=2), None)
 
     assert "steering_replan" not in out
     assert "上限" in out["steering_applied"][0]["detail"]
@@ -247,8 +253,12 @@ def test_step_node_add_appends_a_plan_step_in_direct_mode() -> None:
     controller.submit("", SteeringCommand("add", text="补一个只读检查"))
     node = make_steering_step_node(controller, _settings())
 
-    out = node(
-        _state(execution_mode="direct", plan=["做 A"], plan_kinds=["explore"]), None
+    out = _invoke(
+        node,
+        _state(
+            execution_mode="direct", plan=["做 A"], plan_kinds=["explore"]
+        ),
+        None,
     )
 
     assert out["plan"] == ["做 A", "补一个只读检查"]
@@ -261,7 +271,7 @@ def test_final_node_consumes_late_cancel_and_ignores_replan() -> None:
     controller.submit("", SteeringCommand("replan"))
     node = make_steering_final_node(controller, _settings())
 
-    out = node(_state(), None)
+    out = _invoke(node, _state(), None)
 
     assert out["steering_cancelled"] is True
     actions = [item["action"] for item in out["steering_applied"]]
@@ -276,7 +286,7 @@ def test_dispatch_node_applies_every_add_in_one_batch() -> None:
     controller.submit("", SteeringCommand("add", text="乙", role="review"))
     node = make_steering_dispatch_node(controller, _settings())
 
-    out = node(_state(), None)
+    out = _invoke(node, _state(), None)
 
     assert [task["id"] for task in out["tasks"]] == ["t1", "user-1", "user-2"]
     assert [task["goal"] for task in out["tasks"][1:]] == ["甲", "乙"]
@@ -294,8 +304,11 @@ def test_step_node_applies_every_add_in_one_batch() -> None:
     controller.submit("", SteeringCommand("add", text="乙", role="test"))
     node = make_steering_step_node(controller, _settings())
 
-    out = node(
-        _state(execution_mode="direct", plan=["做 A"], plan_kinds=["explore"]),
+    out = _invoke(
+        node,
+        _state(
+            execution_mode="direct", plan=["做 A"], plan_kinds=["explore"]
+        ),
         None,
     )
 
@@ -310,7 +323,7 @@ def test_cancel_wins_over_add_in_the_same_batch() -> None:
     controller.submit("", SteeringCommand("add", text="取消后追加"))
     node = make_steering_plan_node(controller, _settings())
 
-    out = node(_state(), None)
+    out = _invoke(node, _state(), None)
 
     assert out["steering_cancelled"] is True
     assert "tasks" not in out
@@ -328,7 +341,7 @@ def test_dispatch_node_counts_multiple_replans_once() -> None:
     controller.submit("", SteeringCommand("replan"))
     node = make_steering_dispatch_node(controller, _settings(max_replans=2))
 
-    out = node(_state(), None)
+    out = _invoke(node, _state(), None)
 
     assert out["steering_replan"] is True
     assert out["steering_replans"] == 1
@@ -346,7 +359,9 @@ def test_steering_cancel_node_consumes_only_cancel_and_keeps_others() -> None:
     controller.submit("t", SteeringCommand("replan"))
     node = make_steering_cancel_node(controller, _settings())
 
-    out = node(_state(), {"configurable": {"thread_id": "t"}})
+    out = _invoke(
+        node, _state(), {"configurable": {"thread_id": "t"}}
+    )
 
     assert out["steering_cancelled"] is True
     assert out["steering_applied"][0]["action"] == "cancel"
@@ -359,7 +374,9 @@ def test_steering_cancel_node_is_a_noop_without_cancel() -> None:
     controller.submit("t", SteeringCommand("add", text="稍后执行", role="review"))
     node = make_steering_cancel_node(controller, _settings())
 
-    out = node(_state(), {"configurable": {"thread_id": "t"}})
+    out = _invoke(
+        node, _state(), {"configurable": {"thread_id": "t"}}
+    )
 
     assert out == {}
     assert [item.action for item in controller.peek("t")] == ["add"]
@@ -389,6 +406,16 @@ def test_route_after_steering_cancel_follows_the_actual_message() -> None:
 def test_route_after_steering_plan_stops_scheduler_on_cancel() -> None:
     assert route_after_steering_plan(_state(steering_cancelled=True)) == SYNTHESIZE
     assert route_after_steering_plan(_state()) == "write_gate"
+
+
+def test_contract_gate_stops_scheduler_and_routes_to_clarification() -> None:
+    blocked = _state(contract_unknowns=["币种未指定"])
+    assert route_after_steering_plan(blocked) == SYNTHESIZE
+    assert route_after_synthesize(blocked) == STEERING_FINAL
+
+    review_failed = _state(plan_review_failed=True)
+    assert route_after_steering_plan(review_failed) == SYNTHESIZE
+    assert route_after_synthesize(review_failed) == STEERING_FINAL
 
 
 # --------------------------------------------------------------------------
@@ -662,3 +689,68 @@ def test_corrupt_state_file_is_ignored(tmp_path) -> None:
 
     second = SteeringController(tmp_path)
     assert second.peek("t") == []
+
+
+def test_abort_stops_and_marks_aborted() -> None:
+    controller = SteeringController()
+    controller.submit("", SteeringCommand("abort"))
+    node = make_steering_dispatch_node(controller, _settings())
+
+    out = _invoke(node, _state(), None)
+
+    assert out["steering_cancelled"] is True
+    assert out["steering_aborted"] is True
+    assert out["steering_applied"][0]["action"] == "abort"
+
+
+def test_rollback_stops_and_records_steps() -> None:
+    controller = SteeringController()
+    controller.submit("", SteeringCommand("rollback", text="2"))
+    node = make_steering_dispatch_node(controller, _settings())
+
+    out = _invoke(node, _state(), None)
+
+    assert out["steering_cancelled"] is True
+    assert out["steering_rollback_steps"] == 2
+    assert out["steering_applied"][0]["action"] == "rollback"
+
+
+def test_patch_updates_contract_and_plan_version() -> None:
+    controller = SteeringController()
+    controller.submit(
+        "",
+        SteeringCommand(
+            "patch",
+            text='{"goal": "新的目标", "constraints": ["只改 a.py"]}',
+        ),
+    )
+    node = make_steering_dispatch_node(controller, _settings())
+
+    out = _invoke(
+        node,
+        _state(
+            contract={"goal": "旧目标", "acceptance": []},
+            plan_version=3,
+        ),
+        None,
+    )
+
+    assert out["contract"]["goal"] == "新的目标"
+    assert out["contract"]["constraints"] == ["只改 a.py"]
+    assert out["plan_version"] == 4
+    assert out["steering_replan"] is True
+    assert out["steering_applied"][0]["action"] == "patch"
+
+
+def test_patch_rejects_unknown_fields() -> None:
+    with pytest.raises(ValueError):
+        SteeringCommand("patch", text='{"tasks": []}')
+    with pytest.raises(ValueError):
+        SteeringCommand("rollback", text="not-a-number")
+
+
+def test_route_after_steering_plan_replans_on_patch() -> None:
+    assert (
+        route_after_steering_plan(_state(steering_replan=True))
+        == "plan_tasks"
+    )

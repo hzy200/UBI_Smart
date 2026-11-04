@@ -8,12 +8,41 @@ export interface ApprovalRequestedEvent {
   level: string;
   level_int: number;
   reason: string;
+  plan_version: number;
+  ack_timeout_ms: number;
+  default_action: string;
 }
 
 export interface AssistantTokenEvent {
   type: "assistant_token";
   node: string;
   text: string;
+}
+
+export interface BudgetWarningEvent {
+  type: "budget_warning";
+  level: any;
+  dimension: string;
+  used: number;
+  limit: number;
+  ratio: number;
+  message: string;
+}
+
+export interface CardEventEvent {
+  type: "card";
+  event_id: string;
+  card_id: string;
+  kind: any;
+  severity: any;
+  title: string;
+  body: string;
+  payload: Record<string, any>;
+  dedupe_key: string;
+  plan_version: number;
+  requires_ack: boolean;
+  ack_timeout_ms: number;
+  default_action: string;
 }
 
 export interface ContextTrimmedEvent {
@@ -45,6 +74,12 @@ export interface CostReportEvent {
   billing_providers: Record<string, Record<string, number>>;
 }
 
+export interface EstimationReadyEvent {
+  type: "estimation_ready";
+  card: Record<string, any>;
+  plan_version: number;
+}
+
 export interface FileChangedEvent {
   type: "file_changed";
   path: string;
@@ -53,6 +88,14 @@ export interface FileChangedEvent {
   removed: number;
   diff: string;
   snapshot_id: string | null;
+}
+
+export interface LoopDetectedEvent {
+  type: "loop_detected";
+  task_id: string;
+  tool: string;
+  count: number;
+  reason: string;
 }
 
 export interface OrchestrationFinishedEvent {
@@ -67,6 +110,7 @@ export interface PlanCreatedEvent {
   steps: Array<string>;
   kinds: Array<string>;
   degraded: boolean;
+  plan_version: number;
 }
 
 export interface PlanRevisedEvent {
@@ -74,6 +118,7 @@ export interface PlanRevisedEvent {
   steps: Array<string>;
   kinds: Array<string>;
   step_idx: number;
+  plan_version: number;
 }
 
 export interface ReasoningTokenEvent {
@@ -121,6 +166,17 @@ export interface RunFinishedEvent {
 export interface RunStartedEvent {
   type: "run_started";
   thread_id: string;
+}
+
+export interface StageDoneEvent {
+  type: "stage_done";
+  stage: number;
+  status: string;
+  reason: string;
+  completed: number;
+  failed: number;
+  checkpoint_id: string;
+  plan_version: number;
 }
 
 export interface SteeringAppliedEvent {
@@ -176,6 +232,7 @@ export interface TaskGraphCreatedEvent {
   type: "task_graph_created";
   tasks: Array<Record<string, any>>;
   degraded: boolean;
+  plan_version: number;
 }
 
 export interface TaskGraphExtendedEvent {
@@ -256,6 +313,7 @@ export interface WorkflowRevisedEvent {
   type: "workflow_revised";
   reason: string;
   tasks: Array<Record<string, any>>;
+  plan_version: number;
 }
 
 export interface WorkflowSelectedEvent {
@@ -267,9 +325,13 @@ export interface WorkflowSelectedEvent {
 export type AgentEvent =
   | ApprovalRequestedEvent
   | AssistantTokenEvent
+  | BudgetWarningEvent
+  | CardEventEvent
   | ContextTrimmedEvent
   | CostReportEvent
+  | EstimationReadyEvent
   | FileChangedEvent
+  | LoopDetectedEvent
   | OrchestrationFinishedEvent
   | PlanCreatedEvent
   | PlanRevisedEvent
@@ -279,6 +341,7 @@ export type AgentEvent =
   | RunFailedEvent
   | RunFinishedEvent
   | RunStartedEvent
+  | StageDoneEvent
   | SteeringAppliedEvent
   | StepFinishedEvent
   | StepStartedEvent
@@ -298,9 +361,13 @@ export type AgentEvent =
 export const AGENT_EVENT_TYPES = [
   "approval_requested",
   "assistant_token",
+  "budget_warning",
+  "card",
   "context_trimmed",
   "cost_report",
+  "estimation_ready",
   "file_changed",
+  "loop_detected",
   "orchestration_finished",
   "plan_created",
   "plan_revised",
@@ -310,6 +377,7 @@ export const AGENT_EVENT_TYPES = [
   "run_failed",
   "run_finished",
   "run_started",
+  "stage_done",
   "steering_applied",
   "step_finished",
   "step_started",

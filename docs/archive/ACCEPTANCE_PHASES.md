@@ -353,3 +353,18 @@ workflow `orchestrated_implement`；planner 生成 2 个 implement + 1 test + 1 
 
 设计与落地顺序见 [RFC-0009](../rfc/0009-deep-workflows-and-knowledge-artifacts.md)；
 决策见 [ADR-0038](../adr/0038-structured-document-matrix-and-attribution.md)。
+
+### 5.20 创新点提炼与 novelty critic（ADR-0040）
+
+- [x] 创新候选固定字段：gap/insight/hypothesis/novelty_claim/
+      prior_art_contrast/falsifiable_experiment/risks/confidence（REQ-259）；
+- [x] 候选至少一条可归属证据；证据路径按 path/basename/标题归一，
+      无证据候选被丢弃（REQ-259）；
+- [x] novelty critic 只依据给定材料复核并给出 supported/score/issues（REQ-260）；
+- [x] 首轮只覆盖一篇文档时，对未覆盖文档做一次有界补充；评测要求至少
+      2 篇文档参与证据（REQ-260）；
+- [x] `papers/innovation` 评测：3 篇实测 8 候选、6 支持、3/3 文档证据、
+      归属 0（REQ-260）。
+
+决策见 [ADR-0040](../adr/0040-innovation-extraction-and-novelty-critic.md)；
+实测见 [DEEP_WORKFLOW_EVAL.md](eval/DEEP_WORKFLOW_EVAL.md) §10。

@@ -9,12 +9,170 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 TaskRole = Literal[
-    "explore", "test", "review", "implement", "document", "vision", "author"
+    "explore",
+    "test",
+    "review",
+    "implement",
+    "document",
+    "vision",
+    "author",
+    "sub_orchestrator",
 ]
 WorkerStatus = Literal["success", "partial", "failed", "blocked", "cancelled"]
+Branching = Literal["none", "bounded", "unbounded"]
+
+
+class AcceptanceRule(BaseModel):
+    """一条验收规则。
+
+    `auto=True` 表示宿主可以自动检查（测试退出码、文件存在、schema 校验等）；
+    `auto=False` 只能由人或 reviewer 判断。契约至少需要一条 auto 规则。
+    """
+
+    rule: str = Field(description="怎样算做对；尽量带可判定的谓词")
+    auto: bool = Field(default=True, description="宿主是否能自动检查")
+
+
+class SideEffect(BaseModel):
+    """外部写动作登记。代码 agent 目前只需登记文件与 git 副作用。"""
+
+    kind: Literal["file", "git", "external"] = "file"
+    target: str = ""
+    idempotency_key: str = ""
+    compensation: str = ""
+
+
+_AUTO_HINTS = (
+    "测试",
+    "test",
+    "退出码",
+    "exit",
+    "通过",
+    "pass",
+    "存在",
+    "包含",
+    "生成",
+    "路径",
+    "文件",
+    "file",
+    "line",
+    "schema",
+    "格式",
+    "行数",
+    "覆盖",
+    "url",
+    "锚点",
+    "引用",
+    "证据",
+    "断言",
+    "构建",
+    "编译",
+)
+
+
+def _looks_auto(text: str) -> bool:
+    lowered = text.lower()
+    return any(hint in lowered for hint in _AUTO_HINTS)
+
+
+def _coerce_acceptance(value: Any) -> Any:
+    """模型常把 acceptance 写成纯字符串；按常见可判定词推断 auto。"""
+    if not isinstance(value, list):
+        return value
+    result: list[Any] = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                result.append({"rule": text, "auto": _looks_auto(text)})
+        else:
+            result.append(item)
+    return result
+
+
+def _coerce_side_effects(value: Any) -> Any:
+    if not isinstance(value, list):
+        return value
+    result: list[Any] = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                result.append({"kind": "external", "target": text})
+        else:
+            result.append(item)
+    return result
+
+
+def _coerce_known(value: Any) -> Any:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        return {"note": value}
+    if isinstance(value, list):
+        return {str(index): item for index, item in enumerate(value)}
+    return {}
+
+
+def _coerce_string_list(value: Any) -> Any:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return value
+
+
+class TaskContract(BaseModel):
+    """执行前定下的验收契约（S1/S2）。
+
+    未知项非空时宿主不进入 scheduler，而是把问题交回用户澄清；这是把
+    “方向性错误整链作废”压缩成一次低成本问答的地方。
+    """
+
+    goal: str = Field(default="", description="一句话可判定的最终结果")
+    constraints: list[str] = Field(
+        default_factory=list, description="边界、禁止项、格式与范围"
+    )
+    acceptance: list[AcceptanceRule] = Field(
+        default_factory=list, description="至少一条 auto=True 的规则"
+    )
+    known: dict[str, Any] = Field(
+        default_factory=dict, description="已确认的事实与输入"
+    )
+    unknown: list[str] = Field(
+        default_factory=list, description="缺失且不许猜的项；非空则阻断执行"
+    )
+    side_effects: list[SideEffect] = Field(
+        default_factory=list, description="外部写动作及补偿方式"
+    )
+
+    @field_validator("acceptance", mode="before")
+    @classmethod
+    def _valid_acceptance(cls, value: Any) -> Any:
+        return _coerce_acceptance(value)
+
+    @field_validator("side_effects", mode="before")
+    @classmethod
+    def _valid_side_effects(cls, value: Any) -> Any:
+        return _coerce_side_effects(value)
+
+    @field_validator("constraints", "unknown", mode="before")
+    @classmethod
+    def _valid_string_lists(cls, value: Any) -> Any:
+        return _coerce_string_list(value)
+
+    @field_validator("known", mode="before")
+    @classmethod
+    def _valid_known(cls, value: Any) -> Any:
+        return _coerce_known(value)
 
 
 class TaskSpec(BaseModel):
@@ -27,6 +185,26 @@ class TaskSpec(BaseModel):
     acceptance: list[str] = Field(
         default_factory=list, description="怎样算完成"
     )
+    # 契约映射：任务引用 TaskContract.acceptance 的下标。计划评审会检查
+    # 每个任务至少映射到一条验收规则；模型未填时退化为按任务自身 acceptance 检查。
+    acceptance_refs: list[int] = Field(
+        default_factory=list, description="引用的契约验收规则下标"
+    )
+    # 任务级约束/已知/未知项：允许子任务补充父契约，但 unknown 非空同样阻断。
+    constraints: list[str] = Field(default_factory=list)
+    known: dict[str, Any] = Field(default_factory=dict)
+    unknown: list[str] = Field(default_factory=list)
+    side_effects: list[SideEffect] = Field(default_factory=list)
+    # 不可验证的任务必须拆分；宿主不会执行 verifiable=false 的计划。
+    verifiable: bool = Field(
+        default=True, description="产出是否可被自动或 reviewer 判定"
+    )
+    # 分支上界：unbounded 会让预算失去意义，计划评审直接拒绝。
+    branching: Branching = Field(default="none")
+    # 子编排器（MAX_DEPTH=1）：只有确实需要独立契约/检查点的子任务才用。
+    sub_contract: TaskContract | None = None
+    # 父分配的预算切片；子无权自行放大。键：max_tokens/max_wall_ms。
+    budget_slice: dict[str, int] = Field(default_factory=dict)
     depends_on: list[str] = Field(
         default_factory=list, description="必须先行完成的任务 id"
     )
@@ -59,11 +237,79 @@ class TaskSpec(BaseModel):
     # document/vision 任务的证据来源（path + anchor）。
     sources: list[dict[str, Any]] = Field(default_factory=list)
 
+    @field_validator("side_effects", mode="before")
+    @classmethod
+    def _valid_side_effects(cls, value: Any) -> Any:
+        return _coerce_side_effects(value)
+
+    @field_validator(
+        "acceptance",
+        "inputs",
+        "depends_on",
+        "constraints",
+        "unknown",
+        mode="before",
+    )
+    @classmethod
+    def _valid_string_lists(cls, value: Any) -> Any:
+        return _coerce_string_list(value)
+
+    @field_validator("known", mode="before")
+    @classmethod
+    def _valid_known(cls, value: Any) -> Any:
+        return _coerce_known(value)
+
 
 class TaskGraph(BaseModel):
+    # S1/S2：契约先于任务图。旧调用方/旧模型可以不返回，宿主会补齐。
+    contract: TaskContract | None = None
     tasks: list[TaskSpec] = Field(default_factory=list)
     # 模型没给出可用任务图时为 True；调用方会退化为单 explore 任务。
     degraded: bool = False
+
+
+class SubTask(BaseModel):
+    """父 → 子编排器的内部扩展消息；不出站。"""
+
+    sub_id: str
+    parent_task_id: str = ""
+    depth: int = 1
+    contract_slice: TaskContract
+    budget_slice: dict[str, int] = Field(default_factory=dict)
+    plan_version: int = 0
+    max_depth: int = 1
+    max_fanout: int = 1
+    expected_schema: str = ""
+    cancel_scope: str = ""
+
+
+class SubResult(BaseModel):
+    """子 → 父的单个结构化结果；不写父状态。"""
+
+    sub_id: str
+    parent_task_id: str = ""
+    depth: int = 1
+    status: Literal["success", "partial", "failed", "blocked", "cancelled"] = (
+        "failed"
+    )
+    artifact: dict[str, Any] = Field(default_factory=dict)
+    local_ckpt_digest: str = ""
+    actual_cost: dict[str, int] = Field(default_factory=dict)
+    rollback_level: str = ""
+    fault_reason: str = ""
+    suggested_action: str = ""
+
+
+class SubSignal(BaseModel):
+    """子 → 父的进度/故障信号；只到 Root Projector，不直接出站。"""
+
+    sub_id: str
+    parent_task_id: str = ""
+    depth: int = 1
+    kind: Literal["progress", "fault", "stage_done"] = "progress"
+    severity: Literal["info", "warn", "error"] = "info"
+    progress_digest: dict[str, Any] = Field(default_factory=dict)
+    dedupe_key: str = ""
 
 
 class WorkflowDecision(BaseModel):
@@ -141,3 +387,10 @@ class WorkerResult(BaseModel):
     budget_used: dict[str, int] = Field(default_factory=dict)
     # 结果来自 worker journal（上次运行已完成），本次没有重新执行。
     reused: bool = False
+    # 子编排器的结构化结果与上浮信号（只内部使用，不出站）。
+    sub_result: dict[str, Any] = Field(default_factory=dict)
+    sub_signals: list[dict[str, Any]] = Field(default_factory=list)
+    parent_sub_id: str = ""
+    fanout_index: int = 0
+    sub_spawn_mode: str = ""
+    sub_budget_used: int = 0

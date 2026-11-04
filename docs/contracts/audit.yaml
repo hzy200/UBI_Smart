@@ -24,6 +24,7 @@ kinds:
   - kind: orchestration
   - kind: steering
   - kind: memory
+  - kind: library
   - kind: run_end
   - kind: run_error
   - kind: recovery
@@ -141,3 +142,49 @@ field_groups:
         type: "int | None"
       - name: scope_violations
         type: "list[str]"
+      - name: parent_sub_id
+        type: "str | None"
+      - name: fanout_index
+        type: "int | None"
+      - name: sub_spawn_mode
+        type: "str | None"
+      - name: sub_budget_used
+        type: "int | None"
+      - name: est_steps
+        type: "int | None"
+      - name: est_tool_calls
+        type: "int | None"
+      - name: est_tokens_p50
+        type: "int | None"
+      - name: est_tokens_p90
+        type: "int | None"
+      - name: est_wall_ms_p50
+        type: "int | None"
+      - name: est_wall_ms_p90
+        type: "int | None"
+      - name: actual_steps
+        type: "int | None"
+      - name: actual_tool_calls
+        type: "int | None"
+      - name: actual_tokens
+        type: "int | None"
+      - name: actual_wall_ms
+        type: "int | None"
+      - name: invalid_steps
+        type: "int | None"
+      - name: invalid_step_ratio
+        type: "float | None"
+      - name: state_from
+        type: "str | None"
+      - name: state_to
+        type: "str | None"
+      - name: checkpoint_id
+        type: "str | None"
+      - name: rollback_level
+        type: "str | None"
+      - name: concurrency_unit
+        type: "str | None"
+      - name: isolation_level
+        type: "str | None"
+      - name: approval_ack_ms
+        type: "int | None"

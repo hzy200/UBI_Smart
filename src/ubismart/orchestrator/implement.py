@@ -14,6 +14,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
 import hashlib
 import posixpath
 import re
@@ -91,6 +93,14 @@ def _safe_id(task_id: str) -> str:
     text = re.sub(r"[^A-Za-z0-9_-]", "_", task_id)[:40]
     digest = hashlib.sha1(task_id.encode("utf-8")).hexdigest()[:8]
     return f"{text}-{digest}" if text else digest
+
+
+def _worktree_id(task_id: str, attempt: int = 1) -> str:
+    """worktree / patch 标识；重试必须换目录，不能复用旧 attempt。"""
+    number = max(1, int(attempt or 1))
+    if number <= 1:
+        return _safe_id(task_id)
+    return _safe_id(f"{task_id}#attempt-{number}")
 
 
 def _usage(message: Any) -> tuple[int, int]:
@@ -469,9 +479,10 @@ def _apply_seed_patch(
     task_id: str,
     excludes: str,
     data: bytes,
+    attempt: int = 1,
 ) -> tuple[bool, str, str]:
     patch_rel = posixpath.join(
-        ".agent", "seeds", f"{_safe_id(task_id)}.patch"
+        ".agent", "seeds", f"{_worktree_id(task_id, attempt)}.patch"
     )
     patch_abs = posixpath.join(root, patch_rel)
     try:
@@ -538,6 +549,7 @@ def _seed_worktree(
     worktree: str,
     task_id: str,
     settings: Settings,
+    attempt: int = 1,
 ) -> tuple[bool, str, str, list[str], int]:
     """把主工作区已合并的未提交改动注入新 worktree，并返回基线树。
 
@@ -575,7 +587,7 @@ def _seed_worktree(
             0,
         )
     ok, error, base_ref = _apply_seed_patch(
-        sandbox, root, worktree, task_id, excludes, data
+        sandbox, root, worktree, task_id, excludes, data, attempt
     )
     if not ok:
         return False, error, "", [], 0
@@ -588,6 +600,7 @@ def _make_patch(
     root: str,
     task_id: str,
     base_ref: str = "HEAD",
+    attempt: int = 1,
 ) -> str:
     excludes = stage_args()
     diff = host_run(
@@ -599,7 +612,9 @@ def _make_patch(
     )
     if not diff.ok or not diff.stdout.strip():
         return ""
-    patch_rel = posixpath.join(".agent", "patches", f"{_safe_id(task_id)}.patch")
+    patch_rel = posixpath.join(
+        ".agent", "patches", f"{_worktree_id(task_id, attempt)}.patch"
+    )
     try:
         SandboxFs(sandbox, root).write_text(patch_rel, diff.stdout)
     except Exception:  # noqa: BLE001
@@ -725,7 +740,19 @@ class _ImplementRun:
         self.instructions = instructions
         self.started = time.monotonic()
         self.task_id = str(task.get("id", ""))
-        self.safe = _safe_id(self.task_id)
+        self.attempt = max(1, int(task.get("attempt") or 1))
+        # 把 attempt 编进传给 helpers 的标识，既保持它们原有的五参数签名，
+        # 又让 worktree/patch/seed 路径在重试时天然隔离。
+        self.safe = _worktree_id(self.task_id, self.attempt)
+        # 首次 attempt 保持原有 task_id 传给 helper（测试与旧补丁路径不变）；
+        # 重试时传入带 attempt 的稳定标识，确保 patch/seed 也不复用。
+        self.export_id = (
+            self.task_id if self.attempt <= 1 else self.safe
+        )
+        # 取消只停协程，不停 to_thread 里的 wsl.exe；保留 executor future，
+        # 清理 worktree 前先确认这些进程已经退出。
+        self._thread_futures: set[asyncio.Future[Any]] = set()
+        self._cleanup_task: asyncio.Task[Any] | None = None
         self.goal = str(task.get("goal", "")).strip()
         self.retry_note = format_retry_context(task)
         self.scopes = _normalize_implement_scopes(task)
@@ -801,21 +828,37 @@ class _ImplementRun:
         self._build_agent()
         return None
 
+    async def _call_thread(
+        self, fn: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
+        """`to_thread` + 追踪：取消时线程可能仍在跑，清理要等它退出。"""
+        loop = asyncio.get_running_loop()
+        # run_in_executor 不像 to_thread 那样自动复制 contextvars；工具执行
+        # 上下文（审计/工作区）必须显式带进线程。
+        ctx = contextvars.copy_context()
+        future = loop.run_in_executor(
+            None, ctx.run, functools.partial(fn, *args, **kwargs)
+        )
+        self._thread_futures.add(future)
+        future.add_done_callback(self._thread_futures.discard)
+        # shield：外层取消不应把 executor future 一起取消（线程本来也停不了）。
+        return await asyncio.shield(future)
+
     async def _check_git(self) -> tuple[bool, str]:
         if self.sequential:
-            return await asyncio.to_thread(
+            return await self._call_thread(
                 _git_ready,
                 self.sandbox,
                 self.root,
                 allow_dirty_paths=self.baseline_paths,
             )
-        return await asyncio.to_thread(_git_ready, self.sandbox, self.root)
+        return await self._call_thread(_git_ready, self.sandbox, self.root)
 
     async def _shell(
         self, command: str, *, kind: str, cwd: str | None = None
     ) -> Any:
         """把同步沙箱调用挪出事件循环，避免阻塞同批其它 worker。"""
-        return await asyncio.to_thread(
+        return await self._call_thread(
             host_run,
             self.sandbox,
             command,
@@ -878,7 +921,7 @@ class _ImplementRun:
                 kind="git_worktree",
             )
         except asyncio.CancelledError:
-            self._remove_worktree()
+            # 交给 run() 的 finally：那里会先等在飞线程退出再清理。
             raise
         self.created = created
         if created.ok:
@@ -889,25 +932,43 @@ class _ImplementRun:
     async def _cleanup_worktree(self) -> None:
         """移除本次 worker 的 worktree；取消路径也必须执行。
 
-        `git worktree remove` / `prune` 是宿主清理动作，不经过 worker
-        工具。取消发生在 `await` 点时，finally 仍要把它跑完，否则
-        `.agent/worktrees/` 会残留。
-
-        正常路径把清理丢到线程里；**已被取消时改走同步清理**：
-        取消状态下再次 `await` 会被立刻打断，清理可能只做了一半。
-        同步调用虽然短暂阻塞事件循环，但只发生在取消/超时路径。
+        取消只停协程，不停 `to_thread` 里的 wsl.exe。若还有在飞的线程，
+        不能立刻 `rm -rf`：那会和仍在写文件的进程竞态。改为等线程退出后
+        再清理；等不到就留给下次启动的 orphan prune。
         """
+        pending = {f for f in self._thread_futures if not f.done()}
+        if pending:
+            loop = asyncio.get_running_loop()
+            self._cleanup_task = loop.create_task(
+                self._cleanup_after_threads(pending)
+            )
+            return
         current = asyncio.current_task()
         if current is not None and current.cancelling():
             self._remove_worktree()
             return
         try:
-            await asyncio.shield(
-                asyncio.to_thread(self._remove_worktree)
-            )
+            await asyncio.shield(self._call_thread(self._remove_worktree))
         except asyncio.CancelledError:
-            self._remove_worktree()
+            # 清理本身也被取消：目录留在原地，交给 orphan prune。
             raise
+
+    async def _cleanup_after_threads(
+        self, futures: set[asyncio.Future[Any]]
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        waits = [asyncio.wrap_future(f, loop=loop) for f in futures]
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*waits, return_exceptions=True),
+                timeout=30.0,
+            )
+        except (TimeoutError, asyncio.CancelledError):
+            return
+        try:
+            await asyncio.to_thread(self._remove_worktree)
+        except Exception:  # noqa: BLE001 - 清理失败留给 orphan prune
+            return
 
     async def _seed(self) -> bool:
         (
@@ -916,12 +977,12 @@ class _ImplementRun:
             self.base_ref,
             self.seed_files,
             self.seed_bytes,
-        ) = await asyncio.to_thread(
+        ) = await self._call_thread(
             _seed_worktree,
             self.sandbox,
             self.root,
             self.worktree,
-            self.task_id,
+            self.export_id,
             self.settings,
         )
         return seeded
@@ -989,7 +1050,7 @@ class _ImplementRun:
                 with tool_execution_context(
                     f"worker:{self.task_id}", call_id
                 ):
-                    raw = await asyncio.to_thread(
+                    raw = await self._call_thread(
                         tool.invoke,
                         call_args,
                         self.child_config,
@@ -1071,15 +1132,15 @@ class _ImplementRun:
         return "done"
 
     async def _verify(self) -> str:
-        changed = await asyncio.to_thread(
+        changed = await self._call_thread(
             _changed_files, self.sandbox, self.worktree, self.base_ref
         )
         if not changed:
             return "no_changes"
-        related = await asyncio.to_thread(
+        related = await self._call_thread(
             _impacted_tests, self.sandbox, self.worktree, list(changed)
         )
-        result = await asyncio.to_thread(
+        result = await self._call_thread(
             run_verification,
             self.sandbox,
             self.worktree,
@@ -1171,7 +1232,7 @@ class _ImplementRun:
                 },
             )
 
-        changed = await asyncio.to_thread(
+        changed = await self._call_thread(
             _changed_files, self.sandbox, self.worktree, self.base_ref
         )
         out_of_scope = [
@@ -1195,12 +1256,12 @@ class _ImplementRun:
             status = "failed"
             self.error = self.error or "实现 worker 没有产生任何文件改动"
         else:
-            patch_path = await asyncio.to_thread(
+            patch_path = await self._call_thread(
                 _make_patch,
                 self.sandbox,
                 self.worktree,
                 self.root,
-                self.task_id,
+                self.export_id,
                 self.base_ref,
             )
             if not patch_path:

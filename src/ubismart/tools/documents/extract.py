@@ -10,8 +10,10 @@ import base64
 import csv
 import hashlib
 import io
+import posixpath
 import re
 import zipfile
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,8 @@ TEXT_SUFFIXES = {
     ".rs", ".c", ".h", ".cpp", ".hpp", ".kt",
 }
 CSV_SUFFIXES = {".csv", ".tsv"}
+HTML_SUFFIXES = {".html", ".htm"}
+EPUB_SUFFIX = ".epub"
 ZIP_SUFFIXES = {".docx", ".xlsx", ".xlsm", ".pptx"}
 MIME = {
     ".pdf": "application/pdf",
@@ -40,6 +44,9 @@ MIME = {
     ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
     ".xls": "application/vnd.ms-excel",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".epub": "application/epub+zip",
+    ".html": "text/html",
+    ".htm": "text/html",
     ".md": "text/markdown",
     ".markdown": "text/markdown",
     ".csv": "text/csv",
@@ -1177,6 +1184,160 @@ def extract_embedded_images(
     return []
 
 
+class _HtmlTextExtractor(HTMLParser):
+    """把 HTML/EPUB XHTML 转成带 Markdown 标题的纯文本。
+
+    只读文本，不解析脚本/样式；href 等属性不进入正文。表格用 ` | ` 分隔。
+    """
+
+    _BLOCK_TAGS = {
+        "p", "div", "section", "article", "li", "tr", "br",
+        "blockquote", "pre",
+    }
+    _SKIP_TAGS = {"script", "style", "noscript", "template"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag: str, attrs):  # noqa: ANN001 - stdlib API
+        tag = tag.lower()
+        if tag in self._SKIP_TAGS:
+            self._skip += 1
+            return
+        if self._skip:
+            return
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            self.parts.append("\n\n" + "#" * int(tag[1]) + " ")
+        elif tag in self._BLOCK_TAGS:
+            self.parts.append("\n\n")
+        elif tag in {"td", "th"}:
+            self.parts.append(" | ")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in self._SKIP_TAGS:
+            self._skip = max(0, self._skip - 1)
+            return
+        if self._skip:
+            return
+        if tag in self._BLOCK_TAGS or tag in {
+            "h1", "h2", "h3", "h4", "h5", "h6",
+        }:
+            self.parts.append("\n\n")
+        elif tag in {"td", "th"}:
+            self.parts.append(" | ")
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip and data:
+            self.parts.append(data)
+
+    def text(self) -> str:
+        return "".join(self.parts)
+
+
+def _html_blocks(data: bytes) -> list[DocumentBlock]:
+    text = data.decode("utf-8", errors="replace")
+    if "\x00" in text:
+        raise DocumentError("HTML 包含 NUL 字节，不是可读文本")
+    parser = _HtmlTextExtractor()
+    parser.feed(text)
+    parser.close()
+    return _text_blocks(parser.text())
+
+
+def _html(data: bytes, limits: DocumentLimits) -> DocumentModel:
+    blocks = _html_blocks(data)
+    return DocumentModel(
+        format="html",
+        mime=MIME[".html"],
+        blocks=blocks,
+    )
+
+
+def _safe_epub_member(href: str, opf_dir: str) -> str:
+    raw = str(href or "").strip().replace("\\", "/")
+    if not raw or raw.startswith("/") or "\x00" in raw:
+        raise DocumentError("EPUB 清单包含非法路径")
+    target = posixpath.normpath(posixpath.join(opf_dir, raw))
+    if target == ".." or target.startswith("../") or target.startswith("/"):
+        raise DocumentError("EPUB 清单路径越界")
+    return target
+
+
+def _epub(data: bytes, limits: DocumentLimits) -> DocumentModel:
+    try:
+        from defusedxml import ElementTree as DefusedET
+    except ImportError as exc:
+        raise _missing("defusedxml", ".epub") from exc
+    _check_zip(data, limits, ".epub")
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            container = DefusedET.fromstring(
+                archive.read("META-INF/container.xml")
+            )
+            rootfile = next(
+                (
+                    node
+                    for node in container.iter()
+                    if str(node.tag).rsplit("}", 1)[-1] == "rootfile"
+                ),
+                None,
+            )
+            opf_path = (
+                str(rootfile.attrib.get("full-path", ""))
+                if rootfile is not None
+                else ""
+            )
+            if not opf_path:
+                raise DocumentError("EPUB 缺少 OPF rootfile")
+            opf_path = _safe_epub_member(opf_path, "")
+            opf = DefusedET.fromstring(archive.read(opf_path))
+            manifest: dict[str, str] = {}
+            for node in opf.iter():
+                if str(node.tag).rsplit("}", 1)[-1] != "item":
+                    continue
+                item_id = str(node.attrib.get("id", ""))
+                href = str(node.attrib.get("href", ""))
+                if item_id and href:
+                    manifest[item_id] = _safe_epub_member(
+                        href, posixpath.dirname(opf_path)
+                    )
+            spine = [
+                str(node.attrib.get("idref", ""))
+                for node in opf.iter()
+                if str(node.tag).rsplit("}", 1)[-1] == "itemref"
+            ]
+            blocks: list[DocumentBlock] = []
+            truncated = False
+            for index, item_id in enumerate(spine, 1):
+                href = manifest.get(item_id)
+                if not href or href not in archive.namelist():
+                    continue
+                if len(blocks) >= limits.max_blocks:
+                    truncated = True
+                    break
+                blocks.append(
+                    DocumentBlock(
+                        kind="section",
+                        anchor=f"chapter={index}",
+                        text=f"第 {index} 章",
+                    )
+                )
+                blocks.extend(_html_blocks(archive.read(href)))
+            if not blocks:
+                raise DocumentError("EPUB 没有可读取的章节")
+            return DocumentModel(
+                format="epub",
+                mime=MIME[".epub"],
+                blocks=blocks,
+                truncated=truncated,
+            )
+    except zipfile.BadZipFile as exc:
+        raise DocumentError(f"EPUB 压缩包损坏：{exc}") from exc
+
+
 def _parse_by_suffix(
     suffix: str, data: bytes, limits: DocumentLimits
 ) -> DocumentModel:
@@ -1192,6 +1353,10 @@ def _parse_by_suffix(
         return _xls(data, limits)
     if suffix == ".pptx":
         return _pptx(data, limits)
+    if suffix == EPUB_SUFFIX:
+        return _epub(data, limits)
+    if suffix in HTML_SUFFIXES:
+        return _html(data, limits)
     if suffix in CSV_SUFFIXES:
         text = data.decode("utf-8", errors="replace")
         blocks = _csv_blocks(text, "\t" if suffix == ".tsv" else ",")
@@ -1207,7 +1372,7 @@ def _parse_by_suffix(
         )
     raise UnsupportedFormat(
         f"暂不支持 {suffix or '无扩展名'} 的文档解析。"
-        "支持 pdf、docx、xlsx、xls、pptx、md、csv 与常见文本格式。"
+        "支持 pdf、docx、xlsx、xls、pptx、epub、html、md、csv 与常见文本格式。"
     )
 
 

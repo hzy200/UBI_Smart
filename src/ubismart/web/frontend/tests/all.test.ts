@@ -10,6 +10,7 @@ import './git.test';
 import './history.test';
 import './history-cache.test';
 import './i18n.test';
+import './library.test';
 import './markdown.test';
 import './memo.test';
 import './multi-tab.test';

@@ -15,9 +15,9 @@
 | 测试套件 | `tests/` | 见 `ACCEPTANCE.md` 第 1 节 | `pytest -m "not llm"` |
 | 流水线 | `.github/workflows/` | [`../CI.md`](../CI.md) | GitHub Actions |
 
-- 事件类型：**29** 个
-- 配置项：**400** 个
-- 静态分级工具：**34** 个（另有 `shell_exec` 按命令文本实时分类）
+- 事件类型：**34** 个
+- 配置项：**449** 个
+- 静态分级工具：**35** 个（另有 `shell_exec` 按命令文本实时分类）
 
 重跑生成：`python scripts/gen_contracts.py`。
 CI 校验：`python scripts/gen_contracts.py --check`。

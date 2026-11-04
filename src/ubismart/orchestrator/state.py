@@ -39,10 +39,21 @@ class OrchestratorState(TypedDict, total=False):
     workflow: str
     workflow_reason: str
     prefetched_tasks: list[dict[str, Any]]
+    prefetched_contract: dict[str, Any]
     prefetched_degraded: bool
     tasks: list[dict[str, Any]]
     task_status: dict[str, str]
     task_attempts: dict[str, int]
+    # ---- 契约与计划评审（S2/S4）----
+    contract: dict[str, Any]
+    contract_unknowns: list[str]
+    contract_review: dict[str, Any]
+    plan_review_failed: bool
+    # S5 预估卡与 gate 决策。
+    estimation_card: dict[str, Any]
+    # ---- 四维预算（BudgetGuard）----
+    budget_snapshot: dict[str, Any]
+    budget_abort: dict[str, Any]
     orchestrator_degraded: bool
     orchestrator_round: int
     # 任务图的并行收益预估（只读/观测用；决策在 workflow/plan 阶段完成）。
@@ -51,6 +62,14 @@ class OrchestratorState(TypedDict, total=False):
     # 跨模块变更契约与波次 gate 结果（RFC-0009 / ADR-0031）。
     change_contract: dict[str, Any]
     wave_gates: list[dict[str, Any]]
+    # 轻量控制检查点索引（contract/plan/artifact 引用/预算/早停）。
+    control_checkpoints: list[dict[str, Any]]
+    # 重复动作熔断信息（tool/args 哈希达到上限）。
+    loop_abort: dict[str, Any]
+    # 嵌套子编排器：Root=0，子=1；子图内不得再出站卡片/事件。
+    sub_depth: int
+    suppress_events: bool
+    wall_limit_ms: int
     # 瞬时错误重试次数；与父图同名，runtime 统一累加。
     transient_retries: int
     workflow_revised_reason: str
@@ -86,6 +105,9 @@ class OrchestratorState(TypedDict, total=False):
 
     # ---- steering ----
     steering_cancelled: bool
+    steering_aborted: bool
+    steering_rollback_steps: int
+    plan_version: int
     steering_replan: bool
     steering_replans: int
     steering_applied: list[dict[str, Any]]

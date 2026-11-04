@@ -151,12 +151,15 @@ def _register_steer(app: FastAPI, deps: LifecycleDeps) -> None:
         runtime = deps.runs.get(deps.key(context, thread_id))
         if runtime is None:
             raise HTTPException(status_code=404, detail="会话不在运行")
-        runtime.steer(
-            thread_id,
-            body.action,
-            text=body.text,
-            source="web",
-        )
+        try:
+            runtime.steer(
+                thread_id,
+                body.action,
+                text=body.text,
+                source="web",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"ok": True, "thread_id": thread_id, "action": body.action}
 
 def _register_cancel_all(app: FastAPI, deps: LifecycleDeps) -> None:

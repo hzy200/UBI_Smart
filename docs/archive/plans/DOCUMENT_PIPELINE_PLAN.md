@@ -413,3 +413,13 @@ AGENT_DOCUMENT_TREE_INPUT_CHARS=16000
 
 关闭矩阵即回退到扁平摘要 + 树状归并；关闭 `AGENT_DOCUMENT_MAP_REDUCE`
 则退回单次抽取（仍受 `document_max_chars` 上限）。
+
+### 12.4 创新点提炼（ADR-0040）
+
+`knowledge/innovation.py::extract_innovations` 在矩阵 + 已验证 sources 之上
+生成可证伪创新候选，第二层 novelty critic 只依据给定材料复核；证据路径支持
+path/basename/标题归一，首轮只覆盖一篇时对未覆盖文档做有界补充。
+3 篇实测 8 候选、6 支持、3/3 文档证据、归属 0。它不宣称外部新颖性，也未
+接入 orchestrator 常规任务图；paper-to-code 仍是后续增量。
+
+复现：`python tests/eval/papers.py --case papers/innovation --json`。

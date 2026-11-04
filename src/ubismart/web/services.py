@@ -374,9 +374,28 @@ class AgentGateway:
             model=config.model if config else "",
             provider=config.provider if config else "",
             allow_write=self.allow_write,
+            library_root=str(getattr(tenant, "library_dir", "") or ""),
             api_keys=(
                 self.keys(user, tenant) if include_keys else {}
             ),
+        )
+
+    def library_context(
+        self, user: AuthUser, tenant: WebTenant
+    ) -> AgentContext:
+        """资料库是每用户跨工作区的，不绑定具体会话/工作区。
+
+        强制使用 sandbox 上下文，避免 host 工作区默认值把 A2L 可用性
+        引入资料库上传/检索路径。
+        """
+        return AgentContext(
+            tenant=tenant.user,
+            user=user.name,
+            workspace=tenant.workspace,
+            workspace_kind="sandbox",
+            access_mode=self.effective_access(None),
+            allow_write=False,
+            library_root=str(getattr(tenant, "library_dir", "") or ""),
         )
 
     def failure(self, exc: Exception) -> HTTPException:
@@ -493,6 +512,45 @@ class AgentGateway:
                 self.context(user, tenant, config),
                 thread_id,
                 files,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise self.failure(exc) from exc
+
+    async def library_upload(
+        self,
+        user: AuthUser,
+        tenant: WebTenant,
+        name: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> dict:
+        try:
+            return await self.agent_client.upload_library_file(
+                self.library_context(user, tenant),
+                name,
+                data,
+                content_type,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise self.failure(exc) from exc
+
+    async def library_json(
+        self,
+        user: AuthUser,
+        tenant: WebTenant,
+        method: str,
+        path: str,
+        *,
+        params: dict | None = None,
+        json_body: dict | None = None,
+    ) -> dict:
+        try:
+            return await self.agent_client.json_request(
+                self.library_context(user, tenant),
+                method,
+                path,
+                params=params,
+                json=json_body,
             )
         except Exception as exc:  # noqa: BLE001
             raise self.failure(exc) from exc

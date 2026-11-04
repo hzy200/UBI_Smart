@@ -466,6 +466,43 @@ __AGENT_WRITE_MANY__
             raise SandboxFsError(f"批量写入失败：{result.render(500)}")
         return sum(len(content.encode("utf-8")) for content in files.values())
 
+    def rename(self, src: str, dst: str) -> None:
+        """同一文件系统内原子重命名（内部产物提交用）。
+
+        两侧都做 realpath 校验；目标父目录不存在时创建。用于资料库把
+        staging 目录里的产物逐个换上台，`chunks.jsonl` 最后换，作为提交点。
+        """
+        src_lexical = ensure_inside(src, self.root, cwd=self.root)
+        dst_lexical = ensure_inside(dst, self.root, cwd=self.root)
+        if self._cache is not None:
+            self._cache.pop(src_lexical, None)
+            self._cache.pop(dst_lexical, None)
+        script = f"""\
+src={_quote(src_lexical)}
+dst={_quote(dst_lexical)}
+root={_quote(self.real_root)}
+src_real=$(realpath -m -- "$src")
+case "$src_real" in
+  "$root"|"$root"/*) ;;
+  *) echo "ESCAPED=$src_real" >&2; exit 9 ;;
+esac
+dst_dir=$(realpath -m -- "$(dirname -- "$dst")")
+case "$dst_dir" in
+  "$root"|"$root"/*) ;;
+  *) echo "ESCAPED=$dst_dir" >&2; exit 9 ;;
+esac
+mkdir -p -- "$dst_dir" || exit 10
+mv -f -- "$src_real" "$dst" || exit 11
+"""
+        result = self._sandbox.run(script)
+        if not result.ok:
+            if "ESCAPED=" in (result.stderr or ""):
+                raise SandboxPathError(
+                    "路径经符号链接逃出工作区，已拒绝重命名："
+                    f"{result.stderr.strip()}"
+                )
+            raise SandboxFsError(f"重命名失败：{result.render(500)}")
+
     def remove(self, path: str, *, known_file: bool = False) -> bool:
         """删除工作区内的**普通文件**，返回它此前是否存在。
 

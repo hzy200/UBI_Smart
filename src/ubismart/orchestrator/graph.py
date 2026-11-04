@@ -12,7 +12,16 @@ from typing import Any
 from ubismart.orchestrator.contracts import TaskSpec
 
 ALLOWED_ROLES = frozenset(
-    {"explore", "test", "review", "implement", "document", "vision", "author"}
+    {
+        "explore",
+        "test",
+        "review",
+        "implement",
+        "document",
+        "vision",
+        "author",
+        "sub_orchestrator",
+    }
 )
 
 
@@ -135,6 +144,18 @@ def _normalize_task_budgets(task: dict[str, Any]) -> None:
             task.pop(budget_key, None)
 
 
+def _normalize_acceptance_refs(task: dict[str, Any]) -> list[int]:
+    refs: list[int] = []
+    for raw in task.get("acceptance_refs") or []:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value >= 0 and value not in refs:
+            refs.append(value)
+    return refs
+
+
 def _normalize_write_scope(
     task: dict[str, Any],
     task_id: str,
@@ -184,6 +205,47 @@ def _normalize_task(
     task["inputs"] = [str(v) for v in (task.get("inputs") or [])]
     task["acceptance"] = [str(v) for v in (task.get("acceptance") or [])]
     task["depends_on"] = [str(v) for v in (task.get("depends_on") or [])]
+    task["acceptance_refs"] = _normalize_acceptance_refs(task)
+    task["constraints"] = [
+        str(v) for v in (task.get("constraints") or []) if str(v).strip()
+    ]
+    known = task.get("known")
+    task["known"] = dict(known) if isinstance(known, dict) else {}
+    task["unknown"] = [
+        str(v) for v in (task.get("unknown") or []) if str(v).strip()
+    ]
+    task["side_effects"] = [
+        dict(item)
+        for item in (task.get("side_effects") or [])
+        if isinstance(item, dict)
+    ]
+    task["verifiable"] = bool(task.get("verifiable", True))
+    branching = str(task.get("branching", "none")).strip().lower()
+    task["branching"] = (
+        branching if branching in {"none", "bounded", "unbounded"} else "none"
+    )
+    sub_contract = task.get("sub_contract")
+    task["sub_contract"] = (
+        dict(sub_contract) if isinstance(sub_contract, dict) else None
+    )
+    budget_slice = task.get("budget_slice")
+    task["budget_slice"] = (
+        {
+            str(key): max(0, int(value))
+            for key, value in budget_slice.items()
+            if str(key) in {"max_tokens", "max_wall_ms"}
+            and str(value).isdigit()
+        }
+        if isinstance(budget_slice, dict)
+        else {}
+    )
+    if role == "sub_orchestrator":
+        if not task.get("sub_contract"):
+            errors.append(f"任务 {task_id or '?'} 是子编排器，但没有 sub_contract")
+        if task.get("write_scope"):
+            errors.append(
+                f"任务 {task_id or '?'} 是子编排器，不能被当作写任务"
+            )
     # implement 的 depends_mode 在依赖关系解析后统一校验：顺序写下
     # implement→implement 依赖必须是 any（partial 也可能已合并）。
     task["depends_mode"] = _normalize_depends_mode(task, task_id, errors)
@@ -380,6 +442,12 @@ def validate_tasks(
             allow_write=allow_write,
             allow_author=allow_author,
         )
+
+    for index, task in enumerate(
+        [task for task in tasks if task.get("role") == "sub_orchestrator"]
+    ):
+        task["fanout_index"] = index
+        task["sub_spawn_mode"] = "static"
 
     known = set(ids)
     _validate_dependency_refs(tasks, known, errors)

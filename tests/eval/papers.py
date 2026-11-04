@@ -294,6 +294,25 @@ def build_cases(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
     )
 
+    cases.append(
+        {
+            "id": "papers/innovation",
+            "kind": "innovation",
+            "papers": papers,
+            "question": (
+                "请从提供的论文中提炼可证伪的创新候选：每个候选给出 "
+                "gap（空白/矛盾/局限）、insight、hypothesis、novelty_claim、"
+                "prior_art_contrast（相对给定材料的差异）、falsifiable_experiment、"
+                "risks 与 confidence，并附原文证据。"
+            ),
+            "min_candidates": 3,
+            "min_supported": 1,
+            "min_evidence_docs": min(2, count),
+            "max_candidates": 8,
+            "max_attribution_issues": 0,
+        }
+    )
+
     report_inputs = [f"pdf/{paper['workspace']}" for paper in papers]
     cases.append(
         {
@@ -771,6 +790,124 @@ def evaluate_report_case(
     }
 
 
+def evaluate_innovation_case(
+    case: dict[str, Any],
+    document_result: Any,
+    innovation: dict[str, Any],
+) -> dict[str, Any]:
+    inputs = case_inputs(case)
+    candidates = [
+        dict(item)
+        for item in innovation.get("candidates") or []
+        if isinstance(item, dict)
+    ]
+    supported = [item for item in candidates if item.get("supported")]
+    evidence_docs = {
+        path
+        for item in candidates
+        for path in item.get("evidence_docs") or []
+        if path in inputs
+    }
+    invalid_evidence = [
+        (item.get("path"), item.get("anchor"))
+        for candidate in candidates
+        for item in candidate.get("evidence") or []
+        if str(item.get("path", "")) not in inputs
+    ]
+
+    coverage = getattr(document_result, "coverage", {}) or {}
+    documents = [
+        item for item in coverage.get("documents") or [] if isinstance(item, dict)
+    ]
+    coverage_by_path = {
+        str(item.get("path", "")): item for item in documents
+    }
+    coverage_complete = len(documents) == len(inputs) and all(
+        str(coverage_by_path.get(path, {}).get("status", "")) == "complete"
+        for path in inputs
+    )
+
+    reasons: list[str] = []
+    if not coverage_complete:
+        reasons.append("文档覆盖不完整")
+    if len(candidates) < int(case.get("min_candidates", 1)):
+        reasons.append(
+            f"创新候选不足：{len(candidates)}/{case.get('min_candidates')}"
+        )
+    if len(candidates) > int(case.get("max_candidates", 8)):
+        reasons.append(
+            f"创新候选过多：{len(candidates)}/{case.get('max_candidates')}"
+        )
+    if len(supported) < int(case.get("min_supported", 1)):
+        reasons.append(
+            f"通过 critic 的候选不足：{len(supported)}/"
+            f"{case.get('min_supported')}"
+        )
+    if len(evidence_docs) < int(case.get("min_evidence_docs", 1)):
+        reasons.append(
+            f"证据覆盖文档不足：{len(evidence_docs)}/"
+            f"{case.get('min_evidence_docs')}"
+        )
+    if invalid_evidence:
+        reasons.append(f"存在无法归属的证据：{invalid_evidence[:5]}")
+    for issue in innovation.get("issues") or []:
+        if "没有可归属" in str(issue) or "无法解析" in str(issue):
+            reasons.append(str(issue))
+
+    matrix = [
+        dict(item)
+        for item in getattr(document_result, "matrix", []) or []
+        if isinstance(item, dict)
+    ]
+    from ubismart.knowledge.attribution import find_attribution_issues
+
+    attribution_issues = find_attribution_issues(
+        " ".join(
+            str(item.get(key, ""))
+            for item in candidates
+            for key in (
+                "title",
+                "gap",
+                "insight",
+                "novelty_claim",
+                "prior_art_contrast",
+            )
+        ),
+        [
+            {
+                "path": str(item.get("path", "")),
+                "title": str(item.get("title", "")),
+            }
+            for item in matrix
+        ]
+        or [{"path": path} for path in inputs],
+    )
+    max_attr = case.get("max_attribution_issues")
+    if max_attr is not None and len(attribution_issues) > int(max_attr):
+        reasons.append(
+            f"创新点归属错配：{len(attribution_issues)} > {int(max_attr)}"
+        )
+
+    return {
+        "case": case["id"],
+        "status": "success" if candidates else "partial",
+        "coverage_complete": coverage_complete,
+        "candidates": len(candidates),
+        "supported_candidates": len(supported),
+        "evidence_docs": sorted(evidence_docs),
+        "attribution_issues": attribution_issues[:10],
+        "innovation_issues": list(innovation.get("issues") or [])[:10],
+        "input_tokens": int(getattr(document_result, "input_tokens", 0) or 0)
+        + int(innovation.get("input_tokens") or 0),
+        "output_tokens": int(getattr(document_result, "output_tokens", 0) or 0)
+        + int(innovation.get("output_tokens") or 0),
+        "duration_ms": int(getattr(document_result, "duration_ms", 0) or 0),
+        "passed": not reasons,
+        "reasons": reasons,
+        "candidates_detail": candidates,
+    }
+
+
 def _prepare_workspace(case: dict[str, Any], base: Path) -> Path:
     root = base / "ws"
     target = root / "pdf"
@@ -983,6 +1120,75 @@ async def _run_report_case_async(
             shutil.rmtree(base, ignore_errors=True)
 
 
+async def _run_innovation_case_async(
+    case: dict[str, Any],
+    *,
+    model: str = "",
+    judge_llm: bool = False,
+    keep_workspace: bool = False,
+) -> dict[str, Any]:
+    from ubismart.config import get_settings
+    from ubismart.knowledge.innovation import extract_innovations
+    from ubismart.llm.deepseek import build_llm
+    from ubismart.orchestrator.document_workers import make_document_runner
+    from ubismart.sandbox.backend import build_sandbox
+    from ubismart.tools.registry import build_tools
+
+    staging = ROOT / ".agent"
+    staging.mkdir(parents=True, exist_ok=True)
+    base = Path(tempfile.mkdtemp(prefix="papers-innovation-", dir=str(staging)))
+    try:
+        workspace = _prepare_workspace(case, base)
+        settings = get_settings().model_copy(
+            update={
+                "wsl_workspace": str(workspace),
+                "document_max_bytes": 40_000_000,
+                "document_max_pages": 200,
+                "deep_workflows_enabled": True,
+                "document_full_coverage": True,
+                "document_map_reduce": True,
+                "document_map_concurrency": 3,
+                "document_matrix_enabled": True,
+                "document_tree_fanout": 5,
+                "document_tree_input_chars": 16_000,
+            }
+        )
+        sandbox = build_sandbox(settings)
+        tools = build_tools(settings, sandbox=sandbox, allow_write=False)
+        llm = build_llm(settings, streaming=False, model_override=model)
+        document_runner = make_document_runner(
+            llm=llm, tools=tools, settings=settings
+        )
+        started = time.perf_counter()
+        document_result = await document_runner(
+            {
+                "id": case["id"].replace("/", "-"),
+                "role": "document",
+                "goal": case["question"],
+                "inputs": case_inputs(case),
+                "knowledge_run_id": f"innovation-{int(time.time())}",
+            },
+            parent_request=case["question"],
+        )
+        innovation = await extract_innovations(
+            llm,
+            document_result.matrix,
+            document_result.sources,
+            top_k=int(case.get("max_candidates", 8)),
+            min_docs=int(case.get("min_evidence_docs", 2)),
+        )
+        report = evaluate_innovation_case(
+            case, document_result, innovation
+        )
+        report["wall_ms"] = int((time.perf_counter() - started) * 1000)
+        if keep_workspace:
+            report["workspace"] = str(workspace)
+        return report
+    finally:
+        if not keep_workspace:
+            shutil.rmtree(base, ignore_errors=True)
+
+
 def run_case(
     case: dict[str, Any],
     *,
@@ -990,11 +1196,11 @@ def run_case(
     judge_llm: bool = False,
     keep_workspace: bool = False,
 ) -> dict[str, Any]:
-    runner = (
-        _run_report_case_async
-        if case.get("kind") == "report"
-        else _run_case_async
-    )
+    runners = {
+        "report": _run_report_case_async,
+        "innovation": _run_innovation_case_async,
+    }
+    runner = runners.get(str(case.get("kind") or ""), _run_case_async)
     return asyncio.run(
         runner(
             case,

@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "documents": [
+    {
+      "name": "网络规范.md",
+      "text": "# 网络规范\n\nHTTPS 必须启用 TLS 1.3。反向代理禁止明文回源。\n\n## 证书\n\n证书由平台统一签发，禁止使用自签名证书。"
+    },
+    {
+      "name": "数据库规范.md",
+      "text": "# 数据库规范\n\nMySQL 只做控制面索引。禁止在数据库中保存 checkpoint、文件内容或明文密钥。\n\n## 迁移\n\n生产环境使用 Alembic，不允许自动建表。"
+    },
+    {
+      "name": "发布流程.md",
+      "text": "# 发布流程\n\n发布前必须跑 pytest 与 ruff。灰度发布先切 10% 流量，观察错误率与延迟。\n\n## 回滚\n\n回滚使用上一版镜像，并保留审计与快照。"
+    },
+    {
+      "name": "沙箱规范.md",
+      "text": "# 沙箱规范\n\n所有命令在 WSL2 沙箱中执行。L3 命令必须人工确认，禁止绕过审批。\n\n## 路径\n\n路径校验同时做词法归一化与 realpath 解析。"
+    },
+    {
+      "name": "资料库说明.md",
+      "text": "# 资料库说明\n\n资料库按用户跨工作区保存。上传后异步解析、切块与向量化，模型通过 library_search 主动检索。"
+    },
+    {
+      "name": "记忆说明.md",
+      "text": "# 记忆说明\n\n长期记忆只保存稳定的项目约定，不保存临时任务状态。记忆按相关度注入提示词。"
+    }
+  ],
+  "queries": [
+    {"query": "HTTPS TLS 证书", "expected": "网络规范.md"},
+    {"query": "MySQL 控制面 checkpoint", "expected": "数据库规范.md"},
+    {"query": "Alembic 迁移 自动建表", "expected": "数据库规范.md"},
+    {"query": "pytest ruff 灰度 回滚", "expected": "发布流程.md"},
+    {"query": "WSL2 L3 审批", "expected": "沙箱规范.md"},
+    {"query": "realpath 路径校验", "expected": "沙箱规范.md"},
+    {"query": "资料库 异步 向量化", "expected": "资料库说明.md"},
+    {"query": "记忆 临时任务状态", "expected": "记忆说明.md"}
+  ]
+}

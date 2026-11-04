@@ -329,3 +329,40 @@ python tests/eval/papers.py --case papers/report --json
 python tests/eval/papers.py --pdf-dir pdf --case papers/cross_method --json
 python tests/eval/papers.py --pdf-dir pdf --case papers/report --json
 ```
+
+## 10. 创新点提炼 + novelty critic（2026-10-31）
+
+实现 `knowledge/innovation.py`：从文档矩阵与已验证 sources 生成
+`gap/insight/hypothesis/novelty_claim/prior_art_contrast/falsifiable_experiment/
+risks/confidence`，第二层 critic 只依据给定材料复核。证据路径支持
+path/basename/标题别名归一；首轮只覆盖一篇文档时，对未覆盖文档做一次有界补充。
+决策见 [ADR-0040](../../adr/0040-innovation-extraction-and-novelty-critic.md)。
+
+3 篇实测（U-Net / VMamba / DPS）：
+
+| 指标 | 值 |
+|---|---|
+| 候选 / 通过 critic | 8 / 6 |
+| 参与证据的文档 | 3/3 |
+| 归属错配 | 0 |
+| token | 70,198 in / 49,676 out |
+| 耗时 | 113.9s |
+
+观察：
+- 候选能给出可证伪实验（分辨率斜率、ZOH 阶数对照、扫描模式因子实验等），
+  并通过 critic 指出“证据与主张不一致/前提依赖/指标不匹配”等风险；
+- 首轮只覆盖 VMamba 时，补充调用成功为 DPS/U-Net 生成候选；
+- 模型会把证据路径写成标题或 basename，路径归一后不再整批丢失。
+
+边界：
+- critic 仍是 LLM，score 不是新颖性证明；只覆盖给定材料，未做外部
+  prior-art 检索；“首次”类主张必须降级为“相对给定材料”；
+- 目前是独立能力与评测，尚未接入 orchestrator 常规任务图；
+- paper-to-code（算法规格 → 代码 → 沙箱测试 → 修复）仍未实现。
+
+复现：
+
+```bash
+python tests/eval/papers.py --case papers/innovation --json
+pytest -m "not llm" tests/unit/test_innovation.py -q
+```

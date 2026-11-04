@@ -425,8 +425,15 @@ def resume(
 
 def steer(
     thread_id: str = typer.Option(..., "--thread-id", help="正在运行的会话 id"),
-    action: str = typer.Argument(..., help="pause / cancel / add / replan"),
-    text: str = typer.Option("", "--text", help="add/replan 的说明文本"),
+    action: str = typer.Argument(
+        ...,
+        help="pause / cancel / abort / rollback / add / replan / patch",
+    ),
+    text: str = typer.Option(
+        "",
+        "--text",
+        help="add/replan 的说明；rollback 传步数；patch 传契约 JSON",
+    ),
     role: str = typer.Option("explore", "--role", help="add 的角色：explore / test / review"),
     steering_dir: str = typer.Option(
         "",

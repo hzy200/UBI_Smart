@@ -4,7 +4,7 @@ doc_id: usage
 title: 安装、配置与使用
 owner: 项目作者
 status: active
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-04
 review_cadence: 命令或配置变动时
 note: 场景化的「故障 → 处置步骤」版本见 docs/runbook.yaml。
 ---
@@ -180,7 +180,20 @@ AGENT_WSL_WORKSPACE=/home/you/agent-ws
 | `AGENT_ORCHESTRATOR_MAX_TASKS` | `6` | 任务总数上限 |
 | `AGENT_ORCHESTRATOR_MAX_CONCURRENT_WORKERS` | `4` | 并发 worker 上限 |
 | `AGENT_ORCHESTRATOR_TASK_RETRIES` | `1` | 单任务失败重试次数 |
-| `AGENT_ORCHESTRATOR_TOTAL_TOKENS` | `0` | 编排阶段 token 预算；0 = 不限制 |
+| `AGENT_ORCHESTRATOR_TOTAL_TOKENS` | `500000` | 编排阶段 token 预算；0 = 不限制 |
+| `AGENT_ORCHESTRATOR_TOTAL_STEPS` | `100` | 四维预算：任务尝试数上限 |
+| `AGENT_ORCHESTRATOR_TOTAL_TOOL_CALLS` | `1000` | 四维预算：工具调用总数上限 |
+| `AGENT_ORCHESTRATOR_BUDGET_WARNING_RATIO` | `0.7` | 预算预告警水位 |
+| `AGENT_ORCHESTRATOR_REPEAT_ACTION_LIMIT` | `3` | 同一 (tool,args) 重复熔断 |
+| `AGENT_ORCHESTRATOR_PLAN_REVIEW` | `true` | 独立计划评审 |
+| `AGENT_ORCHESTRATOR_ESTIMATION_ENABLED` | `true` | Estimation Card + gate |
+| `AGENT_ORCHESTRATOR_ESTIMATION_MIN_SAMPLES` | `5` | 历史分桶最小样本 |
+| `AGENT_ORCHESTRATOR_SHORT_TASK_THRESHOLD_S` | `60` | gate 短任务阈值 |
+| `AGENT_ORCHESTRATOR_LONG_TASK_THRESHOLD_S` | `120` | gate 长任务阈值 |
+| `AGENT_ORCHESTRATOR_NESTED_ENABLED` | `false` | 嵌套子编排器 |
+| `AGENT_ORCHESTRATOR_MAX_DEPTH` | `1` | 嵌套深度上限 |
+| `AGENT_ORCHESTRATOR_MAX_FANOUT` | `2` | 单层子编排器扇出上限 |
+| `AGENT_ORCHESTRATION_CONTROL_CHECKPOINTS` | `true` | 阶段控制检查点 |
 | `AGENT_ORCHESTRATOR_RUN_DEADLINE_S` | `900` | 编排墙钟上限 |
 | `AGENT_ORCHESTRATOR_ALLOW_OVERLAP` | `false` | 允许改同一文件；3-way 合并 |
 | `AGENT_ORCHESTRATOR_WRITE_PLAN_APPROVAL` | `false` | 并发前一次性确认写范围 |
@@ -214,6 +227,15 @@ AGENT_WSL_WORKSPACE=/home/you/agent-ws
 | `AGENT_AUDIT_ENABLED` | `true` | 审计开关 |
 | `AGENT_AUDIT_DIR` | `<cwd>/.agent/audit` | 审计目录 |
 | `AGENT_AUDIT_MAX_MB` | `256` | 审计轮转大小；0 = 不轮转 |
+| `AGENT_AUDIT_ASYNC_WRITE` | `true` | 审计队列 + 专用写线程 |
+| `AGENT_REGRESSION_CAPTURE` | `true` | 跑偏轨迹写 `regression.jsonl` |
+| `AGENT_CARD_MAX_SILENCE_S` | `120` | 通知面最长静默 heartbeat |
+| `AGENT_CARD_MIN_INTERVAL_S` | `10` | 进度卡最小间隔 |
+| `AGENT_APPROVAL_ACK_TIMEOUT_S` | `300` | 审批卡超时提示 |
+| `AGENT_APPROVAL_DEFAULT_ACTION` | `pause` | 审批卡默认动作 |
+| `AGENT_DOCUMENT_PROCESS_ISOLATION` | `true` | PDF/Office 解析走 spawn 子进程 |
+| `AGENT_DOCUMENT_PROCESS_TIMEOUT_S` | `60` | 文档解析进程超时 |
+| `AGENT_PROCESS_RUNNER_MAX_CONCURRENT` | `2` | 进程兜底并发 |
 | `AGENT_STEERING_DIR` | `<cwd>/.agent/steering` | 跨进程 steering 队列 |
 | `AGENT_RATE_LIMIT_STATE_PATH` | `<cwd>/.agent/rate_limits.json` | 跨进程限流状态 |
 | `AGENT_CONCURRENCY_LLM_PER_PROVIDER` | `4` | 每 provider LLM 并发 |
@@ -317,7 +339,7 @@ L2/L3 默认停下来问；非交互环境（管道、CI）一律按拒绝处理
 | `agent run <指令>` | 跑一轮任务；`-C`、`--write`、`-y`、`--thread-id`、`--plan-only` |
 | `agent repl` | 带工具的交互式多轮会话 |
 | `agent resume --thread-id <id>` | 恢复审批/steering 挂起 |
-| `agent steer --thread-id <id> <action>` | 注入 `pause/cancel/add/replan` |
+| `agent steer --thread-id <id> <action>` | 注入 `pause/cancel/abort/rollback/add/replan/patch` |
 | `agent snapshots` / `diff` / `undo` | 快照 / 查看改动 / 回滚 |
 | `agent sessions` / `history` | 历史会话 / 对话记录（支持 `--json`） |
 | `agent checkpoints` / `fork` / `rewind` | checkpoint / 分叉 / 回退 |
@@ -427,6 +449,37 @@ agent memory --add "这个仓库用 uv 管理依赖，不要用 pip"
 `memory_save` 写入带 TTL 的记忆。仓库 `AGENTS.md` / `CLAUDE.md` 作为分层指令
 单独注入（最多 4 层）。
 
+### 资料库
+
+资料库是**每个用户一份、跨工作区保留**的参考资料集合，与单会话附件
+`.agent/uploads/<thread>` 和 run 级知识产物 `knowledge/` 不同。
+
+```dotenv
+AGENT_LIBRARY_ENABLED=true
+AGENT_LIBRARY_SEARCH_MODE=lexical   # lexical | vector | hybrid
+AGENT_LIBRARY_EMBEDDING_PROVIDER=   # 空 = 继承 MEMORY_EMBEDDING_PROVIDER
+AGENT_LIBRARY_EMBEDDING_DIM=0       # 0 = 继承 MEMORY_EMBEDDING_DIM
+```
+
+使用：
+
+1. 打开 Web/GUI 左侧活动栏「资料库」；
+2. 上传 PDF/DOCX/PPTX/Markdown/TXT/XLSX/HTML/EPUB/CSV；
+3. 上传后条目先进入 `queued/processing`，页面自动轮询并显示解析/切块/
+   embedding 阶段；完成后变为「可检索」，模型可调用 `library_search`；
+4. 修改 embedding 配置后，用「重建索引」或「全部重建」重新生成向量；
+5. 需要中止时可在条目上取消任务（阶段边界生效）；
+6. 支持按状态/标签/名称筛选与分页，点击「详情」查看 outline 与 chunk；
+   「编辑标签」可维护条目标签，检索时可用 `tags` 过滤。
+
+默认根目录：多用户 `<AGENT_WEB_LIBRARY_ROOT>/<user>`，单机
+`$HOME/.agent-library`。资料库正文不在 workspace 内，不随仓库提交/回滚。
+
+检索默认词法；`vector`/`hybrid` 需要 embedding provider 可用，失败自动回退
+词法。远程 embedding 仍受 `AGENT_MEMORY_ALLOW_REMOTE_EMBEDDINGS` 与安全
+profile 门禁。当前不支持 OCR、共享资料库或多设备同步。详见
+[LIBRARY.md](LIBRARY.md)。
+
 ### 审计与追踪
 
 ```bash
@@ -438,7 +491,9 @@ LANGSMITH_TRACING=true agent run "..."
 
 审计按天一个 JSONL，默认 `<cwd>/.agent/audit/`；记录 `run_start`/`plan`/
 `replan`/`tool_call`/`file_change`/`verify`/`review`/`repair`/`worker`/
-`steering`/`rollback`/`run_end` 等。审计由 runtime 写，写入失败转 `RunFailed`。
+`task_graph`/`orchestration`/`steering`/`rollback`/`run_end` 等。审计由
+runtime 写，写入失败转 `RunFailed`；`orchestration` 记录带 `est_*/actual_*`、
+`invalid_step_ratio`、`checkpoint_id`、`isolation_level` 等结构化字段。
 
 追踪带 `run_name`（`agent:<会话id>`）、`tags` 与 `thread_id`/`workspace`/`model`/
 `allow_write`/`approval_mode` metadata；**只放标识与开关，不放提示词或文件内容**。
@@ -452,8 +507,21 @@ AGENT_ORCHESTRATOR_ENABLED=true AGENT_ORCHESTRATOR_WRITE_ENABLED=true \
   agent tui --write
 ```
 
-运行中可 `/pause` `/resume` `/cancel` `/add [角色] <目标>` `/replan`；
-CLI 用 `agent steer` 注入、`agent resume` 恢复，Web 提供对应按钮。
+运行中可 `/pause` `/resume` `/cancel` `/abort` `/rollback n`
+`/add [角色] <目标>` `/replan` `/patch {json}`；CLI 用 `agent steer` 注入、
+`agent resume` 恢复，Web 提供对应按钮。`rollback` 在运行停止后回退
+checkpoint；`patch` 只改契约（goal/constraints/known/unknown）并递增
+`plan_version`。
+
+需要嵌套子编排器时显式开启（默认关闭，起步单层）：
+
+```bash
+AGENT_ORCHESTRATOR_NESTED_ENABLED=true \
+AGENT_ORCHESTRATOR_MAX_DEPTH=1 \
+AGENT_ORCHESTRATOR_MAX_FANOUT=2 \
+  agent tui
+```
+
 任务图、worker 成本/并发/冲突与干预延迟评测见
 [tests/eval/README.md](../tests/eval/README.md)。
 
@@ -508,6 +576,9 @@ Web 会话固定只读：`/api/run` 不接受写权限。
 |---|---|
 | `<cwd>/.agent/checkpoints.sqlite` | 会话 checkpoint |
 | `<cwd>/.agent/audit/*.jsonl` | 审计日志 |
+| `<cwd>/.agent/audit/estimates.jsonl` | 预估历史分桶样本 |
+| `<cwd>/.agent/audit/control_checkpoints/<thread>/` | 阶段控制检查点（契约/产物引用/预算） |
+| `<cwd>/.agent/audit/regression.jsonl` | 跑偏轨迹回归集 |
 | `<cwd>/.agent/steering/` | 未消费的 steering 指令与暂停标记 |
 | `<cwd>/.agent/rate_limits.json` | provider/全局冷却与 AIMD 状态 |
 | `<workspace>/.agent/backups/<snapshot_id>/` | 文件快照（写前留底） |

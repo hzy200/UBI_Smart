@@ -188,6 +188,15 @@ def test_missing_write_scope_fails(env) -> None:
     assert "write_scope" in result.summary
 
 
+def test_retry_attempt_uses_its_own_worktree(env) -> None:
+    sandbox, _state = env
+    runner = _runner(env, [AIMessage(content="完成")])
+    asyncio.run(runner(_task(attempt=2), parent_request="x"))
+    expected = implement_module._worktree_id("implement-1", 2)
+    assert any(expected in command for command in sandbox.commands), sandbox.commands
+    assert expected != implement_module._worktree_id("implement-1", 1)
+
+
 def test_git_not_ready_fails(env, monkeypatch) -> None:
     monkeypatch.setattr(
         implement_module,

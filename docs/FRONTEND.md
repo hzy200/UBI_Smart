@@ -4,7 +4,7 @@ doc_id: frontend
 title: 前端功能、交互与 UI 约束
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-26
+last_reviewed: 2026-11-04
 review_cadence: 前端交互、事件契约、权限模型或桌面壳变动时
 ---
 
@@ -172,6 +172,17 @@ GET    /api/snapshots?thread_id= GET  /api/diff?thread_id=
 POST   /api/restore              GET  /api/checkpoints/{thread}
 POST   /api/fork/{thread}        POST /api/rewind/{thread}
 GET    /api/memory               POST /api/memory
+GET    /api/library/items?limit=&offset=&status=&tag=&q=
+POST   /api/library/items
+GET    /api/library/items/{id}
+GET    /api/library/items/{id}/detail
+PATCH  /api/library/items/{id}
+DELETE /api/library/items/{id}
+POST   /api/library/items/{id}/reindex
+POST   /api/library/reindex-all
+GET    /api/library/jobs         GET  /api/library/jobs/{job_id}
+POST   /api/library/jobs/{job_id}/cancel
+GET    /api/library/search?q=&mode=&tags=
 GET    /api/audit                POST /api/context/{thread}/compact
 ```
 
@@ -196,6 +207,7 @@ GET    /api/audit                POST /api/context/{thread}/compact
 │活动│ sidebar       │ main                          │ inspector       │
 │栏  │ 会话/文件/树  │ 主区标签（对话）              │ 计划 / 工具     │
 │    │ Git/任务/记忆 │ reasoning（可折叠）           │                 │
+│    │ 资料库/审计   │                               │                 │
 │    │ 审计          │ transcript（对话流）          │                 │
 │    │               │ composer（输入区）            │                 │
 ├────┴───────────────┴───────────────────────────────┴─────────────────┤
@@ -234,6 +246,12 @@ GET    /api/audit                POST /api/context/{thread}/compact
 - **Git**：只读分支/改动/提交/diff；提交仍由 Agent + 审批完成。
 - **任务**：编排任务 DAG、worker、依赖、耗时与 token。
 - **记忆 / 审计**：查询与维护操作；删除/清理需显式确认。
+- **资料库**：上传 PDF/DOCX/PPTX/Markdown/TXT/XLSX/HTML/EPUB/CSV，显示条目状态、大小与
+  索引块数；上传/重建是异步任务，页面在有条目处于 queued/processing 时
+  自动轮询，显示阶段与进度，可取消任务；支持单条/全部重建、删除、标签编辑、
+  状态/标签/名称筛选与分页，并可展开条目详情（outline + chunk 片段）；提供
+  lexical/vector/hybrid 检索自测框。资料库按用户跨工作区保存；模型侧仍只
+  通过 `library_search` 主动检索。
 - **问题**：聚合验证失败/失败测试与审查发现，显示严重级别、来源与详情；
   按文件路径或来源（验证/审查/运行）分组，组头可折叠并统计错误/警告数；
   活动栏带未解决问题数量徽标。
@@ -302,7 +320,9 @@ diff 支持统一/并排视图、行号、增删着色、逐行语法高亮与�
 原始参数与结果 JSON 并复制。详情在事件到达时序列化一次，不在渲染时重复计算。
 
 时间线记录当前运行的关键事件：开始、计划、步骤、工具、审批、验证、审查、
-上下文裁剪、成本、完成/失败；每条带时间与摘要，不替代审计或 checkpoint。
+上下文裁剪、成本、预估卡、阶段完成、熔断/故障、完成/失败；每条带时间与摘要，
+不替代审计或 checkpoint。当前卡片采用“时间线/提示”级接入；完整卡片视图
+可按 `card_id` 升级为幂等 upsert。
 
 ### 3.5 全局搜索与通知
 
@@ -419,6 +439,11 @@ diff 支持统一/并排视图、行号、增删着色、逐行语法高亮与�
 - 收到终止事件/流结束时 flush 缓冲；`run_finished` 前也会 flush，
   防止轨迹保存截断。
 - 连接中断时按退避重连；`seq` 过滤避免重放重复内容。
+- 通知面事件 `card` 与领域事件共用同一条 SSE 流；后端提供
+  `card_id/event_id/plan_version`，前端按 `plan_version` 丢弃旧审批卡。
+  当前卡片以时间线/提示级消费，完整 `card_id` upsert 待补（见 §13）。
+  卡片先于终端事件发出，`RunFinished / RunFailed / ApprovalRequested / pause`
+  仍是最后一帧。
 - 同一轮里重复出现的完全相同的助手文本会在结束时去重；
   最终回答固定移动到 transcript 末尾，尾部的过程提示（如上下文裁剪）
   留在其上方。
@@ -466,6 +491,8 @@ checkpoint 只保存 user/assistant 文本，不保存工具卡片与过程状�
 ### 6.1 工具审批
 
 - `ApprovalRequested` 进入队列，用应用内模态逐条展示；默认拒绝，Esc 拒绝。
+- 事件带 `plan_version` / `ack_timeout_ms` / `default_action`；计划版本变化时
+  前端丢弃旧审批卡，审批卡显示超时与默认动作提示。
 - 全部答复后一次 `POST /api/resume/{thread}`；恢复流里可能出现新的审批。
 - 运行中/挂起时创建会话、切换项目、回滚等操作被禁用或拒绝。
 
@@ -715,6 +742,7 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | 授权桥仅桌面模式 | Web/CLI 仍走本地确认或拒绝 | `AGENT_CONSENT_TOKEN` 门控 |
 | 前后端分离九步已落地 | 独立静态产物、版本契约与回滚步骤已就绪；真实部署 E2E 待补 | 见 RFC-0003 与 RELEASING.md；公网部署前仍需完成部署侧验证 |
 | pywebview 目录对话框需强制前台 | 个别环境可能被遮挡 | 已用原生 shell32 + topmost |
+| 卡片只做时间线级接入 | 预估/进度/阶段/故障卡没有独立卡片视图 | 后端已提供 `card_id/event_id`，可按需升级为幂等 upsert |
 
 ---
 
@@ -736,6 +764,8 @@ fuzzy/前缀解析、虚拟列表区间、Git 状态映射、Problems 聚合、�
 | `web/frontend/src/ui/markdown.ts` | 流式 Markdown 稳定块切分与增量渲染 |
 | `web/frontend/src/ui/focus.ts` | 模态 Tab 循环计算 |
 | `web/frontend/src/ui/sessions.ts` | 会话列表摘要与元信息格式化 |
+| `web/frontend/src/ui/library.ts` | 资料库条目状态、用量与检索结果格式化 |
+| `web/frontend/src/features/library.ts` | 资料库上传/列表/删除/重建/检索自测 mixin |
 | `web/frontend/src/ui/output.ts` | 大工具输出按行分页 |
 | `web/frontend/src/ui/memo.ts` | 派生列表单槽缓存 |
 | `web/frontend/src/ui/settings.ts` | 设置分节关键词搜索 |

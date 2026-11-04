@@ -27,6 +27,7 @@ from ubismart.tools.documents import build_document_tools
 from ubismart.tools.files import build_file_tools
 from ubismart.tools.git import build_git_tools
 from ubismart.tools.knowledge import build_knowledge_tools
+from ubismart.tools.library import build_library_tools
 from ubismart.tools.memory import build_memory_tools
 from ubismart.tools.report import build_report_tools
 from ubismart.tools.search import build_search_tools
@@ -115,6 +116,10 @@ def build_tools(
             )
             if tool.name == "find_files"
         ]
+        # 资料库存在服务器侧，与 host/sandbox 工作区无关；host 会话也可检索。
+        host_tools += build_library_tools(
+            settings, sandbox, read_cache=read_cache
+        )
         profile = str(settings.security_profile or "").lower()
         if (
             host_exec is not None
@@ -160,6 +165,9 @@ def build_tools(
         sandbox,
         allow_write=allow_write,
         read_cache=read_cache,
+    )
+    tools += build_library_tools(
+        settings, sandbox, read_cache=read_cache
     )
     tools += build_git_tools(settings, sandbox)
     tools += build_deps_tools(settings, sandbox)

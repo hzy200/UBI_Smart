@@ -44,6 +44,24 @@
           "type": "str",
           "default": "",
           "doc": ""
+        },
+        {
+          "name": "plan_version",
+          "type": "int",
+          "default": 0,
+          "doc": "契约/计划版本；前端据此让旧审批卡失效。"
+        },
+        {
+          "name": "ack_timeout_ms",
+          "type": "int",
+          "default": 0,
+          "doc": "审批超时与默认动作：前端/控制面据此自动处理，避免审批卡自己制造空等。"
+        },
+        {
+          "name": "default_action",
+          "type": "str",
+          "default": "",
+          "doc": ""
         }
       ]
     },
@@ -60,6 +78,128 @@
         },
         {
           "name": "text",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        }
+      ]
+    },
+    {
+      "event_type": "budget_warning",
+      "class": "BudgetWarning",
+      "doc": "四维预算的 70% 预告警或 100% 熔断。\n\n`level=warning` 只是提示，不改控制流；`level=exhausted` 表示调度器已\n停止派发，已完成部分与建议由 `budget_abort` 交接。",
+      "fields": [
+        {
+          "name": "level",
+          "type": "Literal['warning', 'exhausted']",
+          "default": "warning",
+          "doc": ""
+        },
+        {
+          "name": "dimension",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "used",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "ratio",
+          "type": "float",
+          "default": 0.0,
+          "doc": ""
+        },
+        {
+          "name": "message",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        }
+      ]
+    },
+    {
+      "event_type": "card",
+      "class": "CardEvent",
+      "doc": "通知面的出站卡片（Projector + Card Policy 的产物）。\n\n卡片只是控制面状态的投影，不持有任务状态；前端按 `card_id` 幂等\nupsert，按 `plan_version` 让旧审批卡失效。",
+      "fields": [
+        {
+          "name": "event_id",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "card_id",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "kind",
+          "type": "Literal['estimate', 'progress', 'approval', 'fault', 'stage_done', 'done', 'heartbeat']",
+          "default": "progress",
+          "doc": ""
+        },
+        {
+          "name": "severity",
+          "type": "Literal['info', 'warn', 'error']",
+          "default": "info",
+          "doc": ""
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "body",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "payload",
+          "type": "dict[str, Any]",
+          "default": "Field(default_factory=dict)",
+          "doc": ""
+        },
+        {
+          "name": "dedupe_key",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "plan_version",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "requires_ack",
+          "type": "bool",
+          "default": false,
+          "doc": ""
+        },
+        {
+          "name": "ack_timeout_ms",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "default_action",
           "type": "str",
           "default": "",
           "doc": ""
@@ -207,6 +347,25 @@
       ]
     },
     {
+      "event_type": "estimation_ready",
+      "class": "EstimationReady",
+      "doc": "S5：执行前的 Estimation Card（P50/P90 + 置信度 + gate）。",
+      "fields": [
+        {
+          "name": "card",
+          "type": "dict[str, Any]",
+          "default": "Field(default_factory=dict)",
+          "doc": ""
+        },
+        {
+          "name": "plan_version",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        }
+      ]
+    },
+    {
       "event_type": "file_changed",
       "class": "FileChanged",
       "doc": "文件被创建/覆盖/编辑。只有真正改动文件的动作才会发这个事件。",
@@ -245,6 +404,37 @@
           "name": "snapshot_id",
           "type": "str | None",
           "default": null,
+          "doc": ""
+        }
+      ]
+    },
+    {
+      "event_type": "loop_detected",
+      "class": "LoopDetected",
+      "doc": "同一工具动作在编排内重复触发上限，已熔断。",
+      "fields": [
+        {
+          "name": "task_id",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "tool",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "count",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "reason",
+          "type": "str",
+          "default": "",
           "doc": ""
         }
       ]
@@ -296,6 +486,12 @@
           "type": "bool",
           "default": false,
           "doc": ""
+        },
+        {
+          "name": "plan_version",
+          "type": "int",
+          "default": 0,
+          "doc": ""
         }
       ]
     },
@@ -318,6 +514,12 @@
         },
         {
           "name": "step_idx",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "plan_version",
           "type": "int",
           "default": 0,
           "doc": ""
@@ -500,6 +702,55 @@
           "name": "thread_id",
           "type": "str",
           "default": "",
+          "doc": ""
+        }
+      ]
+    },
+    {
+      "event_type": "stage_done",
+      "class": "StageDone",
+      "doc": "一个阶段门通过（或失败），附带控制检查点引用。",
+      "fields": [
+        {
+          "name": "stage",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "status",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "reason",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "completed",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "failed",
+          "type": "int",
+          "default": 0,
+          "doc": ""
+        },
+        {
+          "name": "checkpoint_id",
+          "type": "str",
+          "default": "",
+          "doc": ""
+        },
+        {
+          "name": "plan_version",
+          "type": "int",
+          "default": 0,
           "doc": ""
         }
       ]
@@ -711,6 +962,12 @@
           "name": "degraded",
           "type": "bool",
           "default": false,
+          "doc": ""
+        },
+        {
+          "name": "plan_version",
+          "type": "int",
+          "default": 0,
           "doc": ""
         }
       ]
@@ -1072,6 +1329,12 @@
           "name": "tasks",
           "type": "list[dict[str, Any]]",
           "default": "Field(default_factory=list)",
+          "doc": ""
+        },
+        {
+          "name": "plan_version",
+          "type": "int",
+          "default": 0,
           "doc": ""
         }
       ]

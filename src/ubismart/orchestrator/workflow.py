@@ -17,7 +17,11 @@ from pydantic import BaseModel, Field
 from ubismart.config import Settings
 from ubismart.graph.state import AgentState
 from ubismart.llm.deepseek import with_json_output
-from ubismart.orchestrator.contracts import TaskSpec, WorkflowDecision
+from ubismart.orchestrator.contracts import (
+    TaskContract,
+    TaskSpec,
+    WorkflowDecision,
+)
 from ubismart.orchestrator.parallelism import (
     dedupe_readonly_tasks,
     worth_parallelizing,
@@ -39,6 +43,7 @@ class WorkflowPlan(BaseModel):
         "architecture_change",
     ] = "direct"
     reason: str = ""
+    contract: TaskContract | None = None
     tasks: list[TaskSpec] = Field(default_factory=list)
     degraded: bool = False
 
@@ -185,6 +190,7 @@ def _forced_result(
         "workflow": forced,
         "workflow_reason": "修复轮强制工作流",
         "prefetched_tasks": [],
+        "prefetched_contract": {},
         "prefetched_degraded": False,
         "force_workflow": "",
         "transient_retries": 0,
@@ -209,6 +215,7 @@ def _dynamic_result(
         "workflow": built["workflow"],
         "workflow_reason": built["reason"],
         "prefetched_tasks": built["tasks"],
+        "prefetched_contract": {},
         "prefetched_degraded": False,
         "force_workflow": "",
         "transient_retries": 0,
@@ -271,10 +278,14 @@ def _decision_body(
         body += f"上次运行中断的恢复提示：\n{recovery_notice}\n\n"
     body += (
         f"仓库画像：{compact_repo_summary(summary)}\n\n"
-        "请先选择 workflow，再给出任务图。"
+        "请先选择 workflow，再给出验收契约与任务图。"
         "输出 JSON："
         '{"workflow": "direct|parallel_readonly|orchestrated_implement|document_pipeline",'
-        ' "reason": "一句话", "tasks": [...]}'
+        ' "reason": "一句话", '
+        ' "contract": {"goal": "...", "constraints": [], "acceptance": '
+        '[{"rule": "...", "auto": true}], "known": {}, "unknown": [], '
+        '"side_effects": []}, '
+        ' "tasks": [...]}'
     )
     return body
 
@@ -310,16 +321,22 @@ async def _invoke_workflow_plan(
 
 def _decision_from_plan(
     plan: Any,
-) -> tuple[WorkflowDecision | None, list[dict[str, Any]], bool]:
+) -> tuple[
+    WorkflowDecision | None,
+    list[dict[str, Any]],
+    bool,
+    dict[str, Any],
+]:
     if isinstance(plan, WorkflowPlan):
         return (
             WorkflowDecision(workflow=plan.workflow, reason=plan.reason),
             [task.model_dump() for task in plan.tasks],
             bool(plan.degraded),
+            plan.contract.model_dump() if plan.contract is not None else {},
         )
     if isinstance(plan, WorkflowDecision):
-        return plan, [], False
-    return None, [], False
+        return plan, [], False, {}
+    return None, [], False, {}
 
 
 def _dedupe_prefetched(
@@ -410,6 +427,7 @@ def make_select_workflow_node(
             request, summary, settings, write_available=write_available
         )
         prefetched: list[dict[str, Any]] = []
+        prefetched_contract: dict[str, Any] = {}
         prefetched_degraded = False
         retry_events: list[dict[str, Any]] = []
 
@@ -431,9 +449,12 @@ def make_select_workflow_node(
                 settings=settings,
                 retry_events=retry_events,
             )
-            decision, prefetched, prefetched_degraded = _decision_from_plan(
-                plan
-            )
+            (
+                decision,
+                prefetched,
+                prefetched_degraded,
+                prefetched_contract,
+            ) = _decision_from_plan(plan)
 
         if decision is None:
             decision = WorkflowDecision(
@@ -452,6 +473,7 @@ def make_select_workflow_node(
             "workflow": decision.workflow,
             "workflow_reason": decision.reason,
             "prefetched_tasks": prefetched,
+            "prefetched_contract": prefetched_contract,
             "prefetched_degraded": prefetched_degraded,
             "transient_retries": len(retry_events),
         }

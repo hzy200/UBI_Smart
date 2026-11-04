@@ -10,7 +10,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-29
+last_reviewed: 2026-11-02
 review_cadence: 命令或故障场景变动时
 
 preflight:
@@ -262,6 +262,50 @@ scenarios:
       2026-10-29 起，没有在线 runner 时 `wsl` job 会**跳过**而不是排队 24 小时，
       并在摘要里写明「跳过不等于通过」。看到这条 warning 的运行不能当验收，
       也不要为了让 CI 变绿去把 sandbox 的 required check 删掉。
+
+  - id: RB-020
+    symptom: 资料库上传后条目状态为 failed / needs_ocr
+    signal: '资料库列表 status=failed 或 needs_ocr；error 字段有解析错误'
+    cause: |
+      文件格式不受支持、PDF 没有文本层、Office ZIP/XML 超限，或解析依赖缺失。
+      资料库只做文本型摄取，不执行宏、不执行 PDF JavaScript，也不做 OCR。
+    steps:
+      - 检查条目 error 与 warnings；确认扩展名在 pdf/docx/md/txt/xlsx/xlsm/csv/tsv 内
+      - 扫描件/无文本层 PDF 属于 needs_ocr；当前需要换文本型文件或先做 OCR
+      - 修复后点“重建索引”，或 POST /api/library/items/{id}/reindex
+      - 仍失败时看审计 `kind=library` 的 detail
+    verify: 条目变为 ready，且 `library_search` 能返回带 anchor 的片段
+    last_drilled: none
+    see: docs/LIBRARY.md
+
+  - id: RB-021
+    symptom: 资料库检索结果总是 lexical，向量/混合模式没有生效
+    signal: 'library_search 返回 mode=lexical；或配置为 vector/hybrid 但结果没有向量特征'
+    cause: |
+      embedding provider 不可用、未安装 fastembed、remote 门禁未开，
+      或资料是在 lexical 模式下摄取、尚未生成 vectors.json。
+    steps:
+      - 确认 AGENT_LIBRARY_SEARCH_MODE 与 AGENT_LIBRARY_EMBEDDING_PROVIDER
+      - local provider 需要 `pip install -e ".[embeddings]"`；remote 需要显式门禁
+      - 对已有条目执行“重建索引”生成 vectors.json
+      - 仍失败时用 mode=lexical 保证可用；embedding 失败不应阻断检索
+    verify: 检索结果显示 mode=vector/hybrid；不可用时明确回退 lexical 而不是报错
+    last_drilled: none
+    see: docs/LIBRARY.md
+
+  - id: RB-022
+    symptom: 需要备份、恢复或迁移资料库
+    signal: '迁移服务器/升级 catalog/误删恢复'
+    cause: 资料库在 A4 的 per-user 目录，与 workspace 分离
+    steps:
+      - 停 A3，避免与运行中的 ingest/reindex job 竞争
+      - 'python scripts/library_backup.py --root <library_root> --archive <host.zip>'
+      - 'python scripts/library_backup.py --root <library_root> --archive <host.zip> --restore --force'
+      - 'python scripts/library_backup.py --root <library_root> --migrate'
+      - 重启 A3 后调用 library_search 验证
+    verify: catalog version=2；条目状态与检索结果恢复
+    last_drilled: none
+    see: docs/LIBRARY.md
 
 escalation:
   - 涉及 sandbox/ 或审批语义的异常 → 对照 docs/THREAT_MODEL.md 第 4 节，

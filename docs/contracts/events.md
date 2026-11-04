@@ -8,7 +8,7 @@
 前端（CLI / TUI / Web / Desktop GUI）**只**消费这里的事件，不导入 `tools/` 与 `sandbox/`。
 这条边界由 `tests/unit/test_architecture.py` 用 AST 扫描守住。
 
-共 **29** 个事件类型。
+共 **34** 个事件类型。
 
 ## `approval_requested`
 
@@ -27,6 +27,9 @@
 | `level` | `str` | `""` |  |
 | `level_int` | `int` | `0` | 数值等级（0–3）；四眼审批用它判断阈值，旧前端可忽略。 |
 | `reason` | `str` | `""` |  |
+| `plan_version` | `int` | `0` | 契约/计划版本；前端据此让旧审批卡失效。 |
+| `ack_timeout_ms` | `int` | `0` | 审批超时与默认动作：前端/控制面据此自动处理，避免审批卡自己制造空等。 |
+| `default_action` | `str` | `""` |  |
 
 ## `assistant_token`
 
@@ -38,6 +41,48 @@
 |---|---|---|---|
 | `node` | `str` | `""` |  |
 | `text` | `str` | `""` |  |
+
+## `budget_warning`
+
+类 `BudgetWarning`
+
+四维预算的 70% 预告警或 100% 熔断。
+
+`level=warning` 只是提示，不改控制流；`level=exhausted` 表示调度器已
+停止派发，已完成部分与建议由 `budget_abort` 交接。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `level` | `Literal['warning', 'exhausted']` | `"warning"` |  |
+| `dimension` | `str` | `""` |  |
+| `used` | `int` | `0` |  |
+| `limit` | `int` | `0` |  |
+| `ratio` | `float` | `0.0` |  |
+| `message` | `str` | `""` |  |
+
+## `card`
+
+类 `CardEvent`
+
+通知面的出站卡片（Projector + Card Policy 的产物）。
+
+卡片只是控制面状态的投影，不持有任务状态；前端按 `card_id` 幂等
+upsert，按 `plan_version` 让旧审批卡失效。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `event_id` | `str` | `""` |  |
+| `card_id` | `str` | `""` |  |
+| `kind` | `Literal['estimate', 'progress', 'approval', 'fault', 'stage_done', 'done', 'heartbeat']` | `"progress"` |  |
+| `severity` | `Literal['info', 'warn', 'error']` | `"info"` |  |
+| `title` | `str` | `""` |  |
+| `body` | `str` | `""` |  |
+| `payload` | `dict[str, Any]` | `"Field(default_factory=dict)"` |  |
+| `dedupe_key` | `str` | `""` |  |
+| `plan_version` | `int` | `0` |  |
+| `requires_ack` | `bool` | `false` |  |
+| `ack_timeout_ms` | `int` | `0` |  |
+| `default_action` | `str` | `""` |  |
 
 ## `context_trimmed`
 
@@ -78,6 +123,17 @@
 | `providers` | `dict[str, dict[str, float]]` | `"Field(default_factory=dict)"` |  |
 | `billing_providers` | `dict[str, dict[str, float]]` | `"Field(default_factory=dict)"` |  |
 
+## `estimation_ready`
+
+类 `EstimationReady`
+
+S5：执行前的 Estimation Card（P50/P90 + 置信度 + gate）。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `card` | `dict[str, Any]` | `"Field(default_factory=dict)"` |  |
+| `plan_version` | `int` | `0` |  |
+
 ## `file_changed`
 
 类 `FileChanged`
@@ -92,6 +148,19 @@
 | `removed` | `int` | `0` |  |
 | `diff` | `str` | `""` |  |
 | `snapshot_id` | `str | None` |  |  |
+
+## `loop_detected`
+
+类 `LoopDetected`
+
+同一工具动作在编排内重复触发上限，已熔断。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `task_id` | `str` | `""` |  |
+| `tool` | `str` | `""` |  |
+| `count` | `int` | `0` |  |
+| `reason` | `str` | `""` |  |
 
 ## `orchestration_finished`
 
@@ -121,6 +190,7 @@ planner 完成分解。
 | `steps` | `list[str]` | `"Field(default_factory=list)"` |  |
 | `kinds` | `list[str]` | `"Field(default_factory=list)"` | 与 steps 逐项对齐：explore / implement / verify / unknown |
 | `degraded` | `bool` | `false` |  |
+| `plan_version` | `int` | `0` |  |
 
 ## `plan_revised`
 
@@ -137,6 +207,7 @@ planner 完成分解。
 | `steps` | `list[str]` | `"Field(default_factory=list)"` |  |
 | `kinds` | `list[str]` | `"Field(default_factory=list)"` |  |
 | `step_idx` | `int` | `0` |  |
+| `plan_version` | `int` | `0` |  |
 
 ## `reasoning_token`
 
@@ -229,6 +300,22 @@ status: clean / warned / blocked / skipped
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `thread_id` | `str` | `""` |  |
+
+## `stage_done`
+
+类 `StageDone`
+
+一个阶段门通过（或失败），附带控制检查点引用。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `stage` | `int` | `0` |  |
+| `status` | `str` | `""` |  |
+| `reason` | `str` | `""` |  |
+| `completed` | `int` | `0` |  |
+| `failed` | `int` | `0` |  |
+| `checkpoint_id` | `str` | `""` |  |
+| `plan_version` | `int` | `0` |  |
 
 ## `steering_applied`
 
@@ -335,6 +422,7 @@ rejected 表示宿主没让它跑（审批拒绝、任务级委派预算耗尽�
 |---|---|---|---|
 | `tasks` | `list[dict[str, Any]]` | `"Field(default_factory=list)"` |  |
 | `degraded` | `bool` | `false` |  |
+| `plan_version` | `int` | `0` |  |
 
 ## `task_graph_extended`
 
@@ -465,6 +553,7 @@ worker 结束后回放。`attempt` 便于前端区分重试。
 |---|---|---|---|
 | `reason` | `str` | `""` |  |
 | `tasks` | `list[dict[str, Any]]` | `"Field(default_factory=list)"` |  |
+| `plan_version` | `int` | `0` |  |
 
 ## `workflow_selected`
 

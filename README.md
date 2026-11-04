@@ -1,4 +1,4 @@
-<!-- owner: 项目作者 · last_reviewed: 2026-11-01 · review_cadence: 命令、状态数字或架构变动时 -->
+<!-- owner: 项目作者 · last_reviewed: 2026-11-02 · review_cadence: 命令、状态数字或架构变动时 -->
 
 # UBISmart
 
@@ -23,8 +23,8 @@
 
 | 项 | 结果 |
 |---|---|
-| 快反馈 | `pytest -m "not wsl and not wsl_env and not llm"` 选中 **3,475**（2026-11-01 快照） |
-| 覆盖率 | **84.31%**（CI 子集；承重模块另有棘轮，见 [METRICS.md](docs/METRICS.md)） |
+| 快反馈 | `pytest -m "not wsl and not wsl_env and not llm"` 选中 **3,604**（2026-11-04 快照） |
+| 覆盖率 | 见 [METRICS.md](docs/METRICS.md)（CI 生成快照；承重模块另有棘轮） |
 | 全量含 WSL | Sandbox workflow 在 self-hosted `ubismart-wsl` runner 上通过 |
 | lint / 类型 | `ruff check src tests` 干净；`mypy` 安全/终端边界 strict 通过 |
 | 前端 | 构建、`tsc --noEmit`、单元测试、Playwright E2E 通过 |
@@ -43,6 +43,23 @@
 - **可回滚**：写盘前留快照；回滚本身也可回滚。
 - **可审计**：审计由 runtime 写，前端绕不过；哈希链可校验。
 - **fail-closed**：审批缺失、答复无法解析、非交互环境一律拒绝。
+
+### 编排控制面（P0–P3）
+
+| 能力 | 实现 |
+|---|---|
+| 验收契约 | `TaskContract`：goal / constraints / acceptance / known / unknown / side_effects；`unknown` 非空不进入 scheduler，先向用户澄清 |
+| 计划评审 | 独立 `review_plan` 三问：验收映射、不可验证/无界步骤、重复步骤；失败不执行 |
+| 预估与 gate | Estimation Card：P50/P90 步数、工具数、token、墙钟、置信度；`fine` 检查点 / watchdog / 阶段门由 gate 动态开启 |
+| 四维预算 | `BudgetGuard`：steps / tool_calls / tokens / wall_ms；70% 预警、100% 熔断并输出已完成部分/卡点/建议 |
+| 结构化干预 | `/pause` `/cancel` `/abort` `/rollback(n)` `/add` `/replan` `/patch`；patch 只改契约并递增 `plan_version` |
+| 通知面 | `card` 事件：预估/进度/审批/故障/阶段/完成/heartbeat；`card_id` 幂等、`plan_version` 失效旧审批 |
+| 阶段门 | 控制检查点只存契约/计划/产物引用/预算；阶段失败只停后续阶段，保留前序产物 |
+| 进程兜底 | 文档解析等不可取消/CPU 密集步骤可走 spawn 子进程，超时直接回收 |
+| 嵌套编排 | 子编排器是控制面子图的递归实例，默认关闭；`MAX_DEPTH=1`，预算由父切片，子不推卡片 |
+
+安全边界不变：子编排器只读、审批统一收敛到 Root；模型仍然只输出
+`{tool, args}`，所有执行仍经审批与沙箱。
 
 ## 架构
 
@@ -67,13 +84,16 @@ A4 执行面：execution + tools + sandbox
 direct:      planner → act ⇄ approval_gate → tools → verify → review
              → advance / replan → respond
 
-orchestrated: survey → select_and_plan → write_gate → scheduler ⇄ steering
+orchestrated: survey → select_workflow → plan_tasks（contract/review/estimate）
+             → steering_plan → write_gate → scheduler ⇄ steering_dispatch
              → fan_in → planner → act → verify → review → respond
 ```
 
 - `direct`：小仓库、单点修改、单一功能线。
 - `orchestrated`：大任务拆成 DAG，`explore`/`review`/`test`/`implement` 并发，
   implement 在独立 git worktree 中修改，补丁由宿主串行合并。
+- 执行前还有两道便宜层：契约/计划评审、Estimation Card + gate；未通过不会
+  进入 scheduler。
 - 状态生命周期、路由与重置规则见 [WORKFLOW.md](docs/WORKFLOW.md)。
 - 调度、worker、fan-in 与干预语义见 [HARNESS.md](docs/HARNESS.md)。
 
@@ -108,6 +128,8 @@ agent web             # Web 验证/多用户界面
 
 默认启用 harness；小仓库仍走 `direct`。并发写 worker 需要
 `AGENT_ORCHESTRATOR_WRITE_ENABLED=true` 且使用 `--write`。
+嵌套子编排器默认关闭；需要时显式设置
+`AGENT_ORCHESTRATOR_NESTED_ENABLED=true`（起步 `MAX_DEPTH=1`）。
 
 可选 extras：
 
@@ -136,7 +158,7 @@ agent web             # Web 验证/多用户界面
 | `agent tui` | 终端界面（能力最全） |
 | `agent gui` | 桌面图形界面（需 `.[web,desktop]`） |
 | `agent web` | Web 验证/多用户界面（需 `.[web]`） |
-| `agent steer --thread-id <id> <action>` | 注入 pause/cancel/add/replan |
+| `agent steer --thread-id <id> <action>` | 注入 `pause/cancel/abort/rollback/add/replan/patch`；rollback 的 text 是步数，patch 的 text 是契约 JSON |
 | `agent snapshots` / `undo` / `diff` | 查看快照、回滚、看改动 |
 | `agent sessions` / `history` | 历史会话 / 对话记录（支持 `--json`） |
 | `agent memory` / `rules` / `audit` | 记忆 / 持久放行规则 / 审计日志 |
@@ -171,6 +193,7 @@ Shell 补全：`agent --install-completion` / `agent --show-completion`。
 | 检索 | `search_code/find_files/symbol_search/code_intel` |
 | 测试 | `run_tests` |
 | 记忆 / 知识 | `memory_search/save`、`knowledge_read/search` |
+| 资料库 | `library_search`（每用户跨工作区；lexical/vector/hybrid） |
 | 文档 / 视觉 / 报告 | `document_*`、`image_inspect`、`report_export/check/read` |
 | 委派 / 宿主 | `delegate_explore`、`host_exec` |
 
@@ -205,11 +228,14 @@ python scripts/check_lint_budget.py                    # lint 预算棘轮
 | 理解分层、数据流与不变量 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 接续任务时看状态生命周期 | [WORKFLOW.md](docs/WORKFLOW.md) |
 | 改编排、调度、worker | [HARNESS.md](docs/HARNESS.md) |
+| 看契约/预估/预算/卡片/嵌套 | [ARCHITECTURE.md §8.3](docs/ARCHITECTURE.md) |
+| 看指标、审计字段、回归集 | [OBSERVABILITY.md](docs/OBSERVABILITY.md) |
 | 查配置项 | [contracts/config.md](docs/contracts/config.md)（生成） |
 | 查工具/命令等级 | [contracts/tools.yaml](docs/contracts/tools.yaml)（生成） |
 | 安全边界与威胁模型 | [THREAT_MODEL.md](docs/THREAT_MODEL.md) |
 | 部署、数据库与多实例 | [DATABASE.md](docs/DATABASE.md)、[MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md) |
 | 桌面 GUI 与前端约束 | [FRONTEND.md](docs/FRONTEND.md) |
+| 资料库 / 向量检索 | [LIBRARY.md](docs/LIBRARY.md) |
 | 主机能力代理（A2L） | [HOST_BROKER.md](docs/HOST_BROKER.md) |
 | CI、环境、可观测性、发布 | [CI.md](docs/CI.md)、[ENVIRONMENT.md](docs/ENVIRONMENT.md)、[OBSERVABILITY.md](docs/OBSERVABILITY.md)、[RELEASING.md](docs/RELEASING.md) |
 | 验收某条需求 | [acceptance-criteria.yaml](docs/acceptance/acceptance-criteria.yaml) |
@@ -233,6 +259,15 @@ python scripts/check_lint_budget.py                    # lint 预算棘轮
 | `AGENT_ORCHESTRATOR_ENABLED` | `true` | 启用 harness |
 | `AGENT_ORCHESTRATOR_WRITE_ENABLED` | `false` | 并发写 worker |
 | `AGENT_ORCHESTRATOR_MIN_FILES` | `30` | 进入编排的文件数门槛 |
+| `AGENT_ORCHESTRATOR_PLAN_REVIEW` | `true` | 独立计划评审 |
+| `AGENT_ORCHESTRATOR_ESTIMATION_ENABLED` | `true` | Estimation Card + gate |
+| `AGENT_ORCHESTRATOR_TOTAL_STEPS` / `..._TOOL_CALLS` | `100` / `1000` | 四维预算上限 |
+| `AGENT_ORCHESTRATOR_BUDGET_WARNING_RATIO` | `0.7` | 预算预告警水位 |
+| `AGENT_ORCHESTRATOR_NESTED_ENABLED` | `false` | 嵌套子编排器；`MAX_DEPTH=1` |
+| `AGENT_CARD_MAX_SILENCE_S` | `120` | 通知面最长静默 heartbeat |
+| `AGENT_APPROVAL_ACK_TIMEOUT_S` | `300` | 审批卡超时提示/默认动作 |
+| `AGENT_DOCUMENT_PROCESS_ISOLATION` | `true` | 文档解析走进程兜底 |
+| `AGENT_REGRESSION_CAPTURE` | `true` | 收集跑偏轨迹回归集 |
 | `AGENT_APPROVAL_MODE` | `ask` | `ask` / `approve` / `deny` |
 | `AGENT_VERIFY_ENABLED` | `true` | 自动验证 |
 | `AGENT_SECURITY_PROFILE` | `local` | `untrusted` / `production` / `ops` 强制收紧 |

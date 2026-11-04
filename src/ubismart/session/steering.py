@@ -17,14 +17,20 @@ import hashlib
 import json
 import os
 import threading
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 from ubismart.platform.filelock import FileLock, NullLock
 
 # resume 不走队列：它必须把挂起的图唤醒（Command(resume=...)），
 # 放进队列只会在恢复之后才被消费，语义不对。
-STEERING_ACTIONS = frozenset({"pause", "cancel", "add", "replan"})
+STEERING_ACTIONS = frozenset(
+    {"pause", "cancel", "add", "replan", "abort", "rollback", "patch"}
+)
+
+# patch 只能改契约字段；不能用它直接改任务图或审批状态。
+PATCH_FIELDS = frozenset({"goal", "constraints", "known", "unknown"})
 
 # /add 只允许只读角色。写任务需要明确的 write_scope，自由文本无法安全推断，
 # 而且并发写还受 scope 不重叠约束（见 orchestrator/graph.py）。
@@ -42,12 +48,36 @@ class SteeringCommand:
     ts: str = ""
     # 所属 run。空串表示旧格式/未绑定，下一轮 begin_run 会按陈旧指令清掉。
     run_id: str = ""
+    # 结构化扩展（当前 patch 使用）；保持可选，旧队列文件仍可加载。
+    payload: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.action not in STEERING_ACTIONS:
             raise ValueError(f"不支持的 steering 动作：{self.action}")
         if self.action == "add" and self.role not in ADD_ROLES:
             raise ValueError(f"/add 只支持只读角色：{sorted(ADD_ROLES)}")
+        if self.action == "rollback":
+            try:
+                steps = int(self.text)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("rollback 的 text 必须是正整数步数") from exc
+            if steps < 1:
+                raise ValueError("rollback 的步数必须 >= 1")
+        if self.action == "patch":
+            try:
+                patch = json.loads(self.text or "{}")
+            except ValueError as exc:
+                raise ValueError("patch 的 text 必须是 JSON 对象") from exc
+            if not isinstance(patch, dict):
+                raise ValueError("patch 的 text 必须是 JSON 对象")
+            unknown = set(patch) - PATCH_FIELDS
+            if unknown:
+                raise ValueError(
+                    f"patch 不支持字段：{sorted(unknown)}；"
+                    f"只允许 {sorted(PATCH_FIELDS)}"
+                )
+            if not self.payload:
+                object.__setattr__(self, "payload", dict(patch))
 
 
 class SteeringController:

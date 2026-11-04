@@ -7,6 +7,7 @@ Event。它们不推进图、不执行工具、不写审计（审计仍在 core 
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
@@ -16,15 +17,19 @@ from ubismart.audit.logger import now_iso, sanitize_args, truncate
 from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
+    BudgetWarning,
     ContextTrimmed,
+    EstimationReady,
     Event,
     FileChanged,
+    LoopDetected,
     OrchestrationFinished,
     PlanCreated,
     PlanRevised,
     ReasoningToken,
     RepairStarted,
     ReviewFinished,
+    StageDone,
     SteeringApplied,
     StepFinished,
     StepStarted,
@@ -42,6 +47,7 @@ from ubismart.events import (
     WorkflowSelected,
 )
 from ubismart.graph.nodes.approve import tool_level
+from ubismart.platform.observability import inc, set_gauge
 from ubismart.protocol.messages import reasoning_of, text_of
 from ubismart.sandbox.policy import classify
 from ubismart.sandbox.snapshots import ACTION_RESTORE
@@ -220,6 +226,14 @@ class EventMapMixin:
     def _on_steering(
         self, ctx: _StreamCtx, update: dict[str, Any]
     ) -> Iterator[Event]:
+        version = update.get("plan_version")
+        if version is not None:
+            ctx.progress["plan_version"] = int(version or 0)
+        if update.get("steering_aborted"):
+            ctx.progress["steering_aborted"] = True
+        rollback_steps = update.get("steering_rollback_steps")
+        if rollback_steps:
+            ctx.progress["rollback_steps"] = int(rollback_steps or 0)
         for applied in update.get("steering_applied") or []:
             yield SteeringApplied(
                 action=str(applied.get("action", "")),
@@ -253,7 +267,10 @@ class EventMapMixin:
                 )
             )
             yield PlanCreated(
-                steps=ctx.plan, kinds=ctx.plan_kinds, degraded=degraded
+                steps=ctx.plan,
+                kinds=ctx.plan_kinds,
+                degraded=degraded,
+                plan_version=int(update.get("plan_version") or 0),
             )
         yield from self._open_step(
             ctx, 0, max(len(ctx.plan), 1), ctx.plan[0] if ctx.plan else ""
@@ -301,10 +318,25 @@ class EventMapMixin:
                 ),
             )
         )
-        yield TaskGraphCreated(tasks=tasks, degraded=degraded)
+        yield TaskGraphCreated(
+            tasks=tasks,
+            degraded=degraded,
+            plan_version=int(update.get("plan_version") or 0),
+        )
+        estimation = update.get("estimation_card") or {}
+        if estimation:
+            ctx.progress["estimation_card"] = dict(estimation)
+            yield EstimationReady(
+                card=dict(estimation),
+                plan_version=int(update.get("plan_version") or 0),
+            )
         revised_reason = str(update.get("workflow_revised_reason") or "")
         if revised_reason:
-            yield WorkflowRevised(reason=revised_reason, tasks=tasks)
+            yield WorkflowRevised(
+                reason=revised_reason,
+                tasks=tasks,
+                plan_version=int(update.get("plan_version") or 0),
+            )
 
     def _on_scheduler(
         self, ctx: _StreamCtx, update: dict[str, Any]
@@ -379,6 +411,142 @@ class EventMapMixin:
                     )
                 )
             yield TaskGraphExtended(added=added, rejected=rejected)
+        if update.get("scheduler_done"):
+            ctx.progress["orchestration_metrics"] = (
+                self._compute_orchestration_metrics(ctx, update)
+            )
+
+    def _compute_orchestration_metrics(
+        self, ctx: _StreamCtx, update: dict[str, Any]
+    ) -> dict[str, Any]:
+        """无效步占比 / 每成功任务 token / 熔断位置 / 估算偏差。
+
+        这些指标只在这里算一次；审计在 synthesize 记录里落盘，避免同一轮
+        产生两条 ORCHESTRATION 记录。
+        """
+        results = update.get("worker_results") or []
+        estimation = ctx.progress.get("estimation_card") or {}
+        total = len(results)
+        success = sum(
+            1 for item in results if item.get("status") == "success"
+        )
+        invalid = sum(
+            1
+            for item in results
+            if item.get("status") in {"failed", "blocked", "cancelled"}
+        )
+        actual_tokens = sum(
+            int(item.get("input_tokens") or 0)
+            + int(item.get("output_tokens") or 0)
+            for item in results
+        )
+        actual_wall_ms = sum(
+            int(item.get("duration_ms") or 0) for item in results
+        )
+        actual_tool_calls = sum(
+            len(item.get("tool_calls") or []) for item in results
+        )
+        verify_failures = sum(
+            1
+            for item in results
+            if str((item.get("verification") or {}).get("status"))
+            in {"failed", "error"}
+        )
+        invalid_ratio = (invalid / total) if total else 0.0
+        tokens_per_success = (
+            actual_tokens / success if success else 0.0
+        )
+        p50_tokens = int(estimation.get("p50_tokens") or 0)
+        deviation = (
+            (actual_tokens - p50_tokens) / p50_tokens
+            if p50_tokens > 0
+            else 0.0
+        )
+        set_gauge("agent_invalid_step_ratio", invalid_ratio)
+        set_gauge("agent_tokens_per_success", tokens_per_success)
+        set_gauge("agent_estimation_deviation_ratio", deviation)
+
+        budget_abort = update.get("budget_abort") or {}
+        loop_abort = update.get("loop_abort") or {}
+        aborted = bool(
+            budget_abort
+            or loop_abort
+            or update.get("token_budget_exhausted")
+            or float(
+                (update.get("budget_snapshot") or {})
+                .get("ratios", {})
+                .get("steps", 0)
+                or 0
+            )
+            >= 1.0
+        )
+        phase = ""
+        if aborted:
+            verifying = any(
+                str((item.get("verification") or {}).get("status"))
+                in {"failed", "error"}
+                for item in results
+            )
+            if not results:
+                phase = "before_execution"
+            elif verifying:
+                phase = "verification"
+            else:
+                phase = "execution"
+            inc("agent_aborts_total", {"phase": phase})
+        checkpoints = [
+            item
+            for item in (update.get("control_checkpoints") or [])
+            if isinstance(item, dict)
+        ]
+        gate = estimation.get("gate") or {}
+        return {
+            "est_steps": int(estimation.get("est_steps") or 0) or None,
+            "est_tool_calls": int(
+                estimation.get("est_tool_calls") or 0
+            )
+            or None,
+            "est_tokens_p50": p50_tokens or None,
+            "est_tokens_p90": int(estimation.get("p90_tokens") or 0)
+            or None,
+            "est_wall_ms_p50": int(estimation.get("p50_wall_ms") or 0)
+            or None,
+            "est_wall_ms_p90": int(estimation.get("p90_wall_ms") or 0)
+            or None,
+            "actual_steps": total,
+            "actual_tool_calls": actual_tool_calls,
+            "actual_tokens": actual_tokens,
+            "actual_wall_ms": actual_wall_ms,
+            "invalid_steps": invalid,
+            "invalid_step_ratio": invalid_ratio,
+            "state_from": "RUNNING",
+            "state_to": "ABORTED" if aborted else "DONE",
+            "checkpoint_id": (
+                str(checkpoints[-1].get("checkpoint_id", ""))
+                if checkpoints
+                else None
+            ),
+            "rollback_level": (
+                "L2"
+                if any(
+                    item.get("status") == "failed" for item in checkpoints
+                )
+                else None
+            ),
+            "concurrency_unit": "coroutine",
+            "isolation_level": str(
+                gate.get("isolation_level", "")
+            )
+            or None,
+            "approval_ack_ms": ctx.progress.get("approval_ack_ms"),
+            "abort_phase": phase,
+            "deviation": deviation,
+            "tokens_per_success": tokens_per_success,
+            "verify_failures": verify_failures,
+            "task_status": dict(update.get("task_status") or {}),
+            "budget_abort": dict(budget_abort),
+            "loop_abort": dict(loop_abort),
+        }
 
     def _on_synthesize(
         self, ctx: _StreamCtx, update: dict[str, Any]
@@ -386,6 +554,7 @@ class EventMapMixin:
         completed = int(update.get("orchestrator_completed", 0))
         failed = int(update.get("orchestrator_failed", 0))
         summary = str(update.get("orchestrator_summary", ""))
+        metrics = ctx.progress.get("orchestration_metrics") or {}
         self._audit(
             AuditRecord(
                 ts=now_iso(),
@@ -394,6 +563,25 @@ class EventMapMixin:
                 workflow=ctx.progress.get("workflow"),
                 ok=failed == 0,
                 detail=truncate(summary),
+                est_steps=metrics.get("est_steps"),
+                est_tool_calls=metrics.get("est_tool_calls"),
+                est_tokens_p50=metrics.get("est_tokens_p50"),
+                est_tokens_p90=metrics.get("est_tokens_p90"),
+                est_wall_ms_p50=metrics.get("est_wall_ms_p50"),
+                est_wall_ms_p90=metrics.get("est_wall_ms_p90"),
+                actual_steps=metrics.get("actual_steps"),
+                actual_tool_calls=metrics.get("actual_tool_calls"),
+                actual_tokens=metrics.get("actual_tokens"),
+                actual_wall_ms=metrics.get("actual_wall_ms"),
+                invalid_steps=metrics.get("invalid_steps"),
+                invalid_step_ratio=metrics.get("invalid_step_ratio"),
+                state_from=metrics.get("state_from"),
+                state_to=metrics.get("state_to"),
+                checkpoint_id=metrics.get("checkpoint_id"),
+                rollback_level=metrics.get("rollback_level"),
+                concurrency_unit=metrics.get("concurrency_unit"),
+                isolation_level=metrics.get("isolation_level"),
+                approval_ack_ms=metrics.get("approval_ack_ms"),
             )
         )
         yield OrchestrationFinished(
@@ -441,7 +629,10 @@ class EventMapMixin:
             )
         )
         yield PlanRevised(
-            steps=ctx.plan, kinds=plan_kinds, step_idx=ctx.step_idx
+            steps=ctx.plan,
+            kinds=plan_kinds,
+            step_idx=ctx.step_idx,
+            plan_version=int(update.get("plan_version") or 0),
         )
         # 计划被砍到当前这步之前（含当前这步）时，路由会直接去收尾，
         # act 再也不跑 —— 这一步必须在这里收口，否则前端的进度条
@@ -669,6 +860,38 @@ class EventMapMixin:
                     role=str(payload_data.get("role", "")),
                     reason=str(payload_data.get("reason", "")),
                 )
+        elif kind == "loop_detected":
+            yield LoopDetected(
+                task_id=str(payload_data.get("task_id", "")),
+                tool=str(payload_data.get("tool", "")),
+                count=int(payload_data.get("count") or 0),
+                reason=str(payload_data.get("reason", "")),
+            )
+        elif kind == "stage_done":
+            yield StageDone(
+                stage=int(payload_data.get("stage") or 0),
+                status=str(payload_data.get("status", "")),
+                reason=str(payload_data.get("reason", "")),
+                completed=int(payload_data.get("completed") or 0),
+                failed=int(payload_data.get("failed") or 0),
+                checkpoint_id=str(payload_data.get("checkpoint_id", "")),
+                plan_version=int(payload_data.get("plan_version") or 0),
+            )
+        elif kind == "budget_warning":
+            level = str(payload_data.get("level", "warning"))
+            dimension = str(payload_data.get("dimension", ""))
+            key = f"{level}:{dimension}"
+            seen = ctx.progress.setdefault("budget_warning_keys", set())
+            if key and key not in seen:
+                seen.add(key)
+                yield BudgetWarning(
+                    level="exhausted" if level == "exhausted" else "warning",
+                    dimension=dimension,
+                    used=int(payload_data.get("used") or 0),
+                    limit=int(payload_data.get("limit") or 0),
+                    ratio=float(payload_data.get("ratio") or 0.0),
+                    message=str(payload_data.get("message", "")),
+                )
 
     def _message_events(
         self, ctx: _StreamCtx, data: Any
@@ -688,7 +911,7 @@ class EventMapMixin:
         yield AssistantToken(node=node, text=text)
 
     def _interrupt_events(
-        self, suspension: Any, seen: set[str]
+        self, ctx: _StreamCtx, suspension: Any, seen: set[str]
     ) -> Iterator[Event]:
         for item in suspension:
             key = str(getattr(item, "id", "") or "")
@@ -703,10 +926,10 @@ class EventMapMixin:
                     detail=str(payload.get("message", "")),
                 )
             else:
+                ctx.progress["approval_requested_at"] = time.time()
                 yield from self._interrupt_requests([item])
 
-    @staticmethod
-    def _interrupt_requests(suspension: Any) -> list[ApprovalRequested]:
+    def _interrupt_requests(self, suspension: Any) -> list[ApprovalRequested]:
         """把 approval_gate 挂起时抛出的 payload 翻译成审批事件。"""
         requests: list[ApprovalRequested] = []
         for item in suspension or ():
@@ -720,6 +943,24 @@ class EventMapMixin:
                         level=str(raw.get("level", "")),
                         level_int=int(raw.get("level_int", 0) or 0),
                         reason=str(raw.get("reason", "")),
+                        plan_version=int(raw.get("plan_version", 0) or 0),
+                        ack_timeout_ms=int(
+                            getattr(
+                                self.settings,
+                                "approval_ack_timeout_s",
+                                300,
+                            )
+                            or 0
+                        )
+                        * 1000,
+                        default_action=str(
+                            getattr(
+                                self.settings,
+                                "approval_default_action",
+                                "pause",
+                            )
+                            or ""
+                        ),
                     )
                 )
         return requests
@@ -787,6 +1028,20 @@ class EventMapMixin:
                 tool_ms=int(result.get("tool_ms") or 0) or None,
                 depth=int(result.get("depth") or 0) or None,
                 priority=int(result.get("priority") or 0) or None,
+                parent_sub_id=(
+                    str(result.get("parent_sub_id") or "") or None
+                ),
+                fanout_index=(
+                    int(result.get("fanout_index") or 0)
+                    if result.get("sub_spawn_mode")
+                    else None
+                ),
+                sub_spawn_mode=(
+                    str(result.get("sub_spawn_mode") or "") or None
+                ),
+                sub_budget_used=(
+                    int(result.get("sub_budget_used") or 0) or None
+                ),
                 scope_violations=[
                     str(item)
                     for item in (result.get("scope_violations") or [])

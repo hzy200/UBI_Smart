@@ -12,6 +12,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -26,12 +27,16 @@ from ubismart.events import (
     RunFailed,
     RunFinished,
     RunStarted,
+    SteeringApplied,
     ToolCallStarted,
 )
 from ubismart.graph.build import estimate_recursion_limit
 from ubismart.llm.billing import fetch_billing
 from ubismart.llm.ratelimit import GLOBAL_LIMITER
+from ubismart.platform.observability import ensure_event_loop_lag_watchdog
 from ubismart.protocol.messages import unanswered_tool_calls
+from ubismart.runtime.cards import CardProjector
+from ubismart.session.regression import record_trajectory
 
 from .common import _swallow_audit
 
@@ -237,8 +242,12 @@ class StreamMixin:
                 billed_usd=summary.billed_usd or None,
                 cache_hit_tokens=int(usage.get("cache_hit_tokens", 0)) or None,
                 cache_miss_tokens=int(usage.get("cache_miss_tokens", 0)) or None,
+                approval_ack_ms=ctx.progress.get("approval_ack_ms"),
             )
         )
+        # 异步审计在收尾显式排空：队列满/磁盘失败会在这里抛 AuditError，
+        # 由外层异常路径转成 RunFailed，而不是带着断链的审计继续"成功"。
+        await asyncio.to_thread(self.audit.flush)
         # 收尾兜底：正常路径下 act 已经收口（空操作），但若某条路径让 act 没能
         # 跑（计划被砍、异常恢复等），这里补上，保证 StepStarted 一定有配对
         for event in self._close_step(ctx, cancelled=True):
@@ -353,6 +362,10 @@ class StreamMixin:
             if ctx.progress.get("worker_tokens_reported")
             else None
         )
+        try:
+            await asyncio.to_thread(self.audit.flush)
+        except Exception as exc:  # noqa: BLE001 - 已在错误路径上，不覆盖原始原因
+            _swallow_audit("audit_flush_error_path", exc)
         await self._prune_checkpoints(ctx.thread_id)
         self._forget_thread(ctx.thread_id)
         yield RunFailed(
@@ -400,6 +413,10 @@ class StreamMixin:
                     settings.orchestrator_checkpoint_every
                 ),
                 orchestrator_fix_rounds=settings.orchestrator_fix_rounds,
+                orchestrator_task_retries=settings.orchestrator_task_retries,
+                orchestrator_document_checkpoint=(
+                    settings.orchestrator_document_checkpoint
+                ),
             ),
             # 这些会随 trace 一起上报，LangSmith 里可按会话/工作区/权限筛选
             "run_name": f"agent:{thread_id}",
@@ -495,7 +512,9 @@ class StreamMixin:
         suspension = data.get("__interrupt__")
         if suspension:
             loop_state.interrupted = True
-            return list(self._interrupt_events(suspension, seen_interrupts))
+            return list(
+                self._interrupt_events(ctx, suspension, seen_interrupts)
+            )
 
         events: list[Event] = []
         for node, update in data.items():
@@ -538,10 +557,109 @@ class StreamMixin:
             ):
                 yield event
 
+    async def _capture_regression(
+        self,
+        ctx: _StreamCtx,
+        *,
+        kind: str = "",
+        reason: str = "",
+    ) -> None:
+        if not bool(
+            getattr(self.settings, "regression_capture_enabled", False)
+        ):
+            return
+        metrics = ctx.progress.get("orchestration_metrics") or {}
+        kinds: list[str] = []
+        if kind:
+            kinds.append(kind)
+        if metrics.get("state_to") == "ABORTED":
+            kinds.append(
+                "abort:"
+                + str(metrics.get("abort_phase", "unknown"))
+            )
+        if int(metrics.get("verify_failures") or 0) > 0:
+            kinds.append("verify_fail")
+        if metrics.get("loop_abort"):
+            kinds.append("loop_detected")
+        if float(metrics.get("invalid_step_ratio") or 0) > 0:
+            kinds.append("invalid_steps")
+        kinds = list(dict.fromkeys(kinds))
+        if not kinds:
+            return
+        target = Path(self.settings.resolved_audit_dir) / "regression.jsonl"
+        for item in kinds:
+            await asyncio.to_thread(
+                record_trajectory,
+                target,
+                kind=item,
+                thread_id=ctx.thread_id,
+                reason=reason
+                or str(metrics.get("budget_abort", {}).get("reason", "")),
+                metrics=metrics,
+            )
+
+    async def _drive_with_cards(
+        self,
+        ctx: _StreamCtx,
+        payload: Any,
+        config: dict[str, Any],
+        deadline_at: float,
+        loop_state: _LoopState,
+        projector: CardProjector,
+    ) -> AsyncIterator[Event]:
+        """驱动图，并在事件之间插入卡片与最长静默 heartbeat。
+
+        不取消 `__anext__`：超时只发 heartbeat，继续等同一个 next 任务；
+        取消它会把异步生成器关闭。
+        """
+        iterator = self._drive_graph(ctx, payload, config, deadline_at, loop_state)
+        pending: asyncio.Future[Any] | None = None
+        try:
+            while True:
+                if pending is None:
+                    pending = asyncio.ensure_future(iterator.__anext__())
+                done, _ = await asyncio.wait(
+                    {pending}, timeout=projector.max_silence_s
+                )
+                if not done:
+                    for card in projector.heartbeat():
+                        yield card
+                    continue
+                try:
+                    event = pending.result()
+                except StopAsyncIteration:
+                    pending = None
+                    break
+                pending = None
+                # 卡片先于事件发出：终端事件（RunFinished / RunFailed /
+                # ApprovalRequested / pause）必须保持为流的最后一帧。
+                for card in projector.observe(event):
+                    yield card
+                yield event
+        finally:
+            if pending is not None and not pending.done():
+                pending.cancel()
+            aclose = getattr(iterator, "aclose", None)
+            if aclose is not None:
+                try:
+                    await aclose()
+                except Exception:  # noqa: BLE001 - 收尾失败不覆盖原异常
+                    pass
+
     async def _stream(
         self, payload: Any, *, thread_id: str, fresh_run: bool, prompt: str = ""
     ) -> AsyncIterator[Event]:
         run_started_at = time.time()
+        ensure_event_loop_lag_watchdog(
+            interval_s=float(
+                getattr(self.settings, "event_loop_lag_interval_s", 1.0)
+                or 1.0
+            ),
+            threshold_ms=float(
+                getattr(self.settings, "event_loop_lag_threshold_ms", 500)
+                or 500
+            ),
+        )
         # 同一 thread 会被多轮 run 复用：全新 run 必须清零，resume 必须保留
         # 挂起前那一段的用量。
         GLOBAL_LIMITER.start_run(thread_id, reset=fresh_run)
@@ -553,6 +671,15 @@ class StreamMixin:
 
         pending = self._pending_calls.setdefault(thread_id, {})
         progress = self._progress.setdefault(thread_id, {})
+        if fresh_run:
+            progress.pop("approval_requested_at", None)
+            progress.pop("approval_ack_ms", None)
+        else:
+            requested_at = progress.pop("approval_requested_at", None)
+            if requested_at:
+                progress["approval_ack_ms"] = int(
+                    max(0.0, time.time() - float(requested_at)) * 1000
+                )
         async for started in self._prepare_stream_state(
             thread_id, pending, progress, fresh_run
         ):
@@ -565,6 +692,23 @@ class StreamMixin:
             progress, fresh_run
         )
         loop_state = _LoopState()
+        projector = CardProjector(
+            thread_id=thread_id,
+            ctx=ctx,
+            max_silence_s=float(
+                getattr(self.settings, "card_max_silence_s", 120) or 120
+            ),
+            min_interval_s=float(
+                getattr(self.settings, "card_min_interval_s", 10) or 10
+            ),
+            approval_ack_timeout_s=int(
+                getattr(self.settings, "approval_ack_timeout_s", 300) or 300
+            ),
+            approval_default_action=str(
+                getattr(self.settings, "approval_default_action", "pause")
+                or "pause"
+            ),
+        )
 
         try:
             if fresh_run:
@@ -572,10 +716,13 @@ class StreamMixin:
                 # 事件流起点。所有前端都能据此复位本轮状态（TUI 就靠它重置
                 # 「最终答复」标记与流式缓冲）。只有全新 run 算新的一轮，
                 # resume 不重复发 —— 那是同一次运行的延续。
-                yield RunStarted(thread_id=thread_id)
+                started = RunStarted(thread_id=thread_id)
+                yield started
+                for card in projector.observe(started):
+                    yield card
 
-            async for event in self._drive_graph(
-                ctx, payload, config, deadline_at, loop_state
+            async for event in self._drive_with_cards(
+                ctx, payload, config, deadline_at, loop_state, projector
             ):
                 yield event
 
@@ -586,12 +733,40 @@ class StreamMixin:
                 deadline_at=deadline_at,
                 deadline_seconds=deadline_seconds,
             ):
+                for card in projector.observe(event):
+                    yield card
                 yield event
+            await self._capture_regression(
+                ctx, kind="run_failed", reason=str(exc)
+            )
             return
 
         if loop_state.interrupted:
             # 图已挂起：不发 RunFinished，让前端明确知道要 resume 而不是收工
             return
 
+        # rollback(n)：图已在边界停止；现在才回退，避免在流式执行中改
+        # checkpoint。回退后由用户/前端调用 resume_steering 继续。
+        rollback_steps = int(ctx.progress.pop("rollback_steps", 0) or 0)
+        if rollback_steps > 0:
+            try:
+                checkpoint_id = await self.rewind(
+                    thread_id, steps=rollback_steps
+                )
+            except Exception as exc:  # noqa: BLE001 - 回退失败要显式报出
+                yield RunFailed(message=f"回退 checkpoint 失败：{exc}")
+                return
+            yield SteeringApplied(
+                action="rollback",
+                detail=(
+                    f"已回退 {rollback_steps} 个检查点"
+                    + (f"（{checkpoint_id}）" if checkpoint_id else "")
+                    + "；可 resume 继续"
+                ),
+            )
+
         async for event in self._finish_events(ctx, run_started_at):
+            for card in projector.observe(event):
+                yield card
             yield event
+        await self._capture_regression(ctx)

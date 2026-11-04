@@ -954,6 +954,10 @@ class _ReadState:
         self.pages = 0
 
 
+class _TokenBudgetExceeded(RuntimeError):
+    """document worker 的硬 token 切片已用尽。"""
+
+
 class _DocumentRun:
     """一次 document worker 调用的状态与步骤。
 
@@ -1013,6 +1017,10 @@ class _DocumentRun:
         self.attribution_issues: list[dict[str, Any]] = []
         self.input_tokens = 0
         self.output_tokens = 0
+        try:
+            self.max_tokens = max(0, int(task.get("max_tokens") or 0))
+        except (TypeError, ValueError):
+            self.max_tokens = 0
         self.map_partial = False
         self.points: list[DocumentPoint] = []
         self._load_limits()
@@ -1359,9 +1367,19 @@ class _DocumentRun:
             + text
         )
 
+    def _check_token_budget(self) -> None:
+        if (
+            self.max_tokens > 0
+            and self.input_tokens + self.output_tokens >= self.max_tokens
+        ):
+            raise _TokenBudgetExceeded(
+                f"document worker token 预算已用尽（>{self.max_tokens}）"
+            )
+
     async def _analyze(
         self, text: str
     ) -> tuple[DocumentAnalysis, int, int]:
+        self._check_token_budget()
         payload = await self.structured.ainvoke(
             [
                 SystemMessage(content=DOCUMENT_PROMPT),
@@ -1397,6 +1415,7 @@ class _DocumentRun:
         self, text: str, prompt: str = CONSOLIDATE_PROMPT
     ) -> tuple[str, int, int]:
         """合并摘要/矩阵节点；解析失败时尽量从截断 JSON 里捞出 summary。"""
+        self._check_token_budget()
         payload = await self.consolidator.ainvoke(
             [
                 SystemMessage(content=prompt),
@@ -1435,6 +1454,7 @@ class _DocumentRun:
         return "", used_in, used_out
 
     async def _analyze_documents(self) -> DocumentAnalysis:
+        self._check_token_budget()
         if self.map_reduce:
             return await self._map_reduce_analysis()
         analysis, used_in, used_out = await self._analyze(
@@ -1634,6 +1654,7 @@ class _DocumentRun:
         doc_sources: list[dict[str, Any]],
     ) -> tuple[DocumentMatrix, int, int]:
         """把单篇的分片摘要压成固定槽位；失败时退化为证据要点。"""
+        self._check_token_budget()
         stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
         summaries = "\n".join(
             item.summary.strip()

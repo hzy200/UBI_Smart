@@ -37,6 +37,7 @@ class PlanCreated(Event):
     # 与 steps 逐项对齐：explore / implement / verify / unknown
     kinds: list[str] = Field(default_factory=list)
     degraded: bool = False
+    plan_version: int = 0
 
 
 class PlanRevised(Event):
@@ -51,6 +52,7 @@ class PlanRevised(Event):
     steps: list[str] = Field(default_factory=list)
     kinds: list[str] = Field(default_factory=list)
     step_idx: int = 0
+    plan_version: int = 0
 
 
 class StepStarted(Event):
@@ -231,6 +233,38 @@ class TaskGraphCreated(Event):
     type: Literal["task_graph_created"] = "task_graph_created"
     tasks: list[dict[str, Any]] = Field(default_factory=list)
     degraded: bool = False
+    plan_version: int = 0
+
+
+class EstimationReady(Event):
+    """S5：执行前的 Estimation Card（P50/P90 + 置信度 + gate）。"""
+
+    type: Literal["estimation_ready"] = "estimation_ready"
+    card: dict[str, Any] = Field(default_factory=dict)
+    plan_version: int = 0
+
+
+class LoopDetected(Event):
+    """同一工具动作在编排内重复触发上限，已熔断。"""
+
+    type: Literal["loop_detected"] = "loop_detected"
+    task_id: str = ""
+    tool: str = ""
+    count: int = 0
+    reason: str = ""
+
+
+class StageDone(Event):
+    """一个阶段门通过（或失败），附带控制检查点引用。"""
+
+    type: Literal["stage_done"] = "stage_done"
+    stage: int = 0
+    status: str = ""
+    reason: str = ""
+    completed: int = 0
+    failed: int = 0
+    checkpoint_id: str = ""
+    plan_version: int = 0
 
 
 class TaskGraphExtended(Event):
@@ -371,6 +405,7 @@ class WorkflowRevised(Event):
     type: Literal["workflow_revised"] = "workflow_revised"
     reason: str = ""
     tasks: list[dict[str, Any]] = Field(default_factory=list)
+    plan_version: int = 0
 
 
 class SteeringApplied(Event):
@@ -406,11 +441,62 @@ class ApprovalRequested(Event):
     # 数值等级（0–3）；四眼审批用它判断阈值，旧前端可忽略。
     level_int: int = 0
     reason: str = ""
+    # 契约/计划版本；前端据此让旧审批卡失效。
+    plan_version: int = 0
+    # 审批超时与默认动作：前端/控制面据此自动处理，避免审批卡自己制造空等。
+    ack_timeout_ms: int = 0
+    default_action: str = ""
 
 
 # --------------------------------------------------------------------------
 # 收尾
 # --------------------------------------------------------------------------
+
+class BudgetWarning(Event):
+    """四维预算的 70% 预告警或 100% 熔断。
+
+    `level=warning` 只是提示，不改控制流；`level=exhausted` 表示调度器已
+    停止派发，已完成部分与建议由 `budget_abort` 交接。
+    """
+
+    type: Literal["budget_warning"] = "budget_warning"
+    level: Literal["warning", "exhausted"] = "warning"
+    dimension: str = ""
+    used: int = 0
+    limit: int = 0
+    ratio: float = 0.0
+    message: str = ""
+
+
+class CardEvent(Event):
+    """通知面的出站卡片（Projector + Card Policy 的产物）。
+
+    卡片只是控制面状态的投影，不持有任务状态；前端按 `card_id` 幂等
+    upsert，按 `plan_version` 让旧审批卡失效。
+    """
+
+    type: Literal["card"] = "card"
+    event_id: str = ""
+    card_id: str = ""
+    kind: Literal[
+        "estimate",
+        "progress",
+        "approval",
+        "fault",
+        "stage_done",
+        "done",
+        "heartbeat",
+    ] = "progress"
+    severity: Literal["info", "warn", "error"] = "info"
+    title: str = ""
+    body: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+    dedupe_key: str = ""
+    plan_version: int = 0
+    requires_ack: bool = False
+    ack_timeout_ms: int = 0
+    default_action: str = ""
+
 
 class RunStarted(Event):
     """一轮运行开始。前端用它标记事件流的起点（Web SSE 的第一帧）。"""
@@ -471,6 +557,9 @@ EventType = (
     | RepairStarted
     | WorkflowSelected
     | TaskGraphCreated
+    | EstimationReady
+    | LoopDetected
+    | StageDone
     | TaskGraphExtended
     | TaskBlocked
     | WorkerStarted
@@ -482,6 +571,8 @@ EventType = (
     | SteeringApplied
     | ContextTrimmed
     | CostReport
+    | BudgetWarning
+    | CardEvent
     | ApprovalRequested
     | RunStarted
     | RunFinished

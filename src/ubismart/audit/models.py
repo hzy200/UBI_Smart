@@ -28,6 +28,7 @@ WORKER = "worker"
 ORCHESTRATION = "orchestration"
 STEERING = "steering"
 MEMORY = "memory"
+LIBRARY = "library"
 RUN_END = "run_end"
 RUN_ERROR = "run_error"
 RECOVERY = "recovery"
@@ -119,3 +120,28 @@ class AuditRecord(BaseModel):
     depth: int | None = None
     priority: int | None = None
     scope_violations: list[str] = Field(default_factory=list)
+    parent_sub_id: str | None = None
+    fanout_index: int | None = None
+    sub_spawn_mode: str | None = None
+    sub_budget_used: int | None = None
+
+    # ---- 结构化编排日志：预估 vs 实测、状态转移、检查点/隔离 ----
+    est_steps: int | None = None
+    est_tool_calls: int | None = None
+    est_tokens_p50: int | None = None
+    est_tokens_p90: int | None = None
+    est_wall_ms_p50: int | None = None
+    est_wall_ms_p90: int | None = None
+    actual_steps: int | None = None
+    actual_tool_calls: int | None = None
+    actual_tokens: int | None = None
+    actual_wall_ms: int | None = None
+    invalid_steps: int | None = None
+    invalid_step_ratio: float | None = None
+    state_from: str | None = None
+    state_to: str | None = None
+    checkpoint_id: str | None = None
+    rollback_level: str | None = None
+    concurrency_unit: str | None = None
+    isolation_level: str | None = None
+    approval_ack_ms: int | None = None

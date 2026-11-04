@@ -6,7 +6,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-04
 review_cadence: 每次发版前过一遍；超过 due 的条目必须在 PR 里说明
 
 items:
@@ -837,3 +837,139 @@ paid_off:
     regression: tests/unit/test_architecture_knowledge.py、
       tests/unit/test_knowledge_store.py、
       tests/unit/test_scheduler.py::test_interface_first_waves_run_gate_between_stages
+
+  - id: TD-051
+    title: 资料库摄取是同步请求，没有进度与取消
+    where: library/store.py, web/routes/library.py, servers/agent_server_routes/library.py
+    why_now: MVP 用同步解析 + 可选 embedding 换实现简单；大 PDF 或首次加载
+      embedding 模型时会阻塞请求，前端只能显示上传进度，不能显示解析/索引阶段。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 单文件/总量限额；失败保留 source.bin，可重建；大文件先拆分或转文本
+    owner: 项目作者
+    due: 单文件解析经常超过 30s，或需要批量上传时
+    do_not: 不要把状态改成 ready 再后台异步补索引 —— 检索会看到半成品
+    resolved: 2026-11-02
+    how: |
+      上传/重建改为 job：start_* 立即返回 queued，后台 worker 执行
+      parsing → chunking → embedding → writing；embedding 在 catalog 锁外；
+      支持阶段进度、取消、reindex-all 与 stale job 恢复。
+    regression: tests/unit/test_library_jobs.py::test_ingest_job_moves_from_queued_to_ready、
+      tests/unit/test_library_jobs.py::test_cancel_queued_job_marks_item_cancelled、
+      tests/unit/test_library_jobs.py::test_reindex_all_processes_every_item
+
+  - id: TD-052
+    title: 资料库 catalog 整文件重写，检索在进程内线性扫描
+    where: library/store.py
+    why_now: 文件式 JSON + 每次搜索加载 chunk 的实现最简，条目数/总字节数
+      有上限兜底；条目上千或并发检索增多后写放大与扫描成本会显现。
+    debt_type: 性能
+    severity: medium
+    workaround: 保持 AGENT_LIBRARY_MAX_ITEMS / MAX_TOTAL_BYTES 限额；
+      检索按用户目录隔离，避免跨用户扫描
+    owner: 项目作者
+    due: 单用户条目接近上限或检索 p95 明显上升时
+    do_not: 不要为了性能把正文搬进 MySQL 或共享目录；执行面数据边界不变
+
+  - id: TD-053
+    title: 资料库默认 linear，ANN 只是可选的 hnswlib 内存索引
+    where: library/ann.py, library/store.py
+    why_now: 默认零新增依赖；hnswlib 需额外安装，索引只在进程内缓存，
+      没有持久化/分布式 ANN，也没有倒排索引。
+    debt_type: 性能
+    severity: low
+    workaround: 万级 chunk 时安装 hnswlib 并设置
+      AGENT_LIBRARY_VECTOR_BACKEND=hnswlib；失败自动回退 linear
+    owner: 项目作者
+    due: 资料库进入万级 chunk 或需要毫秒级语义检索时
+    do_not: 不要在没有重建索引的情况下宣称向量检索已生效
+
+  - id: TD-054
+    title: 资料库没有 OCR
+    where: library/store.py, tools/documents/
+    why_now: 当前只做文本型资料；扫描 PDF 标记 needs_ocr，不假装成功；
+      PPTX/HTML/EPUB 已纳入，但仍没有 OCR/图片语义。
+    debt_type: 能力缺口
+    severity: low
+    workaround: 先在上游做 OCR；不支持格式先转 PDF/DOCX/Markdown
+    owner: 项目作者
+    due: 扫描件或演示文稿成为主要资料类型时
+    do_not: 不要静默把无文本层 PDF 标成 ready
+
+  - id: TD-055
+    title: 审批卡超时只下发字段，未自动 resume
+    where: runtime/cards.py, web/frontend/src/features/events.ts
+    why_now: 卡片与 ApprovalRequested 已带 ack_timeout_ms/default_action，
+      前端也显示超时提示；但真正超时后自动按默认动作 resume 仍需
+      控制面/前端定时器接线，默认动作是 pause，避免自动放行 L3。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 用户手动处理审批；默认 300s 仅提示
+    owner: 项目作者
+    due: 审批空等成为主要抱怨时
+    do_not: 不要在前端缓存审批决定或跳过 Control Queue 直接 resume
+
+  - id: TD-056
+    title: 嵌套编排默认关闭且子任务只读
+    where: orchestrator/nested.py, orchestrator/subgraph.py
+    why_now: 子编排器复用控制面子图、MAX_DEPTH=1、预算切片与
+      suppress_events 已落地；但为保持审批收敛到 Root，子任务强制只读，
+      且只支持 planner 静态展开，没有运行时动态派生。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 写型子任务改用阶段门 + 不同 Worker 池；需要时显式开启
+      AGENT_ORCHESTRATOR_NESTED_ENABLED=true
+    owner: 项目作者
+    due: 出现“子任务需要独立契约且必须写”的真实场景时
+    do_not: 不要把 agents/explore 这类自治 while 循环当子编排器；
+      也不要让子层直接推卡片或放大预算
+
+  - id: TD-057
+    title: 进程兜底只接入文档解析，未覆盖所有 CPU 密集步骤
+    where: platform/process_runner.py, tools/documents/tool.py
+    why_now: spawn + 超时回收已落地；但其他 CPU 密集工具仍走 to_thread，
+      容器/cgroup 配额也未接入，隔离等级在 card 中只是建议值。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 文档解析默认隔离；其余工具按现有线程池运行
+    owner: 项目作者
+    due: 出现不可取消同步 SDK/CPU 密集工具拖住宿主时
+    do_not: 不要把需要 sandbox/长连接的调用塞进进程池；也不要宣称
+      已具备容器级隔离
+
+  - id: TD-058
+    title: 控制检查点缺自动恢复入口
+    where: orchestrator/control_checkpoint.py, orchestrator/scheduler_run.py
+    why_now: 阶段门会落控制检查点并在失败时停止后续阶段，但“从本阶段
+      起点自动重跑”还没有 CLI/API 入口；当前依赖 LangGraph rewind/resume。
+    debt_type: 能力缺口
+    severity: medium
+    workaround: 用 agent rewind/resume 回到更早 checkpoint；检查点可 load/list
+    owner: 项目作者
+    due: 阶段失败后需要精细重跑时
+    do_not: 不要把控制检查点与 LangGraph 恢复 checkpoint 混成一个存储
+
+  - id: TD-059
+    title: 前端只做卡片时间线接入，未实现完整幂等卡片视图
+    where: web/frontend/src/features/events.ts
+    why_now: 后端已发 CardEvent（card_id/event_id/plan_version），前端目前
+      以时间线/提示级消费，审批仍走 ApprovalRequested；完整卡片 upsert、
+      超时自动处理与卡片折叠/升级 UI 未做。
+    debt_type: 能力缺口
+    severity: low
+    workaround: 通过时间线与通知中心查看预估/故障/阶段卡
+    owner: 项目作者
+    due: 需要卡片式运行面板时
+    do_not: 不要让卡片持有状态；也不要绕过后端事件直接改任务路径
+
+  - id: TD-060
+    title: 回归集只是 JSONL 收集，未接自动流水线
+    where: session/regression.py, runtime/stream.py
+    why_now: ABORT/verify_fail/loop_detected/invalid_steps 会写
+      regression.jsonl，但还没有定时回放、阈值门禁与误杀率统计。
+    debt_type: 度量
+    severity: low
+    workaround: 手工用 load_trajectories 汇总分析
+    owner: 项目作者
+    due: 调整早停/gate 阈值前
+    do_not: 不要用单次回归结果证明“更早拦住且不误杀”

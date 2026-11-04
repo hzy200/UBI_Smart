@@ -52,6 +52,7 @@ def _settings(tmp_path) -> Settings:
         web_auth_tokens='{"tok": "alice"}',
         web_workspaces_root="/srv/workspaces",
         web_memory_root="/srv/memory",
+        web_library_root="/srv/library",
         web_data_root=str(tmp_path / "host-data"),
         wsl_workspace="/srv/workspaces/alice",
     )
@@ -72,8 +73,14 @@ def test_per_user_paths_are_isolated(tmp_path) -> None:
         tmp_path / "host-data" / "alice" / "checkpoints.sqlite"
     )
     assert tenant.settings.memory_root == "/srv/memory/alice"
+    assert tenant.library_dir == "/srv/library/alice"
+    assert tenant.settings.library_root == "/srv/library/alice"
     assert tenant.thread_id("t1") == "alice:t1"
     assert tenant.public_thread("alice:t1") == "t1"
+
+    bob = manager.for_user("bob")
+    assert bob.library_dir == "/srv/library/bob"
+    assert bob.library_dir != tenant.library_dir
 
 
 def test_tenant_dirs_are_created_without_shell(tmp_path) -> None:

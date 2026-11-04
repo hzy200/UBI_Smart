@@ -4,7 +4,7 @@ doc_id: architecture
 title: 架构
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-04
 review_cadence: 拓扑、部署形态或状态字段变动时
 note: |
   第 6 节的 56 条不变量与第 7 节的取舍是本项目最硬的 L2 资产。
@@ -114,6 +114,7 @@ Web 页面上一个按钮就能跳过命令分级。这条约束是安全属性�
 | `audit/` | JSONL 审计 | 不解析工具文本输出 |
 | `memory/` | checkpoint / 会话索引 / 长期记忆 | 不持有业务状态 |
 | `knowledge/` | 架构索引/简报/影响分析（RFC-0009） | 不执行工具、不直接改工作区；产物是确定性数据 |
+| [`library/`](LIBRARY.md) | 每用户跨工作区资料库：解析、切块、catalog、词法/向量检索（RFC-0010） | 不索引 workspace 文件；A2 不解析、不读正文 |
 | `desktop/` | 桌面壳：local FastAPI + pywebview + 随机 token | 不实现业务逻辑；不直接调用工具 |
 | `access.py` | 会话访问模式（只读/审批写/自动写） | 不做执行判定（在 policy） |
 
@@ -258,7 +259,7 @@ checkpoint 保存；未消费指令与 pause 标记由 `SteeringController` 原�
 | 29 | **`implement` 步骤必须有实际改动才能推进** | 委派探索可以把「读」做完，但不能因此把实现步当成完成。`plan_kinds` 与 `plan` 逐项对齐：explore/verify 允许零改动直接步进；implement 先 nudge 一次，仍无 `dirty` 就收尾，不再静默 advance | `test_an_implement_step_nudged_without_changes_responds`、`test_an_explore_step_without_changes_advances_without_nudge` |
 | 30 | **同一失败签名连续出现就改走 replan，且跨 replan 继续累积** | 24 次相同失败验证说明 repair 只是重复同一类修改。失败签名由失败测试 id + 归一化错误消息组成；连续达到 `max_same_failures` 后不再 repair。replan 会清空 `verification`，所以签名另存 `last_failure_signature`：新做法若仍撞同一个失败，计数继续增长，不会「清零→再修两轮→再 replan」循环。repair 时只重跑上次失败的 pytest 测试，子集通过后自动补跑全量。 | `test_the_same_failure_signature_goes_to_replan`、`test_stagnation_survives_a_replan_that_clears_the_verification`、`test_selected_pass_is_confirmed_by_a_full_run` |
 | 31 | **委派只在 explore 步、且受仓库规模预算约束** | 38 文件的任务实测会拆 3–5 个子智能体，成本 +43%。默认：<30 文件不委派；30–99 最多 2 次；100–299 最多 4 次；≥300 用配置上限。实现/验证步一律拒绝委派 | `test_small_repo_disables_delegation`、`test_delegate_is_rejected_outside_an_explore_step`、`test_delegate_budget_comes_from_the_cost_policy` |
-| 32 | **编排写 worker 只能在隔离 worktree 中并发，且写范围在 I/O 前就被校验** | 多个 implement 同时改主工作区会互相覆盖。每个 worker 一个 worktree；scheduler 串行执行 `git apply --check` → 留快照 → `git apply`；文件工具在写入前拒绝 `write_scope` 外路径，事后 diff 校验保留为第二道防线 | `test_concurrent_implement_workers_ignore_agent_state`、`test_merged_patch_takes_snapshots_so_undo_can_restore`、`test_dispatch_marks_a_conflicting_patch_failed`、`test_write_outside_scope_is_rejected_before_io` |
+| 32 | **编排写 worker 只能在隔离 worktree 中并发，且写范围在 I/O 前就被校验** | 多个 implement 同时改主工作区会互相覆盖。每个 worker 一个 worktree；超时/取消后的重试按 attempt 换 worktree，旧线程退出后才清理（等不到则留给 orphan prune）；scheduler 串行执行 `git apply --check` → 留快照 → `git apply`；文件工具在写入前拒绝 `write_scope` 外路径，事后 diff 校验保留为第二道防线 | `test_concurrent_implement_workers_ignore_agent_state`、`test_merged_patch_takes_snapshots_so_undo_can_restore`、`test_dispatch_marks_a_conflicting_patch_failed`、`test_write_outside_scope_is_rejected_before_io` |
 | 33 | **执行环境异常不等于代码失败** | WSL 掉线/命令无法启动时，`verify` 记 `error` 并直接收尾，`review` 记 `warned` 且不推进水位线；把这类错误送进 repair 只会让模型徒劳地改代码，或让整轮无谓失败 | `test_environment_failure_is_reported_not_fatal`、`test_an_environment_failure_is_warned_and_does_not_advance_watermark`、`test_verification_environment_error_goes_straight_to_respond` |
 | 34 | **崩溃后必须修复悬空的 tool_calls** | 崩溃可能发生在 act 已提交、tools 未提交之间；同一 thread 重跑时若把新消息追加在未应答的 tool_calls 后，下一轮 API 会因配对不完整直接 400。runtime 为缺失的调用补占位 `ToolMessage`，并明确标注“结果未知” | `test_recover_adds_a_placeholder_for_each_unanswered_call`、`test_dangling_tool_calls_are_repaired_before_the_new_prompt` |
 | 35 | **只重试瞬时/环境错误，且总等待有上限** | 对语义错误重试同一请求没有意义，对致命配置错误重试只是烧钱；无限退避会让一次运行永远挂住。`recovery.classify_error` 把异常压成四类，`retry_async` 只对前两类做指数退避 + 抖动 | `test_retry_async_does_not_retry_a_fatal_error`、`test_retry_async_stops_at_the_total_wait_budget`、`test_act_retries_a_transient_llm_error` |
@@ -283,6 +284,10 @@ checkpoint 保存；未消费指令与 pause 标记由 `SteeringController` 原�
 | 54 | **每个工具调用都要有统一耗时；重复探测要有 TTL** | 只靠 shell 的 duration 无法定位文件/检索工具慢在哪；AST 索引与包管理器探测每次重跑是纯浪费。tools 节点统一测 `duration_ms`，索引/探测按 TTL 缓存 | `test_selected_command_appends_a_safe_pytest_nodeid`、`test_read_cache_clear_and_stats` |
 | 55 | **等待合并的 implement 必须离开 pending** | 一个 implement 完成、另一个还在跑时，前者会停在 merge 队列。若状态仍是 pending，`refresh_ready` 会把它重新排进 ready，导致同一任务被重复启动、同一补丁被重复加入批次，合并时第二次 apply 必然失败并触发回滚；按分量隔离后，同文件分量仍会一起回滚（当时实测 4 个 worker 全部失败） | `test_completed_implement_is_not_relaunched_while_waiting_for_merge` |
 | 56 | **worktree 内的快照目录被 gitignore 时，`git add` 的 ignored-path 警告不是失败** | 快照写在 worktree 的 `.agent/`，它通常被 `.gitignore` 忽略；`git add -A` 会以 exit=1 报警告，但真实改动已暂存。直接返回“无改动”会让所有 implement worker 失败 | `test_implement_worker_creates_a_clean_patch`（setup 含 `.gitignore`） |
+
+> P0–P3 新增的编排控制面约束（契约闸门、四维预算、卡片出站、阶段门、
+> 进程兜底、嵌套不变量）集中在 §8.3；本节 56 条编号保持冻结，避免打断
+> 既有测试锚点。
 
 ## 7. 关键取舍
 
@@ -369,7 +374,8 @@ Git、依赖、检索都有专用工具。换来三件事：参数无法逃逸�
 START ─ route_entry ─┬─ direct → planner → act ...
                      └─ orchestrated
                           └─ orchestrator 子图
-                               survey → select_and_plan → scheduler ⇄ steering_dispatch
+                               survey → select_workflow → plan_tasks
+                               → scheduler ⇄ steering_dispatch
                                                               ↓
                                                             fan_in → planner
 ```
@@ -394,6 +400,10 @@ START ─ route_entry ─┬─ direct → planner → act ...
   补丁合并队列从 scheduler 主循环中拆出，便于单测；
 - `platform/concurrency.py`：worker / 工具 / WSL / LLM 共享的资源池；LLM 按
   provider + 全局双层限流，并根据成功/429 做 AIMD；
+- 预算：硬切片按“任务显式预算 > 角色总预算 > 派发预留”选取，并随
+  `max_tokens` 下传；
+  `estimate_recursion_limit` 按总完成数（含重试）与 document 边界估算，
+  不把每个 document 完成点漏算成 checkpoint_every 的 1/N；
 - `orchestrator/workflow.py`：规则优先；规则不确定时一次结构化调用同时返回
   workflow + 任务图，避免第二次规划往返。
 
@@ -440,18 +450,80 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
   10 篇/230 页实测：覆盖 10/10、每篇 35–67 条证据、矩阵槽位 87–94%、
   归属错配 0；单次约 58–60 万输入/47–55 万输出 token，19–24 分钟，
   因此矩阵默认关闭、按需开启。
+- **创新点提炼（ADR-0040）**：`knowledge/innovation.py` 从矩阵与证据生成
+  `gap/insight/hypothesis/novelty_claim/prior_art_contrast/falsifiable_experiment/
+  risks/confidence`，第二层 novelty critic 只依据给定材料复核；证据路径按
+  path/basename/标题归一，缺失文档做一次有界补充。3 篇实测 8 候选、6 支持、
+  3/3 文档参与证据、归属 0；不宣称外部新颖性。
 - **未落地**：编译器级宏展开、LSP 调用层级/类型推断、强一致分布式锁、
-  真实超大规模人工标注；claim 级语义归属与语义 judge 校准仍未完成。
+  真实超大规模人工标注；claim 级语义归属、语义 judge 校准与 paper-to-code
+  执行闭环仍未完成。
 
 总开关 `AGENT_DEEP_WORKFLOWS_ENABLED` 默认关闭；关闭时上述路径不生效。
 文档矩阵另由 `AGENT_DOCUMENT_MATRIX_ENABLED`（默认关闭）控制。
+
+### 8.2 每用户资料库（RFC-0010）
+
+资料库与会话附件、run 级知识产物是三条独立路径：
+
+| 能力 | 作用域 | 存储 | 模型可见方式 |
+|---|---|---|---|
+| `.agent/uploads/<thread>` | 单会话 | workspace 内 | 附件清单 + `document_read` |
+| `knowledge/` | 单次运行 | run 产物目录 | `knowledge_read/search` |
+| `library/` | **每用户跨工作区** | workspace 外的 `library_root` | 只读 `library_search` |
+
+```text
+A1 上传/列表/搜索自测
+  → A2 认证、租户与限额
+  → A3 解析 + 切块 + catalog + 可选 embedding
+  → A4 SandboxFs 落 source/chunks/vectors
+```
+
+- `library_root` 不在 workspace 内；A2 只代理，不解析、不读正文；
+- 上传/重建是异步 job：阶段进度、取消、`reindex-all`；解析/embedding 在
+  catalog 锁外执行；
+- 词法用 BM25，hybrid 用 RRF 融合，结果经 rerank/MMR；
+- 支持 PDF/DOCX/PPTX/HTML/EPUB/Markdown/TXT/XLSX/CSV；
+- 可选 `hnswlib` 向量后端，失败回退 linear；embedding 失败回退词法；
+- 模型只能通过 `library_search` 主动检索，不自动注入提示词；
+- 删除为软删，物理清除需显式 `purge`；
+- 多实例下依赖共享 library 存储与文件锁，当前不做分布式队列。
+
+实现与运维细节见 [LIBRARY.md](LIBRARY.md)。
+
+### 8.3 编排控制面（P0–P3）
+
+编排子图在 `survey/select` 之后、scheduler 之前增加了一层“便宜层”控制面：
+
+| 层 | 组件 | 行为 |
+|---|---|---|
+| S2 契约 | `TaskContract`（`orchestrator/contracts.py`） | goal/constraints/acceptance/known/unknown/side_effects；`unknown` 非空不进入 scheduler |
+| S4 评审 | `orchestrator/plan_review.py` | 三问：验收映射、不可验证/无界步骤、重复步骤；失败不执行 |
+| S5 预估 | `orchestrator/estimator.py` | 规则先验 + `task_type × role × model` 历史分桶；输出 P50/P90 与 gate |
+| 预算 | `orchestrator/budget.py` | 四维预算；70% `BudgetWarning`、100% `budget_abort`；模型 `max_tokens/timeout` 夹到父预算 |
+| 通知 | `runtime/cards.py` | 事件投影成卡片；首卡 T+0、进度节流、故障不节流、heartbeat、`card_id` 幂等 |
+| 阶段门 | `orchestrator/control_checkpoint.py` | 阶段控制检查点（契约/计划/产物引用/预算/早停）；阶段失败只停后续阶段 |
+| 进程兜底 | `platform/process_runner.py` | 不可取消/CPU 密集步骤走 spawn 子进程，超时 terminate/kill |
+| 嵌套 | `orchestrator/nested.py` | 子编排器是同一控制面子图的递归实例；默认关闭，`MAX_DEPTH=1` |
+
+约束：
+
+- 控制面事件循环不做同步 IO；审计走有界队列 + 专用写线程，journal/steering
+  文件 IO 下放线程池；`tests/unit/test_control_plane_blocking.py` 做静态守卫。
+- 模型生成的计划预算不可信：派发时一律 clamp 到父预算；四维 BudgetGuard
+  不自行延长。
+- 子编排器只读、预算由父切片、`suppress_events=True`，不推前端卡片；
+  审批仍只在 Root。
+- 控制检查点与 LangGraph 恢复 checkpoint 分开存：前者不存全量消息。
 
 ## 9. 并发与进程模型
 
 ### 单 runtime
 
 - **一个事件循环**驱动图、scheduler 与 async 池；同步工具/沙箱经
-  `asyncio.to_thread` 下放。
+  `asyncio.to_thread` 下放。run 启动阶段的快照清理、记忆/指令/仓库画像/
+  附件读取与 steering 清理同样下放，不占 Web 共享事件循环；工作区锁本身
+  是短小的 OS 锁操作，保持同步以免取消时线程拿到锁却无人释放。
 - `run` / `resume` / `resume_steering` 共用 `_stream_active` 闸门：同一
   runtime 不允许并发驱动同一张图（工作区锁是可重入的，不能替代这一层）。
 - `AsyncLeasePool` 只在事件循环内变更，临界区不含 `await`；WSL 的
@@ -470,6 +542,9 @@ drain 后的边界消费。pause 用 `interrupt()` + checkpoint，恢复时已�
 
 ### 跨进程
 
+- 进程兜底：文档解析等不可取消/CPU 密集步骤可经 `platform/process_runner.py`
+  放入 spawn 子进程；超时 terminate/kill。它只保证“卡死能收”，容器/cgroup
+  配额仍属于部署侧。
 - 工作区锁：占用时 fail closed，只有文件系统明确不支持锁才降级。
 - 限流状态、审计 JSONL、steering 队列、工具执行日志统一使用
   `filelock.FileLock`（线程 RLock + OS 文件锁；OS 锁不可用时退化为线程锁）。
@@ -706,7 +781,8 @@ P2/P3 核心（写/快照/AppContainer exec）已落地；revision、企业分�
   [DATABASE.md](DATABASE.md)）。
 - **A3 拥有** checkpoint、运行状态、pending approval、steering、记忆与本地审计链。
 - **A4 拥有**工作区、快照、附件字节、Git/worktree；`sandbox` 工作区在 ext4，
-  `host` 工作区的字节在用户 NTFS 且由 A2L 保管。
+  `host` 工作区的字节在用户 NTFS 且由 A2L 保管。**资料库正文与索引也在 A4**，
+  按用户存放在 workspace 之外；A2 只持有元数据/配额入口，不存正文。
 - **密钥**由 A2 的 SecretProvider 托管，短期注入 A3 内存；桌面用 OS 密钥环，
   服务器用 Vault/KMS/systemd-creds 或数据库密文（企业模式）；WSL 无 Secret
   Service 时不落盘、不入日志/前端，数据库只见密文。

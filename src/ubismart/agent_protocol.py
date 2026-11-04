@@ -108,6 +108,8 @@ class AgentContext:
     workspace_kind: str = "sandbox"
     a2l_id: str = ""
     root_handle: str = ""
+    # 每用户跨工作区资料库根目录（WSL 绝对路径）；空 = 由 A3 按沙箱家目录推导。
+    library_root: str = ""
     access_mode: str = "read_only"
     model: str = ""
     provider: str = ""
@@ -139,6 +141,7 @@ class AgentContext:
             workspace_kind=str(data.get("workspace_kind") or "sandbox"),
             a2l_id=str(data.get("a2l_id") or ""),
             root_handle=str(data.get("root_handle") or ""),
+            library_root=str(data.get("library_root") or ""),
             access_mode=str(data.get("access_mode") or "read_only"),
             model=str(data.get("model") or ""),
             provider=str(data.get("provider") or ""),

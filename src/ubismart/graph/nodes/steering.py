@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -25,7 +27,11 @@ from langgraph.types import interrupt
 from ubismart.config import Settings
 from ubismart.graph.plan import EXPLORE, UNKNOWN, VERIFY, align_kinds
 from ubismart.graph.state import AgentState
-from ubismart.session.steering import SteeringCommand, SteeringController
+from ubismart.session.steering import (
+    PATCH_FIELDS,
+    SteeringCommand,
+    SteeringController,
+)
 
 # /add 的 role 与 direct 模式 plan kind 的映射：review 是只读审查，
 # 在单 agent 计划里按 explore 处理（不要求产生改动）。
@@ -38,7 +44,7 @@ def _thread_id(config: RunnableConfig | None) -> str:
     return str((((config or {}).get("configurable")) or {}).get("thread_id", ""))
 
 
-def _take(
+async def _take(
     controller: SteeringController,
     thread_id: str,
     *,
@@ -51,21 +57,25 @@ def _take(
 
     `allow_pause=False` 用于「取消已经成立」的收尾路径：此时再挂起只会让用户
     取消完又停在半路，pause 直接消费掉、不再 interrupt。
+
+    队列的读/写/落盘都带文件锁，统一下放到线程池，避免控制面在事件循环
+    里做 stat/lock/fsync。
     """
-    commands = controller.consume(thread_id)
+    commands = await asyncio.to_thread(controller.consume, thread_id)
     if allow_pause and any(
         command.action == "pause" for command in commands
     ):
-        controller.requeue(
+        await asyncio.to_thread(
+            controller.requeue,
             thread_id,
             [command for command in commands if command.action != "pause"],
         )
-        controller.mark_paused(thread_id)
+        await asyncio.to_thread(controller.mark_paused, thread_id)
         interrupt({"steering": "pause", "message": _PAUSE_MESSAGE})
     else:
         # 取消优先：指令已消费，但不再挂起；pause 不应出现在后续载荷里。
         commands = [command for command in commands if command.action != "pause"]
-    controller.clear_paused(thread_id)
+    await asyncio.to_thread(controller.clear_paused, thread_id)
     return commands
 
 
@@ -98,39 +108,56 @@ def _append_task(
     return task, task_id
 
 
-def _cancel_updates(
+def _stop_updates(
     commands: list[SteeringCommand],
     state: AgentState,
     *,
-    has_cancel: bool,
+    stop_actions: set[str],
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     updates: dict[str, Any] = {}
     applied: list[dict[str, str]] = []
     status = dict(state.get("task_status") or {})
-    if has_cancel:
+    stop_command = next(
+        (command for command in commands if command.action in stop_actions),
+        None,
+    )
+    if stop_command is not None:
         for task_id, value in list(status.items()):
             if value == "pending":
                 status[task_id] = "cancelled"
         updates["steering_cancelled"] = True
         # 同批若还带了 replan，也不该再触发一次重规划。
         updates["steering_replan"] = False
+        action = stop_command.action
+        if action == "abort":
+            updates["steering_aborted"] = True
+            detail = "已中止；保留已完成部分"
+        elif action == "rollback":
+            try:
+                steps = max(1, int(stop_command.text))
+            except (TypeError, ValueError):
+                steps = 1
+            updates["steering_rollback_steps"] = steps
+            detail = f"已停止当前运行，准备回退 {steps} 个检查点"
+        else:
+            detail = "已停止派发后续任务"
         applied.append(
             {
-                "action": "cancel",
+                "action": action,
                 "task_id": "",
-                "detail": "已停止派发后续任务",
+                "detail": detail,
             }
         )
     if status:
         updates["task_status"] = status
     for command in commands:
-        if command.action == "cancel":
+        if command.action in stop_actions:
             continue
         applied.append(
             {
                 "action": command.action,
                 "task_id": "",
-                "detail": "任务已取消，指令未执行",
+                "detail": "运行已停止，指令未执行",
             }
         )
     return updates, applied
@@ -239,13 +266,14 @@ def _apply_commands(
     updates: dict[str, Any] = {}
     applied: list[dict[str, str]] = []
     orchestrated = state.get("execution_mode") == "orchestrated"
-    has_cancel = any(command.action == "cancel" for command in commands)
+    stop_actions = {"cancel", "abort", "rollback"}
+    has_stop = any(command.action in stop_actions for command in commands)
     already_cancelled = bool(state.get("steering_cancelled"))
 
-    # 取消一旦成立，本批不允许再产生任何可执行更新。already_cancelled 时也
-    # 不走正常路径：路由已经不会再派发，再报"已追加"只会误导用户。
-    if has_cancel or already_cancelled:
-        return _cancel_updates(commands, state, has_cancel=has_cancel)
+    # 停止类指令一旦成立，本批不允许再产生任何可执行更新。already_cancelled
+    # 时也不走正常路径：路由已经不会再派发，再报"已追加"只会误导用户。
+    if has_stop or already_cancelled:
+        return _stop_updates(commands, state, stop_actions=stop_actions)
 
     tasks = [dict(task) for task in (state.get("tasks") or [])]
     status = dict(state.get("task_status") or {})
@@ -286,6 +314,43 @@ def _apply_commands(
                 updates["steering_replan"] = True
                 updates["steering_replans"] = used_replans + 1
             applied.append(entry)
+        elif command.action == "patch":
+            try:
+                patch = dict(command.payload or json.loads(command.text or "{}"))
+            except ValueError:
+                patch = {}
+            patch = {
+                key: value
+                for key, value in patch.items()
+                if key in PATCH_FIELDS
+            }
+            contract = dict(state.get("contract") or {})
+            contract.update(patch)
+            updates["contract"] = contract
+            updates["plan_version"] = int(state.get("plan_version", 0)) + 1
+            detail = "契约已更新：" + "、".join(sorted(patch))
+            # goal/constraints/unknown 变化会影响计划，走一次重规划；known 只补信息。
+            if any(
+                key in patch for key in ("goal", "constraints", "unknown")
+            ):
+                if (
+                    not replan_selected
+                    and used_replans < int(settings.max_replans)
+                ):
+                    updates["steering_replan"] = True
+                    updates["steering_replans"] = used_replans + 1
+                    replan_selected = True
+                    used_replans += 1
+                    detail += "；已触发重规划"
+                elif used_replans >= int(settings.max_replans):
+                    detail += "；重规划额度已用尽，仅更新契约"
+            applied.append(
+                {
+                    "action": "patch",
+                    "task_id": "",
+                    "detail": detail,
+                }
+            )
 
     if orchestrated and added_task:
         updates["tasks"] = tasks
@@ -299,11 +364,13 @@ def _apply_commands(
 
 def make_steering_plan_node(
     controller: SteeringController, settings: Settings
-) -> Callable[[AgentState, RunnableConfig], dict[str, Any]]:
+) -> Callable[[AgentState, RunnableConfig], Any]:
     """任务图生成后、dispatch 前。这里刚规划完，忽略 replan 请求。"""
 
-    def steering_plan(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        commands = _take(controller, _thread_id(config))
+    async def steering_plan(
+        state: AgentState, config: RunnableConfig
+    ) -> dict[str, Any]:
+        commands = await _take(controller, _thread_id(config))
         updates, applied = _apply_commands(
             commands, state, settings, allow_replan=False
         )
@@ -315,13 +382,13 @@ def make_steering_plan_node(
 
 def make_steering_dispatch_node(
     controller: SteeringController, settings: Settings
-) -> Callable[[AgentState, RunnableConfig], dict[str, Any]]:
+) -> Callable[[AgentState, RunnableConfig], Any]:
     """每批 worker 结束、下一批开始前。取消会阻止后续派发。"""
 
-    def steering_dispatch(
+    async def steering_dispatch(
         state: AgentState, config: RunnableConfig
     ) -> dict[str, Any]:
-        commands = _take(controller, _thread_id(config))
+        commands = await _take(controller, _thread_id(config))
         updates, applied = _apply_commands(
             commands, state, settings, allow_replan=True
         )
@@ -333,11 +400,13 @@ def make_steering_dispatch_node(
 
 def make_steering_step_node(
     controller: SteeringController, settings: Settings
-) -> Callable[[AgentState, RunnableConfig], dict[str, Any]]:
+) -> Callable[[AgentState, RunnableConfig], Any]:
     """direct 模式一步做完、replan 前。"""
 
-    def steering_step(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        commands = _take(controller, _thread_id(config))
+    async def steering_step(
+        state: AgentState, config: RunnableConfig
+    ) -> dict[str, Any]:
+        commands = await _take(controller, _thread_id(config))
         updates, applied = _apply_commands(
             commands, state, settings, allow_replan=True
         )
@@ -361,27 +430,28 @@ def make_steering_cancel_node(
     add/replan 的生效时点。
     """
 
-    def steering_cancel(
+    async def steering_cancel(
         state: AgentState, config: RunnableConfig
     ) -> dict[str, Any]:
         thread_id = _thread_id(config)
-        queued = controller.peek(thread_id)
-        if not any(command.action == "cancel" for command in queued):
+        stop_actions = {"cancel", "abort", "rollback"}
+        queued = await asyncio.to_thread(controller.peek, thread_id)
+        if not any(command.action in stop_actions for command in queued):
             return {}
 
-        # 先 peek 再 consume：没有 cancel 的高频路径不做文件锁/写盘。
-        commands = controller.consume(thread_id)
+        # 先 peek 再 consume：没有停止指令的高频路径不做文件锁/写盘。
+        commands = await asyncio.to_thread(controller.consume, thread_id)
         keep = [
             command
             for command in commands
-            if command.action not in {"cancel", "pause"}
+            if command.action not in stop_actions | {"pause"}
         ]
-        controller.requeue(thread_id, keep)
-        cancels = [
-            command for command in commands if command.action == "cancel"
+        await asyncio.to_thread(controller.requeue, thread_id, keep)
+        stops = [
+            command for command in commands if command.action in stop_actions
         ]
         updates, applied = _apply_commands(
-            cancels,
+            stops,
             state,
             settings,
             allow_replan=False,
@@ -398,9 +468,11 @@ def make_steering_final_node(
 ) -> Callable[[AgentState, RunnableConfig], dict[str, Any]]:
     """所有 respond 之前的最后一道消费点。"""
 
-    def steering_final(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    async def steering_final(
+        state: AgentState, config: RunnableConfig
+    ) -> dict[str, Any]:
         # 已经取消的收尾不再接受 pause：用户取消后不该又停在半路。
-        commands = _take(
+        commands = await _take(
             controller,
             _thread_id(config),
             allow_pause=not bool(state.get("steering_cancelled")),

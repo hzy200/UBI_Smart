@@ -76,6 +76,11 @@ from ubismart.web.routes.desktop import (
     DesktopDeps,
     register_desktop_routes,
 )
+from ubismart.web.routes.library import (
+    LIBRARY_UPLOAD_PATHS,
+    LibraryDeps,
+    register_library_routes,
+)
 from ubismart.web.routes.notifications import (
     NotificationDeps,
     register_notification_routes,
@@ -746,6 +751,8 @@ def create_app(
             "max_upload_total_bytes": int(
                 settings.web_max_upload_total_bytes
             ),
+            "library_enabled": bool(settings.library_enabled),
+            "library_search_mode": str(settings.library_search_mode),
         }
 
     # 最内层：把 /api/v1/* 重写为 /api/*，路由只注册一份。
@@ -766,6 +773,7 @@ def create_app(
             )
             + 1_048_576
         ),
+        upload_paths=LIBRARY_UPLOAD_PATHS,
         workspace_upload_max_bytes=settings.workspace_upload_max_bytes,
     )
     app.add_middleware(
@@ -1271,6 +1279,19 @@ def create_app(
             ops_runtime=_ops_runtime,
             workspace_uploaded_bytes=catalog.workspace_uploaded_bytes,
             idempotency=idempotency,
+        ),
+    )
+
+    register_library_routes(
+        app,
+        LibraryDeps(
+            settings=settings,
+            tenant=_tenant,
+            rate_limit=_rate_limit,
+            agent_client=agent_client,
+            agent_library_upload=gateway.library_upload,
+            agent_library_json=gateway.library_json,
+            ops_runtime=_ops_runtime,
         ),
     )
 

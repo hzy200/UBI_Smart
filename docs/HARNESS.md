@@ -4,7 +4,7 @@ doc_id: harness
 title: Harness 化改进方案
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-22
+last_reviewed: 2026-11-04
 review_cadence: 编排行为变动时
 note: |
   事件清单的事实源是 docs/contracts/events.md（代码生成），
@@ -97,6 +97,10 @@ note: |
 | Orchestrator 3A | `orchestrator/`：survey / workflow select / TaskGraph / scheduler / fan-in | **已实现**（只读 worker） |
 | Orchestrator 3B | explore/test/**review** worker、任务级重试、fan-in 文件重叠报告 | **已实现** |
 | Orchestrator 3C | **implement** worker、git worktree 隔离、写范围校验、patch 合并/冲突 | **已实现**（默认关闭） |
+| 控制面 P0 | 契约 `TaskContract`、unknown 闸门、计划评审、预算/早停 | **已实现** |
+| 控制面 P1 | Estimator + Estimation Card + gate、结构化 patch、通知卡片 | **已实现** |
+| 控制面 P2 | 四维预算、阶段门/控制检查点、进程兜底、指标/回归 | **已实现** |
+| 控制面 P3 | 嵌套子编排器（默认关闭，`MAX_DEPTH=1`） | **已实现** |
 
 **仍未实现 / 后续**：
 

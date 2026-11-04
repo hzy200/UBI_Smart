@@ -4,7 +4,7 @@ doc_id: database
 title: 控制面数据库：MySQL 长期存储与运维
 owner: 项目作者
 status: active
-last_reviewed: 2026-10-28
+last_reviewed: 2026-11-02
 review_cadence: 控制面 schema、迁移、备份或企业账号数据边界变动时
 ---
 
@@ -54,6 +54,7 @@ A2 的结构化业务数据统一写入 `AGENT_CONTROL_DB_URL`。企业部署使
 - A3 的 checkpoint、pending approval、steering 状态；
 - 审计 JSONL 原始哈希链（MySQL 只存查询索引）；
 - 工作区文件字节、Git 对象、上传附件；
+- 资料库正文、chunk、向量（在 A4 `<library_root>/`，按用户隔离）；
 - provider Key 明文、日志、前端可读凭证。
 
 这些属于执行面/文件面，迁移代价高且会改变 A3 的单写者语义，暂不进入控制面。

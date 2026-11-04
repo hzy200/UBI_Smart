@@ -23,6 +23,7 @@ from ubismart.config import Settings
 from ubismart.events import (
     ApprovalRequested,
     AssistantToken,
+    CardEvent,
     Event,
     FileChanged,
     PlanCreated,
@@ -30,6 +31,7 @@ from ubismart.events import (
     RunFailed,
     RunFinished,
     RunStarted,
+    SteeringApplied,
     StepFinished,
     StepStarted,
     ToolCallFinished,
@@ -128,7 +130,8 @@ def _run(coro) -> Any:
 
 
 def _kinds(events: list[Event]) -> list[str]:
-    return [e.type for e in events]
+    # 卡片是通知面的叠加层，不改变原有领域事件的顺序；序列断言忽略它。
+    return [e.type for e in events if e.type != "card"]
 
 
 # ---------------- 完整一轮 ----------------
@@ -1127,3 +1130,53 @@ def test_subgraph_interrupt_is_not_emitted_twice(tmp_path) -> None:
     assert len(approvals) == 1
     assert approvals[0].request_id == "c1"
     assert not any(isinstance(e, RunFinished) for e in events)
+
+
+def test_cards_are_emitted_alongside_domain_events(tmp_path) -> None:
+    script = [
+        _updates(planner={"plan": ["做"]}),
+        _updates(respond={"messages": [AIMessage(content="好了")]}),
+    ]
+    runtime, _ = _runtime(tmp_path, script)
+
+    events = _run(_collect(runtime))
+    cards = [event for event in events if isinstance(event, CardEvent)]
+
+    assert cards, "至少应有首卡与完成卡"
+    assert cards[0].kind in {"progress", "estimate"}
+    assert cards[0].card_id
+    assert any(card.kind == "done" for card in cards)
+
+
+def test_rollback_rewinds_after_the_stream_stops(tmp_path, monkeypatch) -> None:
+    calls: list[int] = []
+
+    async def fake_rewind(thread_id, *, checkpoint_id="", steps=1):
+        calls.append(steps)
+        return "ckpt-1"
+
+    script = [
+        _updates(
+            steering_dispatch={
+                "steering_cancelled": True,
+                "steering_rollback_steps": 2,
+                "steering_applied": [
+                    {"action": "rollback", "detail": "准备回退"}
+                ],
+            }
+        ),
+        _updates(respond={"messages": [AIMessage(content="已停止")]}),
+    ]
+    runtime, _ = _runtime(tmp_path, script)
+    monkeypatch.setattr(runtime, "rewind", fake_rewind)
+
+    events = _run(_collect(runtime))
+    rollbacks = [
+        event
+        for event in events
+        if isinstance(event, SteeringApplied) and event.action == "rollback"
+    ]
+
+    assert calls == [2]
+    assert rollbacks
+    assert "ckpt-1" in rollbacks[-1].detail

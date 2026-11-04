@@ -308,3 +308,23 @@ def test_other_read_failures_are_not_reported_as_oversized() -> None:
         with pytest.raises(SandboxFsError) as excinfo:
             _read_with(stdout, max_bytes=10)
         assert not isinstance(excinfo.value, SandboxFsTooLarge)
+
+
+def test_rename_rejects_paths_outside_the_workspace() -> None:
+    with pytest.raises(SandboxPathError):
+        SandboxFs(None, "/ws").rename(  # type: ignore[arg-type]
+            "../outside", "/ws/inside"
+        )
+    with pytest.raises(SandboxPathError):
+        SandboxFs(None, "/ws").rename(  # type: ignore[arg-type]
+            "/ws/inside", "/outside/target"
+        )
+
+
+def test_rename_runs_realpath_checked_mv() -> None:
+    sandbox = _OutputSandbox("")
+    _fs_with(sandbox).rename("/ws/stage/chunks", "/ws/items/chunks")
+    script = sandbox.scripts[0]
+    assert 'realpath -m -- "$src"' in script
+    assert 'mv -f -- "$src_real" "$dst"' in script
+    assert "ESCAPED=" in script

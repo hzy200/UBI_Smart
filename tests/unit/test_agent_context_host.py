@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+from fastapi import HTTPException
+
 from ubismart.agent_protocol import AgentContext
 from ubismart.config import Settings
 from ubismart.identity.access import ACCESS_WRITE_AUTO
@@ -97,6 +100,84 @@ def test_factory_fails_closed_without_caller(tmp_path) -> None:
         assert "A2L" in str(exc.detail if hasattr(exc, "detail") else exc)
     else:  # pragma: no cover
         raise AssertionError("缺少 caller 时必须拒绝")
+
+
+def _library_factory(tmp_path, **settings_kwargs):
+    settings = Settings(
+        _env_file=None,
+        AGENT_AGENT_DATA_ROOT=str(tmp_path),
+        **settings_kwargs,
+    )
+    return AgentRuntimeFactory(settings, lambda _settings, **_kwargs: FakeRuntime())
+
+
+def _library_context(tenant: str, root: str = "") -> AgentContext:
+    return AgentContext(
+        tenant=tenant,
+        workspace=f"/srv/ws/{tenant}",
+        workspace_kind="sandbox",
+        library_root=root,
+    )
+
+
+def test_library_root_is_derived_per_tenant(tmp_path) -> None:
+    factory = _library_factory(
+        tmp_path, AGENT_WEB_LIBRARY_ROOT="/srv/library"
+    )
+    settings = factory.tenant_settings(
+        _library_context("alice"), validate_library_root=True
+    )
+    assert settings.library_root == "/srv/library/alice"
+
+
+def test_library_root_rejects_another_tenant(tmp_path) -> None:
+    factory = _library_factory(
+        tmp_path, AGENT_WEB_LIBRARY_ROOT="/srv/library"
+    )
+    with pytest.raises(HTTPException) as caught:
+        factory.tenant_settings(
+            _library_context("alice", "/srv/library/bob"),
+            validate_library_root=True,
+        )
+    assert caught.value.status_code == 403
+
+
+def test_library_root_rejects_path_outside_base(tmp_path) -> None:
+    factory = _library_factory(
+        tmp_path, AGENT_WEB_LIBRARY_ROOT="/srv/library"
+    )
+    with pytest.raises(HTTPException) as caught:
+        factory.tenant_settings(
+            _library_context("alice", "/tmp/alice"),
+            validate_library_root=True,
+        )
+    assert caught.value.status_code == 403
+
+
+def test_library_root_fails_closed_without_base_for_tenant(tmp_path) -> None:
+    factory = _library_factory(tmp_path)
+    with pytest.raises(HTTPException) as caught:
+        factory.tenant_settings(
+            _library_context("alice"), validate_library_root=True
+        )
+    assert caught.value.status_code == 400
+
+
+def test_library_root_accepts_default_tenant_path_without_base(tmp_path) -> None:
+    factory = _library_factory(tmp_path)
+    settings = factory.tenant_settings(
+        _library_context("alice", "/home/u/agent-library/alice"),
+        validate_library_root=True,
+    )
+    assert settings.library_root == "/home/u/agent-library/alice"
+
+
+def test_audit_dir_does_not_require_a_valid_library_root(tmp_path) -> None:
+    factory = _library_factory(tmp_path)
+    # 审计路径只需要 tenant 目录；没有资料库配置时不能因此拒绝。
+    settings = factory.tenant_settings(_library_context("alice"))
+    normalized = settings.audit_dir.replace("\\", "/")
+    assert normalized.endswith("alice/audit")
 
 
 def test_untrusted_profile_rejects_host_workspace(tmp_path) -> None:

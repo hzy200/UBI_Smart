@@ -42,6 +42,7 @@ from ubismart.tools.files import (
 from ubismart.tools.git import GIT_ADD, GIT_COMMIT, GIT_DIFF, GIT_LOG, GIT_STATUS
 from ubismart.tools.host_exec import HOST_EXEC_TOOL_NAME
 from ubismart.tools.knowledge import KNOWLEDGE_READ, KNOWLEDGE_SEARCH
+from ubismart.tools.library import LIBRARY_SEARCH
 from ubismart.tools.memory import MEMORY_SAVE, MEMORY_SEARCH
 from ubismart.tools.report import REPORT_CHECK, REPORT_EXPORT, REPORT_READ
 from ubismart.tools.search import FIND_FILES, SEARCH_CODE
@@ -74,6 +75,7 @@ _READ_TOOLS = frozenset(
         LIST_TOOL_NAME,
         KNOWLEDGE_READ,
         KNOWLEDGE_SEARCH,
+        LIBRARY_SEARCH,
     }
 )
 
@@ -198,6 +200,9 @@ def make_approval_gate_node(
                         "reason": str(args.get("reason", "")),
                         "level": level.label,
                         "level_int": int(level),
+                        "plan_version": int(
+                            state.get("plan_version", 0) or 0
+                        ),
                     }
                 )
             else:

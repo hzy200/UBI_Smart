@@ -14,6 +14,8 @@ from langchain_core.messages import HumanMessage
 from ubismart.config import Settings
 from ubismart.orchestrator import scheduler_run as scheduler_runtime
 from ubismart.orchestrator.contracts import (
+    AcceptanceRule,
+    TaskContract,
     TaskGraph,
     TaskSpec,
     WorkerResult,
@@ -1254,6 +1256,14 @@ def test_patch_paths_rejects_paths_outside_the_workspace() -> None:
     assert "不允许合并" in error
 
 
+def test_worktree_id_isolates_retry_attempts() -> None:
+    from ubismart.orchestrator.implement import _safe_id, _worktree_id
+
+    assert _worktree_id("t1", 1) == _safe_id("t1")
+    assert _worktree_id("t1", 2) != _worktree_id("t1", 1)
+    assert _worktree_id("t1", 2) == _worktree_id("t1", 2)
+
+
 def test_safe_id_keeps_long_task_ids_distinct() -> None:
     prefix = "task-" + "x" * 60
 
@@ -2207,3 +2217,103 @@ def test_implement_workers_cannot_delete_files() -> None:
     from ubismart.tools.files import DELETE_TOOL_NAME
 
     assert DELETE_TOOL_NAME not in IMPLEMENT_TOOL_NAMES
+
+
+def test_plan_tasks_blocks_when_contract_has_unknowns() -> None:
+    graph = TaskGraph(
+        contract=TaskContract(
+            goal="实现定价",
+            acceptance=[AcceptanceRule(rule="测试通过", auto=True)],
+            unknown=["币种未指定"],
+        ),
+        tasks=[
+            TaskSpec(
+                id="t1",
+                role="explore",
+                goal="定位定价逻辑",
+                acceptance=["列出 file:line 证据"],
+            )
+        ],
+    )
+    node = make_plan_tasks_node(_StructuredLLM(_Structured(graph)), _settings())
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="实现定价")],
+                "repo_summary": {"file_count": 50},
+            },
+            None,
+        )
+    )
+
+    assert out["contract_unknowns"] == ["币种未指定"]
+    assert out["plan_review_failed"] is False
+    assert out["contract"]["goal"] == "实现定价"
+
+
+def test_plan_tasks_marks_review_failure_for_unverifiable_steps() -> None:
+    graph = TaskGraph(
+        contract=TaskContract(
+            goal="实现定价",
+            acceptance=[AcceptanceRule(rule="测试通过", auto=True)],
+        ),
+        tasks=[
+            TaskSpec(
+                id="t1",
+                role="explore",
+                goal="看看代码",
+                acceptance=[],
+                verifiable=False,
+            )
+        ],
+    )
+    node = make_plan_tasks_node(_StructuredLLM(_Structured(graph)), _settings())
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="实现定价")],
+                "repo_summary": {"file_count": 50},
+            },
+            None,
+        )
+    )
+
+    assert out["plan_review_failed"] is True
+    assert any("不可验证" in reason for reason in out["contract_review"]["reasons"])
+
+
+def test_replan_keeps_user_patched_contract_fields() -> None:
+    graph = TaskGraph(
+        contract=TaskContract(
+            goal="模型想改写的目标",
+            acceptance=[AcceptanceRule(rule="测试通过", auto=True)],
+        ),
+        tasks=[
+            TaskSpec(
+                id="t1",
+                role="explore",
+                goal="定位",
+                acceptance=["列出证据"],
+            )
+        ],
+    )
+    node = make_plan_tasks_node(_StructuredLLM(_Structured(graph)), _settings())
+    out = _run(
+        node(
+            {
+                "messages": [HumanMessage(content="实现定价")],
+                "repo_summary": {"file_count": 50},
+                "steering_replan": True,
+                "contract": {
+                    "goal": "用户 patch 的目标",
+                    "constraints": ["只改 pricing.py"],
+                    "known": {},
+                    "unknown": [],
+                },
+            },
+            None,
+        )
+    )
+
+    assert out["contract"]["goal"] == "用户 patch 的目标"
+    assert out["contract"]["constraints"] == ["只改 pricing.py"]

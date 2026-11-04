@@ -370,6 +370,21 @@ class Settings(BaseSettings):
     document_cache_ttl_days: int = Field(
         default=30, alias="AGENT_DOCUMENT_CACHE_TTL_DAYS"
     )
+    # CPU 密集/不可取消的文档解析（PDF/Office/EPUB）默认放进 spawn 子进程；
+    # 超时直接杀进程，避免把宿主线程永久挂住。短文本仍走当前线程。
+    document_process_isolation: bool = Field(
+        default=True, alias="AGENT_DOCUMENT_PROCESS_ISOLATION"
+    )
+    document_process_timeout_s: float = Field(
+        default=60.0, alias="AGENT_DOCUMENT_PROCESS_TIMEOUT_S"
+    )
+    # 超过该大小的任意文档也走进程隔离；0 = 只按格式判断。
+    document_process_threshold_bytes: int = Field(
+        default=2_000_000, alias="AGENT_DOCUMENT_PROCESS_THRESHOLD_BYTES"
+    )
+    process_runner_max_concurrent: int = Field(
+        default=2, alias="AGENT_PROCESS_RUNNER_MAX_CONCURRENT"
+    )
     # 文档管线角色级并发；author 固定为 1（报告写入全局单实例）。
     orchestrator_document_concurrency: int = Field(
         default=2, alias="AGENT_ORCHESTRATOR_DOCUMENT_CONCURRENCY"
@@ -508,6 +523,11 @@ class Settings(BaseSettings):
     )
     concurrency_llm_global: int = Field(
         default=6, alias="AGENT_CONCURRENCY_LLM_GLOBAL"
+    )
+    # 异步池等待队列上限；0 = 不限制（仅测试/兼容用）。生产默认有界，
+    # 队列满时快速失败，而不是把等待者无限堆进内存。
+    concurrency_max_waiters: int = Field(
+        default=128, alias="AGENT_CONCURRENCY_MAX_WAITERS"
     )
     concurrency_worker_timeout_s: float = Field(
         default=60.0, alias="AGENT_CONCURRENCY_WORKER_TIMEOUT_S"
@@ -721,6 +741,74 @@ class Settings(BaseSettings):
     knowledge_embedding_dim: int = Field(
         default=0, alias="AGENT_KNOWLEDGE_EMBEDDING_DIM"
     )
+
+    # ---------- 资料库（每用户跨工作区）----------
+    # 默认关闭；开启后只暴露 library_search 只读工具。
+    library_enabled: bool = Field(
+        default=False, alias="AGENT_LIBRARY_ENABLED"
+    )
+    # WSL 内绝对路径；空则按沙箱 $HOME/.agent-library 推导。
+    # Web 多用户由 TenancyManager 覆盖成 per-user 目录。
+    library_root: str = Field(default="", alias="AGENT_LIBRARY_ROOT")
+    library_max_items: int = Field(
+        default=100, alias="AGENT_LIBRARY_MAX_ITEMS"
+    )
+    library_max_item_bytes: int = Field(
+        default=20_971_520, alias="AGENT_LIBRARY_MAX_ITEM_BYTES"
+    )
+    library_max_total_bytes: int = Field(
+        default=268_435_456, alias="AGENT_LIBRARY_MAX_TOTAL_BYTES"
+    )
+    library_chunk_chars: int = Field(
+        default=4_000, alias="AGENT_LIBRARY_CHUNK_CHARS"
+    )
+    library_chunk_overlap: int = Field(
+        default=200, alias="AGENT_LIBRARY_CHUNK_OVERLAP"
+    )
+    library_search_top_k: int = Field(
+        default=8, alias="AGENT_LIBRARY_SEARCH_TOP_K"
+    )
+    library_search_max_chars: int = Field(
+        default=8_000, alias="AGENT_LIBRARY_SEARCH_MAX_CHARS"
+    )
+    # MMR 多样性权重：1 = 纯相关度，越小越去重。
+    library_mmr_lambda: float = Field(
+        default=0.7, alias="AGENT_LIBRARY_MMR_LAMBDA"
+    )
+    # 确定性 rerank：查询短语/标题命中的小幅加权。
+    library_rerank_enabled: bool = Field(
+        default=True, alias="AGENT_LIBRARY_RERANK_ENABLED"
+    )
+    library_rerank_boost: float = Field(
+        default=0.25, alias="AGENT_LIBRARY_RERANK_BOOST"
+    )
+    # linear（默认）| hnswlib；hnswlib 未安装/失败时自动回退 linear。
+    library_vector_backend: str = Field(
+        default="linear", alias="AGENT_LIBRARY_VECTOR_BACKEND"
+    )
+    library_vector_candidates: int = Field(
+        default=50, alias="AGENT_LIBRARY_VECTOR_CANDIDATES"
+    )
+    # lexical（默认，零依赖）| vector | hybrid；vector/hybrid 失败回退词法。
+    library_search_mode: str = Field(
+        default="lexical", alias="AGENT_LIBRARY_SEARCH_MODE"
+    )
+    # 空 = 继承 memory_embedding_provider；remote 仍受 memory 门禁。
+    library_embedding_provider: str = Field(
+        default="", alias="AGENT_LIBRARY_EMBEDDING_PROVIDER"
+    )
+    # 0 = 继承 memory_embedding_dim。
+    library_embedding_dim: int = Field(
+        default=0, alias="AGENT_LIBRARY_EMBEDDING_DIM"
+    )
+    # 异步任务：并发上限与崩溃/重启后的 stale 判定（秒）。
+    library_max_concurrent_jobs: int = Field(
+        default=2, alias="AGENT_LIBRARY_MAX_CONCURRENT_JOBS"
+    )
+    library_job_stale_s: int = Field(
+        default=3_600, alias="AGENT_LIBRARY_JOB_STALE_S"
+    )
+
     # 跨模块变更：按 ChangeContract 自动分波，并在波次之间跑 gate。
     interface_first_writes: bool = Field(
         default=False, alias="AGENT_INTERFACE_FIRST_WRITES"
@@ -757,6 +845,17 @@ class Settings(BaseSettings):
         default=1.2, alias="AGENT_ORCHESTRATOR_MIN_PARALLEL_GAIN"
     )
     orchestrator_max_tasks: int = Field(default=6, alias="AGENT_ORCHESTRATOR_MAX_TASKS")
+    # 嵌套子编排器：默认关闭；开启后 MAX_DEPTH=1、单层扇出有限。
+    # 只有子任务确实需要独立契约/检查点时才应由 planner 选用。
+    orchestrator_nested_enabled: bool = Field(
+        default=False, alias="AGENT_ORCHESTRATOR_NESTED_ENABLED"
+    )
+    orchestrator_max_depth: int = Field(
+        default=1, alias="AGENT_ORCHESTRATOR_MAX_DEPTH"
+    )
+    orchestrator_max_fanout: int = Field(
+        default=2, alias="AGENT_ORCHESTRATOR_MAX_FANOUT"
+    )
     # 同一批 ready 任务最多并发几个只读 worker。
     orchestrator_max_concurrent_workers: int = Field(
         default=4, alias="AGENT_ORCHESTRATOR_MAX_CONCURRENT_WORKERS"
@@ -818,6 +917,47 @@ class Settings(BaseSettings):
     orchestrator_total_tokens: int = Field(
         default=500_000, alias="AGENT_ORCHESTRATOR_TOTAL_TOKENS"
     )
+    # 四维预算的另外两维：完成的任务尝试数与 worker 工具调用总数。
+    # 0 = 不限制；默认给失控循环一个硬边界，正常任务远低于该值。
+    orchestrator_total_steps: int = Field(
+        default=100, alias="AGENT_ORCHESTRATOR_TOTAL_STEPS"
+    )
+    orchestrator_total_tool_calls: int = Field(
+        default=1_000, alias="AGENT_ORCHESTRATOR_TOTAL_TOOL_CALLS"
+    )
+    # 同一 (tool, args) 在单个编排内重复出现达到该次数即熔断（F2 重试黑洞）。
+    orchestrator_repeat_action_limit: int = Field(
+        default=3, alias="AGENT_ORCHESTRATOR_REPEAT_ACTION_LIMIT"
+    )
+    # 70% 预告警；100% 停止派发并输出已完成部分/卡点/建议。
+    orchestrator_budget_warning_ratio: float = Field(
+        default=0.7, alias="AGENT_ORCHESTRATOR_BUDGET_WARNING_RATIO"
+    )
+    # 独立计划评审（S4）：契约映射、不可验证步骤、重复步骤。
+    orchestrator_plan_review: bool = Field(
+        default=True, alias="AGENT_ORCHESTRATOR_PLAN_REVIEW"
+    )
+    # 执行前预估（S5）：规则先验 + 历史分桶（task_type × role × model）。
+    orchestrator_estimation_enabled: bool = Field(
+        default=True, alias="AGENT_ORCHESTRATOR_ESTIMATION_ENABLED"
+    )
+    orchestrator_estimation_min_samples: int = Field(
+        default=5, alias="AGENT_ORCHESTRATOR_ESTIMATION_MIN_SAMPLES"
+    )
+    # 阶段门/轻量控制检查点：只存契约/计划/产物引用/预算，不存全量消息。
+    orchestration_control_checkpoints: bool = Field(
+        default=True, alias="AGENT_ORCHESTRATION_CONTROL_CHECKPOINTS"
+    )
+    # 跑偏轨迹回归集：只记结构化摘要/指标，不记提示词或工具原文。
+    regression_capture_enabled: bool = Field(
+        default=True, alias="AGENT_REGRESSION_CAPTURE"
+    )
+    orchestrator_short_task_threshold_s: int = Field(
+        default=60, alias="AGENT_ORCHESTRATOR_SHORT_TASK_THRESHOLD_S"
+    )
+    orchestrator_long_task_threshold_s: int = Field(
+        default=120, alias="AGENT_ORCHESTRATOR_LONG_TASK_THRESHOLD_S"
+    )
     # 在飞 implement + 待合并补丁的上限；超过后暂停启动新的 implement，
     # 先让合并队列排空，避免补丁/快照堆积。
     orchestrator_max_pending_merges: int = Field(
@@ -843,6 +983,16 @@ class Settings(BaseSettings):
     # 同时进行的补丁审查数；审查是 LLM 调用，串行会把合并尾部拉长。
     orchestrator_patch_review_concurrency: int = Field(
         default=2, alias="AGENT_ORCHESTRATOR_PATCH_REVIEW_CONCURRENCY"
+    )
+    # 单次补丁审查的墙钟上限；0 = 自动推导（review 角色的 hard timeout）。
+    # 超时按“审查未完成”放行合并，但用户取消/deadline 会停止整批合并。
+    orchestrator_patch_review_timeout_s: float = Field(
+        default=0.0, alias="AGENT_ORCHESTRATOR_PATCH_REVIEW_TIMEOUT_S"
+    )
+    # 波次 gate 验证的墙钟上限；0 = 自动推导（2 × verify_timeout + 30s，
+    # 为“先跑选中用例、通过后再补全量”留出两次命令的空间）。
+    orchestrator_gate_timeout_s: float = Field(
+        default=0.0, alias="AGENT_ORCHESTRATOR_GATE_TIMEOUT_S"
     )
     # 顺序写波次：允许后一波 implement 基于前一波已合并结果继续修改。
     # 默认关闭；关闭时 implement 之间仍禁止互相依赖。
@@ -948,6 +1098,36 @@ class Settings(BaseSettings):
         default=True, alias="AGENT_WORKSPACE_LOCK"
     )
     audit_enabled: bool = Field(default=True, alias="AGENT_AUDIT_ENABLED")
+    # 控制面不阻塞：审计走有界队列 + 专用写线程；队列满或异步写失败都会
+    # 显式抛出 AuditError，绝不静默丢记录。同步模式保留给 CLI/单测。
+    audit_async_write: bool = Field(
+        default=True, alias="AGENT_AUDIT_ASYNC_WRITE"
+    )
+    audit_queue_size: int = Field(
+        default=10_000, alias="AGENT_AUDIT_QUEUE_SIZE"
+    )
+    # 事件循环 lag watchdog：超过阈值记指标，不阻断运行。
+    event_loop_lag_threshold_ms: int = Field(
+        default=500, alias="AGENT_EVENT_LOOP_LAG_THRESHOLD_MS"
+    )
+    event_loop_lag_interval_s: float = Field(
+        default=1.0, alias="AGENT_EVENT_LOOP_LAG_INTERVAL_S"
+    )
+    # 通知面：首卡 T+0、最长静默 heartbeat、进度卡最小间隔。
+    card_max_silence_s: float = Field(
+        default=120.0, alias="AGENT_CARD_MAX_SILENCE_S"
+    )
+    card_min_interval_s: float = Field(
+        default=10.0, alias="AGENT_CARD_MIN_INTERVAL_S"
+    )
+    # 审批卡：超时默认动作（pause / allow / deny）。当前写入卡片契约；
+    # 自动 resume 由前端/控制面按下发字段执行。
+    approval_ack_timeout_s: int = Field(
+        default=300, alias="AGENT_APPROVAL_ACK_TIMEOUT_S"
+    )
+    approval_default_action: str = Field(
+        default="pause", alias="AGENT_APPROVAL_DEFAULT_ACTION"
+    )
     # 留空表示自动用 <当前目录>/.agent/audit
     audit_dir: str = Field(default="", alias="AGENT_AUDIT_DIR")
     # SIEM 导出：host:port（UDP syslog），每条审计 JSON 一行；空 = 不导出。
@@ -1241,6 +1421,11 @@ class Settings(BaseSettings):
     # 记忆在沙箱内、仓库之外，避免不可信仓库预置记忆。
     web_memory_root: str = Field(
         default="", alias="AGENT_WEB_MEMORY_ROOT"
+    )
+    # per-user 资料库根目录；空 = 沙箱 $HOME/agent-library。
+    # 每个用户一份，跨工作区保留。
+    web_library_root: str = Field(
+        default="", alias="AGENT_WEB_LIBRARY_ROOT"
     )
     web_max_body_bytes: int = Field(
         default=256 * 1024, alias="AGENT_WEB_MAX_BODY_BYTES"

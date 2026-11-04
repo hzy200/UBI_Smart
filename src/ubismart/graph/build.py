@@ -134,6 +134,8 @@ def estimate_recursion_limit(
     orchestrator_max_tasks: int = 6,
     orchestrator_checkpoint_every: int = 4,
     orchestrator_fix_rounds: int = 0,
+    orchestrator_task_retries: int = 0,
+    orchestrator_document_checkpoint: bool = False,
 ) -> int:
     """按图拓扑估算 `recursion_limit`，避免把限额算小导致正常任务误报。
 
@@ -184,15 +186,20 @@ def estimate_recursion_limit(
         return base
     # 独立子图：survey + select_workflow + plan_tasks + steering_plan +
     # write_gate/fan_in，以及每个 checkpoint 边界的 scheduler + steering_dispatch。
-    # 边界数由任务总数与 checkpoint_every 决定；动态扩展上限就是 max_tasks。
+    # 边界数由完成数决定；动态扩展上限就是 max_tasks。
     # 用户重规划会让任务重新规划，所以整块按 (max_replans + 1) 再重复。
-    boundaries = max(
-        1,
-        math.ceil(
-            max(int(orchestrator_max_tasks), 1)
-            / max(int(orchestrator_checkpoint_every), 1)
-        ),
+    max_tasks = max(int(orchestrator_max_tasks), 1)
+    checkpoint_every = max(int(orchestrator_checkpoint_every), 1)
+    retries = max(int(orchestrator_task_retries), 0)
+    # 重试会让同一个 task_id 再次完成，边界数按总完成数而不是任务数算。
+    completions = max_tasks * (retries + 1)
+    checkpoint_boundaries = math.ceil(completions / checkpoint_every)
+    # document 任务每个完成点都强制形成一次边界（is_document_boundary），
+    # 不受 checkpoint_every 合并；最坏情况是全部任务都是 document。
+    document_boundaries = (
+        completions if orchestrator_document_checkpoint else 0
     )
+    boundaries = max(1, checkpoint_boundaries, document_boundaries)
     orchestrator_extra = (max_replans + 1) * (6 + boundaries * 2)
     # RFC-0008：每次修复轮都会重入 orchestrator，然后回到 verify →
     # review/repair/replan。按"一个完整阶段 + 一个编排块"计。

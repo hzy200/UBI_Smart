@@ -19,6 +19,11 @@ from ubismart.execution.file_access import (
     LocalFileAccess,
     SandboxFileAccess,
 )
+from ubismart.platform.process_runner import (
+    ProcessError,
+    configure_process_runner,
+    run_in_process,
+)
 from ubismart.sandbox.fs import SandboxFs
 from ubismart.sandbox.wsl_exec import resolve_workspace
 from ubismart.security.read_policy import protected_read_reason
@@ -49,6 +54,10 @@ from ubismart.tools.documents.models import (
 
 DOCUMENT_READ = "document_read"
 PDF_PAGE_IMAGE = "pdf_page_image"
+# CPU 密集、且底层库通常不可取消的格式；即使文件不大也走进程隔离。
+_CPU_SUFFIXES = frozenset(
+    {".pdf", ".docx", ".xlsx", ".xls", ".pptx", ".epub"}
+)
 _CACHE_SIZE = 16
 _CACHE: OrderedDict[str, DocumentModel] = OrderedDict()
 _CLEANED: set[str] = set()
@@ -250,6 +259,7 @@ def _parse_cached(
     fs: Any | None = None,
     root: str | None = None,
     cache_enabled: bool = True,
+    settings: Settings | None = None,
 ) -> tuple[DocumentModel, bool]:
     sha = hashlib.sha256(data).hexdigest()
     cached = _CACHE.get(sha)
@@ -264,7 +274,45 @@ def _parse_cached(
             disk.path = path
             _remember(disk)
             return disk, True
-    model = parse_document(path, data, limits=limits)
+    suffix = Path(path).suffix.lower()
+    isolate = bool(
+        settings is not None
+        and getattr(settings, "document_process_isolation", False)
+        and (
+            suffix in _CPU_SUFFIXES
+            or (
+                int(
+                    getattr(
+                        settings,
+                        "document_process_threshold_bytes",
+                        0,
+                    )
+                    or 0
+                )
+                > 0
+                and len(data)
+                >= int(
+                    getattr(
+                        settings,
+                        "document_process_threshold_bytes",
+                        0,
+                    )
+                )
+            )
+        )
+    )
+    if isolate:
+        model = run_in_process(
+            parse_document,
+            (path, data),
+            {"limits": limits},
+            timeout_s=float(
+                getattr(settings, "document_process_timeout_s", 60) or 60
+            ),
+            name=f"document:{suffix or 'unknown'}",
+        )
+    else:
+        model = parse_document(path, data, limits=limits)
     _remember(model)
     if cache_enabled:
         _disk_put(model, fs, root)
@@ -572,9 +620,14 @@ def _read_document(
             fs=ctx.fs,
             root=ctx.root,
             cache_enabled=cache_enabled,
+            settings=ctx.settings,
         )
     except DocumentError as exc:
         return None, None, False, ctx.error(path, str(exc))
+    except ProcessError as exc:
+        return None, None, False, ctx.error(
+            path, f"文档解析进程失败：{exc}"
+        )
     except Exception as exc:  # noqa: BLE001 - 沙箱/宿主错误统一可读化
         return None, None, False, ctx.error(
             path, f"读取失败：{type(exc).__name__}: {exc}"
@@ -1229,6 +1282,11 @@ def build_document_tools(
     root: str | None = None,
     snapshots: Any | None = None,
 ) -> list[BaseTool]:
+    configure_process_runner(
+        max_concurrent=int(
+            getattr(settings, "process_runner_max_concurrent", 2) or 2
+        )
+    )
     ctx = _build_context(
         settings,
         sandbox,

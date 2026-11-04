@@ -331,6 +331,7 @@
       git: "Git",
       tasks: "\u4EFB\u52A1",
       memory: "\u8BB0\u5FC6",
+      library: "\u8D44\u6599\u5E93",
       audit: "\u5BA1\u8BA1",
       problems: "\u95EE\u9898",
       settings: "\u8BBE\u7F6E"
@@ -724,6 +725,76 @@
       approvals: "\u5BA1\u6279",
       noApprovals: "\u5F53\u524D\u6CA1\u6709\u5F85\u5BA1\u6279\u8BF7\u6C42"
     },
+    library: {
+      title: "\u8D44\u6599\u5E93",
+      upload: "\u4E0A\u4F20\u8D44\u6599",
+      refresh: "\u5237\u65B0",
+      uploading: "\u6B63\u5728\u4E0A\u4F20\u5E76\u5EFA\u7ACB\u7D22\u5F15\u2026",
+      uploadProgress: "\u5DF2\u4E0A\u4F20 {percent}%",
+      uploadFailed: "\u8D44\u6599\u4E0A\u4F20\u5931\u8D25",
+      loadFailed: "\u8BFB\u53D6\u8D44\u6599\u5E93\u5931\u8D25",
+      deleteFailed: "\u5220\u9664\u8D44\u6599\u5931\u8D25",
+      reindexFailed: "\u91CD\u5EFA\u7D22\u5F15\u5931\u8D25",
+      searchFailed: "\u68C0\u7D22\u8D44\u6599\u5E93\u5931\u8D25",
+      searchPlaceholder: "\u5728\u5F53\u524D\u7528\u6237\u7684\u8D44\u6599\u5E93\u4E2D\u68C0\u7D22\u2026",
+      search: "\u68C0\u7D22",
+      searchMode: "\u68C0\u7D22\u6A21\u5F0F",
+      modeDefault: "\u9ED8\u8BA4",
+      modeLexical: "\u8BCD\u6CD5",
+      modeVector: "\u5411\u91CF",
+      modeHybrid: "\u6DF7\u5408",
+      uploadedCount: "\u5DF2\u4E0A\u4F20 {count} \u4EFD\uFF0C{ready} \u4EFD\u53EF\u68C0\u7D22",
+      uploadedQueued: "\u5DF2\u63D0\u4EA4 {count} \u4EFD\uFF0C\u6B63\u5728\u540E\u53F0\u7D22\u5F15",
+      reindexAll: "\u5168\u90E8\u91CD\u5EFA",
+      reindexAllQueued: "\u5DF2\u63D0\u4EA4 {count} \u4E2A\u6761\u76EE\uFF0C\u6B63\u5728\u540E\u53F0\u91CD\u5EFA",
+      cancel: "\u53D6\u6D88\u7D22\u5F15",
+      cancelQueued: "\u5DF2\u8BF7\u6C42\u53D6\u6D88",
+      cancelFailed: "\u53D6\u6D88\u4EFB\u52A1\u5931\u8D25",
+      deleteConfirm: "\u5220\u9664\u8FD9\u4EFD\u8D44\u6599\uFF1F\u5220\u9664\u540E\u6A21\u578B\u5C06\u65E0\u6CD5\u518D\u68C0\u7D22\u5230\u5B83\u3002",
+      delete: "\u5220\u9664",
+      reindex: "\u91CD\u5EFA\u7D22\u5F15",
+      empty: "\u8FD8\u6CA1\u6709\u8D44\u6599\u3002\u652F\u6301 PDF\u3001DOCX\u3001PPTX\u3001Markdown\u3001TXT\u3001XLSX\u3001HTML\u3001EPUB\u3001CSV\u3002",
+      resultsEmpty: "\u6CA1\u6709\u5339\u914D\u7684\u7247\u6BB5",
+      filters: "\u7B5B\u9009",
+      statusAll: "\u5168\u90E8\u72B6\u6001",
+      tagFilterPlaceholder: "\u6309\u6807\u7B7E\u7B5B\u9009",
+      queryFilterPlaceholder: "\u6309\u540D\u79F0/\u6807\u7B7E\u641C\u7D22",
+      applyFilters: "\u7B5B\u9009",
+      detail: "\u8BE6\u60C5",
+      closeDetail: "\u5173\u95ED\u8BE6\u60C5",
+      detailFailed: "\u8BFB\u53D6\u8BE6\u60C5\u5931\u8D25",
+      outline: "\u6807\u9898\u5927\u7EB2",
+      chunks: "\u7247\u6BB5",
+      chunkTotal: "\u5171 {count} \u4E2A\u7247\u6BB5",
+      tags: "\u6807\u7B7E",
+      editTags: "\u7F16\u8F91\u6807\u7B7E",
+      tagsPrompt: "\u8F93\u5165\u6807\u7B7E\uFF0C\u7528\u9017\u53F7\u5206\u9694",
+      tagsUpdated: "\u6807\u7B7E\u5DF2\u66F4\u65B0",
+      tagsFailed: "\u66F4\u65B0\u6807\u7B7E\u5931\u8D25",
+      noTags: "\u65E0\u6807\u7B7E",
+      prevPage: "\u4E0A\u4E00\u9875",
+      nextPage: "\u4E0B\u4E00\u9875",
+      statusReady: "\u53EF\u68C0\u7D22",
+      statusFailed: "\u7D22\u5F15\u5931\u8D25",
+      statusNeedsOcr: "\u9700\u8981 OCR",
+      statusDeleted: "\u5DF2\u5220\u9664",
+      statusQueued: "\u6392\u961F\u4E2D",
+      statusProcessing: "\u7D22\u5F15\u4E2D",
+      statusCancelled: "\u5DF2\u53D6\u6D88",
+      statusUnknown: "\u672A\u77E5\u72B6\u6001",
+      stageQueued: "\u6392\u961F",
+      stageParsing: "\u89E3\u6790",
+      stageChunking: "\u5207\u5757",
+      stageEmbedding: "\u5411\u91CF\u5316",
+      stageWriting: "\u5199\u5165",
+      stageReindexing: "\u91CD\u5EFA",
+      stageDone: "\u5B8C\u6210",
+      stageCancelled: "\u5DF2\u53D6\u6D88",
+      stageInterrupted: "\u4E2D\u65AD",
+      source: "\u6765\u6E90",
+      score: "\u5206\u6570",
+      hint: "\u8D44\u6599\u5E93\u6309\u7528\u6237\u8DE8\u5DE5\u4F5C\u533A\u4FDD\u5B58\uFF1B\u6A21\u578B\u901A\u8FC7 library_search \u4E3B\u52A8\u68C0\u7D22\u3002"
+    },
     share: {
       title: "\u53EA\u8BFB\u5206\u4EAB",
       hint: "\u521B\u5EFA\u65F6\u8131\u654F\u5E76\u51BB\u7ED3\u5FEB\u7167\uFF1B\u94FE\u63A5\u5230\u671F\u6216\u64A4\u9500\u540E\u7ACB\u5373\u5931\u6548\u3002",
@@ -1056,6 +1127,7 @@
       git: "Git",
       tasks: "Tasks",
       memory: "Memory",
+      library: "Library",
       audit: "Audit",
       problems: "Problems",
       settings: "Settings"
@@ -1448,6 +1520,76 @@
       chat: "Chat",
       approvals: "Approvals",
       noApprovals: "No pending approvals"
+    },
+    library: {
+      title: "Library",
+      upload: "Upload",
+      refresh: "Refresh",
+      uploading: "Uploading and indexing\u2026",
+      uploadProgress: "Uploaded {percent}%",
+      uploadFailed: "Library upload failed",
+      loadFailed: "Failed to load the library",
+      deleteFailed: "Failed to delete the item",
+      reindexFailed: "Failed to reindex",
+      searchFailed: "Library search failed",
+      searchPlaceholder: "Search this user\u2019s library\u2026",
+      search: "Search",
+      searchMode: "Mode",
+      modeDefault: "Default",
+      modeLexical: "Lexical",
+      modeVector: "Vector",
+      modeHybrid: "Hybrid",
+      uploadedCount: "Uploaded {count}; {ready} ready",
+      uploadedQueued: "Queued {count}; indexing in the background",
+      reindexAll: "Reindex all",
+      reindexAllQueued: "Queued {count} items for reindexing",
+      cancel: "Cancel indexing",
+      cancelQueued: "Cancellation requested",
+      cancelFailed: "Failed to cancel the job",
+      deleteConfirm: "Delete this item? The model will no longer retrieve it.",
+      delete: "Delete",
+      reindex: "Reindex",
+      empty: "No items yet. Supports PDF, DOCX, PPTX, Markdown, TXT, XLSX, HTML, EPUB and CSV.",
+      resultsEmpty: "No matching snippets",
+      filters: "Filters",
+      statusAll: "All statuses",
+      tagFilterPlaceholder: "Filter by tag",
+      queryFilterPlaceholder: "Search name or tag",
+      applyFilters: "Apply",
+      detail: "Details",
+      closeDetail: "Close details",
+      detailFailed: "Failed to load details",
+      outline: "Outline",
+      chunks: "Snippets",
+      chunkTotal: "{count} snippets",
+      tags: "Tags",
+      editTags: "Edit tags",
+      tagsPrompt: "Enter tags separated by commas",
+      tagsUpdated: "Tags updated",
+      tagsFailed: "Failed to update tags",
+      noTags: "No tags",
+      prevPage: "Previous",
+      nextPage: "Next",
+      statusReady: "Ready",
+      statusFailed: "Index failed",
+      statusNeedsOcr: "Needs OCR",
+      statusDeleted: "Deleted",
+      statusQueued: "Queued",
+      statusProcessing: "Indexing",
+      statusCancelled: "Cancelled",
+      statusUnknown: "Unknown status",
+      stageQueued: "Queued",
+      stageParsing: "Parsing",
+      stageChunking: "Chunking",
+      stageEmbedding: "Embedding",
+      stageWriting: "Writing",
+      stageReindexing: "Reindexing",
+      stageDone: "Done",
+      stageCancelled: "Cancelled",
+      stageInterrupted: "Interrupted",
+      source: "Source",
+      score: "Score",
+      hint: "The library is stored per user across workspaces; the model retrieves it via library_search."
     },
     share: {
       title: "Read-only share",
@@ -6019,6 +6161,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.planRows = this.buildPlanRows(this.plan, this.kinds, 0);
           this.planDegraded = !!event.degraded;
           this.stepIdx = 0;
+          this.dropStaleApprovals(event.plan_version || 0);
           this.setTab("plan", false);
           this.announce(`\u8BA1\u5212\u5DF2\u751F\u6210\uFF1A${this.plan.length} \u6B65`);
           this.pushTimeline("plan", "\u751F\u6210\u8BA1\u5212", `${this.plan.length} \u6B65`);
@@ -6028,6 +6171,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.kinds = event.kinds || [];
           this.stepIdx = event.step_idx || 0;
           this.planRows = this.buildPlanRows(this.plan, this.kinds, this.stepIdx);
+          this.dropStaleApprovals(event.plan_version || 0);
           this.pushMessage("system", "\u8BA1\u5212\u5DF2\u4FEE\u8BA2");
           break;
         case "step_started":
@@ -6146,6 +6290,7 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
         case "task_graph_created":
           this.tasks = (event.tasks || []).map((task) => this.decorateTask(task));
           this.tasksDirty = true;
+          this.dropStaleApprovals(event.plan_version || 0);
           break;
         case "task_graph_extended":
           this.tasks = this.tasks.concat((event.added || []).map((task) => this.decorateTask(task)));
@@ -6188,6 +6333,27 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
             );
           }
           break;
+        case "card": {
+          if (event.kind === "approval") break;
+          if (event.kind === "fault") {
+            this.pushTimeline("error", event.title || "\u6545\u969C", event.body || "");
+            if (event.body) this.toastMessage(event.body);
+            break;
+          }
+          if (event.kind === "estimate") {
+            this.pushTimeline("info", event.title || "\u6267\u884C\u9884\u4F30", event.body || "");
+            break;
+          }
+          if (event.kind === "stage_done" || event.kind === "done") {
+            this.pushTimeline("info", event.title || "\u5B8C\u6210", event.body || "");
+            break;
+          }
+          if (event.kind === "heartbeat") {
+            this.stateText = event.body || this.stateText;
+            break;
+          }
+          break;
+        }
         case "cost_report":
           this.costText = this.formatCost(event);
           this.usage = {
@@ -6208,10 +6374,11 @@ Agent Python\uFF1A${data.agent_python} \xB7 ${data.agent_version}
           this.stateText = this.t("status.waitingApproval");
           this._suspended = true;
           this._terminal = false;
+          const ackHint = event.ack_timeout_ms ? `\uFF08${Math.round(event.ack_timeout_ms / 1e3)}s \u540E\u9ED8\u8BA4 ${event.default_action || "pause"}\uFF09` : "";
           this.pushTimeline(
             "warning",
             "\u7B49\u5F85\u5BA1\u6279",
-            event.command || event.tool || ""
+            `${event.command || event.tool || ""}${ackHint}`
           );
           this.noteSessionActivity();
           this.notify(
@@ -6604,6 +6771,14 @@ ${detail || ""}`;
         this.problems.splice(0, this.problems.length - 200);
       }
     },
+    dropStaleApprovals(version) {
+      if (!version) return;
+      const before = this.approvals.length;
+      this.approvals = this.approvals.filter(
+        (approval) => Number(approval.plan_version || 0) >= version
+      );
+      if (this.approvals.length !== before) this.showNextApproval();
+    },
     pushTimeline(kind, title, detail = "") {
       this.timeline.push({
         id: ++this._timelineSeq,
@@ -6877,6 +7052,420 @@ ${paths}`);
     },
     async dropFiles(event) {
       await this.uploadFileList(Array.from(event.dataTransfer.files || []));
+    }
+  };
+
+  // src/ui/library.ts
+  function libraryStatusKey(status) {
+    switch (String(status || "")) {
+      case "ready":
+        return "library.statusReady";
+      case "failed":
+        return "library.statusFailed";
+      case "needs_ocr":
+        return "library.statusNeedsOcr";
+      case "deleted":
+        return "library.statusDeleted";
+      case "queued":
+        return "library.statusQueued";
+      case "processing":
+        return "library.statusProcessing";
+      case "cancelled":
+        return "library.statusCancelled";
+      default:
+        return "library.statusUnknown";
+    }
+  }
+  function libraryStageKey(stage) {
+    switch (String(stage || "")) {
+      case "queued":
+        return "library.stageQueued";
+      case "parsing":
+        return "library.stageParsing";
+      case "chunking":
+        return "library.stageChunking";
+      case "embedding":
+        return "library.stageEmbedding";
+      case "writing":
+        return "library.stageWriting";
+      case "reindexing":
+        return "library.stageReindexing";
+      case "done":
+        return "library.stageDone";
+      case "cancelled":
+        return "library.stageCancelled";
+      case "interrupted":
+        return "library.stageInterrupted";
+      default:
+        return "";
+    }
+  }
+  function libraryStatusLabel(status) {
+    switch (String(status || "")) {
+      case "ready":
+        return "\u53EF\u68C0\u7D22";
+      case "failed":
+        return "\u7D22\u5F15\u5931\u8D25";
+      case "needs_ocr":
+        return "\u9700\u8981 OCR";
+      case "deleted":
+        return "\u5DF2\u5220\u9664";
+      case "queued":
+        return "\u6392\u961F\u4E2D";
+      case "processing":
+        return "\u7D22\u5F15\u4E2D";
+      case "cancelled":
+        return "\u5DF2\u53D6\u6D88";
+      default:
+        return String(status || "\u672A\u77E5");
+    }
+  }
+  function libraryItemRows(items, formatBytes, statusLabel = libraryStatusLabel) {
+    return (items || []).map((item) => {
+      const status = String(item.status || "");
+      const chunks = Number(item.chunk_count || 0);
+      const suffix = String(item.suffix || "").replace(/^\./, "").toUpperCase();
+      const size = formatBytes(Number(item.size || 0));
+      const warnings = Array.isArray(item.warnings) ? item.warnings : [];
+      const warning = warnings.length ? warnings[0] : "";
+      const job = item.job || {};
+      const jobStatus = String(job.status || "");
+      const active = ["queued", "processing"].includes(status) || ["queued", "processing"].includes(jobStatus);
+      const tags = Array.isArray(item.tags) ? item.tags.map((tag) => String(tag)).filter(Boolean) : [];
+      return {
+        ...item,
+        _status: statusLabel(status),
+        _tags: tags,
+        _tagText: tags.join(", "),
+        _meta: [suffix, size, chunks ? `${chunks} \u5757` : "", item.updated_at || ""].filter(Boolean).join(" \xB7 "),
+        _error: String(item.error || job.error || warning || ""),
+        _active: active,
+        _stage: String(job.stage || ""),
+        _progress: Math.max(0, Math.min(100, Number(job.progress || 0))),
+        _jobId: String(job.job_id || ""),
+        _canCancel: active && Boolean(job.job_id),
+        _canReindex: ["ready", "failed", "needs_ocr", "cancelled"].includes(status),
+        _canDelete: status !== "deleted"
+      };
+    });
+  }
+  function libraryUsageText(usage, formatBytes) {
+    if (!usage || !usage.items) return "";
+    return `${usage.items} / ${usage.max_items || "?"} \u4EFD \xB7 ${formatBytes(Number(usage.bytes || 0))} / ${formatBytes(Number(usage.max_total_bytes || 0))}`;
+  }
+  function libraryPageLabel(offset, limit, total) {
+    if (!total) return "0 / 0";
+    const start = Math.max(0, Number(offset) || 0) + 1;
+    const end = Math.min(total, start - 1 + Math.max(1, Number(limit) || 1));
+    return `${start}-${end} / ${total}`;
+  }
+  function libraryDetailRows(detail) {
+    const outline = Array.isArray(detail && detail.outline) ? detail.outline.map((item, index) => ({
+      ...item,
+      _key: `${item.anchor || ""}:${index}`,
+      _label: `${"  ".repeat(Math.max(0, Number(item.level || 1) - 1))}${item.text || ""}`
+    })) : [];
+    const chunks = Array.isArray(detail && detail.chunks) ? detail.chunks.map((chunk, index) => ({
+      ...chunk,
+      _key: `${chunk.anchor || ""}:${index}`,
+      _source: `${detail.item && detail.item.item_id || ""}#${chunk.anchor || ""}`.replace(/#$/, "")
+    })) : [];
+    return { outline, chunks };
+  }
+  function libraryResultRows(hits) {
+    return (hits || []).map((hit, index) => {
+      const source = `${hit.item_id || ""}#${hit.anchor || ""}`.replace(/#$/, "");
+      const title = [hit.name || "", hit.heading || ""].filter(Boolean).join(" / ");
+      return {
+        ...hit,
+        _key: `${source}:${hit.ordinal || index}`,
+        _source: source,
+        _title: title,
+        _score: Number(hit.score || 0).toFixed(3),
+        _vectorScore: Number(hit.vector_score || 0).toFixed(3),
+        _mode: String(hit.mode || ""),
+        _snippet: String(hit.text || "").slice(0, 1200)
+      };
+    });
+  }
+
+  // src/features/library.ts
+  var POLL_MS = 1500;
+  var libraryMixin = {
+    async loadLibrary() {
+      await this._loadLibrary(false);
+    },
+    async _loadLibrary(silent) {
+      if (!this.capabilities.library_enabled) {
+        this.libraryItems = [];
+        this.libraryUsage = "";
+        this._stopLibraryPolling();
+        return;
+      }
+      if (!this.librarySearchMode) {
+        this.librarySearchMode = this.capabilities.library_search_mode || "";
+      }
+      try {
+        const params = new URLSearchParams({
+          limit: String(this.libraryLimit || 20),
+          offset: String(this.libraryOffset || 0)
+        });
+        if (this.libraryStatusFilter) {
+          params.set("status", this.libraryStatusFilter);
+        }
+        if (this.libraryTagFilter) {
+          params.set("tag", this.libraryTagFilter);
+        }
+        if (this.libraryQueryFilter) {
+          params.set("q", this.libraryQueryFilter);
+        }
+        const response = await authFetch(
+          `/api/library/items?${params.toString()}`
+        );
+        const data = await readJson(response, this.t("library.loadFailed"));
+        this.libraryItems = libraryItemRows(
+          data.items || [],
+          (value) => this.formatBytes(value),
+          (status) => this.t(libraryStatusKey(status))
+        ).map((item) => ({
+          ...item,
+          _stageLabel: item._stage ? this.t(libraryStageKey(item._stage)) : ""
+        }));
+        this.libraryTotal = Number(data.total || this.libraryItems.length);
+        this.libraryOffset = Number(data.offset || 0);
+        this.libraryUsage = libraryUsageText(
+          data.usage || {},
+          (value) => this.formatBytes(value)
+        );
+        this.libraryError = "";
+        this._syncLibraryPolling();
+      } catch (err) {
+        this.libraryError = String(err);
+        if (!silent) this.toastMessage(String(err));
+      }
+    },
+    _syncLibraryPolling() {
+      const active = (this.libraryItems || []).some((item) => item._active);
+      if (active && !this._libraryPollTimer) {
+        this._libraryPollTimer = setInterval(() => {
+          void this._loadLibrary(true);
+        }, POLL_MS);
+        return;
+      }
+      if (!active) this._stopLibraryPolling();
+    },
+    _stopLibraryPolling() {
+      if (this._libraryPollTimer) {
+        clearInterval(this._libraryPollTimer);
+        this._libraryPollTimer = null;
+      }
+    },
+    applyLibraryFilters() {
+      this.libraryOffset = 0;
+      void this.loadLibrary();
+    },
+    libraryPrevPage() {
+      if (this.libraryOffset <= 0) return;
+      this.libraryOffset = Math.max(
+        0,
+        this.libraryOffset - (this.libraryLimit || 20)
+      );
+      void this.loadLibrary();
+    },
+    libraryNextPage() {
+      if (this.libraryOffset + (this.libraryLimit || 20) >= this.libraryTotal) return;
+      this.libraryOffset += this.libraryLimit || 20;
+      void this.loadLibrary();
+    },
+    async openLibraryDetail(itemId) {
+      if (!itemId) return;
+      if (this.libraryDetailId === itemId) {
+        this.closeLibraryDetail();
+        return;
+      }
+      this.libraryDetailId = itemId;
+      this.libraryDetailLoading = true;
+      this.libraryDetailError = "";
+      try {
+        const response = await authFetch(
+          `/api/library/items/${encodeURIComponent(itemId)}/detail`
+        );
+        const data = await readJson(
+          response,
+          this.t("library.detailFailed")
+        );
+        const rows = libraryDetailRows(data);
+        this.libraryDetail = data;
+        this.libraryDetailOutline = rows.outline;
+        this.libraryDetailChunks = rows.chunks;
+      } catch (err) {
+        this.libraryDetailError = String(err);
+        this.libraryDetail = null;
+        this.libraryDetailOutline = [];
+        this.libraryDetailChunks = [];
+      } finally {
+        this.libraryDetailLoading = false;
+      }
+    },
+    closeLibraryDetail() {
+      this.libraryDetailId = "";
+      this.libraryDetail = null;
+      this.libraryDetailOutline = [];
+      this.libraryDetailChunks = [];
+      this.libraryDetailError = "";
+    },
+    async editLibraryTags(item) {
+      if (!item || !item.item_id) return;
+      const raw = window.prompt(
+        this.t("library.tagsPrompt"),
+        (item._tags || []).join(", ")
+      );
+      if (raw === null) return;
+      const tags = String(raw).split(",").map((tag) => tag.trim()).filter(Boolean);
+      try {
+        const response = await authFetch(
+          `/api/library/items/${encodeURIComponent(item.item_id)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tags })
+          }
+        );
+        await readJson(response, this.t("library.tagsFailed"));
+        this.toastMessage(this.t("library.tagsUpdated"));
+        if (this.libraryDetailId === item.item_id) {
+          this.libraryDetailId = "";
+          await this.openLibraryDetail(item.item_id);
+        }
+        await this.loadLibrary();
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    async uploadLibraryFiles(event) {
+      const files = Array.from(event.target.files || []);
+      event.target.value = "";
+      await this.uploadLibraryFileList(files);
+    },
+    async uploadLibraryFileList(files) {
+      if (!files.length || this.libraryBusy) return;
+      const form = new FormData();
+      for (const file of files) form.append("files", file);
+      this.libraryBusy = true;
+      this.libraryPercent = 0;
+      this.libraryText = this.t("library.uploading");
+      this.libraryError = "";
+      try {
+        const response = await uploadForm("/api/library/items", form, {
+          onProgress: ({ loaded, total }) => {
+            const percent = uploadPercent(loaded, total);
+            this.libraryPercent = percent;
+            this.libraryText = this.t("library.uploadProgress", { percent });
+          }
+        });
+        const data = await readJson(response, this.t("library.uploadFailed"));
+        const items = Array.isArray(data.items) ? data.items : [];
+        this.toastMessage(
+          this.t("library.uploadedQueued", { count: items.length })
+        );
+        this.libraryPercent = 100;
+        this.libraryResults = [];
+        this.librarySearched = false;
+        await this.loadLibrary();
+      } catch (err) {
+        this.libraryError = String(err);
+        this.toastMessage(String(err));
+      } finally {
+        this.libraryBusy = false;
+        this.libraryText = "";
+      }
+    },
+    async deleteLibraryItem(itemId) {
+      if (!itemId) return;
+      if (!window.confirm(this.t("library.deleteConfirm"))) return;
+      try {
+        const response = await authFetch(
+          `/api/library/items/${encodeURIComponent(itemId)}`,
+          { method: "DELETE" }
+        );
+        await readJson(response, this.t("library.deleteFailed"));
+        this.libraryResults = [];
+        this.librarySearched = false;
+        await this.loadLibrary();
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    async reindexLibraryItem(itemId) {
+      if (!itemId) return;
+      try {
+        const response = await authFetch(
+          `/api/library/items/${encodeURIComponent(itemId)}/reindex`,
+          { method: "POST" }
+        );
+        await readJson(response, this.t("library.reindexFailed"));
+        this.libraryResults = [];
+        this.librarySearched = false;
+        await this.loadLibrary();
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    async reindexAllLibrary() {
+      try {
+        const response = await authFetch("/api/library/reindex-all", {
+          method: "POST"
+        });
+        const data = await readJson(response, this.t("library.reindexFailed"));
+        const total = Number(data.job && data.job.total || 0);
+        this.toastMessage(
+          this.t("library.reindexAllQueued", { count: total })
+        );
+        await this.loadLibrary();
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    async cancelLibraryJob(jobId) {
+      if (!jobId) return;
+      try {
+        const response = await authFetch(
+          `/api/library/jobs/${encodeURIComponent(jobId)}/cancel`,
+          { method: "POST" }
+        );
+        await readJson(response, this.t("library.cancelFailed"));
+        this.toastMessage(this.t("library.cancelQueued"));
+        await this.loadLibrary();
+      } catch (err) {
+        this.toastMessage(String(err));
+      }
+    },
+    async searchLibrary() {
+      const query = String(this.libraryQuery || "").trim();
+      if (!query || this.librarySearchBusy) return;
+      this.librarySearchBusy = true;
+      this.librarySearchError = "";
+      try {
+        const params = new URLSearchParams({ q: query, top_k: "8" });
+        if (this.librarySearchMode) {
+          params.set("mode", this.librarySearchMode);
+        }
+        if (this.libraryTagFilter) {
+          params.set("tags", this.libraryTagFilter);
+        }
+        const response = await authFetch(
+          `/api/library/search?${params.toString()}`
+        );
+        const data = await readJson(response, this.t("library.searchFailed"));
+        this.libraryResults = libraryResultRows(data.hits || []);
+        this.librarySearched = true;
+      } catch (err) {
+        this.librarySearchError = String(err);
+        this.libraryResults = [];
+        this.librarySearched = false;
+      } finally {
+        this.librarySearchBusy = false;
+      }
     }
   };
 
@@ -9704,6 +10293,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     git: "nav.git",
     tasks: "nav.tasks",
     memory: "nav.memory",
+    library: "nav.library",
     audit: "nav.audit",
     problems: "nav.problems"
   };
@@ -9818,6 +10408,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       this.viewFlags = flags;
     },
     setView(name, load = true, reveal = true) {
+      if (name === "library" && !this.capabilities.library_enabled) return;
       this.view = name;
       this.applyViewClasses();
       if (reveal && this.sidebarCollapsed) this.sidebarCollapsed = false;
@@ -9828,6 +10419,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         if (name === "tree") this.loadTree("");
         if (name === "git") this.loadGit(false);
         if (name === "memory") this.loadMemory();
+        if (name === "library") this.loadLibrary();
         if (name === "audit") this.loadAudit();
       }
       if (reveal) this.saveLayout();
@@ -10010,6 +10602,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         { id: "view-git", title: "\u89C6\u56FE\uFF1AGit", hint: "\u5BFC\u822A", run: () => this.setView("git") },
         { id: "view-tasks", title: "\u89C6\u56FE\uFF1A\u4EFB\u52A1", hint: "\u5BFC\u822A", run: () => this.setView("tasks") },
         { id: "view-memory", title: "\u89C6\u56FE\uFF1A\u8BB0\u5FC6", hint: "\u5BFC\u822A", run: () => this.setView("memory") },
+        { id: "view-library", title: "\u89C6\u56FE\uFF1A\u8D44\u6599\u5E93", hint: "\u5BFC\u822A", run: () => this.setView("library") },
         { id: "view-audit", title: "\u89C6\u56FE\uFF1A\u5BA1\u8BA1", hint: "\u5BFC\u822A", run: () => this.setView("audit") },
         { id: "view-problems", title: "\u89C6\u56FE\uFF1A\u95EE\u9898", hint: "\u5BFC\u822A", run: () => this.setView("problems") },
         { id: "tab-plan", title: "\u68C0\u67E5\u5668\uFF1A\u8BA1\u5212", hint: "\u5BFC\u822A", run: () => this.setTab("plan") },
@@ -11151,6 +11744,25 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         case "memory-forget":
           this.forget(Number(data.index));
           break;
+        case "library-delete":
+          this.deleteLibraryItem(data.id);
+          break;
+        case "library-reindex":
+          this.reindexLibraryItem(data.id);
+          break;
+        case "library-cancel":
+          this.cancelLibraryJob(data.id);
+          break;
+        case "library-detail":
+          this.openLibraryDetail(data.id);
+          break;
+        case "library-tags": {
+          const item = this.libraryItems.find(
+            (row) => row.item_id === data.id
+          );
+          if (item) this.editLibraryTags(item);
+          break;
+        }
         case "command":
           this.onCommandAction(Number(data.index));
           break;
@@ -11603,6 +12215,44 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
     },
     get noMemory() {
       return this.memory.length === 0;
+    },
+    get libraryEmpty() {
+      return this.libraryItems.length === 0;
+    },
+    get libraryResultsEmpty() {
+      return this.librarySearched && this.libraryResults.length === 0;
+    },
+    get libraryHasPrev() {
+      return this.libraryOffset > 0;
+    },
+    get libraryHasNext() {
+      return this.libraryOffset + this.libraryLimit < this.libraryTotal;
+    },
+    get libraryPrevDisabled() {
+      return !this.libraryHasPrev;
+    },
+    get libraryNextDisabled() {
+      return !this.libraryHasNext;
+    },
+    get libraryPageText() {
+      return libraryPageLabel(
+        this.libraryOffset,
+        this.libraryLimit,
+        this.libraryTotal
+      );
+    },
+    get libraryDetailTags() {
+      const item = this.libraryDetail && this.libraryDetail.item;
+      return item && item.tags || [];
+    },
+    get libraryDetailTitle() {
+      const item = this.libraryDetail && this.libraryDetail.item;
+      return item && (item.title || item.name) || "";
+    },
+    get libraryDetailChunkText() {
+      return this.t("library.chunkTotal", {
+        count: this.libraryDetailChunks.length
+      });
     },
     get noAudit() {
       return this.audit.length === 0;
@@ -12299,7 +12949,9 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
         desktop_mode: false,
         workspace_registry: false,
         host_mode: false,
-        workspace_upload_max_bytes: 0
+        workspace_upload_max_bytes: 0,
+        library_enabled: false,
+        library_search_mode: "lexical"
       },
       project: null,
       projectReport: "\u6B63\u5728\u63A2\u6D4B\u5DE5\u4F5C\u533A\u2026",
@@ -12330,6 +12982,31 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       shortcutsOpen: false,
       memory: [],
       memoryText: "",
+      libraryItems: [],
+      libraryUsage: "",
+      libraryTotal: 0,
+      libraryOffset: 0,
+      libraryLimit: 20,
+      libraryStatusFilter: "",
+      libraryTagFilter: "",
+      libraryQueryFilter: "",
+      libraryDetail: null,
+      libraryDetailId: "",
+      libraryDetailLoading: false,
+      libraryDetailError: "",
+      libraryDetailOutline: [],
+      libraryDetailChunks: [],
+      libraryError: "",
+      libraryBusy: false,
+      libraryPercent: 0,
+      libraryText: "",
+      libraryQuery: "",
+      librarySearchMode: "",
+      libraryResults: [],
+      librarySearched: false,
+      librarySearchBusy: false,
+      librarySearchError: "",
+      _libraryPollTimer: null,
       audit: [],
       sessions: [],
       sessionRows: [],
@@ -12396,8 +13073,8 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       limitsText: "",
       tab: "plan",
       view: "sessions",
-      viewClasses: { sessions: "active", files: "", tree: "", git: "", tasks: "", memory: "", audit: "", problems: "" },
-      viewFlags: { sessions: true, files: false, tree: false, git: false, tasks: false, memory: false, audit: false, problems: false },
+      viewClasses: { sessions: "active", files: "", tree: "", git: "", tasks: "", memory: "", library: "", audit: "", problems: "" },
+      viewFlags: { sessions: true, files: false, tree: false, git: false, tasks: false, memory: false, library: false, audit: false, problems: false },
       settingsTabFlags: { appearance: true, models: false, workspace: false, diagnostics: false, advanced: false },
       settingsTabClasses: { appearance: "active", models: "", workspace: "", diagnostics: "", advanced: "" },
       tabFlags: { plan: true, tools: false, timeline: false },
@@ -12510,6 +13187,7 @@ ${data.staged_diff || ""}`.trim() || (data.diff_error ? `diff \u8BFB\u53D6\u5931
       approvalsMixin,
       steeringMixin,
       uploadsMixin,
+      libraryMixin,
       inspectorMixin,
       recoveryMixin,
       providersMixin,

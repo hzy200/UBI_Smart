@@ -7,7 +7,7 @@
 
 version: 1
 owner: 项目作者
-last_reviewed: 2026-10-25
+last_reviewed: 2026-11-02
 review_cadence: 模块边界或依赖方向变动时
 
 # ===========================================================================
@@ -16,13 +16,14 @@ review_cadence: 模块边界或依赖方向变动时
 dependency_rules:
   - "cli/tui/web/desktop → runtime"
   - "desktop     → web, access, config"
-  - "runtime     → graph, orchestrator, sandbox, tools, audit, memory, steering, llm"
+  - "runtime     → graph, orchestrator, sandbox, tools, audit, memory, library, steering, llm"
   - "graph       → orchestrator, tools, sandbox, llm, messages, config, steering"
   - "orchestrator→ agents, tools, sandbox, llm, codeintel, graph.state, config, steering"
   - "execution    → host_broker.protocol（仅协议 DTO/客户端；不得导入 server/policy）"
   - "host_broker  → (标准库 + protocol；不得导入 tools/graph/runtime/sandbox)"
   - "agents      → tools, sandbox, llm, config, messages"
-  - "tools       → sandbox, codeintel, config, diffing"
+  - "tools       → sandbox, codeintel, library, config, diffing"
+  - "library     → sandbox, memory.embeddings, audit, config"
   - "sandbox     → config, diffing"
   - "llm         → config"
   - "codeintel   → (标准库)"
@@ -114,6 +115,18 @@ contexts:
     upstream: [graph, orchestrator, agents]
     downstream: [sandbox, codeintel]
     change_note: 加工具必须同步 approve.py::tool_level 登记等级 + 重跑 gen_contracts.py
+
+  - id: library
+    name: 资料库
+    path: [library/]
+    owns: [用户资料正文, catalog, chunk/anchor, 词法/向量检索, 异步任务状态]
+    upstream: [runtime, tools, web/routes]
+    downstream: [sandbox, memory.embeddings, audit]
+    data: [A4 <library_root>/（每用户，workspace 外）]
+    change_note: |
+      资料库是每用户跨工作区，不是会话附件或 run 产物；A2 不解析、不读正文。
+      改检索模式、存储布局或根目录规则前读 docs/LIBRARY.md 与 RFC-0010。
+      向量 provider 变更后需要重建索引；embedding 失败必须回退词法。
 
   - id: codeintel
     name: 代码索引

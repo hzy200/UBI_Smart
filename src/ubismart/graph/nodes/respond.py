@@ -67,6 +67,23 @@ CANCELLED_NOTE = (
     "哪些工作没有执行，以及恢复运行需要什么信息；不要声称任务已全部完成。"
 )
 
+ABORTED_NOTE = (
+    "注意：本次运行被用户**中止**，但已完成部分会保留。请说明："
+    "1) 已完成并验证的产物；2) 卡在哪一步；3) 建议的下一步。"
+    "不要声称任务已全部完成。"
+)
+
+CONTRACT_CLARIFY_NOTE = (
+    "注意：本次运行**没有执行任何任务**，因为验收契约存在未知项。"
+    "请在答复中先向用户逐条提出澄清问题，不要声称已开始执行或已完成；"
+    "用户补齐信息后再继续。"
+)
+
+PLAN_REVIEW_NOTE = (
+    "注意：本次运行**没有执行任何任务**，因为计划评审未通过。"
+    "请在答复中说明计划存在的问题与建议的修改方向，不要声称已开始执行。"
+)
+
 
 @dataclass
 class _RespondDeps:
@@ -117,6 +134,11 @@ def _verification_note(
 
 def _guard_notes(state: AgentState) -> str:
     notes = ""
+    if state.get("contract_unknowns"):
+        notes += "\n\n" + CONTRACT_CLARIFY_NOTE
+    elif state.get("plan_review_failed"):
+        notes += "\n\n" + PLAN_REVIEW_NOTE
+
     # 与 routing 的判定对齐：预算耗尽且没改动，说明这一步没做成
     if state.get("budget_exhausted") and not state.get("dirty"):
         notes += "\n\n" + BUDGET_EXHAUSTED_NOTE
@@ -127,7 +149,9 @@ def _guard_notes(state: AgentState) -> str:
     if not state.get("run_dirty") and len(state.get("plan") or []) > 1:
         notes += "\n\n" + NO_CHANGES_NOTE
 
-    if state.get("steering_cancelled"):
+    if state.get("steering_aborted"):
+        notes += "\n\n" + ABORTED_NOTE
+    elif state.get("steering_cancelled"):
         notes += "\n\n" + CANCELLED_NOTE
 
     summary = summarize_messages(state["messages"])
@@ -214,10 +238,34 @@ def _apply_deterministic_notes(
         )
         answer = _append_note(answer, note)
 
-    # 取消是用户可见的事实，同样不能只靠模型自觉。
-    if state.get("steering_cancelled"):
+    # 取消/中止是用户可见的事实，同样不能只靠模型自觉。
+    if state.get("steering_aborted"):
+        answer = _append_note(
+            answer,
+            "\n\n（系统提示：本次运行已按用户要求中止；"
+            "已完成部分已保留，未完成部分没有执行。）",
+        )
+    elif state.get("steering_cancelled"):
         answer = _append_note(
             answer, "\n\n（系统提示：本次运行已按用户要求取消。）"
+        )
+    unknowns = state.get("contract_unknowns") or []
+    if unknowns:
+        listed = "\n".join(f"- {item}" for item in unknowns[:10])
+        answer = _append_note(
+            answer,
+            "\n\n（系统提示：任务尚未执行。请先确认以下未知项：\n"
+            f"{listed}\n）",
+        )
+    review = state.get("contract_review") or {}
+    if state.get("plan_review_failed") and review.get("reasons"):
+        listed = "\n".join(
+            f"- {item}" for item in (review.get("reasons") or [])[:10]
+        )
+        answer = _append_note(
+            answer,
+            "\n\n（系统提示：计划评审未通过，任务尚未执行：\n"
+            f"{listed}\n）",
         )
     return answer
 

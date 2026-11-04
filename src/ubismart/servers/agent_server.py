@@ -58,6 +58,10 @@ from ubismart.protocol.event_transport import build_event_transport
 from ubismart.protocol.sse_stream import sse_headers
 from ubismart.runtime import AgentRuntime
 from ubismart.servers.agent_context import AgentRuntimeFactory
+from ubismart.servers.agent_server_routes.library import (
+    LibraryDeps,
+    register_library_routes,
+)
 from ubismart.servers.agent_server_routes.lifecycle import (
     LifecycleDeps,
     register_lifecycle_routes,
@@ -810,6 +814,16 @@ def create_agent_app(
             new_runtime=agent_factory.new,
             close_runtime=handlers.close_runtime,
             settings=settings,
+        ),
+    )
+
+    register_library_routes(
+        app,
+        LibraryDeps(
+            context=handlers.context,
+            new_runtime=agent_factory.new,
+            close_runtime=handlers.close_runtime,
+            max_concurrent_jobs=settings.library_max_concurrent_jobs,
         ),
     )
 

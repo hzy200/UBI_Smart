@@ -299,6 +299,7 @@ class BodySizeLimitMiddleware:
         max_bytes: int,
         upload_max_bytes: int | None = None,
         upload_suffix: str = "/uploads",
+        upload_paths: tuple[str, ...] = (),
         workspace_upload_max_bytes: int | None = None,
     ) -> None:
         self.app = app
@@ -307,6 +308,11 @@ class BodySizeLimitMiddleware:
             max(1, int(upload_max_bytes)) if upload_max_bytes else None
         )
         self.upload_suffix = upload_suffix
+        # 不以 /uploads 结尾的上传端点（如资料库）必须显式登记，避免落回
+        # web_max_body_bytes 这个普通 JSON 请求上限。
+        self.upload_paths = {
+            str(path).rstrip("/") for path in upload_paths if path
+        }
         self.workspace_upload_max_bytes = (
             max(1, int(workspace_upload_max_bytes))
             if workspace_upload_max_bytes
@@ -323,6 +329,7 @@ class BodySizeLimitMiddleware:
         }
         limit = self.max_bytes
         path = str(scope.get("path") or "")
+        canonical = path.rstrip("/") or "/"
         if (
             self.workspace_upload_max_bytes
             and "/workspaces/" in path
@@ -330,7 +337,10 @@ class BodySizeLimitMiddleware:
         ):
             # 项目归档上传走单独的、更大的上限；普通附件仍用 upload_max_bytes。
             limit = self.workspace_upload_max_bytes
-        elif self.upload_max_bytes and path.endswith(self.upload_suffix):
+        elif self.upload_max_bytes and (
+            path.endswith(self.upload_suffix)
+            or canonical in self.upload_paths
+        ):
             limit = self.upload_max_bytes
         raw = headers.get("content-length")
         method = str(scope.get("method") or "").upper()

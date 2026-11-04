@@ -144,6 +144,10 @@ class AgentState(TypedDict, total=False):
     prefetched_degraded: bool
     # plan_tasks 写入：TaskSpec 列表与状态
     tasks: list[dict[str, Any]]
+    # 阶段控制检查点索引（只存 contract/plan/artifact 引用/预算，不存消息）。
+    control_checkpoints: list[dict[str, Any]]
+    # 重复动作熔断信息。
+    loop_abort: dict[str, Any]
     task_status: dict[str, str]
     # task_id -> 已尝试次数（失败重试用）
     task_attempts: dict[str, int]
@@ -151,6 +155,16 @@ class AgentState(TypedDict, total=False):
     worker_results: list[dict[str, Any]]
     orchestrator_round: int
     orchestrator_degraded: bool
+    # 契约与计划评审（S2/S4）：unknown 非空或评审失败时不进入 scheduler。
+    contract: dict[str, Any]
+    contract_unknowns: list[str]
+    contract_review: dict[str, Any]
+    plan_review_failed: bool
+    # S5 预估卡与 gate 决策。
+    estimation_card: dict[str, Any]
+    # 四维预算快照与中止报告（BudgetGuard）。
+    budget_snapshot: dict[str, Any]
+    budget_abort: dict[str, Any]
     # synthesize 写入：交给主 agent 的压缩汇总与计数
     orchestrator_summary: str
     orchestrator_completed: int
@@ -179,6 +193,12 @@ class AgentState(TypedDict, total=False):
     # ---------- Steering（Phase 3D）----------
     # 用户取消：路由直接去收尾，不再开始新的 worker/步骤。
     steering_cancelled: bool
+    # 用户中止：与 cancel 一样停止，但收尾要说清“已完成部分 + 未执行部分”。
+    steering_aborted: bool
+    # rollback(n)：停止当前运行后由 runtime 回退到更早 checkpoint。
+    steering_rollback_steps: int
+    # 契约/计划版本；每次 patch 或重规划递增，旧审批卡据此失效。
+    plan_version: int
     # 用户要求重规划剩余工作（orchestrated 回到 plan_tasks；direct 去 replan）。
     steering_replan: bool
     # 用户显式重规划的次数（上限复用 max_replans），防止 /replan 无限续命。

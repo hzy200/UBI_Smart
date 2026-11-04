@@ -127,6 +127,13 @@ class AgentClient(Protocol):
         thread_id: str,
         files: list[tuple[str, bytes, str]],
     ) -> dict: ...
+    async def upload_library_file(
+        self,
+        context: AgentContext,
+        name: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> dict: ...
     async def workspace_import_start(
         self,
         context: AgentContext,
@@ -444,6 +451,20 @@ class HttpAgentClient:
             f"/v1/uploads/{quote(thread_id, safe='')}",
             context,
             files=multipart,
+        )
+
+    async def upload_library_file(
+        self,
+        context: AgentContext,
+        name: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> dict:
+        return await self._json(
+            "POST",
+            "/v1/library/items",
+            context,
+            files={"file": (name, data, content_type)},
         )
 
     async def workspace_import_start(
