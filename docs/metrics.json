@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "tests": 3475,
+  "tests": 3606,
   "coverage": {
-    "statements": 43413,
-    "missing": 6812,
-    "percent": 84.31,
+    "statements": 47848,
+    "missing": 7793,
+    "percent": 83.71,
     "modules": {
       "control/accounts.py": 87.25,
       "control/approvals.py": 98.25,
@@ -25,18 +25,18 @@
       "execution/service.py": 92.01,
       "graph/nodes/approve.py": 100.0,
       "host_broker/consent.py": 96.89,
-      "sandbox/fs.py": 95.86,
+      "sandbox/fs.py": 95.4,
       "sandbox/fs_scripts.py": 95.83,
       "sandbox/pathguard.py": 100.0,
       "sandbox/policy.py": 92.01,
       "sandbox/snapshots.py": 76.79,
-      "servers/agent_server_routes/workspace_import.py": 89.0,
+      "servers/agent_server_routes/workspace_import.py": 88.71,
       "tools/code_intel.py": 98.86,
       "tools/files.py": 88.5,
       "tools/git.py": 96.0,
       "web/routes/admin.py": 90.75,
       "web/routes/auth.py": 100.0,
-      "web/routes/runs.py": 86.26
+      "web/routes/runs.py": 86.45
     }
   },
   "target": 85.0,
@@ -118,7 +118,7 @@
       "floor": 95.9
     },
     "sandbox/fs.py": {
-      "actual": 95.86,
+      "actual": 95.4,
       "floor": 94.9
     },
     "sandbox/fs_scripts.py": {
@@ -138,7 +138,7 @@
       "floor": 75.8
     },
     "servers/agent_server_routes/workspace_import.py": {
-      "actual": 89.0,
+      "actual": 88.71,
       "floor": 87.1
     },
     "tools/code_intel.py": {
@@ -162,7 +162,7 @@
       "floor": 99.0
     },
     "web/routes/runs.py": {
-      "actual": 86.26,
+      "actual": 86.45,
       "floor": 85.5
     }
   },

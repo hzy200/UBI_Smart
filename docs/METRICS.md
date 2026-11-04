@@ -20,10 +20,10 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 
 | 指标 | 值 |
 | --- | --- |
-| 快反馈用例 | **3,475** |
-| 覆盖率 | **84.31%** |
-| 总语句 | **43,413** |
-| 未覆盖 | **6,812** |
+| 快反馈用例 | **3,606** |
+| 覆盖率 | **83.71%** |
+| 总语句 | **47,848** |
+| 未覆盖 | **7,793** |
 | 承重模块目标 | **85%** |
 
 ## 承重模块
@@ -49,18 +49,18 @@ review_cadence: 由 CI 覆盖率任务生成；不要手改
 | `execution/service.py` | 92.0% | 91.0% | 85% |
 | `graph/nodes/approve.py` | 100.0% | 99.0% | 85% |
 | `host_broker/consent.py` | 96.9% | 95.9% | 85% |
-| `sandbox/fs.py` | 95.9% | 94.9% | 85% |
+| `sandbox/fs.py` | 95.4% | 94.9% | 85% |
 | `sandbox/fs_scripts.py` | 95.8% | 94.8% | 85% |
 | `sandbox/pathguard.py` | 100.0% | 99.0% | 85% |
 | `sandbox/policy.py` | 92.0% | 91.0% | 85% |
 | `sandbox/snapshots.py` | 76.8% | 75.8% | 85% |
-| `servers/agent_server_routes/workspace_import.py` | 89.0% | 87.1% | 85% |
+| `servers/agent_server_routes/workspace_import.py` | 88.7% | 87.1% | 85% |
 | `tools/code_intel.py` | 98.9% | 97.9% | 85% |
 | `tools/files.py` | 88.5% | 88.3% | 85% |
 | `tools/git.py` | 96.0% | 95.8% | 85% |
 | `web/routes/admin.py` | 90.8% | 89.3% | 85% |
 | `web/routes/auth.py` | 100.0% | 99.0% | 85% |
-| `web/routes/runs.py` | 86.3% | 85.5% | 85% |
+| `web/routes/runs.py` | 86.5% | 85.5% | 85% |
 
 WSL 门禁（`.github/workflows/sandbox.yml`）另设下限：
 `sandbox/fs.py`、`sandbox/snapshots.py`、`tools/files.py`。
