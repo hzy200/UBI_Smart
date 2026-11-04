@@ -752,7 +752,6 @@ class _ImplementRun:
         # 取消只停协程，不停 to_thread 里的 wsl.exe；保留 executor future，
         # 清理 worktree 前先确认这些进程已经退出。
         self._thread_futures: set[asyncio.Future[Any]] = set()
-        self._cleanup_task: asyncio.Task[Any] | None = None
         self.goal = str(task.get("goal", "")).strip()
         self.retry_note = format_retry_context(task)
         self.scopes = _normalize_implement_scopes(task)
@@ -801,11 +800,12 @@ class _ImplementRun:
         self.budget_exhausted = False
 
     async def run(self) -> WorkerResult:
-        prepared = await self._prepare()
-        if prepared is not None:
-            return prepared
-        # 无论正常结束、超时、异常还是被 scheduler 取消，worktree 都必须清掉。
+        # 取消可能落在 _prepare 的 worktree 创建/基线注入上；finally 必须
+        # 从准备阶段就开始生效，否则 worktree 会留在磁盘上。
         try:
+            prepared = await self._prepare()
+            if prepared is not None:
+                return prepared
             await self._run_with_timeout()
             return await self._finish()
         finally:
@@ -935,10 +935,11 @@ class _ImplementRun:
         """
         pending = {f for f in self._thread_futures if not f.done()}
         if pending:
-            loop = asyncio.get_running_loop()
-            self._cleanup_task = loop.create_task(
-                self._cleanup_after_threads(pending)
-            )
+            # 在 finally 里等到线程退出再清理；`_cleanup_after_threads`
+            # 自带 30s 上限，等不到则留给 orphan prune。不能只 create_task
+            # 后立刻返回，否则调用方会看到 worktree 已“取消但未清理”的
+            # 中间态（集成测试与服务重启恢复都会踩到）。
+            await self._cleanup_after_threads(pending)
             return
         current = asyncio.current_task()
         if current is not None and current.cancelling():

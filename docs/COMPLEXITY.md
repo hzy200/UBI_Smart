@@ -25,7 +25,7 @@ note: |
 | 项 | 值 |
 | --- | --- |
 | 源文件 | **370** |
-| 源码行数 | **106,278** |
+| 源码行数 | **106,279** |
 | 函数/方法 | **4,171** |
 | 测试文件 / 行数 | **357 / 86,401** |
 | 测试:源码 | **0.81 : 1** |
@@ -91,7 +91,7 @@ P2 拆分后的关键分发函数：
 | `servers/agent_server_routes/workspace_import.py` | **1,538** | A3 的工作区导入路由（上传/校验/落盘） |
 | `tools/documents/extract.py` | **1,422** | 文档文本/结构抽取（已按格式拆函数） |
 | `web/app.py` | **1,417** | A2 装配，`create_app` 1,273 行；路由在 `web/routes` |
-| `orchestrator/implement.py` | **1,355** | worktree 写 worker |
+| `orchestrator/implement.py` | **1,356** | worktree 写 worker |
 | `tools/documents/tool.py` | **1,300** | 文档工具装配与读写 |
 
 ## 5. 耦合与依赖方向
