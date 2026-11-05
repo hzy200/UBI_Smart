@@ -156,7 +156,7 @@ gh api repos/<owner>/<repo>/actions/runners \
 
 注册完成后还有两步：
 
-1. 把 `Sandbox / wsl` 设为分支保护的 required check，否则"有跑但不拦合并"：
+1. 把 `Sandbox / sandbox-gate` 设为分支保护的 required check，否则"有跑但不拦合并"：
    ```bash
    GITHUB_TOKEN=... python scripts/check_sandbox_gate.py --repo <owner>/<name> --branch main
    ```

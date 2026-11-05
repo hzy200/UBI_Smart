@@ -50,13 +50,21 @@ def test_install_script_is_valid_shell() -> None:
     bash = shutil.which("bash")
     if not bash:
         pytest.skip("没有 bash")
+    script = (SYSTEMD / "install.sh").read_text(encoding="utf-8")
+    # 脚本走 stdin 而不是文件名：Windows 上的 `bash.EXE` 可能是 WSL 启动器，
+    # 它会把 `C:\...\install.sh` 里的反斜杠吃掉，误报 "No such file"（rc=127）。
+    # 用 bytes 而不是 text=True：Windows 的文本管道会把 `\n` 翻译成 `\r\n`，
+    # bash 会把行尾的 `\r` 当成语法错误。显式 UTF-8 解码 WSL 的 stderr，
+    # 否则宿主默认的 GBK 解码会在 subprocess 读取线程里抛 UnicodeDecodeError。
     result = subprocess.run(
-        [bash, "-n", str(SYSTEMD / "install.sh")],
+        [bash, "-n"],
+        input=script.encode("utf-8"),
         capture_output=True,
-        text=True,
         check=False,
+        timeout=60,
     )
-    assert result.returncode == 0, result.stderr
+    stderr = result.stderr.decode("utf-8", "replace")
+    assert result.returncode == 0, stderr
 
 
 def test_install_script_creates_user_dirs_and_secrets() -> None:

@@ -142,7 +142,7 @@ GITHUB_TOKEN=... python scripts/check_sandbox_gate.py \
   --repo <owner>/<name> --branch main
 ```
 
-它只读 GitHub API；未配置时返回非零并提示需要 `Sandbox / wsl`。分支保护
+它只读 GitHub API；未配置时返回非零并提示需要 `Sandbox / sandbox-gate`。分支保护
 本身必须在仓库设置里由管理员开启，代码无法替代。
 
 为什么单独一条流水线：执行真实命令的那一层（路径守卫、写前快照、命令分级、

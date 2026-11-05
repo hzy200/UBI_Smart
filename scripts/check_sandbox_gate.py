@@ -7,7 +7,8 @@
 
     GITHUB_TOKEN=... python scripts/check_sandbox_gate.py \
         --repo owner/name --branch main
-        通过 GitHub API 确认分支保护把 `Sandbox / wsl` 设为 required check。
+        通过 GitHub API 确认分支保护把 `Sandbox / sandbox-gate` 设为
+        required check。
 
 它只做检查，不修改仓库设置；分支保护仍需仓库管理员在 GitHub 上配置。
 """
@@ -21,16 +22,23 @@ import subprocess
 import urllib.error
 import urllib.request
 
-REQUIRED_CHECK = "Sandbox / wsl"
+# 必须要求汇总门禁，而不是 `wsl` job：没有在线 runner 时 `wsl` 会被跳过，
+# 只 required 它会让"跳过"变成"永不拦合并"。
+REQUIRED_CHECK = "Sandbox / sandbox-gate"
 
 
 def check_local() -> int:
     try:
+        # WSL 默认按 UTF-16LE 输出；宿主 locale 是 GBK 时 text=True 会在
+        # 读取线程里抛 UnicodeDecodeError。强制 UTF-8 + replace 兜底。
         result = subprocess.run(
             ["wsl.exe", "-l", "-q"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=20,
+            env={**os.environ, "WSL_UTF8": "1"},
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))

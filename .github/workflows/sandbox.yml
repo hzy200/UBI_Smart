@@ -69,6 +69,12 @@ jobs:
     if: needs.preflight.result == 'success' && needs.preflight.outputs.ready == 'true'
     runs-on: [self-hosted, wsl]
     timeout-minutes: 45
+    env:
+      # runner 控制台 locale 是 cp936：测试里的中文输出、以及子进程的
+      # stdout/stderr 解码会按 GBK 走。与 ci.yml 的 windows job 保持一致，
+      # 统一 UTF-8，避免 "子进程输出 UTF-8、父进程按 GBK 解码" 的崩溃。
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - uses: actions/checkout@v4
       - name: 预检 WSL 与发行版
@@ -81,6 +87,10 @@ jobs:
         env:
           # 专用发行版；没有就用 runner 的默认发行版。
           AGENT_WSL_DISTRO: CodingAgent
+          # 自建 runner 与其它任务共享资源。文档解析走 spawn 子进程，冷启动
+          # 要导入解析栈；默认 60s 在满载时会误杀（曾导致 4 个文档用例超时）。
+          # 超时放宽到 180s，配合 tools/__init__ 的延迟导入作为双保险。
+          AGENT_DOCUMENT_PROCESS_TIMEOUT_S: "180"
         run: >
           pytest -m "not llm"
           --cov --cov-report=term-missing --cov-report=json:coverage.json
