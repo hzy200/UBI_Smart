@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import threading
 import time
 from typing import Any
@@ -95,16 +96,26 @@ def _result(
 
 
 def test_dependent_starts_as_soon_as_its_predecessor_finishes() -> None:
-    timeline: list[tuple[str, str, float]] = []
+    # 记录**执行顺序**而不是时间戳：满载 runner 上单调时钟粒度可能到
+    # 15.6ms，先后事件会取到同一个值，严格 `<` 会误判为回归。
+    timeline: list[tuple[str, str]] = []
+    b_started = asyncio.Event()
 
     async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
         task_id = str(task["id"])
-        timeline.append(("start", task_id, time.monotonic()))
+        timeline.append(("start", task_id))
         if task_id == "a":
             await asyncio.sleep(0.05)
         elif task_id == "c":
-            await asyncio.sleep(0.25)
-        timeline.append(("end", task_id, time.monotonic()))
+            # 让 c 必须等 b 先启动：旧实现（等 c 结束才启动 b）会在这里
+            # 超时，从而由下面的顺序断言稳定地暴露出来。
+            try:
+                await asyncio.wait_for(b_started.wait(), timeout=15.0)
+            except TimeoutError:
+                pass
+        elif task_id == "b":
+            b_started.set()
+        timeline.append(("end", task_id))
         return _result(task)
 
     node = make_scheduler_node(
@@ -119,8 +130,16 @@ def test_dependent_starts_as_soon_as_its_predecessor_finishes() -> None:
         )
     )
 
-    starts = {task_id: at for kind, task_id, at in timeline if kind == "start"}
-    ends = {task_id: at for kind, task_id, at in timeline if kind == "end"}
+    starts = {
+        task_id: index
+        for index, (kind, task_id) in enumerate(timeline)
+        if kind == "start"
+    }
+    ends = {
+        task_id: index
+        for index, (kind, task_id) in enumerate(timeline)
+        if kind == "end"
+    }
     # 旧实现会等 c 结束才启动 b；事件驱动下 b 应在 a 结束后立即启动。
     assert starts["b"] < ends["c"]
     assert out["task_status"] == {"a": "success", "b": "success", "c": "success"}
@@ -1328,11 +1347,16 @@ def test_gate_without_tests_is_skipped(monkeypatch) -> None:
 
 def _incremental_hooks(monkeypatch):
     batches: list[list[str]] = []
-    timeline: dict[str, float] = {}
+    # 用递增序号而不是时间戳：CI 满载时 time.monotonic() 的粒度会让
+    # 先后发生的两个事件取到同一个值，严格比较会随机失败。
+    timeline: dict[str, int] = {}
+    order = itertools.count()
+    first_merge = asyncio.Event()
 
     async def fake_merge(sandbox, root, records, *, allow_overlap=False):  # noqa: ANN001
         batches.append([str(record["task_id"]) for record in records])
-        timeline.setdefault("first_merge_at", time.monotonic())
+        timeline.setdefault("first_merge_at", next(order))
+        first_merge.set()
         return {
             record["task_id"]: (True, "", ["snap"]) for record in records
         }
@@ -1350,19 +1374,24 @@ def _incremental_hooks(monkeypatch):
     monkeypatch.setattr(
         scheduler_runtime, "preflight_patch_paths", fake_preflight
     )
-    return batches, timeline
+    return batches, timeline, order, first_merge
 
 
 def test_disjoint_completed_implement_merges_while_another_is_in_flight(
     monkeypatch,
 ) -> None:
-    batches, timeline = _incremental_hooks(monkeypatch)
+    batches, timeline, order, first_merge = _incremental_hooks(monkeypatch)
 
     async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
         task_id = str(task["id"])
         if task_id == "i2":
-            await asyncio.sleep(0.2)
-            timeline["i2_done_at"] = time.monotonic()
+            # i2 保持 in-flight，直到 i1 的增量合并发生。旧实现（等整批）
+            # 会超时，随后 batches 断言会以“同一批”失败。
+            try:
+                await asyncio.wait_for(first_merge.wait(), timeout=15.0)
+            except TimeoutError:
+                pass
+            timeline["i2_done_at"] = next(order)
         else:
             await asyncio.sleep(0.01)
         return _result(task, patch_path=f"/ws/{task_id}.patch")
@@ -1390,6 +1419,8 @@ def test_disjoint_completed_implement_merges_while_another_is_in_flight(
     )
 
     assert batches[0] == ["i1"]
+    # 序号由 fake_merge 与 i2 runner 的执行顺序产生：i2 只有等到
+    # first_merge 被 set 才会继续，因此这里的先后关系不依赖时钟精度。
     assert timeline["first_merge_at"] < timeline["i2_done_at"]
     assert out["task_status"] == {"i1": "success", "i2": "success"}
     assert out["merged_paths"] == ["i1.py", "i2.py"]
@@ -1406,7 +1437,7 @@ def test_disjoint_completed_implement_merges_while_another_is_in_flight(
 
 
 def test_shared_file_implement_still_waits_for_batch(monkeypatch) -> None:
-    batches, timeline = _incremental_hooks(monkeypatch)
+    batches, timeline, order, _ = _incremental_hooks(monkeypatch)
     # 两条补丁都命中同一文件：增量必须整组等待。
     monkeypatch.setattr(
         scheduler_runtime,
@@ -1418,7 +1449,7 @@ def test_shared_file_implement_still_waits_for_batch(monkeypatch) -> None:
         task_id = str(task["id"])
         if task_id == "i2":
             await asyncio.sleep(0.15)
-            timeline["i2_done_at"] = time.monotonic()
+            timeline["i2_done_at"] = next(order)
         else:
             await asyncio.sleep(0.01)
         return _result(task, patch_path=f"/ws/{task_id}.patch")
@@ -1452,13 +1483,13 @@ def test_shared_file_implement_still_waits_for_batch(monkeypatch) -> None:
 
 
 def test_unknown_patch_paths_fall_back_to_batch_flush(monkeypatch) -> None:
-    batches, timeline = _incremental_hooks(monkeypatch)
+    batches, timeline, order, _ = _incremental_hooks(monkeypatch)
 
     async def runner(task: dict[str, Any], **_kwargs: Any) -> WorkerResult:
         task_id = str(task["id"])
         if task_id == "i2":
             await asyncio.sleep(0.15)
-            timeline["i2_done_at"] = time.monotonic()
+            timeline["i2_done_at"] = next(order)
         else:
             await asyncio.sleep(0.01)
         return _result(task, patch_path=f"/ws/{task_id}.patch")
